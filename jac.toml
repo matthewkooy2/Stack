@@ -1,0 +1,48 @@
+[project]
+name = "Stack"
+version = "0.1.0"
+description = "Stack — your next chapter starts here"
+jac-version = "==0.37.21"
+default-app = "Stack"
+
+[dependencies]
+pypdf = "==6.9.2"
+
+[dev-dependencies]
+watchdog = "==6.0.0"
+
+[apps.Stack]
+kind = "service"
+entry-point = "main"
+
+[apps.mobile]
+kind = "mobile"
+entry-point = "mobile.main"
+platform = "ios"
+
+[apps.mobile.dependencies.npm]
+react = "19.2.3"
+react-dom = "19.2.3"
+react-native-web = "0.21.0"
+react-native-svg = "15.15.5"
+lucide-react = "1.48.0"
+lucide-react-native = "1.48.0"
+
+[client.react_native]
+project_dir = ".jac/mobile-rn"
+default_platform = "ios"
+release = false
+
+[client.app]
+name = "Stack"
+id = "com.matthewkooy.stack"
+
+[apps.mobile.dependencies.npm.native]
+react-native-svg = "15.15.5"
+lucide-react-native = "1.48.0"
+
+[scale.admin]
+enabled = false
+
+[database]
+indexes = { JobAlias = ["key"], CatalogJob = ["key", "canonical_url", "identity", "active", "checked_at"], JobSource = ["key", "next_at"], DiscoveryRequest = ["status", "key"] }

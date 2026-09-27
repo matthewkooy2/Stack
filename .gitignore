@@ -1,0 +1,16 @@
+.jac/
+jac.local.toml
+__pycache__/
+.tool-cache/
+storage/
+.DS_Store
+artifacts/
+.env
+.env.*
+!.env.example
+node_modules/
+*.log
+*.p12
+*.p8
+*.key
+*.mobileprovision

@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+STACK_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$STACK_ROOT"
+exec python3 scripts/develop.py "$@"

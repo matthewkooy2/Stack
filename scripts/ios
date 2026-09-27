@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+STACK_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$STACK_ROOT"
+# Reuse the installed Apple Development certificate unless explicitly overridden.
+STACK_TEAM=${STACK_TEAM:-$(security find-certificate -c 'Apple Development' -p | openssl x509 -noout -subject | sed -n 's/.*OU=\([^,/]*\).*/\1/p' | tr -d ' ')}
+if [ -z "$STACK_TEAM" ]; then
+  echo 'Set STACK_TEAM to your Xcode signing team ID.' >&2
+  exit 1
+fi
+./scripts/jac run --no-serve scripts/compile-mobile.jac
+xcodebuild -workspace .jac/mobile-rn/ios/Stack.xcworkspace -scheme Stack -configuration Debug \
+  -destination 'generic/platform=iOS' -derivedDataPath .jac/xcode-device \
+  -allowProvisioningUpdates DEVELOPMENT_TEAM="$STACK_TEAM" CODE_SIGN_STYLE=Automatic
+if [ -n "${STACK_DEVICE:-}" ]; then
+  xcrun devicectl device install app --device "$STACK_DEVICE" .jac/xcode-device/Build/Products/Debug-iphoneos/Stack.app
+  xcrun devicectl device process launch --device "$STACK_DEVICE" com.matthewkooy.stack
+else
+  open -a Xcode .jac/mobile-rn/ios/Stack.xcworkspace
+  echo 'Choose your connected iPhone in Xcode and press Run. Keep scripts/dev running.'
+fi

@@ -1,0 +1,2002 @@
+[
+  {
+    "id": "employer:microsoft.com",
+    "name": "Microsoft",
+    "domain": "microsoft.com",
+    "sector": "Technology",
+    "adapter": "career",
+    "url": "https://www.microsoft.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:apple.com",
+    "name": "Apple",
+    "domain": "apple.com",
+    "sector": "Technology",
+    "adapter": "career",
+    "url": "https://www.apple.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:google.com",
+    "name": "Google",
+    "domain": "google.com",
+    "sector": "Technology",
+    "adapter": "career",
+    "url": "https://www.google.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:amazon.com",
+    "name": "Amazon",
+    "domain": "amazon.com",
+    "sector": "Technology",
+    "adapter": "career",
+    "url": "https://www.amazon.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:metacareers.com",
+    "name": "Meta",
+    "domain": "metacareers.com",
+    "sector": "Technology",
+    "adapter": "career",
+    "url": "https://www.metacareers.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:nvidia.com",
+    "name": "NVIDIA",
+    "domain": "nvidia.com",
+    "sector": "Technology",
+    "adapter": "career",
+    "url": "https://www.nvidia.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:ibm.com",
+    "name": "IBM",
+    "domain": "ibm.com",
+    "sector": "Technology",
+    "adapter": "career",
+    "url": "https://www.ibm.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:oracle.com",
+    "name": "Oracle",
+    "domain": "oracle.com",
+    "sector": "Technology",
+    "adapter": "career",
+    "url": "https://www.oracle.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:salesforce.com",
+    "name": "Salesforce",
+    "domain": "salesforce.com",
+    "sector": "Technology",
+    "adapter": "career",
+    "url": "https://www.salesforce.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:adobe.com",
+    "name": "Adobe",
+    "domain": "adobe.com",
+    "sector": "Technology",
+    "adapter": "career",
+    "url": "https://www.adobe.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:intel.com",
+    "name": "Intel",
+    "domain": "intel.com",
+    "sector": "Technology",
+    "adapter": "career",
+    "url": "https://www.intel.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:cisco.com",
+    "name": "Cisco",
+    "domain": "cisco.com",
+    "sector": "Technology",
+    "adapter": "career",
+    "url": "https://www.cisco.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:stripe.com",
+    "name": "Stripe",
+    "domain": "stripe.com",
+    "sector": "Technology",
+    "adapter": "career",
+    "url": "https://www.stripe.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:datadoghq.com",
+    "name": "Datadog",
+    "domain": "datadoghq.com",
+    "sector": "Technology",
+    "adapter": "career",
+    "url": "https://www.datadoghq.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:cloudflare.com",
+    "name": "Cloudflare",
+    "domain": "cloudflare.com",
+    "sector": "Technology",
+    "adapter": "career",
+    "url": "https://www.cloudflare.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:spotify.com",
+    "name": "Spotify",
+    "domain": "spotify.com",
+    "sector": "Technology",
+    "adapter": "career",
+    "url": "https://www.spotify.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:mayoclinic.org",
+    "name": "MayoClinic",
+    "domain": "mayoclinic.org",
+    "sector": "Healthcare",
+    "adapter": "career",
+    "url": "https://www.mayoclinic.org/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:clevelandclinic.org",
+    "name": "ClevelandClinic",
+    "domain": "clevelandclinic.org",
+    "sector": "Healthcare",
+    "adapter": "career",
+    "url": "https://www.clevelandclinic.org/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:hcahealthcare.com",
+    "name": "HCAHealthcare",
+    "domain": "hcahealthcare.com",
+    "sector": "Healthcare",
+    "adapter": "career",
+    "url": "https://www.hcahealthcare.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:kaiserpermanente.org",
+    "name": "KaiserPermanente",
+    "domain": "kaiserpermanente.org",
+    "sector": "Healthcare",
+    "adapter": "career",
+    "url": "https://www.kaiserpermanente.org/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:unitedhealthgroup.com",
+    "name": "UnitedHealth",
+    "domain": "unitedhealthgroup.com",
+    "sector": "Healthcare",
+    "adapter": "career",
+    "url": "https://www.unitedhealthgroup.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:cvshealth.com",
+    "name": "CVSHealth",
+    "domain": "cvshealth.com",
+    "sector": "Healthcare",
+    "adapter": "career",
+    "url": "https://www.cvshealth.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:humana.com",
+    "name": "Humana",
+    "domain": "humana.com",
+    "sector": "Healthcare",
+    "adapter": "career",
+    "url": "https://www.humana.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:thecignagroup.com",
+    "name": "Cigna",
+    "domain": "thecignagroup.com",
+    "sector": "Healthcare",
+    "adapter": "career",
+    "url": "https://www.thecignagroup.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:centene.com",
+    "name": "Centene",
+    "domain": "centene.com",
+    "sector": "Healthcare",
+    "adapter": "career",
+    "url": "https://www.centene.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:tenethealth.com",
+    "name": "Tenet",
+    "domain": "tenethealth.com",
+    "sector": "Healthcare",
+    "adapter": "career",
+    "url": "https://www.tenethealth.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:commonspirit.org",
+    "name": "CommonSpirit",
+    "domain": "commonspirit.org",
+    "sector": "Healthcare",
+    "adapter": "career",
+    "url": "https://www.commonspirit.org/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:ascension.org",
+    "name": "Ascension",
+    "domain": "ascension.org",
+    "sector": "Healthcare",
+    "adapter": "career",
+    "url": "https://www.ascension.org/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:providence.org",
+    "name": "Providence",
+    "domain": "providence.org",
+    "sector": "Healthcare",
+    "adapter": "career",
+    "url": "https://www.providence.org/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:trinity-health.org",
+    "name": "TrinityHealth",
+    "domain": "trinity-health.org",
+    "sector": "Healthcare",
+    "adapter": "career",
+    "url": "https://www.trinity-health.org/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:davita.com",
+    "name": "DaVita",
+    "domain": "davita.com",
+    "sector": "Healthcare",
+    "adapter": "career",
+    "url": "https://www.davita.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:freseniusmedicalcare.com",
+    "name": "Fresenius",
+    "domain": "freseniusmedicalcare.com",
+    "sector": "Healthcare",
+    "adapter": "career",
+    "url": "https://www.freseniusmedicalcare.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:questdiagnostics.com",
+    "name": "QuestDiagnostics",
+    "domain": "questdiagnostics.com",
+    "sector": "Healthcare",
+    "adapter": "career",
+    "url": "https://www.questdiagnostics.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:umich.edu",
+    "name": "UniversityMichigan",
+    "domain": "umich.edu",
+    "sector": "Education",
+    "adapter": "career",
+    "url": "https://www.umich.edu/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:msu.edu",
+    "name": "MichiganState",
+    "domain": "msu.edu",
+    "sector": "Education",
+    "adapter": "career",
+    "url": "https://www.msu.edu/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:osu.edu",
+    "name": "OhioState",
+    "domain": "osu.edu",
+    "sector": "Education",
+    "adapter": "career",
+    "url": "https://www.osu.edu/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:purdue.edu",
+    "name": "Purdue",
+    "domain": "purdue.edu",
+    "sector": "Education",
+    "adapter": "career",
+    "url": "https://www.purdue.edu/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:iu.edu",
+    "name": "IndianaUniversity",
+    "domain": "iu.edu",
+    "sector": "Education",
+    "adapter": "career",
+    "url": "https://www.iu.edu/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:psu.edu",
+    "name": "PennState",
+    "domain": "psu.edu",
+    "sector": "Education",
+    "adapter": "career",
+    "url": "https://www.psu.edu/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:stanford.edu",
+    "name": "Stanford",
+    "domain": "stanford.edu",
+    "sector": "Education",
+    "adapter": "career",
+    "url": "https://www.stanford.edu/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:harvard.edu",
+    "name": "Harvard",
+    "domain": "harvard.edu",
+    "sector": "Education",
+    "adapter": "career",
+    "url": "https://www.harvard.edu/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:mit.edu",
+    "name": "MIT",
+    "domain": "mit.edu",
+    "sector": "Education",
+    "adapter": "career",
+    "url": "https://www.mit.edu/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:duke.edu",
+    "name": "Duke",
+    "domain": "duke.edu",
+    "sector": "Education",
+    "adapter": "career",
+    "url": "https://www.duke.edu/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:yale.edu",
+    "name": "Yale",
+    "domain": "yale.edu",
+    "sector": "Education",
+    "adapter": "career",
+    "url": "https://www.yale.edu/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:cornell.edu",
+    "name": "Cornell",
+    "domain": "cornell.edu",
+    "sector": "Education",
+    "adapter": "career",
+    "url": "https://www.cornell.edu/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:uchicago.edu",
+    "name": "UniversityChicago",
+    "domain": "uchicago.edu",
+    "sector": "Education",
+    "adapter": "career",
+    "url": "https://www.uchicago.edu/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:northwestern.edu",
+    "name": "Northwestern",
+    "domain": "northwestern.edu",
+    "sector": "Education",
+    "adapter": "career",
+    "url": "https://www.northwestern.edu/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:asu.edu",
+    "name": "ArizonaState",
+    "domain": "asu.edu",
+    "sector": "Education",
+    "adapter": "career",
+    "url": "https://www.asu.edu/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:pearson.com",
+    "name": "Pearson",
+    "domain": "pearson.com",
+    "sector": "Education",
+    "adapter": "career",
+    "url": "https://www.pearson.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:mheducation.com",
+    "name": "McGrawHill",
+    "domain": "mheducation.com",
+    "sector": "Education",
+    "adapter": "career",
+    "url": "https://www.mheducation.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:jpmorganchase.com",
+    "name": "JPMorganChase",
+    "domain": "jpmorganchase.com",
+    "sector": "Finance",
+    "adapter": "career",
+    "url": "https://www.jpmorganchase.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:bankofamerica.com",
+    "name": "BankOfAmerica",
+    "domain": "bankofamerica.com",
+    "sector": "Finance",
+    "adapter": "career",
+    "url": "https://www.bankofamerica.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:wellsfargo.com",
+    "name": "WellsFargo",
+    "domain": "wellsfargo.com",
+    "sector": "Finance",
+    "adapter": "career",
+    "url": "https://www.wellsfargo.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:citigroup.com",
+    "name": "Citigroup",
+    "domain": "citigroup.com",
+    "sector": "Finance",
+    "adapter": "career",
+    "url": "https://www.citigroup.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:goldmansachs.com",
+    "name": "GoldmanSachs",
+    "domain": "goldmansachs.com",
+    "sector": "Finance",
+    "adapter": "career",
+    "url": "https://www.goldmansachs.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:morganstanley.com",
+    "name": "MorganStanley",
+    "domain": "morganstanley.com",
+    "sector": "Finance",
+    "adapter": "career",
+    "url": "https://www.morganstanley.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:capitalone.com",
+    "name": "CapitalOne",
+    "domain": "capitalone.com",
+    "sector": "Finance",
+    "adapter": "career",
+    "url": "https://www.capitalone.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:americanexpress.com",
+    "name": "AmericanExpress",
+    "domain": "americanexpress.com",
+    "sector": "Finance",
+    "adapter": "career",
+    "url": "https://www.americanexpress.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:visa.com",
+    "name": "Visa",
+    "domain": "visa.com",
+    "sector": "Finance",
+    "adapter": "career",
+    "url": "https://www.visa.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:mastercard.com",
+    "name": "Mastercard",
+    "domain": "mastercard.com",
+    "sector": "Finance",
+    "adapter": "career",
+    "url": "https://www.mastercard.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:fidelity.com",
+    "name": "Fidelity",
+    "domain": "fidelity.com",
+    "sector": "Finance",
+    "adapter": "career",
+    "url": "https://www.fidelity.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:vanguardjobs.com",
+    "name": "Vanguard",
+    "domain": "vanguardjobs.com",
+    "sector": "Finance",
+    "adapter": "career",
+    "url": "https://www.vanguardjobs.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:schwabjobs.com",
+    "name": "CharlesSchwab",
+    "domain": "schwabjobs.com",
+    "sector": "Finance",
+    "adapter": "career",
+    "url": "https://www.schwabjobs.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:blackrock.com",
+    "name": "BlackRock",
+    "domain": "blackrock.com",
+    "sector": "Finance",
+    "adapter": "career",
+    "url": "https://www.blackrock.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:pnc.com",
+    "name": "PNC",
+    "domain": "pnc.com",
+    "sector": "Finance",
+    "adapter": "career",
+    "url": "https://www.pnc.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:usbank.com",
+    "name": "USbank",
+    "domain": "usbank.com",
+    "sector": "Finance",
+    "adapter": "career",
+    "url": "https://www.usbank.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:discover.com",
+    "name": "Discover",
+    "domain": "discover.com",
+    "sector": "Finance",
+    "adapter": "career",
+    "url": "https://www.discover.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:nasa.gov",
+    "name": "NASA",
+    "domain": "nasa.gov",
+    "sector": "Government",
+    "adapter": "career",
+    "url": "https://www.nasa.gov/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:va.gov",
+    "name": "VeteransAffairs",
+    "domain": "va.gov",
+    "sector": "Government",
+    "adapter": "career",
+    "url": "https://www.va.gov/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:usda.gov",
+    "name": "USDA",
+    "domain": "usda.gov",
+    "sector": "Government",
+    "adapter": "career",
+    "url": "https://www.usda.gov/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:doi.gov",
+    "name": "Interior",
+    "domain": "doi.gov",
+    "sector": "Government",
+    "adapter": "career",
+    "url": "https://www.doi.gov/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:treasury.gov",
+    "name": "Treasury",
+    "domain": "treasury.gov",
+    "sector": "Government",
+    "adapter": "career",
+    "url": "https://www.treasury.gov/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:commerce.gov",
+    "name": "Commerce",
+    "domain": "commerce.gov",
+    "sector": "Government",
+    "adapter": "career",
+    "url": "https://www.commerce.gov/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:transportation.gov",
+    "name": "Transportation",
+    "domain": "transportation.gov",
+    "sector": "Government",
+    "adapter": "career",
+    "url": "https://www.transportation.gov/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:energy.gov",
+    "name": "Energy",
+    "domain": "energy.gov",
+    "sector": "Government",
+    "adapter": "career",
+    "url": "https://www.energy.gov/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:epa.gov",
+    "name": "EPA",
+    "domain": "epa.gov",
+    "sector": "Government",
+    "adapter": "career",
+    "url": "https://www.epa.gov/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:dol.gov",
+    "name": "Labor",
+    "domain": "dol.gov",
+    "sector": "Government",
+    "adapter": "career",
+    "url": "https://www.dol.gov/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:justice.gov",
+    "name": "Justice",
+    "domain": "justice.gov",
+    "sector": "Government",
+    "adapter": "career",
+    "url": "https://www.justice.gov/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:hhs.gov",
+    "name": "HHS",
+    "domain": "hhs.gov",
+    "sector": "Government",
+    "adapter": "career",
+    "url": "https://www.hhs.gov/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:ssa.gov",
+    "name": "SSA",
+    "domain": "ssa.gov",
+    "sector": "Government",
+    "adapter": "career",
+    "url": "https://www.ssa.gov/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:fdic.gov",
+    "name": "FDIC",
+    "domain": "fdic.gov",
+    "sector": "Government",
+    "adapter": "career",
+    "url": "https://www.fdic.gov/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:sec.gov",
+    "name": "SEC",
+    "domain": "sec.gov",
+    "sector": "Government",
+    "adapter": "career",
+    "url": "https://www.sec.gov/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:michigan.gov",
+    "name": "MichiganGovernment",
+    "domain": "michigan.gov",
+    "sector": "Government",
+    "adapter": "career",
+    "url": "https://www.michigan.gov/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:ca.gov",
+    "name": "CaliforniaGovernment",
+    "domain": "ca.gov",
+    "sector": "Government",
+    "adapter": "career",
+    "url": "https://www.ca.gov/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:accenture.com",
+    "name": "Accenture",
+    "domain": "accenture.com",
+    "sector": "Professional services",
+    "adapter": "career",
+    "url": "https://www.accenture.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:deloitte.com",
+    "name": "Deloitte",
+    "domain": "deloitte.com",
+    "sector": "Professional services",
+    "adapter": "career",
+    "url": "https://www.deloitte.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:pwc.com",
+    "name": "PwC",
+    "domain": "pwc.com",
+    "sector": "Professional services",
+    "adapter": "career",
+    "url": "https://www.pwc.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:ey.com",
+    "name": "EY",
+    "domain": "ey.com",
+    "sector": "Professional services",
+    "adapter": "career",
+    "url": "https://www.ey.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:kpmg.com",
+    "name": "KPMG",
+    "domain": "kpmg.com",
+    "sector": "Professional services",
+    "adapter": "career",
+    "url": "https://www.kpmg.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:mckinsey.com",
+    "name": "McKinsey",
+    "domain": "mckinsey.com",
+    "sector": "Professional services",
+    "adapter": "career",
+    "url": "https://www.mckinsey.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:bcg.com",
+    "name": "BCG",
+    "domain": "bcg.com",
+    "sector": "Professional services",
+    "adapter": "career",
+    "url": "https://www.bcg.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:bain.com",
+    "name": "Bain",
+    "domain": "bain.com",
+    "sector": "Professional services",
+    "adapter": "career",
+    "url": "https://www.bain.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:boozallen.com",
+    "name": "BoozAllen",
+    "domain": "boozallen.com",
+    "sector": "Professional services",
+    "adapter": "career",
+    "url": "https://www.boozallen.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:leidos.com",
+    "name": "Leidos",
+    "domain": "leidos.com",
+    "sector": "Professional services",
+    "adapter": "career",
+    "url": "https://www.leidos.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:saic.com",
+    "name": "SAIC",
+    "domain": "saic.com",
+    "sector": "Professional services",
+    "adapter": "career",
+    "url": "https://www.saic.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:cgi.com",
+    "name": "CGI",
+    "domain": "cgi.com",
+    "sector": "Professional services",
+    "adapter": "career",
+    "url": "https://www.cgi.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:capgemini.com",
+    "name": "Capgemini",
+    "domain": "capgemini.com",
+    "sector": "Professional services",
+    "adapter": "career",
+    "url": "https://www.capgemini.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:cognizant.com",
+    "name": "Cognizant",
+    "domain": "cognizant.com",
+    "sector": "Professional services",
+    "adapter": "career",
+    "url": "https://www.cognizant.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:infosys.com",
+    "name": "Infosys",
+    "domain": "infosys.com",
+    "sector": "Professional services",
+    "adapter": "career",
+    "url": "https://www.infosys.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:roberthalf.com",
+    "name": "RobertHalf",
+    "domain": "roberthalf.com",
+    "sector": "Professional services",
+    "adapter": "career",
+    "url": "https://www.roberthalf.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:manpowergroup.com",
+    "name": "Manpower",
+    "domain": "manpowergroup.com",
+    "sector": "Professional services",
+    "adapter": "career",
+    "url": "https://www.manpowergroup.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:walmart.com",
+    "name": "Walmart",
+    "domain": "walmart.com",
+    "sector": "Retail",
+    "adapter": "career",
+    "url": "https://www.walmart.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:target.com",
+    "name": "Target",
+    "domain": "target.com",
+    "sector": "Retail",
+    "adapter": "career",
+    "url": "https://www.target.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:costco.com",
+    "name": "Costco",
+    "domain": "costco.com",
+    "sector": "Retail",
+    "adapter": "career",
+    "url": "https://www.costco.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:homedepot.com",
+    "name": "HomeDepot",
+    "domain": "homedepot.com",
+    "sector": "Retail",
+    "adapter": "career",
+    "url": "https://www.homedepot.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:lowes.com",
+    "name": "Lowes",
+    "domain": "lowes.com",
+    "sector": "Retail",
+    "adapter": "career",
+    "url": "https://www.lowes.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:kroger.com",
+    "name": "Kroger",
+    "domain": "kroger.com",
+    "sector": "Retail",
+    "adapter": "career",
+    "url": "https://www.kroger.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:albertsonscompanies.com",
+    "name": "Albertsons",
+    "domain": "albertsonscompanies.com",
+    "sector": "Retail",
+    "adapter": "career",
+    "url": "https://www.albertsonscompanies.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:aldi.us",
+    "name": "Aldi",
+    "domain": "aldi.us",
+    "sector": "Retail",
+    "adapter": "career",
+    "url": "https://www.aldi.us/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:lidl.com",
+    "name": "Lidl",
+    "domain": "lidl.com",
+    "sector": "Retail",
+    "adapter": "career",
+    "url": "https://www.lidl.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:bestbuy.com",
+    "name": "BestBuy",
+    "domain": "bestbuy.com",
+    "sector": "Retail",
+    "adapter": "career",
+    "url": "https://www.bestbuy.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:tjx.com",
+    "name": "TJX",
+    "domain": "tjx.com",
+    "sector": "Retail",
+    "adapter": "career",
+    "url": "https://www.tjx.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:rossstores.com",
+    "name": "Ross",
+    "domain": "rossstores.com",
+    "sector": "Retail",
+    "adapter": "career",
+    "url": "https://www.rossstores.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:dollargeneral.com",
+    "name": "DollarGeneral",
+    "domain": "dollargeneral.com",
+    "sector": "Retail",
+    "adapter": "career",
+    "url": "https://www.dollargeneral.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:dollartree.com",
+    "name": "DollarTree",
+    "domain": "dollartree.com",
+    "sector": "Retail",
+    "adapter": "career",
+    "url": "https://www.dollartree.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:walgreens.com",
+    "name": "Walgreens",
+    "domain": "walgreens.com",
+    "sector": "Retail",
+    "adapter": "career",
+    "url": "https://www.walgreens.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:publix.com",
+    "name": "Publix",
+    "domain": "publix.com",
+    "sector": "Retail",
+    "adapter": "career",
+    "url": "https://www.publix.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:meijer.com",
+    "name": "Meijer",
+    "domain": "meijer.com",
+    "sector": "Retail",
+    "adapter": "career",
+    "url": "https://www.meijer.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:marriott.com",
+    "name": "Marriott",
+    "domain": "marriott.com",
+    "sector": "Hospitality",
+    "adapter": "career",
+    "url": "https://www.marriott.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:hilton.com",
+    "name": "Hilton",
+    "domain": "hilton.com",
+    "sector": "Hospitality",
+    "adapter": "career",
+    "url": "https://www.hilton.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:hyatt.com",
+    "name": "Hyatt",
+    "domain": "hyatt.com",
+    "sector": "Hospitality",
+    "adapter": "career",
+    "url": "https://www.hyatt.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:ihg.com",
+    "name": "IHG",
+    "domain": "ihg.com",
+    "sector": "Hospitality",
+    "adapter": "career",
+    "url": "https://www.ihg.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:wyndhamhotels.com",
+    "name": "Wyndham",
+    "domain": "wyndhamhotels.com",
+    "sector": "Hospitality",
+    "adapter": "career",
+    "url": "https://www.wyndhamhotels.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:choicehotels.com",
+    "name": "ChoiceHotels",
+    "domain": "choicehotels.com",
+    "sector": "Hospitality",
+    "adapter": "career",
+    "url": "https://www.choicehotels.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:mgmresorts.com",
+    "name": "MGMResorts",
+    "domain": "mgmresorts.com",
+    "sector": "Hospitality",
+    "adapter": "career",
+    "url": "https://www.mgmresorts.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:caesars.com",
+    "name": "Caesars",
+    "domain": "caesars.com",
+    "sector": "Hospitality",
+    "adapter": "career",
+    "url": "https://www.caesars.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:disneycareers.com",
+    "name": "Disney",
+    "domain": "disneycareers.com",
+    "sector": "Hospitality",
+    "adapter": "career",
+    "url": "https://www.disneycareers.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:universalorlando.com",
+    "name": "Universal",
+    "domain": "universalorlando.com",
+    "sector": "Hospitality",
+    "adapter": "career",
+    "url": "https://www.universalorlando.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:starbucks.com",
+    "name": "Starbucks",
+    "domain": "starbucks.com",
+    "sector": "Hospitality",
+    "adapter": "career",
+    "url": "https://www.starbucks.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:mcdonalds.com",
+    "name": "McDonalds",
+    "domain": "mcdonalds.com",
+    "sector": "Hospitality",
+    "adapter": "career",
+    "url": "https://www.mcdonalds.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:chipotle.com",
+    "name": "Chipotle",
+    "domain": "chipotle.com",
+    "sector": "Hospitality",
+    "adapter": "career",
+    "url": "https://www.chipotle.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:darden.com",
+    "name": "Darden",
+    "domain": "darden.com",
+    "sector": "Hospitality",
+    "adapter": "career",
+    "url": "https://www.darden.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:yum.com",
+    "name": "Yum",
+    "domain": "yum.com",
+    "sector": "Hospitality",
+    "adapter": "career",
+    "url": "https://www.yum.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:aramark.com",
+    "name": "Aramark",
+    "domain": "aramark.com",
+    "sector": "Hospitality",
+    "adapter": "career",
+    "url": "https://www.aramark.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:sodexo.com",
+    "name": "Sodexo",
+    "domain": "sodexo.com",
+    "sector": "Hospitality",
+    "adapter": "career",
+    "url": "https://www.sodexo.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:gm.com",
+    "name": "GeneralMotors",
+    "domain": "gm.com",
+    "sector": "Manufacturing",
+    "adapter": "career",
+    "url": "https://www.gm.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:ford.com",
+    "name": "Ford",
+    "domain": "ford.com",
+    "sector": "Manufacturing",
+    "adapter": "career",
+    "url": "https://www.ford.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:stellantis.com",
+    "name": "Stellantis",
+    "domain": "stellantis.com",
+    "sector": "Manufacturing",
+    "adapter": "career",
+    "url": "https://www.stellantis.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:toyota.com",
+    "name": "Toyota",
+    "domain": "toyota.com",
+    "sector": "Manufacturing",
+    "adapter": "career",
+    "url": "https://www.toyota.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:honda.com",
+    "name": "Honda",
+    "domain": "honda.com",
+    "sector": "Manufacturing",
+    "adapter": "career",
+    "url": "https://www.honda.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:tesla.com",
+    "name": "Tesla",
+    "domain": "tesla.com",
+    "sector": "Manufacturing",
+    "adapter": "career",
+    "url": "https://www.tesla.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:boeing.com",
+    "name": "Boeing",
+    "domain": "boeing.com",
+    "sector": "Manufacturing",
+    "adapter": "career",
+    "url": "https://www.boeing.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:airbus.com",
+    "name": "Airbus",
+    "domain": "airbus.com",
+    "sector": "Manufacturing",
+    "adapter": "career",
+    "url": "https://www.airbus.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:lockheedmartin.com",
+    "name": "LockheedMartin",
+    "domain": "lockheedmartin.com",
+    "sector": "Manufacturing",
+    "adapter": "career",
+    "url": "https://www.lockheedmartin.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:rtx.com",
+    "name": "RTX",
+    "domain": "rtx.com",
+    "sector": "Manufacturing",
+    "adapter": "career",
+    "url": "https://www.rtx.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:northropgrumman.com",
+    "name": "NorthropGrumman",
+    "domain": "northropgrumman.com",
+    "sector": "Manufacturing",
+    "adapter": "career",
+    "url": "https://www.northropgrumman.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:caterpillar.com",
+    "name": "Caterpillar",
+    "domain": "caterpillar.com",
+    "sector": "Manufacturing",
+    "adapter": "career",
+    "url": "https://www.caterpillar.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:deere.com",
+    "name": "Deere",
+    "domain": "deere.com",
+    "sector": "Manufacturing",
+    "adapter": "career",
+    "url": "https://www.deere.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:ge.com",
+    "name": "GE",
+    "domain": "ge.com",
+    "sector": "Manufacturing",
+    "adapter": "career",
+    "url": "https://www.ge.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:siemens.com",
+    "name": "Siemens",
+    "domain": "siemens.com",
+    "sector": "Manufacturing",
+    "adapter": "career",
+    "url": "https://www.siemens.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:honeywell.com",
+    "name": "Honeywell",
+    "domain": "honeywell.com",
+    "sector": "Manufacturing",
+    "adapter": "career",
+    "url": "https://www.honeywell.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:bosch.com",
+    "name": "Bosch",
+    "domain": "bosch.com",
+    "sector": "Manufacturing",
+    "adapter": "career",
+    "url": "https://www.bosch.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:bechtel.com",
+    "name": "Bechtel",
+    "domain": "bechtel.com",
+    "sector": "Construction",
+    "adapter": "career",
+    "url": "https://www.bechtel.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:fluor.com",
+    "name": "Fluor",
+    "domain": "fluor.com",
+    "sector": "Construction",
+    "adapter": "career",
+    "url": "https://www.fluor.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:jacobs.com",
+    "name": "Jacobs",
+    "domain": "jacobs.com",
+    "sector": "Construction",
+    "adapter": "career",
+    "url": "https://www.jacobs.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:aecom.com",
+    "name": "AECOM",
+    "domain": "aecom.com",
+    "sector": "Construction",
+    "adapter": "career",
+    "url": "https://www.aecom.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:kiewit.com",
+    "name": "Kiewit",
+    "domain": "kiewit.com",
+    "sector": "Construction",
+    "adapter": "career",
+    "url": "https://www.kiewit.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:turnerconstruction.com",
+    "name": "Turner",
+    "domain": "turnerconstruction.com",
+    "sector": "Construction",
+    "adapter": "career",
+    "url": "https://www.turnerconstruction.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:skanska.com",
+    "name": "Skanska",
+    "domain": "skanska.com",
+    "sector": "Construction",
+    "adapter": "career",
+    "url": "https://www.skanska.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:dpr.com",
+    "name": "DPR",
+    "domain": "dpr.com",
+    "sector": "Construction",
+    "adapter": "career",
+    "url": "https://www.dpr.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:clarkconstruction.com",
+    "name": "Clark",
+    "domain": "clarkconstruction.com",
+    "sector": "Construction",
+    "adapter": "career",
+    "url": "https://www.clarkconstruction.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:mortenson.com",
+    "name": "Mortenson",
+    "domain": "mortenson.com",
+    "sector": "Construction",
+    "adapter": "career",
+    "url": "https://www.mortenson.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:henselphelps.com",
+    "name": "HenselPhelps",
+    "domain": "henselphelps.com",
+    "sector": "Construction",
+    "adapter": "career",
+    "url": "https://www.henselphelps.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:burnsmcd.com",
+    "name": "BurnsMcDonnell",
+    "domain": "burnsmcd.com",
+    "sector": "Construction",
+    "adapter": "career",
+    "url": "https://www.burnsmcd.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:bv.com",
+    "name": "BlackVeatch",
+    "domain": "bv.com",
+    "sector": "Construction",
+    "adapter": "career",
+    "url": "https://www.bv.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:emcorgroup.com",
+    "name": "EMCOR",
+    "domain": "emcorgroup.com",
+    "sector": "Construction",
+    "adapter": "career",
+    "url": "https://www.emcorgroup.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:quantaservices.com",
+    "name": "Quanta",
+    "domain": "quantaservices.com",
+    "sector": "Construction",
+    "adapter": "career",
+    "url": "https://www.quantaservices.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:pultegroupinc.com",
+    "name": "Pulte",
+    "domain": "pultegroupinc.com",
+    "sector": "Construction",
+    "adapter": "career",
+    "url": "https://www.pultegroupinc.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:lennar.com",
+    "name": "Lennar",
+    "domain": "lennar.com",
+    "sector": "Construction",
+    "adapter": "career",
+    "url": "https://www.lennar.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:ups.com",
+    "name": "UPS",
+    "domain": "ups.com",
+    "sector": "Transportation",
+    "adapter": "career",
+    "url": "https://www.ups.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:fedex.com",
+    "name": "FedEx",
+    "domain": "fedex.com",
+    "sector": "Transportation",
+    "adapter": "career",
+    "url": "https://www.fedex.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:dhl.com",
+    "name": "DHL",
+    "domain": "dhl.com",
+    "sector": "Transportation",
+    "adapter": "career",
+    "url": "https://www.dhl.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:usps.com",
+    "name": "USPS",
+    "domain": "usps.com",
+    "sector": "Transportation",
+    "adapter": "career",
+    "url": "https://www.usps.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:xpo.com",
+    "name": "XPO",
+    "domain": "xpo.com",
+    "sector": "Transportation",
+    "adapter": "career",
+    "url": "https://www.xpo.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:odfl.com",
+    "name": "OldDominion",
+    "domain": "odfl.com",
+    "sector": "Transportation",
+    "adapter": "career",
+    "url": "https://www.odfl.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:jbhunt.com",
+    "name": "JBhunt",
+    "domain": "jbhunt.com",
+    "sector": "Transportation",
+    "adapter": "career",
+    "url": "https://www.jbhunt.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:schneider.com",
+    "name": "Schneider",
+    "domain": "schneider.com",
+    "sector": "Transportation",
+    "adapter": "career",
+    "url": "https://www.schneider.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:swifttrans.com",
+    "name": "Swift",
+    "domain": "swifttrans.com",
+    "sector": "Transportation",
+    "adapter": "career",
+    "url": "https://www.swifttrans.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:up.com",
+    "name": "UnionPacific",
+    "domain": "up.com",
+    "sector": "Transportation",
+    "adapter": "career",
+    "url": "https://www.up.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:bnsf.com",
+    "name": "BNSF",
+    "domain": "bnsf.com",
+    "sector": "Transportation",
+    "adapter": "career",
+    "url": "https://www.bnsf.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:csx.com",
+    "name": "CSX",
+    "domain": "csx.com",
+    "sector": "Transportation",
+    "adapter": "career",
+    "url": "https://www.csx.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:nscorp.com",
+    "name": "NorfolkSouthern",
+    "domain": "nscorp.com",
+    "sector": "Transportation",
+    "adapter": "career",
+    "url": "https://www.nscorp.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:amtrak.com",
+    "name": "Amtrak",
+    "domain": "amtrak.com",
+    "sector": "Transportation",
+    "adapter": "career",
+    "url": "https://www.amtrak.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:delta.com",
+    "name": "Delta",
+    "domain": "delta.com",
+    "sector": "Transportation",
+    "adapter": "career",
+    "url": "https://www.delta.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:united.com",
+    "name": "United",
+    "domain": "united.com",
+    "sector": "Transportation",
+    "adapter": "career",
+    "url": "https://www.united.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:aa.com",
+    "name": "AmericanAirlines",
+    "domain": "aa.com",
+    "sector": "Transportation",
+    "adapter": "career",
+    "url": "https://www.aa.com/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:redcross.org",
+    "name": "RedCross",
+    "domain": "redcross.org",
+    "sector": "Nonprofits",
+    "adapter": "career",
+    "url": "https://www.redcross.org/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:ymca.org",
+    "name": "YMCA",
+    "domain": "ymca.org",
+    "sector": "Nonprofits",
+    "adapter": "career",
+    "url": "https://www.ymca.org/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:habitat.org",
+    "name": "Habitat",
+    "domain": "habitat.org",
+    "sector": "Nonprofits",
+    "adapter": "career",
+    "url": "https://www.habitat.org/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:goodwill.org",
+    "name": "Goodwill",
+    "domain": "goodwill.org",
+    "sector": "Nonprofits",
+    "adapter": "career",
+    "url": "https://www.goodwill.org/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:salvationarmyusa.org",
+    "name": "SalvationArmy",
+    "domain": "salvationarmyusa.org",
+    "sector": "Nonprofits",
+    "adapter": "career",
+    "url": "https://www.salvationarmyusa.org/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:unitedway.org",
+    "name": "UnitedWay",
+    "domain": "unitedway.org",
+    "sector": "Nonprofits",
+    "adapter": "career",
+    "url": "https://www.unitedway.org/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:feedingamerica.org",
+    "name": "FeedingAmerica",
+    "domain": "feedingamerica.org",
+    "sector": "Nonprofits",
+    "adapter": "career",
+    "url": "https://www.feedingamerica.org/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:nature.org",
+    "name": "NatureConservancy",
+    "domain": "nature.org",
+    "sector": "Nonprofits",
+    "adapter": "career",
+    "url": "https://www.nature.org/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:worldwildlife.org",
+    "name": "WWF",
+    "domain": "worldwildlife.org",
+    "sector": "Nonprofits",
+    "adapter": "career",
+    "url": "https://www.worldwildlife.org/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:care.org",
+    "name": "CARE",
+    "domain": "care.org",
+    "sector": "Nonprofits",
+    "adapter": "career",
+    "url": "https://www.care.org/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:savethechildren.org",
+    "name": "SaveTheChildren",
+    "domain": "savethechildren.org",
+    "sector": "Nonprofits",
+    "adapter": "career",
+    "url": "https://www.savethechildren.org/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:rescue.org",
+    "name": "IRC",
+    "domain": "rescue.org",
+    "sector": "Nonprofits",
+    "adapter": "career",
+    "url": "https://www.rescue.org/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:doctorswithoutborders.org",
+    "name": "DoctorsWithoutBorders",
+    "domain": "doctorswithoutborders.org",
+    "sector": "Nonprofits",
+    "adapter": "career",
+    "url": "https://www.doctorswithoutborders.org/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  },
+  {
+    "id": "employer:aclu.org",
+    "name": "ACLU",
+    "domain": "aclu.org",
+    "sector": "Nonprofits",
+    "adapter": "career",
+    "url": "https://www.aclu.org/",
+    "approved": true,
+    "policy": "Public pages only; robots required; unsupported pages enter review."
+  }
+]

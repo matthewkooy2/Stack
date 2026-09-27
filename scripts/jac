@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+STACK_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+export JAC_CACHE_HOME="$STACK_ROOT/.jac/tool-cache"
+cd "$STACK_ROOT"
+exec "${STACK_JAC_BIN:-$HOME/.local/bin/jac}" "$@"

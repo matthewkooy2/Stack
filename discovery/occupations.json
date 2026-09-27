@@ -1,0 +1,94 @@
+[
+  {
+    "code": "11",
+    "name": "Management"
+  },
+  {
+    "code": "13",
+    "name": "Business and finance"
+  },
+  {
+    "code": "15",
+    "name": "Computer and mathematics"
+  },
+  {
+    "code": "17",
+    "name": "Architecture and engineering"
+  },
+  {
+    "code": "19",
+    "name": "Life, physical, and social sciences"
+  },
+  {
+    "code": "21",
+    "name": "Community and social services"
+  },
+  {
+    "code": "23",
+    "name": "Legal"
+  },
+  {
+    "code": "25",
+    "name": "Education and libraries"
+  },
+  {
+    "code": "27",
+    "name": "Arts, design, entertainment, and media"
+  },
+  {
+    "code": "29",
+    "name": "Healthcare practitioners"
+  },
+  {
+    "code": "31",
+    "name": "Healthcare support"
+  },
+  {
+    "code": "33",
+    "name": "Protective services"
+  },
+  {
+    "code": "35",
+    "name": "Food preparation and serving"
+  },
+  {
+    "code": "37",
+    "name": "Cleaning and grounds maintenance"
+  },
+  {
+    "code": "39",
+    "name": "Personal care and service"
+  },
+  {
+    "code": "41",
+    "name": "Sales"
+  },
+  {
+    "code": "43",
+    "name": "Office and administrative support"
+  },
+  {
+    "code": "45",
+    "name": "Farming, fishing, and forestry"
+  },
+  {
+    "code": "47",
+    "name": "Construction and extraction"
+  },
+  {
+    "code": "49",
+    "name": "Installation, maintenance, and repair"
+  },
+  {
+    "code": "51",
+    "name": "Production"
+  },
+  {
+    "code": "53",
+    "name": "Transportation and material moving"
+  },
+  {
+    "code": "55",
+    "name": "Military"
+  }
+]

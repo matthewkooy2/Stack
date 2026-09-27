@@ -1,0 +1,123 @@
+[
+  {
+    "id": "greenhouse:stripe",
+    "name": "Stripe",
+    "adapter": "greenhouse",
+    "board": "stripe",
+    "domain": "stripe.com",
+    "sector": "Technology",
+    "approved": true
+  },
+  {
+    "id": "greenhouse:cloudflare",
+    "name": "Cloudflare",
+    "adapter": "greenhouse",
+    "board": "cloudflare",
+    "domain": "cloudflare.com",
+    "sector": "Technology",
+    "approved": true
+  },
+  {
+    "id": "ashby:ashby",
+    "name": "Ashby",
+    "adapter": "ashby",
+    "board": "ashby",
+    "domain": "ashbyhq.com",
+    "sector": "Technology",
+    "approved": true
+  },
+  {
+    "id": "lever:spotify",
+    "name": "Spotify",
+    "adapter": "lever",
+    "board": "spotify",
+    "domain": "spotify.com",
+    "sector": "Technology",
+    "approved": true
+  },
+  {
+    "id": "smartrecruiters:BoschGroup",
+    "name": "Bosch",
+    "adapter": "smartrecruiters",
+    "board": "BoschGroup",
+    "domain": "bosch.com",
+    "sector": "Manufacturing",
+    "approved": true
+  },
+  {
+    "id": "smartrecruiters:Visa",
+    "name": "Visa",
+    "adapter": "smartrecruiters",
+    "board": "Visa",
+    "domain": "visa.com",
+    "sector": "Finance",
+    "approved": true
+  },
+  {
+    "id": "smartrecruiters:AccorHotel",
+    "name": "Accor",
+    "adapter": "smartrecruiters",
+    "board": "AccorHotel",
+    "domain": "accor.com",
+    "sector": "Hospitality",
+    "approved": true
+  },
+  {
+    "id": "github:newgrads",
+    "name": "Simplify new graduate links",
+    "adapter": "github",
+    "repo": "SimplifyJobs/New-Grad-Positions",
+    "sector": "Technology",
+    "approved": true,
+    "policy": "Links only; no repository prose reproduced."
+  },
+  {
+    "id": "github:remote",
+    "name": "Remote company directory",
+    "adapter": "github",
+    "repo": "remoteintech/remote-jobs",
+    "sector": "Technology",
+    "approved": true,
+    "policy": "Link discovery; directory membership is not a vacancy."
+  },
+  {
+    "id": "github:discovery",
+    "adapter": "github_search",
+    "name": "GitHub repository discovery",
+    "approved": true,
+    "sector": "Uncategorized"
+  },
+  {
+    "id": "smartrecruiters:KIPP",
+    "name": "KIPP",
+    "domain": "kipp.org",
+    "sector": "Education",
+    "adapter": "smartrecruiters",
+    "board": "KIPP",
+    "url": "https://careers.smartrecruiters.com/KIPP",
+    "approved": true,
+    "policy": "Verified official public Posting API; US feed."
+  },
+  {
+    "id": "smartrecruiters:AECOM2",
+    "name": "AECOM",
+    "domain": "aecom.com",
+    "sector": "Construction",
+    "adapter": "smartrecruiters",
+    "board": "AECOM2",
+    "url": "https://careers.smartrecruiters.com/AECOM2",
+    "approved": true,
+    "policy": "Verified official public Posting API; US feed."
+  },
+  {
+    "id": "smartrecruiters:HMGroup",
+    "name": "H&M Group",
+    "domain": "hmgroup.com",
+    "sector": "Retail",
+    "adapter": "smartrecruiters",
+    "board": "HMGroup",
+    "url": "https://careers.smartrecruiters.com/HMGroup",
+    "approved": true,
+    "policy": "Verified official public Posting API; US feed."
+  }
+]

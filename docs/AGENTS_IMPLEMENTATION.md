@@ -20,7 +20,7 @@ CLI subscription requests use an account-bound daily cap rather than API budgets
 | Interfaces | Native agent inbox/rules/facts/contacts, per-application launch, native practice sessions; focused web editor, timer, hints, canvas, results, transcript review, task inbox and browser takeover |
 | Operations | Invited-beta gateway, one-writer systemd units, disabled budget configuration, private sandbox service, release HTTPS enforcement, Expo push registration/delivery plumbing, account export/deletion, backup/restore utility |
 
-`core/automation.jac` owns state transitions. Models only return structured proposals through `agents/provider.py`; they do not call tools or expand permissions. `agents/worker.py` performs external work through authenticated Jac endpoints. Browser and code services never access the graph directly.
+`core/automation.jac` owns state transitions. Models only return structured proposals through `agents/provider.jac`; they do not call tools or expand permissions. `agents/worker.jac` performs external work through authenticated Jac endpoints. Browser and code services never access the graph directly. See [Jac migration status and verification](JAC_MIGRATION.md) for the current implementation-language boundaries.
 
 ### Reliability and costs
 

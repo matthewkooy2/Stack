@@ -3,6 +3,14 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 import os
 import secrets
+from pathlib import Path
+from importlib.util import find_spec
+import sys
+
+if __name__ == '__main__' and find_spec('jaclang') is None:
+    launcher = Path(__file__).resolve().parents[1] / 'scripts/jac'
+    os.execv(str(launcher), [str(launcher), 'run', '--no-serve', str(Path(__file__).resolve()), *sys.argv[1:]])
+
 from agents.browser import BrowserPool
 
 

@@ -63,4 +63,3 @@ def plan(
     }
     return result[:7];
 }
-

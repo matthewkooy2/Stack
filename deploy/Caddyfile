@@ -1,0 +1,13 @@
+{$STACK_DOMAIN} {
+    encode zstd gzip
+    request_body {
+        max_size 15MB
+    }
+    handle /voice {
+        reverse_proxy 127.0.0.1:8014
+    }
+    handle {
+        reverse_proxy 127.0.0.1:8080
+    }
+    header Strict-Transport-Security "max-age=31536000"
+}

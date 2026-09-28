@@ -3,6 +3,7 @@ import from "./device.js" { Icon, authenticate, restoreSession, rpc, signOut, er
 import from .theme { s }
 import from .components.UI { Button, Field, Chip, Empty, Logo }
 import from .components.Prep { Prep }
+import from .components.Agents { AgentHub, AgentLaunch }
 import from .components.Discovery { Discovery }
 import from .components.MatchInputs { MatchInputs }
 
@@ -25,7 +26,7 @@ def _preferenceForm(p: dict[str, any]) -> dict[str, any] {
 
 def:pub app -> JsxElement {
     has logged: bool = False, starting: bool = True, busy: bool = False, refreshing: bool = False,
-        pendingSwipes: int = 0, revision: int = 0, signup: bool = True, username: str = "", password: str = "", error: str = "", notice: str = "",
+        pendingSwipes: int = 0, revision: int = 0, signup: bool = True, username: str = "", password: str = "", invite: str = "", error: str = "", notice: str = "",
         state: dict[str, any] = {}, tab: str = "Jobs", modal: str = "", selected: str = "", applicationFilter: str = "All", networkFilter: str = "Discover",
         name: str = "", role: str = "", location: str = "United States", mode: str = "Any", notifications: bool = True, graduation: str = "", availableFrom: str = "", prefs: dict[str, any] = {}, profileRevision: int = 0,
         notes: str = "", draft: str = "", rename: str = "", pdfUri: str = "", reminderId: str = "", reminderTitle: str = "", reminderDue: float = 0.0, targetType: str = "", targetId: str = "", returnModal: str = "", pendingOpen: dict[str, any] = {};
@@ -51,6 +52,7 @@ def:pub app -> JsxElement {
         }
     }
     def notificationOpen(data: dict[str, any]) -> None {
+        if logged and data.get("user_id")==state.get("user_id") and data.get("target_type")=="agent" { modal="Agents";return; }
         if not logged or len(state)==0 { pendingOpen=data; return; }
         if data["user_id"]==state["user_id"] { openRecord(data["target_type"],data["target_id"]); }
         pendingOpen={};
@@ -84,8 +86,9 @@ def:pub app -> JsxElement {
         if len(username.strip())<3 or len(password)<8 { error="Use a username of at least 3 characters and a password of at least 8."; return; }
         busy=True; error="";
         try {
-            await authenticate(username,password,signup); logged=True; password="";
-            state=await rpc("bootstrap",{}); profileFields(); await reconcileNotifications(state,False);
+            await authenticate(username,password,signup); password="";
+            if invite { await rpc("agent_accept_invite",{"invite":invite});invite=""; }
+            state=await rpc("bootstrap",{}); logged=True;profileFields(); await reconcileNotifications(state,False);
             if len(pendingOpen)>0 { notificationOpen(pendingOpen); }
         } except Exception as e { error=errorText(e); }
         busy=False;
@@ -102,11 +105,15 @@ def:pub app -> JsxElement {
     }
     async def trackJob(job_id: str, action: str) -> None {
         revision+=1;pendingSwipes+=1;
-        try { state=await persistSwipe(job_id,action); }
+        try { state=await persistSwipe(job_id,action,state.get("agents",{}).get("enabled",False)); }
         finally { pendingSwipes-=1; }
     }
     async def openApplication(url: str) -> None {
         try { await openJobLink(url); } except Exception as e { error=errorText(e); }
+    }
+    async def extractFacts(id: str) -> None {
+        try { result=await rpc("agent_extract_resume",{"id":id});notice="Resume text extracted. Review and confirm it in Agent activity → Facts."; }
+        except Exception as e { error=errorText(e); }
     }
     async def upload -> None {
         if busy { return; } revision=revision+1; busy=True; error="";
@@ -145,7 +152,7 @@ def:pub app -> JsxElement {
         <ScrollView contentContainerStyle={s.auth} keyboardShouldPersistTaps="handled">
             <View style={s.authLogo}><Icon name="layers" color="white" size={35}/></View>
             <View style={{gap:13}}><Text style={s.eyebrow}>A LITTLE MOMENTUM. A BIG NEXT STEP.</Text><Text style={s.authTitle}>Your next chapter{"\n"}starts here.</Text><Text style={s.body}>Find your people. Find your fit. Make your move.</Text></View>
-            <View style={{gap:15}}><Text style={s.heading}>{"Create your Stack" if signup else "Welcome back"}</Text><Field label="Username" value={username} onChange={lambda (v: str) { username=v; }}/><Field label="Password" value={password} onChange={lambda (v: str) { password=v; }} secret={True}/>
+            <View style={{gap:15}}><Text style={s.heading}>{"Create your Stack" if signup else "Welcome back"}</Text><Field label="Username" value={username} onChange={lambda (v: str) { username=v; }}/><Field label="Password" value={password} onChange={lambda (v: str) { password=v; }} secret={True}/><Field label="Beta invitation (first visit)" value={invite} onChange={lambda (v: str) { invite=v; }}/>
                 {<Text style={s.errorText}>{error}</Text> if error else <View/>}
                 <Button label={"Just a moment…" if busy else ("Get started" if signup else "Sign in")} onPress={login} disabled={busy} icon="next"/>
                 <Pressable onPress={lambda { signup=not signup; error=""; }} accessibilityRole="button"><Text style={[s.body,{textAlign:"center",color:"#3765E8"}]}>{"Already have an account? Sign in" if signup else "New here? Create an account"}</Text></Pressable>
@@ -165,6 +172,7 @@ def:pub app -> JsxElement {
             <View style={{flex:1}}>
                 <View style={[s.between,{paddingHorizontal:24,paddingTop:13,paddingBottom:12}]}><View style={s.row}><Icon name="layers" size={26} color="#3765E8"/><Text style={s.brand}>stack</Text></View><Pressable accessibilityLabel="Open profile" style={[s.avatar,{width:38,height:38,borderRadius:13,backgroundColor:"#E9EFFC"}]} onPress={lambda { modal="Profile"; error=""; }}><Text style={[s.avatarText,{fontSize:14}]}>{state["profile"]["name"][0:1].upper()}</Text></Pressable></View>
                 <ScrollView style={s.grow} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+                    <Button label={"Agent activity"+(" · "+str(state.get("agents",{}).get("needs_input",0))+" need you" if state.get("agents",{}).get("needs_input",0)>0 else "")} icon="sparkles" secondary={True} onPress={lambda { modal="Agents"; }}/>
                     {<View key={"jobs-"+str(profileRevision)}><Discovery decisions={state["decisions"]} saved={state.get("saved_search",{})} profile={state["profile"]} onSwipe={trackJob} disabled={busy}/></View> if tab=="Jobs" else <View/>}
                     {(
                         <View style={{gap:20}}><View style={{gap:7}}><Text style={s.eyebrow}>ONE STEP CLOSER</Text><Text style={s.title}>Your momentum.</Text><Text style={s.body}>Every opportunity, in one place.</Text></View>
@@ -180,7 +188,7 @@ def:pub app -> JsxElement {
                     {(
                         <View style={{gap:20}}><View style={{gap:7}}><Text style={s.eyebrow}>PEOPLE OPEN DOORS</Text><Text style={s.title}>Start a conversation.</Text><Text style={s.body}>A few thoughtful connections can go a long way.</Text></View>
                             <View style={s.row}>{[<Chip key={f} label={f} active={networkFilter==f} onPress={lambda { networkFilter=f; }}/> for f in ["Discover","Saved"]]}</View>
-                            <View style={s.mutedBox}><Text style={s.small}>Sample people & suggestions · LinkedIn discovery is planned.</Text></View>
+                            <AgentHub initial="Contacts"/><View style={s.mutedBox}><Text style={s.small}>Sample people below are separate from your real contacts.</Text></View>
                             {[<Pressable key={c["id"]} style={s.card} accessibilityRole="button" onPress={lambda { openRecord("contact",c["id"]); }}>
                                 <View style={s.row}><View style={[s.avatar,{backgroundColor:_find(state["people"],c["person_id"])["color"]}]}><Text style={s.avatarText}>{_find(state["people"],c["person_id"])["initials"]}</Text></View><View style={s.grow}><Text style={s.heading}>{_find(state["people"],c["person_id"])["name"]}</Text><Text style={s.small}>{_find(state["people"],c["person_id"])["role"]}</Text><Text style={s.small}>{_find(state["people"],c["person_id"])["company"]}</Text></View><Icon name={"bookmark" if c["saved"] else "arrow"} color="#3765E8" size={20}/></View>
                                 <Text style={s.body}>{_find(state["people"],c["person_id"])["reason"]}</Text><Chip label={_find(state["people"],c["person_id"])["signal"]} active={True}/>
@@ -191,7 +199,7 @@ def:pub app -> JsxElement {
                     {(
                         <View style={{gap:20}}><View style={{gap:7}}><Text style={s.eyebrow}>PUT YOUR BEST SELF FORWARD</Text><Text style={s.title}>Your story, on paper.</Text><Text style={s.body}>One home for your experience and potential.</Text></View>
                             <Pressable style={[s.card,{borderStyle:"dashed",borderColor:"#B9CAEE",alignItems:"center",paddingVertical:27}]} onPress={upload} disabled={busy} accessibilityRole="button" accessibilityLabel="Upload PDF resume"><View style={[s.avatar,{backgroundColor:"#EDF2FF"}]}><Icon name="upload" color="#3765E8"/></View><Text style={s.heading}>Add your resume</Text><Text style={s.small}>Choose a PDF from Files · up to 10 MB</Text></Pressable>
-                            {[<View key={r["id"]} style={s.card}><View style={s.row}><Icon name="resume" size={29} color="#3765E8"/><View style={s.grow}><Text style={s.strong}>{r["name"]}</Text><Text style={s.small}>{shortDate(r["created_at"])} · Private PDF</Text></View><Pressable accessibilityLabel="Manage resume" style={s.iconButton} onPress={lambda { selected=r["id"]; rename=r["name"]; modal="Manage resume"; }}><Icon name="more"/></Pressable></View>{<Chip label="Default resume" active={True}/> if state["selected_resume"]==r["id"] else <View/>}<Button label="Preview resume" onPress={lambda { preview(r["id"]); }} secondary={True} disabled={busy}/></View> for r in state["resumes"]]}
+                            {[<View key={r["id"]} style={s.card}><View style={s.row}><Icon name="resume" size={29} color="#3765E8"/><View style={s.grow}><Text style={s.strong}>{r["name"]}</Text><Text style={s.small}>{shortDate(r["created_at"])} · Private PDF</Text></View><Pressable accessibilityLabel="Manage resume" style={s.iconButton} onPress={lambda { selected=r["id"]; rename=r["name"]; modal="Manage resume"; }}><Icon name="more"/></Pressable></View>{<Chip label="Default resume" active={True}/> if state["selected_resume"]==r["id"] else <View/>}<Button label="Preview resume" onPress={lambda { preview(r["id"]); }} secondary={True} disabled={busy}/><Button label="Extract resume facts" secondary={True} onPress={lambda { extractFacts(r["id"]); }}/></View> for r in state["resumes"]]}
                             <View style={s.hero}><View style={s.row}><Icon name="sparkles" color="#3765E8"/><Text style={s.heading}>A resume for the role.</Text></View><Text style={s.body}>See how a tailored version could highlight the right experience.</Text><Button label="Explore a sample" secondary={True} onPress={lambda { modal="Tailoring preview"; }}/><Text style={s.small}>Demo preview. Your uploaded PDF is never modified.</Text></View>
                         </View>
                     ) if tab=="Resume" else <View/>}
@@ -209,11 +217,11 @@ def:pub app -> JsxElement {
                 {<View style={s.notice}><Text style={s.noticeText}>{notice}</Text></View> if notice else <View/>}
                 {<PDFView uri={pdfUri}/> if modal=="PDF preview" else (
                 <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+                    {<AgentHub/> if modal=="Agents" else <View/>}
                     {(
                         <View style={{gap:20}}><View style={s.card}><View style={s.row}><View style={[s.avatar,{backgroundColor:"#E8EFFE",width:65,height:65}]}><Text style={[s.avatarText,{fontSize:25}]}>{state["profile"]["name"][0:1].upper()}</Text></View><View style={s.grow}><Text style={s.heading}>{state["profile"]["name"]}</Text><Text style={s.body}>{state["profile"]["role"]}</Text></View></View><Text style={s.body}>{state["profile"]["location"]} · {state["profile"]["mode"]}</Text><Button label="Edit profile & preferences" onPress={editProfile} secondary={True}/></View>
-                            <Text style={s.heading}>Your future team.</Text><Text style={s.body}>Agent connections will power research, tailoring, and applications in a future version.</Text>
-                            {[<View key={provider} style={s.card}><View style={s.between}><Text style={s.strong}>{provider}</Text><Chip label="Planned"/></View><Text style={s.small}>Integration is not connected. Subscription compatibility is still being evaluated.</Text></View> for provider in ["Meta Muse","ChatGPT","Claude"]]}
-                            <View style={s.mutedBox}><View style={s.row}><Icon name="shield" size={19}/><Text style={s.strong}>Your space stays yours.</Text></View><Text style={s.small}>Account data and PDFs are stored on your Mac during development. Agent actions and people are examples.</Text></View>
+                            <Text style={s.heading}>Your agent connection.</Text><Text style={s.strong}>{state.get("agents",{}).get("model_provider",{}).get("provider","Not configured")}</Text><Text style={s.small}>{state.get("agents",{}).get("model_provider",{}).get("message","")}</Text><Button label="Agent activity and rules" secondary={True} onPress={lambda { modal="Agents"; }}/>
+                            <View style={s.mutedBox}><View style={s.row}><Icon name="shield" size={19}/><Text style={s.strong}>Your space stays yours.</Text></View><Text style={s.small}>Account data and PDFs are stored on your Mac during development. Model requests share the selected task context with your configured provider.</Text></View>
                             <Button label="iPhone notification settings" onPress={openSettings} secondary={True} icon="bell"/><Button label="Sign out" onPress={logout} secondary={True} disabled={busy} icon="logout"/><Text style={[s.small,{textAlign:"center"}]}>Stack 0.1 · Built for your next chapter</Text>
                         </View>
                     ) if modal=="Profile" and len(state)>0 else <View/>}
@@ -224,6 +232,7 @@ def:pub app -> JsxElement {
                     {[(
                         <View key={a["id"]} style={{gap:18}}><Logo job={a["job"]}/><Text style={s.title}>{a["job"]["title"]}</Text><Text style={s.body}>{a["job"]["company"]}</Text><Chip label={a["status"]+(" · Demo" if a["demo"] else "")} active={True}/>
                             {<View style={s.hero}><Text style={s.strong}>Your application activity</Text><Text style={s.body}>✓ Added to your Stack</Text><Text style={s.body}>{"◷ Preparing a sample application" if a["status"] in ["Queued","Preparing"] else "✓ Prepared a sample application"}</Text><Text style={s.body}>{"Submission pending · Demo" if a["status"] in ["Queued","Preparing"] else "✓ Simulated submission complete"}</Text><Text style={s.small}>No employer was contacted. This is a demonstration.</Text></View> if a["demo"] else <View style={s.hero}><Text style={s.strong}>Your next step</Text><Text style={s.body}>Complete your application at the source. Stack does not submit it automatically.</Text><Button label="Open application page" disabled={not a["job"].get("url","")} onPress={lambda { openApplication(a["job"]["url"]); }}/><Button label="Mark as submitted" secondary={True} disabled={busy} onPress={lambda { mutate("mark_application_submitted",{"id":a["id"]},False); }}/></View>}
+                            {<AgentLaunch target={a["id"]}/> if not a["demo"] else <View/>}
                             <Text style={s.small}>{"Resume: "+_find(state["resumes"],a["resume_id"])["name"] if len(_find(state["resumes"],a["resume_id"]))>0 else "Resume: no personal PDF attached"}</Text>
                             <View style={s.wrap}><Chip label="No resume selected" active={a["resume_id"]==""} onPress={lambda { mutate("select_application_resume",{"id":selected,"resume_id":""},False); }}/>{[<Chip key={r["id"]} label={r["name"]} active={a["resume_id"]==r["id"]} onPress={lambda { mutate("select_application_resume",{"id":selected,"resume_id":r["id"]},False); }}/> for r in state["resumes"]]}</View>
                             <Field label="Your notes" value={notes} onChange={lambda (v: str) { notes=v; }} multiline={True}/><Button label="Save notes" onPress={lambda { mutate("save_application",{"id":selected,"notes":notes},False); }} disabled={busy}/><Button label="Add follow-up reminder" onPress={lambda { beginReminder("application",selected); }} secondary={True} icon="bell"/>

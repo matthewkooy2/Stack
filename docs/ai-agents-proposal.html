@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stack Agents Proposal</title>
+<meta name="description" content="Design proposal for AI agents across Stack: Jobs, Resume, Applications, Network, and Prep.">
+<style>
+:root{
+  --bg:#F6F7FB; --surface:#FFFFFF; --surface-2:#EEF2FB; --ink:#18212F; --muted:#5B6678; --faint:#8A94A6; --line:#DDE3EE;
+  --brand:#3765E8; --brand-soft:#E6EDFD; --good:#167867; --good-soft:#E2F3EF; --warn:#A6620B; --warn-soft:#FBF0DF;
+  --bad:#B4323C; --bad-soft:#FBE6E8; --violet:#6A4BD1; --violet-soft:#EEE9FC; --on-brand:#FFFFFF;
+  --shadow:0 1px 2px rgba(24,33,47,.05),0 8px 24px rgba(24,33,47,.06);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F141C; --surface:#161D28; --surface-2:#1C2533; --ink:#E8ECF3; --muted:#A5AFBF; --faint:#7C8699; --line:#2A3444;
+    --brand:#7C9CFF; --brand-soft:#1D2A4A; --good:#4CC3A8; --good-soft:#15302B; --warn:#E6A94F; --warn-soft:#332716;
+    --bad:#F07C86; --bad-soft:#3A1D22; --violet:#A994FF; --violet-soft:#261F42; --on-brand:#0F141C; --shadow:none;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F141C; --surface:#161D28; --surface-2:#1C2533; --ink:#E8ECF3; --muted:#A5AFBF; --faint:#7C8699; --line:#2A3444;
+  --brand:#7C9CFF; --brand-soft:#1D2A4A; --good:#4CC3A8; --good-soft:#15302B; --warn:#E6A94F; --warn-soft:#332716;
+  --bad:#F07C86; --bad-soft:#3A1D22; --violet:#A994FF; --violet-soft:#261F42; --on-brand:#0F141C; --shadow:none;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+.wrap{max-width:1040px;margin:0 auto;padding:0 16px}
+h1,h2,h3{line-height:1.2;letter-spacing:-.01em;margin:0}
+h2{font-size:clamp(24px,3.2vw,30px);margin-bottom:8px}
+h3{font-size:18px}
+p{margin:0 0 12px}
+.eyebrow{font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--brand)}
+.lede{color:var(--muted);font-size:17px;max-width:760px}
+section.wrap{padding:44px 16px;border-top:1px solid var(--line)}
+.section-head{margin-bottom:22px}
+
+/* hero */
+.hero.wrap{padding:64px 16px 44px}
+.hero h1{font-size:clamp(34px,6vw,54px);font-weight:800;margin:10px 0 14px}
+.hero h1 span{color:var(--brand)}
+.meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;padding:5px 11px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--muted)}
+.pill.brand{background:var(--brand-soft);border-color:transparent;color:var(--brand)}
+.theme-toggle{position:fixed;top:14px;right:14px;z-index:5;font:600 13px/1 inherit;padding:8px 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--muted);cursor:pointer}
+
+/* cards */
+.grid{display:grid;gap:16px}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g2{grid-template-columns:repeat(2,1fr)}
+@media (max-width:820px){.g3,.g2{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px;box-shadow:var(--shadow)}
+.principle .num{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;font-weight:800;margin-bottom:12px}
+.principle p{color:var(--muted);margin:6px 0 0}
+
+/* verdict */
+.verdict{display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:start;background:var(--brand-soft);border-radius:16px;padding:20px 22px;margin-top:26px}
+.verdict .mark{font-size:26px;line-height:1}
+.verdict p{margin:0}
+
+/* diagrams */
+.figure{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:var(--shadow)}
+.figure svg{width:100%;height:auto;display:block}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+@media (max-width:700px){.scroll svg{min-width:720px}.scroll-hint{display:block!important}}
+.scroll-hint{display:none;font-size:12px;color:var(--faint);margin-bottom:8px}
+.caption{font-size:13px;color:var(--faint);margin-top:10px}
+svg text{font-family:inherit}
+.d-box{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+.d-soft{fill:var(--surface-2);stroke:none}
+.d-brand{fill:var(--brand-soft);stroke:none}
+.d-good{fill:var(--good-soft);stroke:none}
+.d-warn{fill:var(--warn-soft);stroke:none}
+.d-violet{fill:var(--violet-soft);stroke:none}
+.d-title{fill:var(--ink);font-weight:700;font-size:15px}
+.d-label{fill:var(--ink);font-size:13px;font-weight:600}
+.d-small{fill:var(--muted);font-size:11.5px}
+.d-brandtext{fill:var(--brand);font-weight:700;font-size:13px}
+.d-goodtext{fill:var(--good);font-weight:700;font-size:13px}
+.d-warntext{fill:var(--warn);font-weight:700;font-size:13px}
+.d-violettext{fill:var(--violet);font-weight:700;font-size:13px}
+.d-arrow{stroke:var(--faint);stroke-width:1.6;fill:none}
+.d-arrowhead{fill:var(--faint)}
+.d-grid{stroke:var(--line);stroke-width:1}
+.d-axis{stroke:var(--faint);stroke-width:1.2}
+
+/* flow */
+.flow{display:grid;grid-template-columns:repeat(6,1fr);gap:22px}
+.step{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;position:relative;box-shadow:var(--shadow)}
+.step:not(:last-child)::after{content:"→";position:absolute;right:-18px;top:50%;transform:translateY(-50%);color:var(--faint);font-size:18px}
+.step .who{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.step .what{font-weight:600;margin-top:4px;line-height:1.35}
+.step.you{background:var(--good-soft);border-color:transparent}
+.step.you .who{color:var(--good)}
+@media (max-width:900px){.flow{grid-template-columns:repeat(3,1fr)}.step:nth-child(3n)::after{content:none}}
+@media (max-width:560px){.flow{grid-template-columns:1fr;gap:26px}.step::after{right:auto!important;left:50%;top:auto!important;bottom:-24px;transform:translateX(-50%) rotate(90deg)!important;content:"→"!important}.step:last-child::after{content:none!important}}
+
+/* agents */
+.agent{padding:0;overflow:hidden}
+.agent-head{display:flex;align-items:center;gap:14px;padding:20px 22px;border-bottom:1px solid var(--line)}
+.icon{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;flex:0 0 auto}
+.icon svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.agent-head .tag{color:var(--muted);font-size:14px;margin-top:2px}
+.agent-head .risk{margin-left:auto}
+.agent-body{display:grid;grid-template-columns:1fr 1fr 1.05fr;gap:0}
+@media (max-width:900px){.agent-body{grid-template-columns:1fr}}
+.col{padding:18px 22px}
+.col+.col{border-left:1px solid var(--line)}
+@media (max-width:900px){.col+.col{border-left:0;border-top:1px solid var(--line)}}
+.col h4{margin:0 0 8px;font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+.col ul{margin:0;padding-left:18px}
+.col li{margin:0 0 7px;color:var(--ink)}
+.col li::marker{color:var(--faint)}
+.works h4{color:var(--good)} .limits h4{color:var(--warn)} .looks h4{color:var(--brand)}
+.badge{font-size:12px;font-weight:700;padding:4px 10px;border-radius:999px;white-space:nowrap}
+.low{background:var(--good-soft);color:var(--good)} .med{background:var(--warn-soft);color:var(--warn)} .high{background:var(--bad-soft);color:var(--bad)}
+
+/* phone mock */
+.mock{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:12px;font-size:13.5px}
+.mock .mtitle{font-weight:700;margin-bottom:6px}
+.mock .row{display:flex;gap:8px;align-items:flex-start;margin:5px 0;line-height:1.4}
+.mock .ok{color:var(--good);font-weight:700}
+.mock .q{color:var(--warn);font-weight:700}
+.mock .x{color:var(--bad);font-weight:700}
+.mock .quote{border-left:3px solid var(--line);padding-left:8px;color:var(--muted);font-style:italic;margin:6px 0}
+.mock .btns{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+.mock .b{font-size:12px;font-weight:700;padding:6px 10px;border-radius:9px;background:var(--surface-2);color:var(--muted)}
+.mock .b.primary{background:var(--brand);color:var(--on-brand)}
+.mock .meter{height:8px;border-radius:99px;background:var(--surface-2);overflow:hidden;margin:4px 0 2px}
+.mock .meter i{display:block;height:100%;background:var(--brand);border-radius:99px}
+
+/* tiers */
+.tiers{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:4px}
+@media (max-width:900px){.tiers{grid-template-columns:1fr}}
+.tier{border-radius:12px;padding:12px;background:var(--surface-2)}
+.tier b{display:block;font-size:13px}
+.tier span{font-size:13px;color:var(--muted)}
+
+/* providers */
+.path h3{margin-bottom:6px}
+.path .when{font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px}
+.path ul{padding-left:18px;margin:10px 0 0}
+.path li{margin-bottom:6px}
+code{font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--surface-2);padding:2px 6px;border-radius:6px}
+
+/* roadmap */
+.road{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;position:relative}
+@media (max-width:900px){.road{grid-template-columns:1fr 1fr}}
+@media (max-width:520px){.road{grid-template-columns:1fr}}
+.phase{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;box-shadow:var(--shadow);border-top:4px solid var(--brand)}
+.phase .n{font-size:12px;font-weight:800;color:var(--brand);letter-spacing:.08em}
+.phase h3{font-size:15.5px;margin:6px 0}
+.phase p{font-size:13.5px;color:var(--muted);margin:0}
+.phase.p6{border-top-color:var(--warn)}
+.phase.p6 .n{color:var(--warn)}
+
+/* dont */
+.dont{border-color:transparent;background:var(--bad-soft)}
+.dont h3{color:var(--bad);margin-bottom:10px}
+.dont ul{margin:0;padding-left:18px}
+.dont li{margin-bottom:7px}
+
+.questions li{margin-bottom:10px}
+footer{padding:30px 0 50px;color:var(--faint);font-size:13px;border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<button class="theme-toggle" type="button" aria-label="Toggle light or dark theme" onclick="toggleTheme()">◐ Theme</button>
+
+<header class="wrap hero">
+  <div class="eyebrow">Stack · Design proposal</div>
+  <h1>Agents for every part of <span>the job search</span></h1>
+  <p class="lede">Five AI agents for Jobs, Resume, Applications, Network, and Prep, built on one shared memory and one approval flow. The agents find, read, draft, and prepare. You decide what leaves your phone.</p>
+  <div class="meta">
+    <span class="pill brand">Proposal · not yet built</span>
+    <span class="pill">September 27, 2026</span>
+    <span class="pill">Builds on the job-matching engine</span>
+  </div>
+</header>
+
+<main>
+<section class="wrap">
+  <div class="section-head">
+    <div class="eyebrow">The short version</div>
+    <h2>Three design principles</h2>
+  </div>
+  <div class="grid g3">
+    <div class="card principle">
+      <div class="num" style="background:var(--brand-soft);color:var(--brand)">1</div>
+      <h3>One agent layer, five specialties</h3>
+      <p>The agents share one memory: your goals, resume versions, jobs, contacts, and applications. Stack's graph already stores all of it. Each agent is a set of tools plus a focused prompt, not a separate bot.</p>
+    </div>
+    <div class="card principle">
+      <div class="num" style="background:var(--good-soft);color:var(--good)">2</div>
+      <h3>Draft first, you approve</h3>
+      <p>Agents prepare messages, applications, and profile edits. Nothing is sent or submitted without your tap. That keeps Stack's existing promise and keeps your LinkedIn and job-board accounts safe.</p>
+    </div>
+    <div class="card principle">
+      <div class="num" style="background:var(--violet-soft);color:var(--violet)">3</div>
+      <h3>Evidence, not guesses</h3>
+      <p>Like the matcher, agents quote the listing, email, or resume line behind each claim and mark what's unknown. AI-inferred facts are labeled as AI-inferred.</p>
+    </div>
+  </div>
+  <div class="verdict">
+    <div class="mark">✓</div>
+    <p><strong>Recommendation:</strong> build it, value first. Start with the Jobs fit read and resume tailoring, which are high value and low risk. Add email-driven application tracking and interview prep next. Leave assisted applying for last, and leave autonomous LinkedIn activity out entirely.</p>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="section-head">
+    <div class="eyebrow">Architecture</div>
+    <h2>How the pieces fit</h2>
+    <p class="lede">The phone stays a thin client. The agents, tools, and browser automation run on the Stack server on your Mac. Model providers are swappable adapters behind a single interface.</p>
+  </div>
+  <div class="figure">
+    <div class="scroll-hint">Swipe sideways to see the whole diagram →</div>
+    <div class="scroll"><svg viewBox="0 0 900 480" role="img" aria-labelledby="archTitle archDesc">
+      <title id="archTitle">Stack agent architecture</title>
+      <desc id="archDesc">The iPhone app talks to the Stack server, which contains the agent runtime, shared memory, tools, and an approval gate. The runtime calls model providers; approved actions reach the outside world.</desc>
+      <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="d-arrowhead"/></marker></defs>
+
+      <!-- phone -->
+      <rect x="14" y="30" width="172" height="420" rx="26" class="d-box"/>
+      <text x="100" y="62" text-anchor="middle" class="d-title">iPhone app</text>
+      <g>
+        <rect x="32" y="80" width="136" height="36" rx="10" class="d-soft"/><text x="100" y="103" text-anchor="middle" class="d-label">Jobs</text>
+        <rect x="32" y="124" width="136" height="36" rx="10" class="d-soft"/><text x="100" y="147" text-anchor="middle" class="d-label">Applications</text>
+        <rect x="32" y="168" width="136" height="36" rx="10" class="d-soft"/><text x="100" y="191" text-anchor="middle" class="d-label">Network</text>
+        <rect x="32" y="212" width="136" height="36" rx="10" class="d-soft"/><text x="100" y="235" text-anchor="middle" class="d-label">Resume</text>
+        <rect x="32" y="256" width="136" height="36" rx="10" class="d-soft"/><text x="100" y="279" text-anchor="middle" class="d-label">Prep</text>
+        <rect x="32" y="316" width="136" height="54" rx="12" class="d-good"/>
+        <text x="100" y="339" text-anchor="middle" class="d-goodtext">Approval inbox</text>
+        <text x="100" y="356" text-anchor="middle" class="d-small">you tap to send</text>
+        <text x="100" y="410" text-anchor="middle" class="d-small">voice practice</text>
+        <text x="100" y="426" text-anchor="middle" class="d-small">on-device transcription</text>
+      </g>
+
+      <!-- server -->
+      <rect x="226" y="14" width="438" height="452" rx="20" class="d-box"/>
+      <text x="246" y="42" class="d-title">Stack server · your Mac</text>
+      <rect x="244" y="56" width="402" height="104" rx="14" class="d-brand"/>
+      <text x="260" y="78" class="d-brandtext">Agent runtime</text>
+      <g>
+        <rect x="258" y="92" width="70" height="52" rx="10" class="d-box"/><text x="293" y="123" text-anchor="middle" class="d-label">Jobs</text>
+        <rect x="335" y="92" width="70" height="52" rx="10" class="d-box"/><text x="370" y="123" text-anchor="middle" class="d-label">Resume</text>
+        <rect x="412" y="92" width="70" height="52" rx="10" class="d-box"/><text x="447" y="123" text-anchor="middle" class="d-label">Apps</text>
+        <rect x="489" y="92" width="72" height="52" rx="10" class="d-box"/><text x="525" y="123" text-anchor="middle" class="d-label">Network</text>
+        <rect x="568" y="92" width="64" height="52" rx="10" class="d-box"/><text x="600" y="123" text-anchor="middle" class="d-label">Prep</text>
+      </g>
+      <rect x="244" y="172" width="402" height="92" rx="14" class="d-violet"/>
+      <text x="260" y="194" class="d-violettext">Shared memory (Jac graph)</text>
+      <text x="260" y="218" class="d-small">goals · resume versions · jobs &amp; matching facts</text>
+      <text x="260" y="236" class="d-small">applications · contacts · follow-ups · interview history</text>
+      <text x="260" y="254" class="d-small">every agent reads and writes the same records</text>
+      <rect x="244" y="276" width="402" height="92" rx="14" class="d-soft"/>
+      <text x="260" y="298" class="d-label">Tools the agents can call</text>
+      <text x="260" y="322" class="d-small">catalog search · matcher · resume PDF parse · keyword check</text>
+      <text x="260" y="340" class="d-small">email reader · calendar · browser automation (Mac only)</text>
+      <text x="260" y="358" class="d-small">reminders · contact tracker · practice scoring rubric</text>
+      <rect x="244" y="380" width="402" height="68" rx="14" class="d-good"/>
+      <text x="445" y="408" text-anchor="middle" class="d-goodtext">Approval gate</text>
+      <text x="445" y="428" text-anchor="middle" class="d-small">sends, submissions, and profile edits wait for your tap</text>
+
+      <!-- providers -->
+      <rect x="704" y="14" width="182" height="206" rx="20" class="d-box"/>
+      <text x="720" y="42" class="d-title">Model providers</text>
+      <rect x="718" y="56" width="154" height="44" rx="10" class="d-soft"/><text x="795" y="83" text-anchor="middle" class="d-label">Anthropic API</text>
+      <rect x="718" y="108" width="154" height="44" rx="10" class="d-soft"/><text x="795" y="135" text-anchor="middle" class="d-label">OpenAI API</text>
+      <rect x="718" y="160" width="154" height="46" rx="10" class="d-warn"/><text x="795" y="180" text-anchor="middle" class="d-warntext">Local CLI bridge</text><text x="795" y="197" text-anchor="middle" class="d-small">personal use only</text>
+
+      <!-- outside -->
+      <rect x="704" y="252" width="182" height="214" rx="20" class="d-box"/>
+      <text x="720" y="280" class="d-title">Outside world</text>
+      <text x="720" y="308" class="d-label">Gmail / Outlook</text><text x="720" y="325" class="d-small">read, with consent</text>
+      <text x="720" y="352" class="d-label">Greenhouse · Lever · Ashby</text><text x="720" y="369" class="d-small">prefill, you submit</text>
+      <text x="720" y="396" class="d-label">LinkedIn</text><text x="720" y="413" class="d-small">you send; no automation</text>
+      <text x="720" y="440" class="d-label">Calendar</text>
+
+      <!-- arrows -->
+      <path d="M186 240 H222" class="d-arrow" marker-start="url(#ah)" marker-end="url(#ah)"/>
+      <path d="M646 108 H700" class="d-arrow" marker-end="url(#ah)"/>
+      <path d="M646 414 H700" class="d-arrow" marker-end="url(#ah)"/>
+      <path d="M186 343 C205 343 205 414 240 414" class="d-arrow" marker-end="url(#ah)"/>
+    </svg></div>
+    <div class="caption">The approval inbox on the phone and the approval gate on the server are the same boundary. Every outbound action crosses it only after you confirm.</div>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="section-head">
+    <div class="eyebrow">Working together</div>
+    <h2>One opportunity, handed from agent to agent</h2>
+    <p class="lede">Because the agents share memory, each one picks up where the last left off. You step in once, at the point where something would leave your phone.</p>
+  </div>
+  <div class="flow">
+    <div class="step"><div class="who" style="color:var(--brand)">Jobs</div><div class="what">Flags a strong match and explains the fit</div></div>
+    <div class="step"><div class="who" style="color:var(--violet)">Network</div><div class="what">Finds a referral path at that company</div></div>
+    <div class="step"><div class="who" style="color:var(--brand)">Resume</div><div class="what">Tailors a truthful version for the listing</div></div>
+    <div class="step you"><div class="who">You</div><div class="what">Review, approve, submit</div></div>
+    <div class="step"><div class="who" style="color:var(--warn)">Applications</div><div class="what">Watches your inbox for replies</div></div>
+    <div class="step"><div class="who" style="color:var(--good)">Prep</div><div class="what">Starts practice when an interview arrives</div></div>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="section-head">
+    <div class="eyebrow">The agents</div>
+    <h2>What each agent does, and where the limits are</h2>
+  </div>
+  <div class="grid" style="gap:18px">
+
+    <article class="card agent">
+      <div class="agent-head">
+        <div class="icon" style="background:var(--brand-soft);color:var(--brand)"><svg viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></div>
+        <div><h3>Jobs agent</h3><div class="tag">Reads postings closely and prepares applications</div></div>
+        <span class="badge low risk">Fit read: low risk</span>
+      </div>
+      <div class="agent-body">
+        <div class="col works"><h4>Works well</h4><ul>
+          <li>Reads the full listing and your resume, then explains fit and gaps.</li>
+          <li>Fills in facts the matcher marked "not stated," quoting the text.</li>
+          <li>Prefills Greenhouse, Lever, and Ashby forms, whose layouts are standardized.</li>
+        </ul></div>
+        <div class="col limits"><h4>Constraints</h4><ul>
+          <li>The matcher's requirement checks stay the source of truth. The AI adds evidence and never silently overrides them.</li>
+          <li>Runs on demand or on your top matches, to control cost.</li>
+          <li>Workday needs per-employer accounts; CAPTCHAs block automation; some employers reject automated submissions.</li>
+          <li>Browser automation runs on the Mac. The phone can't drive a browser.</li>
+        </ul></div>
+        <div class="col looks"><h4>In the app</h4>
+          <div class="mock">
+            <div class="mtitle">AI fit read · Strong fit</div>
+            <div class="row"><span class="ok">✓</span><span>Backend services match your last two roles</span></div>
+            <div class="row"><span class="q">?</span><span>On-call rotation not mentioned in your resume</span></div>
+            <div class="quote">"Participate in a weekly on-call rotation…"</div>
+            <div class="btns"><span class="b primary">Prepare application</span><span class="b">Tailor resume</span></div>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="card agent">
+      <div class="agent-head">
+        <div class="icon" style="background:var(--violet-soft);color:var(--violet)"><svg viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg></div>
+        <div><h3>Resume agent</h3><div class="tag">Tailors your resume to each listing, in your own voice</div></div>
+        <span class="badge low risk">Low risk</span>
+      </div>
+      <div class="agent-body">
+        <div class="col works"><h4>Works well</h4><ul>
+          <li>Rewrites and reorders bullets toward what the listing emphasizes.</li>
+          <li>Learns your voice from your own writing samples, so edits don't read as generic AI text.</li>
+          <li>Shows a side-by-side diff; your original PDF is never modified.</li>
+        </ul></div>
+        <div class="col limits"><h4>Constraints</h4><ul>
+          <li>It may only rephrase and reorder what's true. It never invents experience or metrics.</li>
+          <li>There is no real universal "ATS score." Applicant tracking systems mostly parse resumes and let recruiters search, so any score is a heuristic and is labeled that way.</li>
+        </ul></div>
+        <div class="col looks"><h4>In the app</h4>
+          <div class="mock">
+            <div class="mtitle">ATS readiness check</div>
+            <div class="row"><span class="ok">✓</span><span>Parses cleanly: one column, standard headings, dates found</span></div>
+            <div>Must-have terms covered: 7 of 9</div>
+            <div class="meter"><i style="width:78%"></i></div>
+            <div class="row"><span class="q">?</span><span>Missing: "Terraform", "incident response"</span></div>
+            <div class="btns"><span class="b primary">Review 4 edits</span><span class="b">Keep original</span></div>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="card agent">
+      <div class="agent-head">
+        <div class="icon" style="background:var(--warn-soft);color:var(--warn)"><svg viewBox="0 0 24 24"><path d="M4 4h16v16H4z"/><path d="M4 8l8 5 8-5"/></svg></div>
+        <div><h3>Applications agent</h3><div class="tag">Keeps every application's status current, automatically</div></div>
+        <span class="badge med risk">Medium: email access</span>
+      </div>
+      <div class="agent-body">
+        <div class="col works"><h4>Works well</h4><ul>
+          <li>Most tracking is ordinary app logic. The AI part is reading your inbox.</li>
+          <li>Detects confirmations, rejections, assessments, and interview invites, then updates status.</li>
+          <li>Adds interviews to your calendar and schedules follow-ups.</li>
+        </ul></div>
+        <div class="col limits"><h4>Constraints</h4><ul>
+          <li>Needs Gmail or Outlook access and your consent for what it reads.</li>
+          <li>Proposes a status change before applying it, with the email quoted.</li>
+        </ul></div>
+        <div class="col looks"><h4>In the app</h4>
+          <div class="mock">
+            <div class="mtitle">Detected from email</div>
+            <div class="row"><span class="ok">✓</span><span>Interview invite from Acme · Thu 2:00 PM</span></div>
+            <div class="quote">"We'd love to schedule a 45-minute call with our team…"</div>
+            <div class="btns"><span class="b primary">Update status</span><span class="b">Add to calendar</span><span class="b">Ignore</span></div>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="card agent">
+      <div class="agent-head">
+        <div class="icon" style="background:var(--good-soft);color:var(--good)"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="10" r="2.5"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6M15 20c0-2.2 1-4 3-4.5"/></svg></div>
+        <div><h3>Network agent</h3><div class="tag">Profile review, finding the right people, and follow-through</div></div>
+        <span class="badge med risk">Medium: platform rules</span>
+      </div>
+      <div class="agent-body">
+        <div class="col works"><h4>Works well</h4><ul>
+          <li>Reviews your profile against the goals you set.</li>
+          <li>Plans who to reach: alumni, second-degree connections, the hiring team at companies you applied to.</li>
+          <li>Drafts personalized notes and tracks replies, calls, and follow-ups, building on Stack's contacts and reminders.</li>
+        </ul></div>
+        <div class="col limits"><h4>Constraints</h4><ul>
+          <li>LinkedIn's terms prohibit scraping and automation, and there's no public API for reading others' profiles or sending messages. Use your own data export, pasted text, or a profile PDF.</li>
+          <li>You run searches in your own logged-in browser; the agent analyzes pages you share.</li>
+          <li>Email guessing and mass outreach raise privacy, spam-law, and account risks. Reddit and X APIs are paid or limited.</li>
+        </ul></div>
+        <div class="col looks"><h4>In the app</h4>
+          <div class="mock">
+            <div class="mtitle">Referral paths · Acme</div>
+            <div class="row"><span class="ok">✓</span><span>Jordan L. · same university, Staff Engineer</span></div>
+            <div class="row"><span class="ok">✓</span><span>Priya S. · former coworker's teammate</span></div>
+            <div class="row"><span class="q">?</span><span>No verified contact route for the hiring manager</span></div>
+            <div class="btns"><span class="b primary">Review 2 drafts</span><span class="b">Follow up Fri</span></div>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="card agent">
+      <div class="agent-head">
+        <div class="icon" style="background:var(--brand-soft);color:var(--brand)"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></div>
+        <div><h3>Prep agent</h3><div class="tag">Practice interviews that score your answers and show how to improve</div></div>
+        <span class="badge low risk">Low to medium</span>
+      </div>
+      <div class="agent-body">
+        <div class="col works" style="grid-column:1 / span 2"><h4>Three tiers, built in order</h4>
+          <div class="tiers">
+            <div class="tier"><b>1 · Timed questions</b><span>Typed answers, a timer, and rubric scoring for technical and behavioral questions.</span></div>
+            <div class="tier"><b>2 · Spoken answers</b><span>On-device transcription, scored on structure, specifics, filler words, and pacing.</span></div>
+            <div class="tier"><b>3 · Live interviewer</b><span>A voice conversation: speech-to-text → Claude → text-to-speech, about 1–2 s per turn.</span></div>
+          </div>
+          <h4 style="margin-top:16px;color:var(--warn)">Constraints</h4>
+          <ul>
+            <li>Claude's API takes text in and gives text out, so voice needs separate speech-to-text and text-to-speech steps.</li>
+            <li>As far as I know, Wispr Flow has no integration API. Open alternatives: Apple's on-device Speech framework, WhisperKit, whisper.cpp.</li>
+            <li>A video avatar costs a lot for little benefit. Build it last, if at all.</li>
+          </ul>
+        </div>
+        <div class="col looks"><h4>In the app</h4>
+          <div class="mock">
+            <div class="mtitle">Answer scorecard · 2:41</div>
+            <div class="row"><span class="ok">✓</span><span>Clear situation and result</span></div>
+            <div class="row"><span class="q">?</span><span>Your own role was vague: "we decided…"</span></div>
+            <div class="row"><span class="x">✕</span><span>14 filler words; ran 40 s long</span></div>
+            <div class="btns"><span class="b primary">See a stronger version</span><span class="b">Try again</span></div>
+          </div>
+        </div>
+      </div>
+    </article>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="section-head">
+    <div class="eyebrow">Prioritizing</div>
+    <h2>Value versus risk</h2>
+    <p class="lede">Where each capability sits. This is a judgment, not a measurement: risk covers cost, platform terms, privacy, and how brittle the implementation would be.</p>
+  </div>
+  <div class="figure">
+    <div class="scroll-hint">Swipe sideways to see the whole diagram →</div>
+    <div class="scroll"><svg viewBox="0 0 900 520" role="img" aria-labelledby="mTitle mDesc">
+      <title id="mTitle">Value versus risk map</title>
+      <desc id="mDesc">Capabilities plotted by user value and implementation risk. The Jobs fit read and resume tailoring sit at high value and low risk. Autonomous LinkedIn activity sits at high risk, in the do-not-build zone.</desc>
+      <rect x="470" y="30" width="410" height="200" rx="10" class="d-warn" opacity=".55"/>
+      <rect x="90" y="30" width="380" height="200" rx="10" class="d-good" opacity=".6"/>
+      <rect x="690" y="240" width="190" height="220" rx="10" style="fill:var(--bad-soft)"/>
+      <text x="104" y="54" class="d-goodtext">Build first</text>
+      <text x="484" y="54" class="d-warntext">Build carefully, with review</text>
+      <text x="704" y="264" style="fill:var(--bad);font-weight:700;font-size:13px">Don't build</text>
+      <line x1="90" y1="460" x2="880" y2="460" class="d-axis"/>
+      <line x1="90" y1="30" x2="90" y2="460" class="d-axis"/>
+      <text x="485" y="496" text-anchor="middle" class="d-small">Risk and effort →</text>
+      <text x="40" y="245" text-anchor="middle" class="d-small" transform="rotate(-90 40 245)">Value to you →</text>
+      <g class="dots">
+        <circle cx="160" cy="72" r="9" style="fill:var(--brand)"/><text x="176" y="77" class="d-label">Jobs fit read</text>
+        <circle cx="210" cy="110" r="9" style="fill:var(--brand)"/><text x="226" y="115" class="d-label">Resume tailoring + ATS check</text>
+        <circle cx="250" cy="168" r="9" style="fill:var(--brand)"/><text x="266" y="173" class="d-label">Network drafts + follow-ups</text>
+        <circle cx="140" cy="262" r="9" style="fill:var(--good)"/><text x="156" y="267" class="d-label">Prep: timed questions</text>
+        <circle cx="185" cy="330" r="9" style="fill:var(--good)"/><text x="201" y="335" class="d-label">LinkedIn profile review</text>
+        <circle cx="520" cy="96" r="9" style="fill:var(--warn)"/><text x="536" y="101" class="d-label">Email status tracking</text>
+        <circle cx="600" cy="150" r="9" style="fill:var(--warn)"/><text x="616" y="155" class="d-label">Assisted apply (Greenhouse/Lever/Ashby)</text>
+        <circle cx="480" cy="270" r="9" style="fill:var(--warn)"/><text x="496" y="275" class="d-label">Prep: spoken answers</text>
+        <circle cx="500" cy="330" r="9" style="fill:var(--warn)"/><text x="516" y="335" class="d-label">Live voice interviewer</text>
+        <circle cx="620" cy="400" r="9" style="fill:var(--faint)"/><text x="512" y="428" class="d-label">Workday auto-fill</text>
+        <circle cx="720" cy="300" r="9" style="fill:var(--bad)"/><text x="712" y="327" class="d-label">Autonomous</text><text x="712" y="343" class="d-label">LinkedIn actions</text>
+        <circle cx="800" cy="385" r="9" style="fill:var(--bad)"/><text x="712" y="412" class="d-label">Mass outreach,</text><text x="712" y="428" class="d-label">auto-submit</text>
+        <circle cx="660" cy="445" r="7" style="fill:var(--faint)"/><text x="646" y="450" text-anchor="end" class="d-small">Video avatar (last, if at all)</text>
+      </g>
+    </svg></div>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="section-head">
+    <div class="eyebrow">Powering the agents</div>
+    <h2>Subscriptions or API keys</h2>
+    <p class="lede">Put one provider interface under all the agents, with adapters for the Anthropic API, the OpenAI API, and a local CLI bridge. Choosing a subscription or API keys then becomes a setting, not a rewrite.</p>
+  </div>
+  <div class="grid g2">
+    <div class="card path">
+      <div class="when" style="color:var(--good)">If Stack is just for you</div>
+      <h3>Bridge to your own subscription</h3>
+      <p>The Mac server can call your own logged-in CLIs, <code>claude -p</code> or <code>codex exec</code>, using your existing plan.</p>
+      <ul>
+        <li>Simplest to start; no API billing.</li>
+        <li>Only works where you're logged in, which is your Mac.</li>
+        <li>Personal use only.</li>
+      </ul>
+    </div>
+    <div class="card path">
+      <div class="when" style="color:var(--brand)">If other people will use Stack</div>
+      <h3>Use API keys</h3>
+      <p>Theirs (bring your own key) or yours. Anthropic's Agent SDK documentation says third-party products shouldn't offer claude.ai login or subscription limits without approval. Check OpenAI's terms for Codex similarly.</p>
+      <ul>
+        <li>Choose the model per agent.</li>
+        <li>Batch processing roughly halves the cost of overnight listing scans.</li>
+        <li>A consent screen shows what each agent sends: resume, contacts, email excerpts.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="section-head">
+    <div class="eyebrow">Roadmap</div>
+    <h2>Suggested order: value first, risk last</h2>
+  </div>
+  <div class="road">
+    <div class="phase"><div class="n">PHASE 1</div><h3>Jobs fit read</h3><p>Builds directly on the matcher; read-only, low cost, immediately useful.</p></div>
+    <div class="phase"><div class="n">PHASE 2</div><h3>Resume tailoring</h3><p>Truthful edits with a diff, plus the parse and keyword check.</p></div>
+    <div class="phase"><div class="n">PHASE 3</div><h3>Email tracking</h3><p>Applications update themselves from replies in your inbox.</p></div>
+    <div class="phase"><div class="n">PHASE 4</div><h3>Interview prep</h3><p>Typed and timed first, then spoken answers, then a live interviewer.</p></div>
+    <div class="phase p5"><div class="n">PHASE 5</div><h3>Network drafting</h3><p>Referral plans, drafts you send, and follow-up tracking.</p></div>
+    <div class="phase p6"><div class="n">PHASE 6</div><h3>Assisted apply</h3><p>Prefill Greenhouse, Lever, and Ashby; you review and submit.</p></div>
+  </div>
+</section>
+
+<section class="wrap">
+  <div class="grid g2">
+    <div class="card dont">
+      <h3>Deliberately out of scope</h3>
+      <ul>
+        <li>Autonomous LinkedIn activity: scraping, auto-connecting, or auto-messaging.</li>
+        <li>Mass outreach or sending anything without your review.</li>
+        <li>Submitting applications without a final human confirmation.</li>
+        <li>Inventing experience, metrics, or credentials on a resume.</li>
+      </ul>
+    </div>
+    <div class="card questions">
+      <h3 style="margin-bottom:10px">Open questions</h3>
+      <ol>
+        <li><strong>What is "Muse"?</strong> I don't recognize it as an AI provider, so I can't yet say how it would connect.</li>
+        <li><strong>Just you, or other people eventually?</strong> That decides subscription bridge versus API keys.</li>
+        <li><strong>Which email provider do you use?</strong> That decides the first integration for the Applications agent.</li>
+      </ol>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer class="wrap">Stack · AI agents proposal · Prepared September 27, 2026 · Mockups are illustrative, not real data.</footer>
+
+<script>
+function toggleTheme(){
+  var root=document.documentElement;
+  var dark=root.getAttribute('data-theme')==='dark'||(!root.getAttribute('data-theme')&&window.matchMedia('(prefers-color-scheme: dark)').matches);
+  var next=dark?'light':'dark';
+  root.setAttribute('data-theme',next);
+  try{localStorage.setItem('stack-doc-theme',next);}catch(e){}
+}
+try{var saved=localStorage.getItem('stack-doc-theme');if(saved)document.documentElement.setAttribute('data-theme',saved);}catch(e){}
+</script>
+</body>
+</html>

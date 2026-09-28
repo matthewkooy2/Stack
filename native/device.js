@@ -13,6 +13,7 @@ const glyphs = {layers:Layers, jobs:Layers, applications:BriefcaseBusiness, netw
 export function Icon({name,size=22,color='#64748B'}) {return React.createElement(glyphs[name] || Layers,{size,color,strokeWidth:1.8});}
 export const apiBase = () => globalThis.__JAC_API_BASE_URL__ || Constants.expoConfig?.extra?.apiBaseUrl || 'http://127.0.0.1:8000';
 let token='', generation=0;
+let pushToken='', pushAttempt=0;
 let notifyChain=Promise.resolve();
 const sessionKey='stack.session.v1';
 const cacheDir=()=>Files.cacheDirectory+'stack-resumes/';
@@ -29,7 +30,7 @@ async function request(path,body,authenticated=true) {
     }
     return json.data;
   } catch(e) {
-    if(e.name==='AbortError' || e.message==='Network request failed') throw new Error('Cannot reach your Mac. Check Wi-Fi and the Stack server, then retry.');
+    if(e.name==='AbortError' || e.message==='Network request failed') throw new Error('Cannot reach Stack. Check your connection and retry.');
     throw e;
   } finally {clearTimeout(timer);}
 }
@@ -44,17 +45,18 @@ export async function authenticate(username,password,signup){
 }
 export async function rpc(name,args={}) {const data=await request('/function/'+name,args); const result=data?.result; if(result?.error) throw new Error(result.error); return result;}
 let swipeQueue=Promise.resolve();
-export function persistSwipe(jobId,action){
+export function persistSwipe(jobId,action,startAgent=false){
   const observed=generation;
   const operation=swipeQueue.catch(()=>{}).then(async()=>{
     if(observed!==generation) throw new Error('Your session changed. Please sign in again.');
-    const result=await rpc('swipe',{job_id:jobId,action});
+    const result=await rpc('swipe',{job_id:jobId,action,start_agent:startAgent});
     if(observed!==generation) throw new Error('Your session changed.');
     return result;
   });
   swipeQueue=operation;return operation;
 }
 export async function signOut(){
+  if(pushToken && token){try {await rpc('agent_remove_push',{device_token:pushToken});}catch {} pushToken='';}pushAttempt=0;
   generation++; token='';
   await notifyChain.catch(()=>{});
   const cleanup=await Promise.allSettled([SecureStore.deleteItemAsync(sessionKey),Notifications.cancelAllScheduledNotificationsAsync(),Notifications.dismissAllNotificationsAsync(),Files.deleteAsync(cacheDir(),{idempotent:true})]);
@@ -94,10 +96,15 @@ export function reconcileNotifications(state,ask=false){
   const epoch=generation;
   notifyChain=notifyChain.catch(()=>{}).then(async()=>{
     if(epoch!==generation || !token) return '';
-    if(!state.profile.notifications){await Notifications.cancelAllScheduledNotificationsAsync();return '';}
+    if(!state.profile.notifications){if(pushToken){await rpc('agent_remove_push',{device_token:pushToken});pushToken='';}await Notifications.cancelAllScheduledNotificationsAsync();return '';}
     let permissions=await Notifications.getPermissionsAsync();
     if(ask && !permissions.granted && permissions.canAskAgain) permissions=await Notifications.requestPermissionsAsync();
     if(!permissions.granted){await Notifications.cancelAllScheduledNotificationsAsync();return ask?'Reminder saved. Enable notifications in iPhone Settings to receive alerts.':'';}
+    const projectId=Constants.expoConfig?.extra?.eas?.projectId;
+    if(Constants.expoConfig?.extra?.pushEnabled && projectId && !pushToken && Date.now()-pushAttempt>60000){
+      pushAttempt=Date.now();
+      try {const device=await Notifications.getExpoPushTokenAsync({projectId});if(epoch===generation){await rpc('agent_register_push',{device_token:device.data});pushToken=device.data;}} catch { /* Local reminders remain available while registration is retried. */ }
+    }
     const wanted=state.reminders.filter(r=>!r.done && r.due_at>Date.now()/1000);
     const scheduled=await Notifications.getAllScheduledNotificationsAsync();
     for(const old of scheduled){const r=wanted.find(r=>'stack-'+state.user_id+'-'+r.id===old.identifier);if(!r || (old.content.data?.due_at!==r.due_at || old.content.body!==r.title)) await Notifications.cancelScheduledNotificationAsync(old.identifier);}

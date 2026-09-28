@@ -1,0 +1,21 @@
+[Unit]
+Description=Stack durable adapter worker
+After=stack-api.service
+
+[Service]
+User=stack
+WorkingDirectory=/opt/stack
+EnvironmentFile=/etc/stack/worker.env
+Environment=STACK_JAC_BIN=/usr/local/bin/jac
+ExecStart=/opt/stack/scripts/jac run --no-serve scripts/agent-worker.jac
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/stack/.jac
+
+[Install]
+WantedBy=multi-user.target

@@ -29,11 +29,13 @@ def addresses(host, port):
     return ips
 
 
-def fetch(url, headers=None, body=None, method=None, body_limit=MAX_BODY):
+def fetch(url, headers=None, body=None, method=None, body_limit=MAX_BODY, allowed_hosts=None):
     """DNS is checked AND the connection pinned; redirects are checked individually."""
     initial = public_url(url).hostname
     for _ in range(5):
         p = public_url(url)
+        if allowed_hosts is not None and p.hostname not in allowed_hosts:
+            raise ValueError('Redirect is outside the selected source.')
         port = p.port or (443 if p.scheme == 'https' else 80)
         ip = addresses(p.hostname, port)[0]
         conn = http.client.HTTPConnection(p.hostname, port, timeout=20)
@@ -70,14 +72,14 @@ def json_fetch(url, **kwargs):
     return json.loads(fetch(url, **kwargs)['text'])
 
 
-def page_fetch(url):
+def page_fetch(url, allowed_hosts=None):
     p=public_url(url)
     robots_url=f'{p.scheme}://{p.netloc}/robots.txt'
     try:
-        robots=fetch(robots_url)['text']
+        robots=fetch(robots_url, allowed_hosts=allowed_hosts)['text']
     except ValueError as exc:
         if 'HTTP 404' not in str(exc): raise ValueError('Unable to establish crawl permission.') from None
         robots=''
     rp=RobotFileParser(); rp.parse(robots.splitlines())
     if not rp.can_fetch('StackJobDiscovery',url): raise ValueError('This site disallows automated collection.')
-    return fetch(url)
+    return fetch(url, allowed_hosts=allowed_hosts)

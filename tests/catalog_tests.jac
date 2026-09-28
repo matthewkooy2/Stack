@@ -2,6 +2,20 @@ import time;
 import core.catalog as catalog;
 import from unittest.mock { patch }
 
+test "reading a SmartRecruiters listing preserves its application and identity" {
+    url="https://jobs.smartrecruiters.com/AECOM2/744000149712580-rail-systems-coordinator?oga=true&trid=keep";
+    data={"source":"smartrecruiters","url":url,"canonical_url":url,"title":"Rail Systems Coordinator","description":"Full employer description"};
+    listing=catalog.CatalogJob(key="existing-id",canonical_url=url,identity=url,data=data);
+    view=catalog._job_view(listing);
+    assert view["listing_url"]==url.replace("oga=true&", "");
+    assert view["url"]==url and view["canonical_url"]==url and view["id"]=="existing-id";
+    assert view["description"]==data["description"] and "listing_url" not in listing.data;
+    assert catalog._listing_url({"source":"adzuna","url":url})==url;
+    assert catalog._listing_url({"source":"smartrecruiters","url":"https://other.example/job?oga=true"})=="https://other.example/job?oga=true";
+    assert catalog._listing_url({"source":"smartrecruiters","url":"https://jobs.smartrecruiters.com/Board/123?x=&oga=true&OGA=false#details"})=="https://jobs.smartrecruiters.com/Board/123?x=#details";
+    assert catalog._listing_url({"source":"smartrecruiters","url":"https://jobs.smartrecruiters.com/Board/123"})=="https://jobs.smartrecruiters.com/Board/123";
+}
+
 glob counters: dict[str, catalog.Usage] = {};
 def fake_usage(key: str) -> catalog.Usage {
     if key not in counters { counters[key]=catalog.Usage(key=key); }

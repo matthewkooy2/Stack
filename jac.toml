@@ -7,6 +7,11 @@ default-app = "Stack"
 
 [dependencies]
 pypdf = "==6.9.2"
+cryptography = "==46.0.5"
+reportlab = "==4.4.10"
+websockets = "==17.0.1"
+google-auth = "==2.40.3"
+requests = "==2.32.5"
 
 [dev-dependencies]
 watchdog = "==6.0.0"
@@ -19,6 +24,14 @@ entry-point = "main"
 kind = "mobile"
 entry-point = "mobile.main"
 platform = "ios"
+
+[apps.workspace]
+kind = "web-app"
+entry-point = "web.main"
+
+[apps.workspace.dependencies.npm]
+react = "19.2.3"
+react-dom = "19.2.3"
 
 [apps.mobile.dependencies.npm]
 react = "19.2.3"
@@ -45,4 +58,4 @@ lucide-react-native = "1.48.0"
 enabled = false
 
 [database]
-indexes = { JobAlias = ["key"], CatalogJob = ["key", "canonical_url", "identity", "active", "checked_at"], JobSource = ["key", "next_at"], DiscoveryRequest = ["status", "key"] }
+indexes = { JobAlias = ["key"], CatalogJob = ["key", "canonical_url", "identity", "active", "checked_at"], JobSource = ["key", "next_at"], DiscoveryRequest = ["status", "key"], AgentRun = ["key", "status", "created_at"], AgentTicket = ["state", "due_at"], AgentUsage = ["key"], AgentEvent = ["key"], PrepSession = ["updated_at"] }

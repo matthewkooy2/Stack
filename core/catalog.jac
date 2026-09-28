@@ -6,6 +6,7 @@ import secrets;
 import from pathlib { Path }
 import from uuid { UUID, uuid4 }
 import from threading { RLock }
+import from urllib.parse { urlsplit, urlunsplit, parse_qsl, urlencode }
 import from jaclang.runtime.runtime { JacRuntime }
 import from discovery.normalize { digest, canonical, matches, validate_filters, source_enabled, taxonomy, classify, dedupe_bucket, same_opening, plain }
 import from discovery.card { card_view }
@@ -50,9 +51,24 @@ def _job(id: str) -> CatalogJob | None {
     for j in [root.shared -->][?:CatalogJob][?key==id] { return j; }
     return None;
 }
+def _listing_url(data: dict[str, any]) -> str {
+    url=str(data.get("url", ""));
+    # SmartRecruiters applyUrl skips the description when oga is present.
+    # Derive the reading link at response time for old and new records alike;
+    # keep application destinations and persisted deduplication identities intact.
+    if data.get("source")=="smartrecruiters" {
+        parsed=urlsplit(url);
+        if parsed.hostname=="jobs.smartrecruiters.com" and not parsed.path.startswith("/oneclick-ui/") {
+            query=[(k,v) for (k,v) in parse_qsl(parsed.query,keep_blank_values=True) if k.lower()!="oga"];
+            return urlunsplit((parsed.scheme,parsed.netloc,parsed.path,urlencode(query),parsed.fragment));
+        }
+    }
+    return url;
+}
 def _job_view(j: CatalogJob) -> dict[str, any] {
     data=dict(j.data); data["posted"]=posting_label(data.get("posted_at",0)); data["occupation"]=classify(str(data["title"])); data["id"]=j.key; data["active"]=j.active and (not data.get("expires_at") or data["expires_at"]>time.time()); data["checked_at"]=j.checked_at;
     data["discovered_at"]=j.discovered_at; data["stale"]=j.checked_at<time.time()-604800; data["sources"]=[v for v in j.observations.values()];
+    data["listing_url"]=_listing_url(data);
     # Derived once per cached view; tags come from the same facts matching uses.
     data["facts"]=current_facts(data); data["tags"]=[x for x in data["facts"]["employment"]+[data["facts"]["level"]] if x];
     return data;

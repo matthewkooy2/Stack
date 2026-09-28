@@ -1,0 +1,16 @@
+[Unit]
+Description=Stack web workspace and public API gateway
+After=stack-api.service
+
+[Service]
+User=stack
+WorkingDirectory=/opt/stack
+ExecStart=/usr/bin/python3 -m agents.gateway
+Restart=on-failure
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

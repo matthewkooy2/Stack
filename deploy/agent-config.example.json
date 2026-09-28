@@ -1,0 +1,28 @@
+{
+  "invite_only": true,
+  "web_url": "https://stack.example.com",
+  "monthly_cents": 0,
+  "user_monthly_cents": 0,
+  "model": "",
+  "provider": "openai",
+  "local_cli_owner": "",
+  "local_cli_daily_limit": 0,
+  "input_cents_per_million": 0,
+  "output_cents_per_million": 0,
+  "max_output_tokens": 3000,
+  "certified_adapters": [],
+  "action_daily_limits": {
+    "browser_fill": 0,
+    "submit_application": 0,
+    "send_email": 0,
+    "calendar_write": 0
+  },
+  "voice": {
+    "enabled": false,
+    "model": "",
+    "url": "wss://stack.example.com/voice",
+    "maximum_input_cents_per_million": 0,
+    "maximum_output_cents_per_million": 0,
+    "transcription_cents_per_minute": 0
+  }
+}

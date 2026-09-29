@@ -27,6 +27,8 @@ import from core.automation {
 import from agents.contracts { authorize, config, digest, model_status, validate_facts, STEPS }
 import from agents.latex { load as latex_load, pack as latex_pack, unpack as latex_unpack, encode as latex_encode, compile as latex_compile, parse as latex_parse, summary as latex_summary, outline as latex_outline }
 import from agents.parse_check { compare as parse_compare, expected_profile }
+import from agents.scoring { score as resume_score, summary as score_summary, outline_from_parser }
+import from agents.tailoring { resume_text }
 import from agents.resume_templates { TEMPLATES as LATEX_TEMPLATES, fill as fill_template }
 import from agents.resume_parser { parse_pdf, sections as resume_sections, validate_values, confirmed_facts }
 import from agents.voice { voice_settings }
@@ -46,7 +48,8 @@ node Resume { has name: str, file_key: str, size: int, created_at: float, review
 """A final tailored resume: saved once per tailoring task, kept separate from the user's uploads."""
 node TailoredResume {
     has name: str, run_id: str, application_id: str, job_title: str, company: str, source_resume_id: str, source_name: str,
-        pdf_key: str, tex: str, created_at: float, outline: list[dict[str, any]] = [], pages: int = 1, format: str = "", parse: dict[str, any] = {};
+        pdf_key: str, tex: str, created_at: float, outline: list[dict[str, any]] = [], pages: int = 1, format: str = "", parse: dict[str, any] = {},
+        score: dict[str, any] = {};
 }
 node Reminder { has target_type: str, target_id: str, title: str, due_at: float, done: bool = False; }
 node Settings { has selected_resume: str = "", tailored_backfilled: bool = False; }
@@ -237,7 +240,7 @@ def _owned_tailored(id: str) -> TailoredResume | None {
 }
 def _tailored_view(x: TailoredResume) -> dict[str, any] {
     return {"id":jid(x),"name":x.name,"job_title":x.job_title,"company":x.company,"application_id":x.application_id,"run_id":x.run_id,
-        "source_name":x.source_name,"created_at":x.created_at,"pages":x.pages,"format":x.format,"parse":x.parse};
+        "source_name":x.source_name,"created_at":x.created_at,"pages":x.pages,"format":x.format,"parse":x.parse,"score":x.score};
 }
 def _tailored_filename(x: TailoredResume) -> str {
     return "Resume - "+" - ".join([p for p in [x.company,x.job_title] if p])[:120].replace("/","-")+".pdf";
@@ -251,13 +254,20 @@ def _save_tailored(r: AgentRun) -> str {
     _write_private(key,base64.b64decode(t["pdf"]["content"]));
     x=root ++> TailoredResume(name=(title+" at "+company if title and company else title or company or "Tailored resume")[:200],run_id=jid(r),application_id=r.context.get("application_id",""),
         job_title=title[:200],company=company[:200],source_resume_id=r.context.get("resume_id",""),source_name=r.context.get("resume_name",""),
-        pdf_key=key,tex=str(t.get("tex",""))[:400000],created_at=time.time(),outline=t.get("outline",[]),pages=int(t["pdf"].get("pages",1)),format=str(t.get("format","")));
+        pdf_key=key,tex=str(t.get("tex",""))[:400000],created_at=time.time(),outline=t.get("outline",[]),pages=int(t["pdf"].get("pages",1)),format=str(t.get("format","")),
+        score=t.get("score",{}));
     return jid(x);
 }
 """Once per account: saves tasks that finished before tailored resumes were kept separately.
 Later ones are saved when they finish, so a deleted tailored resume is not brought back."""
 def _backfill_tailored() -> None {
     if _settings().tailored_backfilled { return; }
+    saved=[x.run_id for x in [root -->][?:TailoredResume]];
+    if not [r for r in [root -->][?:AgentRun] if r.artifacts.get("tailor",{}).get("final") and jid(r) not in saved] {
+        _settings().tailored_backfilled=True;return;
+    }
+    # bootstrap() follows other writes (such as an upload); keep them before re-reading under the lock.
+    commit();
     with _write_lock {
         _agent_fresh();settings=_settings();
         if settings.tailored_backfilled { return; }
@@ -308,6 +318,26 @@ def:priv read_tailored_resume(id: str) -> dict[str, any] {
 def:priv check_tailored_resume(id: str) -> dict[str, any] {
     if _owned_tailored(id) is None { return _error("Tailored resume not found."); }
     _check_tailored(id);return bootstrap();
+}
+"""Scores the job's resume for this job without a model: its LaTeX when it has one, otherwise what the parser reads
+from the PDF. Nothing is stored. See docs/RESUME_SCORING.md."""
+def:priv score_resume(application_id: str) -> dict[str, any] {
+    apps=[a for a in [root -->][?:Application] if jid(a)==application_id and not a.demo];
+    if not apps { return _error("Saved job not found."); }
+    found=_application_resume(apps[0]);
+    if found is None { return _error("Upload your resume on the Resume tab first."); }
+    r: Resume = found;
+    facts=[f for f in _agent_memory().facts if f.get("verified")];outline: any = [];text: any = "";kind="pdf";
+    try {
+        if _tailor_source(r) {
+            source=_resume_source(r);structure=latex_parse(source);outline=latex_outline(structure);text=resume_text(structure["tex"]);kind="latex";
+        } else {
+            parsed=r.review if r.review.get("values") else parse_pdf(_file_path(r.file_key));
+            outline=outline_from_parser(parsed["values"]);text=str(parsed.get("text",""));
+        }
+        result=score_summary(resume_score(outline,_application_job(apps[0]),facts,text=text));
+    } except ValueError as e { return _error(str(e)); }
+    return {"application_id":application_id,"resume_name":r.name,"source":kind,"score":result};
 }
 def:priv delete_tailored_resume(id: str) -> dict[str, any] {
     with _write_lock {

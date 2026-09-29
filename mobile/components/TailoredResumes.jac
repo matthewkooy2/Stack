@@ -2,6 +2,7 @@ import from "@jac/mobui" { View, Text }
 import from "../device.js" { rpc, errorText, Icon, shortDate, previewDocument, PDFView }
 import from ..theme { s }
 import from .UI { Button, Chip }
+import from .ScoreCard { ScoreCard }
 
 """Resumes Stack tailored for saved jobs, kept apart from uploads. Each is read back with the OpenResume parser."""
 def:pub TailoredResumes(items: list[dict[str, any]], onChanged: any) -> JsxElement {
@@ -52,6 +53,7 @@ def:pub TailoredCard(item: dict[str, any], onChanged: any) -> JsxElement {
             <Text style={s.small}>{"Tailored for "+item["company"] if item["company"] else "Tailored resume"}</Text></View></View>
         <Text style={s.small}>{shortDate(item["created_at"])+" · "+str(item["pages"])+(" page" if item["pages"]==1 else " pages")+(" · from "+item["source_name"] if item["source_name"] else "")}</Text>
         <View style={[s.pill,{backgroundColor:tone["bg"]}]}><Text style={[s.pillText,{color:tone["fg"]}]}>{parseSummary(parse)}</Text></View>
+        {<ScoreCard after={item["score"]["after"]} before={item["score"].get("before") or {}} title="SCORE FOR THIS JOB"/> if item.get("score",{}).get("after") else <View/>}
         <Button label="Preview tailored PDF" secondary={True} icon="resume" disabled={busy} onPress={lambda { open(False); }}/>
         <View style={s.wrap}>
             {<Chip label={"Hide parser check" if showChecks else "Parser check"} active={showChecks} onPress={lambda { showChecks=not showChecks; }}/> if len(parse)>0 else <View/>}

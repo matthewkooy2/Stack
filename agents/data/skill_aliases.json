@@ -1,0 +1,702 @@
+{
+  "note": "Hand-curated additions to O*NET Technology Skills: concepts O*NET lists as tasks rather than tools, newer tools, and the short forms people write. Aliases in exact_case only match with that capitalization.",
+  "aliases": {
+    "JavaScript": [
+      "JS",
+      "ECMAScript"
+    ],
+    "TypeScript": [
+      "TS"
+    ],
+    "PostgreSQL": [
+      "Postgres",
+      "Postgre",
+      "psql"
+    ],
+    "Kubernetes": [
+      "k8s",
+      "K8s"
+    ],
+    "Google Cloud": [
+      "GCP",
+      "Google Cloud Platform"
+    ],
+    "AWS": [
+      "Amazon AWS"
+    ],
+    "Microsoft Azure": [
+      "Azure"
+    ],
+    "Node.js": [
+      "Node",
+      "NodeJS",
+      "Node JS"
+    ],
+    "React": [
+      "React.js",
+      "ReactJS",
+      "React JS"
+    ],
+    "Python": [
+      "Python3",
+      "Python 3"
+    ],
+    "SQL": [
+      "T-SQL",
+      "PL/SQL",
+      "sql"
+    ],
+    "C#": [
+      "C Sharp",
+      ".NET C#"
+    ],
+    "Go": [
+      "Golang"
+    ],
+    "Scikit-learn": [
+      "sklearn",
+      "scikit learn"
+    ],
+    "Microsoft Power BI": [
+      "Power BI",
+      "PowerBI"
+    ],
+    "Amazon Redshift": [
+      "Redshift"
+    ],
+    "Google BigQuery": [
+      "BigQuery"
+    ],
+    "Apache Spark": [
+      "Spark",
+      "PySpark"
+    ],
+    "Apache Kafka": [
+      "Kafka"
+    ],
+    "Apache Airflow": [
+      "Airflow"
+    ],
+    "Microsoft SharePoint": [
+      "SharePoint"
+    ],
+    "Microsoft PowerPoint": [
+      "PowerPoint"
+    ],
+    "GitHub": [
+      "Github"
+    ]
+  },
+  "exact_case": [
+    "Airflow",
+    "Azure",
+    "BI",
+    "CV models",
+    "Codex",
+    "Cursor",
+    "Elastic",
+    "Excel",
+    "Express",
+    "Flask",
+    "Go",
+    "JS",
+    "ML",
+    "Node",
+    "REST",
+    "Redis",
+    "Rust",
+    "SSO",
+    "Spark",
+    "TS",
+    "Torch"
+  ],
+  "skills": [
+    {
+      "name": "Machine learning",
+      "aliases": [
+        "ML",
+        "machine-learning"
+      ]
+    },
+    {
+      "name": "Deep learning",
+      "aliases": [
+        "deep-learning",
+        "neural networks",
+        "neural network"
+      ]
+    },
+    {
+      "name": "Natural language processing",
+      "aliases": [
+        "NLP"
+      ]
+    },
+    {
+      "name": "Computer vision",
+      "aliases": [
+        "CV models",
+        "image recognition",
+        "object detection"
+      ]
+    },
+    {
+      "name": "Large language models",
+      "aliases": [
+        "LLM",
+        "LLMs",
+        "large language model"
+      ]
+    },
+    {
+      "name": "Generative AI",
+      "aliases": [
+        "GenAI",
+        "Gen AI",
+        "generative artificial intelligence"
+      ]
+    },
+    {
+      "name": "Prompt engineering",
+      "aliases": []
+    },
+    {
+      "name": "AI agents",
+      "aliases": [
+        "agentic workflows",
+        "agentic AI",
+        "AI agent"
+      ]
+    },
+    {
+      "name": "Data analysis",
+      "aliases": [
+        "data analytics",
+        "analyzing data",
+        "analyze data"
+      ]
+    },
+    {
+      "name": "Data visualization",
+      "aliases": [
+        "dashboards",
+        "dashboarding"
+      ]
+    },
+    {
+      "name": "Statistics",
+      "aliases": [
+        "statistical analysis",
+        "statistical modeling",
+        "statistical models"
+      ]
+    },
+    {
+      "name": "Data pipelines",
+      "aliases": [
+        "data pipeline"
+      ]
+    },
+    {
+      "name": "ETL",
+      "aliases": [
+        "ELT",
+        "extract transform load"
+      ]
+    },
+    {
+      "name": "Data modeling",
+      "aliases": [
+        "data modelling",
+        "data models"
+      ]
+    },
+    {
+      "name": "Data engineering",
+      "aliases": []
+    },
+    {
+      "name": "Data warehousing",
+      "aliases": [
+        "data warehouse",
+        "data warehouses"
+      ]
+    },
+    {
+      "name": "REST APIs",
+      "aliases": [
+        "REST",
+        "RESTful",
+        "RESTful APIs",
+        "REST API",
+        "RESTful API"
+      ]
+    },
+    {
+      "name": "APIs",
+      "aliases": [
+        "API",
+        "API design",
+        "web APIs"
+      ]
+    },
+    {
+      "name": "GraphQL",
+      "aliases": []
+    },
+    {
+      "name": "gRPC",
+      "aliases": []
+    },
+    {
+      "name": "Microservices",
+      "aliases": [
+        "microservice",
+        "micro-services"
+      ]
+    },
+    {
+      "name": "Distributed systems",
+      "aliases": [
+        "distributed system",
+        "distributed computing"
+      ]
+    },
+    {
+      "name": "System design",
+      "aliases": [
+        "systems design",
+        "software architecture"
+      ]
+    },
+    {
+      "name": "Object-oriented programming",
+      "aliases": [
+        "OOP",
+        "object oriented programming",
+        "object-oriented design"
+      ]
+    },
+    {
+      "name": "Data structures",
+      "aliases": [
+        "data structure"
+      ]
+    },
+    {
+      "name": "Algorithms",
+      "aliases": [
+        "algorithm",
+        "algorithmic"
+      ]
+    },
+    {
+      "name": "CI/CD",
+      "aliases": [
+        "CICD",
+        "CI / CD",
+        "continuous integration",
+        "continuous delivery",
+        "continuous deployment"
+      ]
+    },
+    {
+      "name": "Unit testing",
+      "aliases": [
+        "unit tests",
+        "unit test"
+      ]
+    },
+    {
+      "name": "Automated testing",
+      "aliases": [
+        "test automation",
+        "automated tests",
+        "integration testing",
+        "integration tests"
+      ]
+    },
+    {
+      "name": "A/B testing",
+      "aliases": [
+        "A/B tests",
+        "AB testing",
+        "experimentation"
+      ]
+    },
+    {
+      "name": "DevOps",
+      "aliases": []
+    },
+    {
+      "name": "Infrastructure as code",
+      "aliases": [
+        "IaC"
+      ]
+    },
+    {
+      "name": "Observability",
+      "aliases": [
+        "monitoring",
+        "logging and monitoring"
+      ]
+    },
+    {
+      "name": "Cloud computing",
+      "aliases": [
+        "cloud infrastructure",
+        "cloud services",
+        "cloud platforms"
+      ]
+    },
+    {
+      "name": "Serverless",
+      "aliases": [
+        "serverless computing"
+      ]
+    },
+    {
+      "name": "Networking",
+      "aliases": [
+        "computer networking",
+        "TCP/IP"
+      ]
+    },
+    {
+      "name": "Cybersecurity",
+      "aliases": [
+        "security engineering",
+        "information security",
+        "application security"
+      ]
+    },
+    {
+      "name": "Authentication",
+      "aliases": [
+        "OAuth",
+        "OAuth 2.0",
+        "SSO",
+        "single sign-on"
+      ]
+    },
+    {
+      "name": "Agile",
+      "aliases": [
+        "Scrum",
+        "Kanban",
+        "agile development"
+      ]
+    },
+    {
+      "name": "Version control",
+      "aliases": [
+        "source control"
+      ]
+    },
+    {
+      "name": "Code review",
+      "aliases": [
+        "code reviews"
+      ]
+    },
+    {
+      "name": "Frontend development",
+      "aliases": [
+        "frontend",
+        "front-end",
+        "front end"
+      ]
+    },
+    {
+      "name": "Backend development",
+      "aliases": [
+        "backend",
+        "back-end",
+        "back end",
+        "server-side"
+      ]
+    },
+    {
+      "name": "Full-stack development",
+      "aliases": [
+        "full stack",
+        "full-stack",
+        "fullstack"
+      ]
+    },
+    {
+      "name": "Mobile development",
+      "aliases": [
+        "mobile apps",
+        "mobile applications"
+      ]
+    },
+    {
+      "name": "Embedded systems",
+      "aliases": [
+        "embedded software",
+        "firmware"
+      ]
+    },
+    {
+      "name": "Performance optimization",
+      "aliases": [
+        "performance tuning",
+        "latency optimization"
+      ]
+    },
+    {
+      "name": "Caching",
+      "aliases": [
+        "cache",
+        "caches"
+      ]
+    },
+    {
+      "name": "Concurrency",
+      "aliases": [
+        "multithreading",
+        "multi-threading",
+        "parallel programming"
+      ]
+    },
+    {
+      "name": "Relational databases",
+      "aliases": [
+        "relational database",
+        "RDBMS",
+        "SQL databases"
+      ]
+    },
+    {
+      "name": "NoSQL",
+      "aliases": [
+        "NoSQL databases"
+      ]
+    },
+    {
+      "name": "Business intelligence",
+      "aliases": [
+        "BI"
+      ]
+    },
+    {
+      "name": "Financial modeling",
+      "aliases": [
+        "financial models",
+        "financial modelling"
+      ]
+    },
+    {
+      "name": "Forecasting",
+      "aliases": [
+        "forecast models",
+        "demand forecasting"
+      ]
+    },
+    {
+      "name": "Product management",
+      "aliases": [
+        "product roadmap",
+        "roadmapping"
+      ]
+    },
+    {
+      "name": "Project management",
+      "aliases": []
+    },
+    {
+      "name": "Technical writing",
+      "aliases": [
+        "documentation"
+      ]
+    },
+    {
+      "name": "FastAPI",
+      "aliases": []
+    },
+    {
+      "name": "Flask",
+      "aliases": []
+    },
+    {
+      "name": "Django",
+      "aliases": []
+    },
+    {
+      "name": "Express",
+      "aliases": [
+        "Express.js",
+        "ExpressJS"
+      ]
+    },
+    {
+      "name": "Next.js",
+      "aliases": [
+        "NextJS"
+      ]
+    },
+    {
+      "name": "Tailwind CSS",
+      "aliases": [
+        "Tailwind"
+      ]
+    },
+    {
+      "name": "Supabase",
+      "aliases": []
+    },
+    {
+      "name": "DuckDB",
+      "aliases": []
+    },
+    {
+      "name": "Parquet",
+      "aliases": [
+        "Apache Parquet"
+      ]
+    },
+    {
+      "name": "Snowflake",
+      "aliases": []
+    },
+    {
+      "name": "dbt",
+      "aliases": [
+        "data build tool"
+      ]
+    },
+    {
+      "name": "Redis",
+      "aliases": []
+    },
+    {
+      "name": "Terraform",
+      "aliases": []
+    },
+    {
+      "name": "Cloud Run",
+      "aliases": [
+        "Google Cloud Run"
+      ]
+    },
+    {
+      "name": "Vercel",
+      "aliases": []
+    },
+    {
+      "name": "Pydantic",
+      "aliases": []
+    },
+    {
+      "name": "PyTorch",
+      "aliases": [
+        "Torch"
+      ]
+    },
+    {
+      "name": "TensorFlow",
+      "aliases": []
+    },
+    {
+      "name": "Hugging Face",
+      "aliases": [
+        "HuggingFace"
+      ]
+    },
+    {
+      "name": "LangChain",
+      "aliases": []
+    },
+    {
+      "name": "OpenCV",
+      "aliases": []
+    },
+    {
+      "name": "YOLO",
+      "aliases": []
+    },
+    {
+      "name": "CatBoost",
+      "aliases": []
+    },
+    {
+      "name": "XGBoost",
+      "aliases": []
+    },
+    {
+      "name": "LightGBM",
+      "aliases": []
+    },
+    {
+      "name": "Jupyter",
+      "aliases": [
+        "Jupyter Notebook",
+        "Jupyter notebooks"
+      ]
+    },
+    {
+      "name": "GitHub Actions",
+      "aliases": []
+    },
+    {
+      "name": "GitLab",
+      "aliases": [
+        "GitLab CI"
+      ]
+    },
+    {
+      "name": "Datadog",
+      "aliases": []
+    },
+    {
+      "name": "Grafana",
+      "aliases": []
+    },
+    {
+      "name": "Prometheus",
+      "aliases": []
+    },
+    {
+      "name": "Elasticsearch",
+      "aliases": [
+        "Elastic",
+        "OpenSearch"
+      ]
+    },
+    {
+      "name": "Streamlit",
+      "aliases": []
+    },
+    {
+      "name": "Microsoft Graph",
+      "aliases": [
+        "MS Graph"
+      ]
+    },
+    {
+      "name": "Microsoft Entra ID",
+      "aliases": [
+        "Entra ID",
+        "Azure AD",
+        "Azure Active Directory"
+      ]
+    },
+    {
+      "name": "Claude Code",
+      "aliases": []
+    },
+    {
+      "name": "Cursor",
+      "aliases": []
+    },
+    {
+      "name": "Codex",
+      "aliases": []
+    },
+    {
+      "name": "Rust",
+      "aliases": []
+    }
+  ]
+}

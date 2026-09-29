@@ -218,6 +218,8 @@ test "tailoring refuses a PDF-only resume, then tailors a chosen built-in templa
                 proposal=result["artifact"];pdf=proposal["pdf"];
                 assert base64.b64decode(pdf["content"]).startswith(b"%PDF-") and pdf["pages"]==1 and pdf["checks"]["fits"], pdf["pages"];
                 assert proposal["format"]=="builtin" and not proposal["final"] and "\\resumeItem{Rewritten:" in proposal["tex"];
+                # Scored before and after for this job, without a model.
+                assert proposal["score"]["before"]["match"] is not None and proposal["score"]["after"]["quality"] is not None, proposal["score"];
                 assert [c["kind"] for c in proposal["changes"]]==["rewrite"] and "Rewritten:" in pdf["text"] and "Rewritten:" not in pdf["original_text"];
                 finish(client,claim,result);assert work(client,"agent_claim").get("idle");client.set_auth_token(token);
                 pending=rpc(client,"agent_run",{"id":run["id"]});
@@ -239,6 +241,7 @@ test "tailoring refuses a PDF-only resume, then tailors a chosen built-in templa
                 assert [r["id"] for r in state["resumes"]]==[resume_id] and len(saved)==1, saved;
                 assert saved[0]["run_id"]==run["id"] and saved[0]["company"]=="Review Test Co" and "Analyst" in saved[0]["job_title"] and saved[0]["source_name"]=="Candidate.pdf", saved;
                 assert saved[0]["parse"]["ok"] and saved[0]["parse"]["total"]>=5, saved[0]["parse"];
+                assert saved[0]["score"]["before"]==proposal["score"]["before"] and saved[0]["score"]["after"]["match"] is not None, saved[0]["score"];
                 opened=rpc(client,"read_tailored_resume",{"id":saved[0]["id"]});
                 assert base64.b64decode(opened["pdf"]["content"])==base64.b64decode(final["pdf"]["content"]) and opened["pdf"]["name"].startswith("Resume - Review Test Co") and "\\documentclass" in opened["tex"];
                 assert rpc(client,"check_tailored_resume",{"id":saved[0]["id"]})["tailored_resumes"][0]["parse"]["ok"];
@@ -275,6 +278,9 @@ test "an uploaded LaTeX source is checked, compiled, and tailored without confir
                 # The job now uses the default resume, but it is only a PDF: tailoring is refused and readiness says why.
                 assert "Upload the LaTeX for Candidate.pdf" in rpc(client,"agent_start",{"kind":"resume","target_id":application["id"]}).get("error","");
                 assert rpc(client,"agent_activity")["runs"]==[];
+                # A PDF-only resume can still be scored for the job, from what the parser reads.
+                pdf_score=rpc(client,"score_resume",{"application_id":application["id"]});
+                assert pdf_score["source"]=="pdf" and pdf_score["resume_name"]=="Candidate.pdf" and pdf_score["score"]["quality"] is not None, pdf_score;
                 readiness=[c for f in rpc(client,"agent_features")["features"] if f["key"]=="tailoring" for c in f["checks"] if c["key"]=="facts"][0];
                 assert not readiness["ok"] and "Candidate.pdf" in readiness["fix"], readiness;
                 # Built-in templates need confirmed details; unsafe or broken sources are refused.
@@ -290,6 +296,8 @@ test "an uploaded LaTeX source is checked, compiled, and tailored without confir
                 source=rpc(client,"read_resume_source",{"id":resume_id});
                 assert source["tex"]==tex and base64.b64decode(source["preview"]["content"]).startswith(b"%PDF-");
                 assert [c for f in rpc(client,"agent_features")["features"] if f["key"]=="tailoring" for c in f["checks"] if c["key"]=="facts"][0]["ok"];
+                latex_score=rpc(client,"score_resume",{"application_id":application["id"]});
+                assert latex_score["source"]=="latex" and latex_score["score"]["match"] is not None and latex_score["score"]["match_components"], latex_score;
                 # The user's own LaTeX needs no parsed-details confirmation.
                 run=rpc(client,"agent_start",{"kind":"resume","target_id":application["id"]});
                 assert [a for a in rpc(client,"bootstrap")["applications"] if a["id"]==application["id"]][0]["resume_id"]==resume_id;
@@ -306,6 +314,7 @@ test "an uploaded LaTeX source is checked, compiled, and tailored without confir
                 # Other accounts cannot read this source.
                 other=client.register_user("latex-other","Latex-test-password-2");client.set_auth_token(other.data["token"]);
                 assert "error" in rpc(client,"read_resume_source",{"id":resume_id}) and "error" in rpc(client,"upload_resume_source",{"id":resume_id,"name":"resume.tex","content":base64.b64encode(tex.encode()).decode()});
+                assert "error" in rpc(client,"score_resume",{"application_id":application["id"]});
                 client.set_auth_token(token);
                 assert rpc(client,"agent_run",{"id":run["id"]})["review"]["step"]=="approve_resume";
                 # LaTeX removed after a task started (as when preview data is replaced): the task pauses on the

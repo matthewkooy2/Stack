@@ -3,6 +3,7 @@ import from "../device.js" { rpc, errorText, openJobLink, dateTime, isoTime, Ico
 import from ..theme { s }
 import from .UI { Button, Field, Chip }
 import from .ResumeFormat { LatexSetup }
+import from .ScoreCard { ScoreCard }
 
 """Unsent answers and email edits survive refreshes and closing a task (per session)."""
 glob DRAFTS: dict[str, any] = {};
@@ -133,6 +134,7 @@ def TailoredResumeResult(value: dict[str, any], onPreview: any) -> JsxElement {
         {<Button label={"Preview tailored resume" if value.get("final") or legacy else "Preview proposed resume"} icon="resume" onPress={lambda { onPreview(pdf); }}/> if pdf.get("content") else <Text style={s.errorText}>No PDF was generated.</Text>}
         {<Text style={s.small}>{str(pdf.get("pages",0))+(" page" if pdf.get("pages",0)==1 else " pages")+" · "+("your LaTeX format" if value.get("format")=="latex" else "built-in LaTeX template")+" · your original is unchanged"}</Text> if not legacy else <Text style={s.small}>Your uploaded resume is unchanged.</Text>}
         {<Text style={s.body}>{value["summary"]}</Text> if value.get("summary") else <View/>}
+        {<ScoreCard after={value["score"]["after"]} before={value["score"].get("before") or {}} title="SCORE FOR THIS JOB"/> if value.get("score",{}).get("after") else <View/>}
         <View style={s.wrap}>{[<Chip key={tab} label={tab} active={comparison==tab} onPress={lambda { comparison=tab; }}/> for tab in ["Changes","Original text","Tailored text","LaTeX"] if tab!="LaTeX" or value.get("tex")]}</View>
         {<View style={{gap:12}}>
             {[<ChangeRow key={c["id"]} change={c} rejected={c["id"] in rejected}/> for c in changes]}
@@ -292,6 +294,7 @@ def:pub TaskDetail(id: str, features: list[dict[str, any]], webUrl: str, onBack:
                 {<Text style={s.small}>{"What changed in your resume:\n"+review["diff"]}</Text> if review.get("diff") else <View/>}
                 {<View style={{gap:10}}>
                     {<Text style={s.body}>{review["summary"]}</Text> if review.get("summary") else <View/>}
+                    {<ScoreCard after={review["score"]["after"]} before={review["score"].get("before") or {}} title="SCORE FOR THIS JOB · WITH EVERY CHANGE"/> if review.get("score",{}).get("after") else <View/>}
                     {<Button label="Preview proposed resume" secondary={True} icon="resume" onPress={lambda { preview(run["artifacts"]["tailor"]["pdf"]); }}/> if run.get("artifacts",{}).get("tailor",{}).get("pdf",{}).get("content") else <View/>}
                     <Text style={s.small}>{"The preview includes every change. Rejected changes go back to your original wording when Stack rebuilds · "+str(review.get("pages",0))+" page"}</Text>
                     <Text style={s.label}>{"CHANGES · "+str(len(review.get("changes",[]))-len([c for c in review.get("changes",[]) if c["id"] in rejected]))+" OF "+str(len(review.get("changes",[])))+" KEPT"}</Text>
@@ -389,13 +392,20 @@ def:pub AgentLaunch(application: dict[str, any], runs: list[dict[str, any]], fea
 
 """Resume-side agents: fact confirmation, tailoring for a saved job, profile suggestions."""
 def:pub ResumeAgents(applications: list[dict[str, any]], runs: list[dict[str, any]], features: list[dict[str, any]], onOpenTask: any, onNavigate: any, resumes: list[dict[str, any]] = [], onChanged: any = None) -> JsxElement {
-    has error: str = "", message: str = "", busy: bool = False, setupFor: str = "";
+    has error: str = "", message: str = "", busy: bool = False, setupFor: str = "", scores: dict[str, any] = {}, scoring: str = "";
     real=[a for a in applications if not a["demo"]];
     async def start(kind: str, target: str) -> None {
         if busy { return; } busy=True;error="";message="";
         try { result=await rpc("agent_start",{"kind":kind,"target_id":target});if kind=="resume" { onOpenTask(result["id"]); } else { message=result["title"]+" started. Follow it here or in Agents."; } }
         except Exception as e { error=errorText(e); }
         busy=False;
+    }
+    """Scores the job's resume for this job, instantly and without a model."""
+    async def scoreFor(app: dict[str, any]) -> None {
+        if scoring { return; } scoring=app["id"];error="";
+        try { scores=withKey(scores,app["id"],await rpc("score_resume",{"application_id":app["id"]})); }
+        except Exception as e { error=errorText(e); }
+        scoring="";
     }
     """Tailor with this resume, attaching it to the job first when the user picked a different one."""
     async def tailorWith(app: dict[str, any], resumeId: str) -> None {
@@ -414,6 +424,8 @@ def:pub ResumeAgents(applications: list[dict[str, any]], runs: list[dict[str, an
             {[<View key={a["id"]} style={s.actionRow}><Text style={s.strong}>{a["job"]["title"]}</Text><Text style={s.small}>{a["job"]["company"]}</Text>
                 {<Text style={s.small}>{"Resume: "+a["tailor"]["resume_name"]+(" · LaTeX ready" if a["tailor"]["ready"] else " · needs its LaTeX")}</Text> if a.get("tailor",{}).get("resume_id") else <Text style={s.small}>Upload your resume above to tailor for this job.</Text>}
                 {[<View key={t["id"]}><TaskRow run={t} onOpen={lambda { onOpenTask(t["id"]); }}/></View> for t in runsFor(runs,a["id"],["resume"])]}
+                {<ScoreCard after={scores[a["id"]]["score"]} title={"SCORE FOR THIS JOB · "+("YOUR LATEX" if scores[a["id"]]["source"]=="latex" else "YOUR PDF")}/> if a["id"] in scores else <View/>}
+                {<Chip label={"Scoring…" if scoring==a["id"] else ("Score again" if a["id"] in scores else "Score my resume")} onPress={lambda { scoreFor(a); }}/> if a.get("tailor",{}).get("resume_id") else <View/>}
                 {<LatexSetup resume={[r for r in resumes if r["id"]==a["tailor"]["resume_id"]][0]} others={[r for r in resumes if hasLatex(r) and r["id"]!=a["tailor"]["resume_id"]]} onChanged={lambda (next: dict[str, any]) { if onChanged { onChanged(next); } }} onReady={lambda (resumeId: str) { tailorWith(a,resumeId); }}/> if setupFor==a["id"] and len([r for r in resumes if r["id"]==a.get("tailor",{}).get("resume_id","")])>0 else
                     <Button label="Tailor for this job" secondary={True} disabled={busy or tailoring["state"]=="unavailable" or not a.get("tailor",{}).get("resume_id")} onPress={lambda { if a["tailor"]["ready"] { start("resume",a["id"]); } else { setupFor=a["id"]; } }}/>}</View> for a in real[0:5]]}
             {<Text style={s.small}>Save a real job from Jobs to tailor for it.</Text> if len(real)==0 else <View/>}

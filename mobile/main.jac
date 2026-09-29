@@ -64,7 +64,8 @@ def:pub app -> JsxElement {
     def navigate(action: str) -> None {
         if action=="resume-details" and len(state["resumes"])>0 { selected=state["selected_resume"] or state["resumes"][0]["id"];modal="Resume details";return; }
         destinations={"resume":"Resume","jobs":"Jobs","applications":"Applications","contacts":"Network","prep":"Prep"};
-        if destinations.get(action,"") { modal="";tab=destinations[action];return; }
+        # Refresh on arrival, so a result just produced in Agents (such as a tailored resume) is already listed.
+        if destinations.get(action,"") { modal="";tab=destinations[action];refresh();return; }
         if action=="facts" { openAgents("Facts");return; }
         if action=="features" { openAgents("Features");return; }
         openAgents("Rules");

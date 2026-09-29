@@ -3,7 +3,7 @@ import base64
 import re
 from collections import Counter
 from difflib import unified_diff
-from agents import latex
+from agents import latex, scoring
 
 MAX_PAGES = 1
 TERM = re.compile(r'[A-Za-z][A-Za-z0-9+#]*(?:[./-][A-Za-z0-9+#]+)*')
@@ -299,24 +299,37 @@ def _document(prepared, tex, compiled, dropped):
     return pdf, described, latex.outline(tailored)
 
 
-def tailor(prepared, data, facts):
+def resume_text(tex):
+    """The resume body as plain text, so the score sees coursework and other lines outside bullets."""
+    begin = tex.find('\\begin{document}')
+    return latex.plain(tex[begin:] if begin >= 0 else tex)
+
+
+def baseline_score(prepared, job, facts=()):
+    """The original resume's score for this job."""
+    return scoring.score(prepared['outline'], job, facts, text=resume_text(prepared['structure']['tex']))
+
+
+def tailor(prepared, data, facts, job=None):
     """Model proposal -> proposed tailored resume (all changes applied) for the user's review."""
     plan, changes, notes = check(prepared['structure'], data, facts)
     tex, compiled, dropped = fit(prepared, plan)
-    pdf, described, _ = _document(prepared, tex, compiled, dropped)
+    pdf, described, outline = _document(prepared, tex, compiled, dropped)
     if described:
         notes.append('To fit one page, Stack left out ' + str(len(described)) + ' of the least relevant item' + ('s' if len(described) > 1 else '') + '.')
     return {'summary': str(data.get('summary', '')), 'changes': changes, 'dropped': described, 'notes': notes, 'plan': plan,
             'evidence': data.get('evidence', []), 'source_digest': prepared['digest'], 'format': prepared['format'],
             'pdf': pdf, 'tex': tex, 'rejected': [], 'final': False,
-            'top_bullets': [{'key': id, 'value': prepared_text(prepared, id, plan)} for id in plan['ranking'][:3]]}
+            'top_bullets': [{'key': id, 'value': prepared_text(prepared, id, plan)} for id in plan['ranking'][:3]],
+            'score': {'before': scoring.summary(baseline_score(prepared, job, facts)),
+                      'after': scoring.summary(scoring.score(outline, job, facts, pages=pdf['pages'], text=resume_text(tex)))} if job else {}}
 
 
 def prepared_text(prepared, id, plan):
     return plan['rewrites'].get(id) or next(b['text'] for b in prepared['structure']['bullets'] if b['id'] == id)
 
 
-def finalize(prepared, tailored):
+def finalize(prepared, tailored, job=None, facts=()):
     """Rebuilds the resume with only the changes the user kept."""
     if prepared['digest'] != tailored.get('source_digest'):
         raise ValueError('Your resume source changed after tailoring. Start tailoring again.')
@@ -327,4 +340,6 @@ def finalize(prepared, tailored):
     kept = len(tailored.get('changes', [])) - len(rejected)
     return {'summary': 'Applied ' + str(kept) + ' of ' + str(len(tailored.get('changes', []))) + ' changes.',
             # The outline is what the parser check compares the final PDF against.
-            'tailor': {'pdf': pdf, 'tex': tex, 'dropped': described, 'final': True, 'applied_plan': plan, 'outline': outline}}
+            'tailor': {'pdf': pdf, 'tex': tex, 'dropped': described, 'final': True, 'applied_plan': plan, 'outline': outline,
+                       'score': {'before': tailored.get('score', {}).get('before') or scoring.summary(baseline_score(prepared, job, facts)),
+                                 'after': scoring.summary(scoring.score(outline, job, facts, pages=pdf['pages'], text=resume_text(tex)))} if job else {}}}

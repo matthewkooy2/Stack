@@ -256,6 +256,10 @@ async function agentScreenTests({ui,text,button,press,field,input,tick,labelled,
 }
 async function tailoringScreenTests(){
  const calls=[],refreshers=new Set();let opened='',confirmed=false,failSave=true,failUpload=true,ui;
+ const component=(key,label,score)=>({key,label,score,weight:10});
+ const scoreBefore={version:1,match:40,quality:70,match_components:[component('skills','Hard skills',35)],quality_components:[component('metrics','Quantified results',60)],missing:[],listed_only:[],keywords:[],stuffed:[],requirements:{},issues:[]};
+ const scoreAfter={...scoreBefore,match:55,quality:78,match_components:[component('skills','Hard skills',52)],missing:[{term:'Kubernetes',required:true,supported:false}],listed_only:['Docker'],
+  requirements:{years:{min:2},resume_years:1.5},issues:[{kind:'metric',id:'s1.e0.b1',where:'Experience · Analyst',text:'Built a tool',detail:'No number, %, $ or scale'}]};
  const pdfOnly=[{id:'resume',name:'Candidate.pdf',format:{kind:''},details_status:'Needs review'},{id:'latex',name:'Overleaf.pdf',format:{kind:'upload'},details_status:'Not parsed'}];
  let resumes=pdfOnly;const withFormat=kind=>resumes.map(r=>r.id==='resume'?{...r,format:{kind}}:r);
  let run={id:'tailor',kind:'resume',status:'needs_input',title:'Tailor resume',context_label:'Analyst at Example',created_at:1,updated_at:1,step_number:1,step_total:1,steps:['Tailor resume'],step_label:'Tailor resume',explanation:'Stack needs information from you to continue.',message:'',resume_id:'',resume_name:'',needs_resume_review:true,artifacts:{},results_where:'This task',cost_cents:0,subscription_calls:0};
@@ -278,6 +282,7 @@ async function tailoringScreenTests(){
    if(!run.resume_id){run={...run,resume_id:'resume',resume_name:'Candidate.pdf'};throw new Error('Upload the LaTeX for Candidate.pdf to tailor it.');}
    run={...run,status:'queued',needs_resume_review:false};return run;
   }
+  if(name==='score_resume'){assert.equal(args.application_id,'application');return {application_id:'application',resume_name:'Candidate.pdf',source:'pdf',score:scoreAfter};}
   if(name==='agent_approve'){assert.equal(args.step,'approve_resume');assert.equal(args.review_hash,'h1');assert.deepEqual(args.edits,{rejected:['s1.e0.b0']});const {review:_done,...rest}=run;run={...rest,status:'queued'};return run;}
   throw new Error('Unexpected RPC '+name);
  };
@@ -290,6 +295,8 @@ async function tailoringScreenTests(){
  const agents=ready=>React.createElement(ResumeAgents,{applications:[job(ready)],runs:[],features,onOpenTask:id=>{opened=id;},onNavigate:()=>{},resumes,onChanged:()=>{}});
  // A PDF-only resume asks for its LaTeX right under the job; no task starts.
  await act(async()=>{ui=renderer.create(agents(false));});assert.match(text(),/needs its LaTeX/);
+ // Any saved job can be scored without a model, even before tailoring.
+ await press('Score my resume');assert.match(text(),/SCORE FOR THIS JOB · YOUR PDF/);assert.match(text(),/Job match: 55/);assert.match(text(),/Missing required: Kubernetes/);
  await press('Tailor for this job');assert.match(text(),/Add the LaTeX for Candidate.pdf/);assert.ok(!calls.some(c=>c.name==='agent_start'));
  await act(async()=>{ui.update(agents(true));});await act(async()=>{ui.unmount();ui=renderer.create(agents(true));});
  await press('Tailor for this job');assert.equal(opened,'tailor');
@@ -317,10 +324,13 @@ async function tailoringScreenTests(){
  const dropped=[{id:'s1.e0.b3',where:'Experience · Analyst',text:'Least relevant detail'}];
  const proposal={summary:'Leads with analysis work',changes,dropped,notes:['Kept a bullet unchanged: the rewrite mentioned kubernetes, which is not in your resume.'],rejected:[],final:false,format:'latex',tex:'\\resumeItem{Built an analysis tool}',pdf:{name:'Tailored resume.pdf',content:'JVBERi0=',pages:1,original_text:original,text:tailored,diff:''}};
  run={...run,status:'review',step_number:2,step_total:2,steps:['Tailor your resume','Approve resume changes'],step_label:'Approve resume changes',
-  review:{step:'approve_resume',hash:'h1',title:'Review your tailored resume for Example',summary:'Leads with analysis work',changes,rejected:[],dropped,pages:1,notes:[],consequence:'Stack keeps the changes you accept, rebuilds the PDF in your format, and fits it to one page. Nothing is shared.'},
+  review:{step:'approve_resume',hash:'h1',title:'Review your tailored resume for Example',score:{before:scoreBefore,after:scoreAfter},summary:'Leads with analysis work',changes,rejected:[],dropped,pages:1,notes:[],consequence:'Stack keeps the changes you accept, rebuilds the PDF in your format, and fits it to one page. Nothing is shared.'},
   artifacts:{tailor:proposal}};
  await act(async()=>{for(const tick of refreshers)await tick();await pause();});
  assert.match(text(),/Review your tailored resume for Example/);assert.match(text(),/CHANGES · 2 OF 2 KEPT/);
+ assert.match(text(),/Job match: 40 → 55 \(\+15\)/);assert.match(text(),/Resume quality: 70 → 78 \(\+8\)/);
+ await press('Score details');assert.match(text(),/Hard skills 35 → 52/);assert.match(text(),/Missing from your resume \(add only if true\): Kubernetes · required/);
+ assert.match(text(),/Only on your skills line: Docker/);assert.match(text(),/asks for 2\+ years; Stack counts about 1.5/);assert.match(text(),/not a prediction of hiring/);await press('Hide score details');
  assert.match(text(),/Built an analysis tool for finance/);assert.match(text(),/LEFT OUT TO FIT ONE PAGE/);assert.match(text(),/Least relevant detail/);
  await press('Preview proposed resume');assert.equal(ui.root.findByType('PDF').props.uri,'cache/tailored.pdf');await press('Close preview');
  await press('Reject');assert.match(text(),/CHANGES · 1 OF 2 KEPT/);
@@ -386,6 +396,8 @@ async function tailoringEndToEnd(){
  assert.match(text(),/TAILORING FORMAT/);assert.match(text(),/No LaTeX yet/);assert.ok(buttons('Upload LaTeX (.tex or Overleaf .zip)').length,'Resume card offers a LaTeX upload');
  assert.match(text(),/Upload the LaTeX for Candidate.pdf/,'Readiness names the missing LaTeX');assert.doesNotMatch(text(),/"Ready"/,'Tailoring is not shown as ready');
  assert.match(text(),/Resume: Candidate.pdf · needs its LaTeX/);step('PDF only: readiness and the job both say LaTeX is needed');
+ await press('Score my resume');await until(/SCORE FOR THIS JOB · YOUR PDF/,30,'Job-row score from the PDF');
+ assert.match(visible(),/Job match: \d+/);assert.match(visible(),/Resume quality: \d+/);step('scored the PDF for the job without a model: '+visible().match(/Job match: \d+/)[0]);
 
  await press('Tailor for this job');
  assert.match(text(),/Add the LaTeX for Candidate.pdf/);assert.equal((await device.rpc('agent_activity',{})).runs.length,0,'No task is started without LaTeX');
@@ -398,10 +410,13 @@ async function tailoringEndToEnd(){
  await until(/Tailor resume|Working|Queued/,180,'Tailoring task opened');step('LaTeX uploaded from the tailoring panel; task started and opened');
  const run=(await device.rpc('agent_activity',{})).runs[0];assert.equal(run.kind,'resume');
  await until(/Review your tailored resume/,600,'Model proposal ready for review');
+ assert.match(visible(),/SCORE FOR THIS JOB · WITH EVERY CHANGE/);const reviewScore=visible().split('WITH EVERY CHANGE | ')[1].split(' | ')[0];assert.match(reviewScore,/^Job match: \d+/);
+ const proposed=(await device.rpc('agent_run',{id:(await device.rpc('agent_activity',{})).runs[0].id})).artifacts.tailor.score;
+ assert.ok(proposed.before.match!=null&&proposed.after.match!=null&&proposed.after.quality!=null,JSON.stringify(proposed));
  assert.match(text(),/CHANGES · \d+ OF \d+ KEPT/);assert.doesNotMatch(text(),/STACK NEEDS YOUR ANSWERS|ONE STEP BEFORE TAILORING/);
  const proposal=(await device.rpc('agent_run',{id:run.id})).artifacts.tailor;
  assert.equal(proposal.format,'latex');assert.equal(proposal.pdf.pages,1);assert.ok(Buffer.from(proposal.pdf.content,'base64').subarray(0,5).toString()==='%PDF-');
- step('proposal: '+proposal.changes.length+' changes, '+proposal.pdf.pages+' page, your LaTeX format');
+ step('proposal: '+proposal.changes.length+' changes, '+proposal.pdf.pages+' page, your LaTeX format; '+reviewScore+', quality '+proposal.score.before.quality+' → '+proposal.score.after.quality);
  await press('Apply the changes I kept');
  await until(/Preview tailored resume/,300,'Final PDF built');
  const done=await device.rpc('agent_run',{id:run.id});
@@ -414,7 +429,7 @@ async function tailoringEndToEnd(){
  step('approved: final one-page PDF, preamble, skill layout and Experience order unchanged');
 
  // The approved resume is saved under Resume → Tailored resumes, labelled with its job and checked by the parser.
- await press('Open Tailored resumes');await until(/TAILORED RESUMES/,20,'Tailored resumes section');
+ await press('Open Tailored resumes');await until(/Tailored for E2E Employer/,20,'Tailored resume listed on arrival');
  assert.match(visible(),/YOUR UPLOADS/);assert.match(visible(),/Tailored for E2E Employer/);assert.match(visible(),new RegExp(marker+' Software Engineer'));
  // The fixture's own layout makes OpenResume miss its Education heading; tailoring must add no new issues.
  await until(/(Parses well|No new parser issues) · \d+ of \d+ checks/,30,'Parser finds no issues caused by tailoring');
@@ -424,6 +439,7 @@ async function tailoringEndToEnd(){
  for(const row of parserRows.filter(t=>t.startsWith('✕ ')))assert.match(row,/also in your original upload/,'Only pre-existing issues: '+row);
  assert.match(visible(),/✓ Experience: Harbor Logistics — \d+ of \d+ bullets read/);assert.match(visible(),/✓ Technical Skills — Every skill line read/);
  const firstSaved=(await device.rpc('bootstrap',{})).tailored_resumes;assert.equal(firstSaved.length,1);assert.equal(firstSaved[0].run_id,run.id);
+ assert.ok(firstSaved[0].score.after.match!=null,'Saved resume keeps its score');assert.match(visible(),/SCORE FOR THIS JOB/);
  step('saved to Tailored resumes for its job; parser check '+firstSaved[0].parse.passed+'/'+firstSaved[0].parse.total);
 
  // A task that paused because its resume lost its LaTeX (as when a preview switch replaced the data) is fixed from the task.
@@ -445,7 +461,9 @@ async function tailoringEndToEnd(){
  await until(/Review your tailored resume/,600,'Paused task continued to a proposal');step('paused task: LaTeX uploaded from the task, tailoring continued');
  await press('Apply the changes I kept');await until(/Preview tailored resume/,300,'Final PDF built');
  const resumed=await device.rpc('agent_run',{id:pausedRun.id});assert.equal(resumed.status,'completed');assert.equal(resumed.artifacts.tailor.pdf.pages,1);
- const both=(await device.rpc('bootstrap',{})).tailored_resumes;assert.equal(both.length,2);assert.ok(both.every(x=>x.parse.compared_to_original&&x.parse.new_issues===0),JSON.stringify(both.map(x=>x.parse)));
+ // The parser check finishes just after the task completes.
+ let both=[];for(let i=0;i<30;i++){both=(await device.rpc('bootstrap',{})).tailored_resumes;if(both.length===2&&both.every(x=>x.parse.checks))break;await new Promise(r=>setTimeout(r,1000));}
+ assert.equal(both.length,2);assert.ok(both.every(x=>x.parse.compared_to_original&&x.parse.new_issues===0),JSON.stringify(both.map(x=>x.parse)));
  assert.ok(both.some(x=>x.job_title.endsWith('Data Engineer')),'Second job saved separately');
  console.log('PASS tailoring end to end: both paths, '+(done.subscription_calls+resumed.subscription_calls)+' model calls, one-page PDFs from your LaTeX.');
 }

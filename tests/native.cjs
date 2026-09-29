@@ -390,10 +390,11 @@ async function tailoringEndToEnd(){
  await press('Tailor for this job');
  assert.match(text(),/Add the LaTeX for Candidate.pdf/);assert.equal((await device.rpc('agent_activity',{})).runs.length,0,'No task is started without LaTeX');
  assert.equal(buttons('Upload LaTeX (.tex or Overleaf .zip)').length,2,'Card and the tailoring panel both offer upload');
- const broken=path.join('tests/fixtures','.e2e-broken.tex');fs.writeFileSync(path.join(root,broken),fs.readFileSync(path.join(root,'tests/fixtures/jake-resume.tex'),'utf8').replace('\\section{Projects}','\\section{Projects}\\undefinedmacro'));
+ const fixture='tests/fixtures/linebreak-skills-resume.tex',fixtureTex=fs.readFileSync(path.join(root,fixture),'utf8');
+ const broken=path.join('tests/fixtures','.e2e-broken.tex');fs.writeFileSync(path.join(root,broken),fixtureTex.replace('\\section{Projects}','\\section{Projects}\\undefinedmacro'));
  try{pick(broken,'broken.tex');await press('Upload LaTeX (.tex or Overleaf .zip)',-1);}finally{fs.unlinkSync(path.join(root,broken));}
  await until(/could not compile/i,120,'Compile error shown');assert.equal((await device.rpc('agent_activity',{})).runs.length,0,'A failed compile starts nothing');step('broken LaTeX: error shown, nothing started');
- pick('tests/fixtures/jake-resume.tex','main.tex');await press('Upload LaTeX (.tex or Overleaf .zip)',-1);
+ pick(fixture,'main.tex');await press('Upload LaTeX (.tex or Overleaf .zip)',-1);
  await until(/Tailor resume|Working|Queued/,180,'Tailoring task opened');step('LaTeX uploaded from the tailoring panel; task started and opened');
  const run=(await device.rpc('agent_activity',{})).runs[0];assert.equal(run.kind,'resume');
  await until(/Review your tailored resume/,600,'Model proposal ready for review');
@@ -405,8 +406,25 @@ async function tailoringEndToEnd(){
  await until(/Preview tailored resume/,300,'Final PDF built');
  const done=await device.rpc('agent_run',{id:run.id});
  assert.equal(done.status,'completed');assert.ok(done.artifacts.tailor.final);assert.equal(done.artifacts.tailor.pdf.pages,1);
- assert.ok(done.artifacts.tailor.tex.startsWith(fs.readFileSync(path.join(root,'tests/fixtures/jake-resume.tex'),'utf8').split('\\begin{document}')[0]),'Preamble unchanged');
- step('approved: final one-page PDF from your LaTeX, preamble unchanged');
+ const finalTex=done.artifacts.tailor.tex;
+ assert.ok(finalTex.startsWith(fixtureTex.split('\\begin{document}')[0]),'Preamble unchanged');
+ assert.equal(finalTex.slice(finalTex.indexOf('\\section{Technical Skills}')).split('\\\\[3pt]').length-1,3,'Skill line breaks kept');
+ for(const label of ['Languages:','Frameworks \\& Runtimes:','Data \\& ML:','Platforms \\& Tools:'])assert.ok(finalTex.includes('\\textbf{'+label+'}'),'Skill label kept: '+label);
+ assert.ok(finalTex.indexOf('Harbor Logistics')<finalTex.indexOf('Lakeside Analytics'),'Experience keeps date order');
+ step('approved: final one-page PDF, preamble, skill layout and Experience order unchanged');
+
+ // The approved resume is saved under Resume → Tailored resumes, labelled with its job and checked by the parser.
+ await press('Open Tailored resumes');await until(/TAILORED RESUMES/,20,'Tailored resumes section');
+ assert.match(visible(),/YOUR UPLOADS/);assert.match(visible(),/Tailored for E2E Employer/);assert.match(visible(),new RegExp(marker+' Software Engineer'));
+ // The fixture's own layout makes OpenResume miss its Education heading; tailoring must add no new issues.
+ await until(/(Parses well|No new parser issues) · \d+ of \d+ checks/,30,'Parser finds no issues caused by tailoring');
+ await press('Parser check');assert.match(visible(),/WHAT THE OPENRESUME PARSER READ/);
+ const parserRows=visible().split('WHAT THE OPENRESUME PARSER READ | ')[1].split(' | Stack compares what the parser reads')[0].split(' | ');
+ assert.ok(parserRows.some(t=>t.startsWith('✓ ')),'Parser rows shown');
+ for(const row of parserRows.filter(t=>t.startsWith('✕ ')))assert.match(row,/also in your original upload/,'Only pre-existing issues: '+row);
+ assert.match(visible(),/✓ Experience: Harbor Logistics — \d+ of \d+ bullets read/);assert.match(visible(),/✓ Technical Skills — Every skill line read/);
+ const firstSaved=(await device.rpc('bootstrap',{})).tailored_resumes;assert.equal(firstSaved.length,1);assert.equal(firstSaved[0].run_id,run.id);
+ step('saved to Tailored resumes for its job; parser check '+firstSaved[0].parse.passed+'/'+firstSaved[0].parse.total);
 
  // A task that paused because its resume lost its LaTeX (as when a preview switch replaced the data) is fixed from the task.
  const workerPid=Number(process.env.STACK_E2E_WORKER_PID);assert.ok(workerPid,'Set STACK_E2E_WORKER_PID');
@@ -418,15 +436,17 @@ async function tailoringEndToEnd(){
  finally{process.kill(workerPid,'SIGCONT');}
  for(let i=0;i<60&&!(await device.rpc('agent_run',{id:pausedRun.id})).needs_resume_review;i++)await new Promise(r=>setTimeout(r,1000));
  assert.ok((await device.rpc('agent_run',{id:pausedRun.id})).needs_resume_review,'Worker paused the task for LaTeX');
- await press('Back to tasks');await until(/Needs you \(\d+\)/,20,'Hub shows a task needing you');
+ await tap(ui.root.findAll(n=>n.type==='Pressable'&&/^Agents: /.test(n.props.accessibilityLabel||''))[0]);await until(/Needs you \(\d+\)/,20,'Hub shows a task needing you');
  await tap(ui.root.findAll(n=>n.type==='Pressable'&&/^Needs you/.test(n.props.accessibilityLabel||''))[0]);
  await until(/Needs your LaTeX/,20,'Paused task is labelled as needing LaTeX');assert.doesNotMatch(visible(),/Needs your answers/);
  await tap(ui.root.findAll(n=>n.type==='Pressable'&&/^Open task .* · Needs your LaTeX$/.test(n.props.accessibilityLabel||''))[0]);
  await until(/Add the LaTeX for Candidate.pdf/,30,'Paused task offers the LaTeX upload');assert.doesNotMatch(visible(),/STACK NEEDS YOUR ANSWERS/);
- pick('tests/fixtures/jake-resume.tex','main.tex');await press('Upload LaTeX (.tex or Overleaf .zip)',-1);
+ pick(fixture,'main.tex');await press('Upload LaTeX (.tex or Overleaf .zip)',-1);
  await until(/Review your tailored resume/,600,'Paused task continued to a proposal');step('paused task: LaTeX uploaded from the task, tailoring continued');
  await press('Apply the changes I kept');await until(/Preview tailored resume/,300,'Final PDF built');
  const resumed=await device.rpc('agent_run',{id:pausedRun.id});assert.equal(resumed.status,'completed');assert.equal(resumed.artifacts.tailor.pdf.pages,1);
+ const both=(await device.rpc('bootstrap',{})).tailored_resumes;assert.equal(both.length,2);assert.ok(both.every(x=>x.parse.compared_to_original&&x.parse.new_issues===0),JSON.stringify(both.map(x=>x.parse)));
+ assert.ok(both.some(x=>x.job_title.endsWith('Data Engineer')),'Second job saved separately');
  console.log('PASS tailoring end to end: both paths, '+(done.subscription_calls+resumed.subscription_calls)+' model calls, one-page PDFs from your LaTeX.');
 }
 

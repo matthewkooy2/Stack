@@ -279,6 +279,9 @@ def _args(s, i, limit=9):
     return groups, j
 
 
+# \textbf{Label}: items, \textbf{Label}{: items} or \textbf{Label:} items. Blocks of these are skill lines, not bullets.
+LABEL = re.compile(r'\\textbf\s*\{[^{}]*\}\s*\{?\s*:|\\textbf\s*\{[^{}]*:\s*\}')
+
 INLINE = ('textbf', 'textit', 'emph', 'underline', 'textsc', 'texttt', 'textrm', 'textsf', 'small', 'footnotesize',
           'scriptsize', 'large', 'Large', 'normalsize', 'mbox', 'text', 'textnormal', 'uline', 'bfseries', 'itshape')
 SYMBOLS = {'$|$': '|', '$\\sim$': '~', '$\\cdot$': '·', '$\\bullet$': '•', '$\\times$': '×', '$\\rightarrow$': '→',
@@ -474,7 +477,7 @@ def _bare_item(tex, masked, i, stop, structural):
         text = plain(tex[k + 1:close - 1])
         if any('\\' + name in masked[k:close] for name in structural) or '\\begin{' in masked[k:close]:
             return None
-        if '\\textbf' in masked[k:close] and re.search(r'\\textbf\s*\{[^{}]*\}\s*\{?\s*:', masked[k:close]):
+        if LABEL.search(masked[k:close]):
             return None
         return {'end': close, 'arg': (k + 1, close - 1), 'text': text} if text else None
     depth, j = 0, k
@@ -498,9 +501,23 @@ def _bare_item(tex, masked, i, stop, structural):
     while j > k and tex[j - 1] in ' \t\r\n':
         j -= 1
     fragment = masked[k:j]
-    if not fragment.strip() or re.search(r'\\textbf\s*\{[^{}]*\}\s*\{?\s*:', fragment) or any(h in fragment for h in ('tabular', '\\begin')):
+    if not fragment.strip() or LABEL.search(fragment) or any(h in fragment for h in ('tabular', '\\begin')):
         return None
     return {'end': j, 'arg': (k, j), 'text': plain(tex[k:j])}
+
+
+def _line_value_end(masked, i, stop):
+    """Items run over wrapped lines until a line break (\\\\), the enclosing group's close, the next
+    bold label, a new \\item or environment, or a blank line."""
+    depth = 0
+    while i < stop:
+        if masked.startswith('\n\n', i) or (depth == 0 and masked[i] == '}'):
+            break
+        if masked[i] == '\\' and (masked.startswith('\\\\', i) or re.match(r'\\(?:textbf|item|end|begin|par|newline)(?![A-Za-z])', masked[i:])):
+            break
+        depth += {'{': 1, '}': -1}.get(masked[i], 0)
+        i += 1
+    return i
 
 
 def _labeled_line(tex, masked, match, stop):
@@ -521,11 +538,9 @@ def _labeled_line(tex, masked, match, stop):
         value_end = close - 1
     elif k < stop and masked[k] == ':' or tex[label_open + 1:label_close - 1].rstrip().endswith(':'):
         inner = k + 1 if masked[k] == ':' else k
-        while inner < stop and masked[inner] in ' \t':
+        while inner < stop and masked[inner] in ' \t\r\n' and not masked.startswith('\n\n', inner):
             inner += 1
-        value_end = inner
-        while value_end < stop and masked[value_end] != '\n' and not masked.startswith('\\\\', value_end) and masked[value_end] != '}':
-            value_end += 1
+        value_end = _line_value_end(masked, inner, stop)
     else:
         return None
     while value_end > inner and tex[value_end - 1] in ' \t':

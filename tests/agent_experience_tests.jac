@@ -234,6 +234,18 @@ test "tailoring refuses a PDF-only resume, then tailors a chosen built-in templa
                 assert "Rewritten:" not in final["pdf"]["text"] and "Rewritten:" not in final["tex"] and final["changes"][0]["id"]==change;
                 client.reload();client.set_auth_token(token);
                 assert rpc(client,"agent_run",{"id":run["id"]})["artifacts"]["tailor"]["pdf"]["content"]==final["pdf"]["content"];
+                # The approved resume is saved apart from uploads, labelled with its job, and read back by the parser.
+                state=rpc(client,"bootstrap");saved=state["tailored_resumes"];
+                assert [r["id"] for r in state["resumes"]]==[resume_id] and len(saved)==1, saved;
+                assert saved[0]["run_id"]==run["id"] and saved[0]["company"]=="Review Test Co" and "Analyst" in saved[0]["job_title"] and saved[0]["source_name"]=="Candidate.pdf", saved;
+                assert saved[0]["parse"]["ok"] and saved[0]["parse"]["total"]>=5, saved[0]["parse"];
+                opened=rpc(client,"read_tailored_resume",{"id":saved[0]["id"]});
+                assert base64.b64decode(opened["pdf"]["content"])==base64.b64decode(final["pdf"]["content"]) and opened["pdf"]["name"].startswith("Resume - Review Test Co") and "\\documentclass" in opened["tex"];
+                assert rpc(client,"check_tailored_resume",{"id":saved[0]["id"]})["tailored_resumes"][0]["parse"]["ok"];
+                other=client.register_user("tailored-other","Tailored-test-password-2");client.set_auth_token(other.data["token"]);
+                assert "error" in rpc(client,"read_tailored_resume",{"id":saved[0]["id"]}) and "error" in rpc(client,"delete_tailored_resume",{"id":saved[0]["id"]});
+                client.set_auth_token(token);
+                assert rpc(client,"delete_tailored_resume",{"id":saved[0]["id"]})["tailored_resumes"]==[] and len(rpc(client,"bootstrap")["resumes"])==1;
             } finally {
                 if resume_id { client.set_auth_token(token);rpc(client,"change_resume",{"id":resume_id,"action":"delete"}); }
                 client.close();

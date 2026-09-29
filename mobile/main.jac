@@ -9,6 +9,7 @@ import from .components.Discovery { Discovery }
 import from .components.MatchInputs { MatchInputs }
 import from .components.ResumeReview { ResumeReview }
 import from .components.ResumeFormat { ResumeFormat }
+import from .components.TailoredResumes { TailoredResumes }
 
 def _find(items: list[dict[str, any]], id: str) -> dict[str, any] {
     for item in items { if item["id"]==id { return item; } }
@@ -222,8 +223,10 @@ def:pub app -> JsxElement {
                     ) if tab=="Network" else <View/>}
                     {(
                         <View style={{gap:20}}><View style={{gap:7}}><Text style={s.eyebrow}>PUT YOUR BEST SELF FORWARD</Text><Text style={s.title}>Your story, on paper.</Text><Text style={s.body}>One home for your experience and potential.</Text></View>
+                            <View style={{gap:4}}><Text style={s.label}>YOUR UPLOADS</Text><Text style={s.small}>Resumes you uploaded. Stack reads them and never changes them.</Text></View>
                             <Pressable style={[s.card,{borderStyle:"dashed",borderColor:"#B9CAEE",alignItems:"center",paddingVertical:27}]} onPress={upload} disabled={busy} accessibilityRole="button" accessibilityLabel="Upload PDF resume"><View style={[s.avatar,{backgroundColor:"#EDF2FF"}]}><Icon name="upload" color="#3765E8"/></View><Text style={s.heading}>Add your resume</Text><Text style={s.small}>Choose a PDF from Files · up to 10 MB</Text></Pressable>
                             {[<View key={r["id"]} style={s.card}><View style={s.row}><Icon name="resume" size={29} color="#3765E8"/><View style={s.grow}><Text style={s.strong}>{r["name"]}</Text><Text style={s.small}>{shortDate(r["created_at"])} · Private PDF</Text></View><Pressable accessibilityLabel="Manage resume" style={s.iconButton} onPress={lambda { selected=r["id"]; rename=r["name"]; modal="Manage resume"; }}><Icon name="more"/></Pressable></View>{<Chip label="Default resume" active={True}/> if state["selected_resume"]==r["id"] else <View/>}<Button label="Preview resume" onPress={lambda { preview(r["id"]); }} secondary={True} disabled={busy}/><Button label="Review details" secondary={True} onPress={lambda { extractFacts(r["id"]); }}/><ResumeFormat resume={r} onChanged={lambda (next: dict[str, any]) { state=next; }}/></View> for r in state["resumes"]]}
+                            <TailoredResumes items={state.get("tailored_resumes",[])} onChanged={lambda (next: dict[str, any]) { state=next; }}/>
                             <ResumeAgents applications={state["applications"]} runs={state.get("agents",{}).get("runs",[])} features={state.get("agents",{}).get("features",[])} onOpenTask={openTask} onNavigate={navigate} resumes={state["resumes"]} onChanged={lambda (next: dict[str, any]) { state=next; }}/>
                             <View style={s.hero}><View style={s.row}><Icon name="sparkles" color="#3765E8"/><Text style={s.heading}>A resume for the role.</Text></View><Text style={s.body}>See how a tailored version could highlight the right experience.</Text><Button label="Explore a sample" secondary={True} onPress={lambda { modal="Tailoring preview"; }}/><Text style={s.small}>Demo preview. Your uploaded PDF is never modified.</Text></View>
                         </View>

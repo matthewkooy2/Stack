@@ -1,4 +1,5 @@
 """LaTeX resume sources: loading, safety, structure, content-only edits, one-page fitting and change checks."""
+import base64
 import io
 import shutil
 import unittest
@@ -188,6 +189,41 @@ class Compile(unittest.TestCase):
         self.assertEqual(final['summary'], 'Applied 0 of 1 changes.')
         with self.assertRaises(ValueError):
             tailoring.finalize({**prepared, 'digest': 'changed'}, proposal)
+
+    @unittest.skipUnless(HAS_TECTONIC, 'Tectonic is not installed')
+    def test_skill_block_with_line_breaks_keeps_its_layout(self):
+        """Regression: a skills \\item of \\textbf{Label:} lines split by \\\\[3pt] was read as one bullet, and a rewrite
+        printed "[3pt]" and dropped a label. Each line is now a skill line; Experience keeps its date order."""
+        tex = (Path(__file__).parent / 'fixtures' / 'linebreak-skills-resume.tex').read_text()
+        prepared = tailoring.prepare(latex.encode(latex.load('resume.tex', tex.encode())))
+        structure = prepared['structure']
+        lines = {l['label']: l for l in structure['lines']}
+        self.assertEqual(list(lines), ['Languages', 'Frameworks & Runtimes', 'Data & ML', 'Platforms & Tools'])
+        self.assertEqual(lines['Data & ML']['text'], 'PostgreSQL, DuckDB, pandas, NumPy, scikit-learn, OpenCV')
+        self.assertFalse([b for b in structure['bullets'] if 'Languages' in b['text']])
+        sections = {s['title']: s['id'] for s in structure['sections']}
+        experience = [e['id'] for e in structure['entries'] if e['section'] == sections['Experience']]
+        projects = [e['id'] for e in structure['entries'] if e['section'] == sections['Projects']]
+        proposal = tailoring.tailor(prepared, {'summary': 's', 'ranking': [], 'omit': [], 'evidence': [],
+            'entry_order': [{'section': sections['Experience'], 'entries': experience[::-1]}, {'section': sections['Projects'], 'entries': projects[::-1]}],
+            'rewrites': [{'id': lines['Languages']['id'], 'text': 'SQL, Python, C++', 'reason': 'r'}]}, [])
+        out = proposal['tex']
+        self.assertEqual(out[out.index('\\section{Technical Skills}'):].count('\\\\[3pt]'), 3)
+        self.assertIn('\\textbf{Data \\& ML:}', out)
+        self.assertIn('\\textbf{Languages:}\n      SQL, Python, C++ \\\\[3pt]', out)
+        pdf_text = tailoring._pdf_text(base64.b64decode(proposal['pdf']['content']))
+        self.assertNotIn('[3pt]', pdf_text)
+        self.assertIn('Data & ML', pdf_text)
+        self.assertLess(out.index('Harbor Logistics'), out.index('Lakeside Analytics'), 'Experience keeps its date order')
+        self.assertLess(out.index('Court Vision Tracker'), out.index('Transit Delay Forecaster'), 'Undated projects may move')
+        self.assertEqual([c['kind'] for c in proposal['changes']], ['rewrite', 'reorder'])
+
+    @unittest.skipUnless(HAS_TECTONIC, 'Tectonic is not installed')
+    def test_leaked_latex_is_never_handed_over(self):
+        tex = FIXTURE.read_text().replace('\\resumeItem{Presented virtually', '\\resumeItem{Spacing [3pt] leaked. Presented virtually')
+        prepared = tailoring.prepare(latex.encode(latex.load('resume.tex', tex.encode())))
+        with self.assertRaisesRegex(ValueError, r'LaTeX code \(\[3pt\]\)'):
+            tailoring.tailor(prepared, {'summary': 's', 'ranking': [], 'entry_order': [], 'omit': [], 'evidence': [], 'rewrites': []}, [])
 
 
 if __name__ == '__main__':

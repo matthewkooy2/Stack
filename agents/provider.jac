@@ -43,8 +43,16 @@ with entry {
         'tailor': `obj(
             {
                 'summary': TEXT,
-                'ordered_fact_keys': STRINGS,
-                'suggested_edits': STRINGS,
+                'ranking': STRINGS,
+                'entry_order': {
+                    'type': 'array',
+                    'items': `obj({'section': TEXT, 'entries': STRINGS})
+                },
+                'rewrites': {
+                    'type': 'array',
+                    'items': `obj({'id': TEXT, 'text': TEXT, 'reason': TEXT})
+                },
+                'omit': {'type': 'array', 'items': `obj({'id': TEXT, 'reason': TEXT})},
                 'evidence': EVIDENCE
             }
         ),
@@ -101,6 +109,10 @@ def sources_for(context: dict[str, any]) -> dict[str, str] {
             if f.get('verified')
         }
     );
+    if context.get('resume_structure') {
+        import from agents.tailoring { evidence_sources }
+        sources.update(evidence_sources(context['resume_structure']));
+    }
     return sources;
 }
 def generate(step: str, context: dict[str, any], configuration: dict[str, any] | None = None, observe: any = None) -> dict[str, any] {
@@ -116,7 +128,21 @@ def generate(step: str, context: dict[str, any], configuration: dict[str, any] |
     sources = sources_for(context);
     instructions = {
         'fit': 'Explain fit and gaps with citations. Preserve the supplied deterministic requirement checks.',
-        'tailor': 'Order ALL verified resume.* fact keys for this role. Keep their text verbatim. Suggest rewrites separately for human review. Do not omit facts.',
+        'tailor': 'Tailor the resume in context.resume_structure for this job. Items have stable ids. '
+        'ranking: every bullet id, most to least relevant to this job; Stack removes the least relevant bullets until the resume fits one page. '
+        'entry_order: only for sections whose entries should move. Work, experience and education sections always keep their order (Stack ignores reorders there); projects may lead with the most relevant. '
+        'rewrites: at most one per bullet or skill line, only where it clearly helps for this job. Plain text, no LaTeX; use **bold** only where the original bolded text. '
+        'Keep every number, tool, employer and claim exactly as supported by that bullet or verified facts; never add skills, tools, metrics, scope or seniority. '
+        'Use the listing’s wording only where the original already shows that experience. Keep a rewrite no longer than the original. '
+        'Skill lines (ids containing .l) may only be reordered or shortened, never extended. '
+        'omit: bullets or entries that are clearly irrelevant to this job. Give a short reason for every rewrite and omission and cite the original with its resume:<id> source. '
+        'context.score_guidance lists concrete targets from Stack’s score of this resume for this job. Use them only where the original supports the change: '
+        'skills_only_listed are skills the resume lists but no bullet shows — name one in a bullet only if that bullet’s work clearly used it. '
+        'missing_supported_by_facts appear in the candidate’s verified facts; use them only with a fact:<key> citation. Never add any other missing skill. '
+        'job_keywords_missing: use the listing’s phrase only where the bullet already describes that work. '
+        'For weak_openers and repeated_openers, start with a stronger, varied past-tense verb that is still accurate. '
+        'unquantified_bullets have no number: never invent one; when two bullets are equally relevant, rank the quantified one higher. '
+        'For wordy_or_unclear, remove filler, passive voice and pronouns. Do not repeat a skill more than the listing does.',
         'draft': 'Draft a brief networking email. Select up to three verified resume.* fact keys relevant to the contact. Use only verified facts; cite every factual assertion. Do not claim a referral or relationship unless supplied. Do not add attachments or recipients.',
         'coach': 'Coach this practice attempt using a 0–4 rubric. Technical: reasoning, edge cases, complexity, tradeoffs, communication. Behavioral: specificity, ownership, structure, reflection. Use actual test results for correctness. Suggest focused next practice and two follow-up questions.',
         'profile': 'Suggest a professional headline and about section using only verified candidate facts. Explain your proposed edits and quote evidence. These are drafts for the user to apply manually; do not claim to have edited any website.'

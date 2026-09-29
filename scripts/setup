@@ -7,6 +7,9 @@ case "$STACK_VERSION" in *"jac 0.37.21 "*) ;; *) echo "Install Jac 0.37.21 befor
 ./scripts/jac install --no-npm
 npm --prefix integrations/resume-parser ci --no-audit --no-fund
 npm --prefix integrations/resume-parser run build
+# LaTeX resumes compile locally with Tectonic; the first compile downloads and caches its packages.
+command -v tectonic >/dev/null 2>&1 || brew install tectonic
+./scripts/jac run --no-serve scripts/warm-resume-templates.jac
 ./scripts/jac setup mobile
 cp native/package.json native/package-lock.json native/app.config.js .jac/mobile-rn/
 cd .jac/mobile-rn

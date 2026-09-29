@@ -32,7 +32,7 @@ def:pub ResumeBulletField(label: str, value: str, onChange: any, disabled: bool)
     </View>
 }
 
-def:pub ResumeReview(resumeId: str) -> JsxElement {
+def:pub ResumeReview(resumeId: str, onConfirmed: any = None) -> JsxElement {
     has document: dict[str, any] = {}, values: dict[str, str] = {}, expanded: list[str] = ["profile"],
         busy: bool = True, error: str = "", message: str = "", dirty: bool = False, showSource: bool = False;
     def populate(result: dict[str, any]) -> None {
@@ -51,8 +51,9 @@ def:pub ResumeReview(resumeId: str) -> JsxElement {
         if busy { return; }
         busy=True;error="";message="";
         try {
-            populate(await rpc("resume_save_details",{"id":resumeId,"revision":document["revision"],"values":values,"confirm":confirm}));
+            if dirty or not document["confirmed"] or not confirm { populate(await rpc("resume_save_details",{"id":resumeId,"revision":document["revision"],"values":values,"confirm":confirm})); }
             message="Resume details confirmed." if confirm else "Draft saved.";
+            if confirm and onConfirmed { await onConfirmed(); }
         } except Exception as e { error=errorText(e); }
         busy=False;
     }
@@ -88,7 +89,7 @@ def:pub ResumeReview(resumeId: str) -> JsxElement {
             <View style={s.wrap}>{[<Button key={kind} label={label} icon="plus" secondary={True} disabled={busy} onPress={lambda { addEntry(kind); }}/> for (kind,label) in [["educations","Add education"],["workExperiences","Add experience"],["projects","Add project"]]]}</View>
             <Button label={"Hide extracted text" if showSource else "View extracted text"} secondary={True} onPress={lambda { showSource=not showSource; }}/>
             {<Text selectable={True} style={s.body}>{document.get("text","")}</Text> if showSource else None}
-            <Button label="Confirm resume details" icon="check" disabled={busy or (document["confirmed"] and not dirty)} onPress={lambda { save(True); }}/>
+            <Button label={"Confirm and continue tailoring" if onConfirmed else "Confirm resume details"} icon="check" disabled={busy or (document["confirmed"] and not dirty and not onConfirmed)} onPress={lambda { save(True); }}/>
             <Button label="Save draft" secondary={True} disabled={busy or not dirty} onPress={lambda { save(False); }}/>
             {<Text style={s.status}>{message}</Text> if message else None}
             <Pressable accessibilityRole="link" accessibilityLabel="OpenResume source and license" onPress={lambda { openJobLink("https://github.com/xitanggg/open-resume"); }}><Text style={s.small}>OpenResume · AGPL-3.0 · Source and license · No warranty</Text></Pressable>

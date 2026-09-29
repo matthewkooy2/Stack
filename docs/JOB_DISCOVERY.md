@@ -1,6 +1,6 @@
 # Job discovery
 
-Stack now keeps real shared listings in its existing Jac/Postgres database, separate from each user's account graph. Right swipe saves a **Ready to apply** record. The source application page opens on the phone; submission is recorded only when the user explicitly marks it submitted. Existing demo applications remain labeled. New accounts start without fictional applications.
+Stack now keeps real shared listings in its existing Jac/Postgres database, separate from each user's account graph. Right swipe saves a **Ready to apply** record and offers optional agent help; it never starts an agent. The source application page opens on the phone; submission is recorded only when the user explicitly marks it submitted. Existing demo applications remain labeled. New accounts start without fictional applications.
 
 ## Start
 

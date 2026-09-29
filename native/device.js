@@ -8,8 +8,9 @@ import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Pdf from 'react-native-pdf';
-import {Layers, BriefcaseBusiness, Users, FileText, UserRound, MapPin, ArrowUpRight, ArrowRight, X, Check, SlidersHorizontal, ChevronLeft, ChevronRight, Bell, Plus, Upload, MoreHorizontal, Sparkles, Bookmark, Search, LogOut, Clock, Mail, ShieldCheck, CircleCheck, RotateCcw, Settings, GraduationCap, CodeXml, MessagesSquare, Pencil} from 'lucide-react-native';
-const glyphs = {layers:Layers, jobs:Layers, applications:BriefcaseBusiness, network:Users, resume:FileText, profile:UserRound, prep:GraduationCap, code:CodeXml, conversation:MessagesSquare, pin:MapPin, arrow:ArrowUpRight, next:ArrowRight, x:X, check:Check, filter:SlidersHorizontal, back:ChevronLeft, chevron:ChevronRight, bell:Bell, plus:Plus, upload:Upload, more:MoreHorizontal, sparkles:Sparkles, bookmark:Bookmark, search:Search, logout:LogOut, clock:Clock, mail:Mail, shield:ShieldCheck, done:CircleCheck, retry:RotateCcw, settings:Settings, edit:Pencil};
+import {Layers, BriefcaseBusiness, Users, FileText, UserRound, MapPin, ArrowUpRight, ArrowRight, X, Check, SlidersHorizontal, ChevronLeft, ChevronRight, Bell, Plus, Upload, MoreHorizontal, Sparkles, Bookmark, Search, LogOut, Clock, Mail, ShieldCheck, CircleCheck, RotateCcw, Settings, GraduationCap, CodeXml, MessagesSquare, CircleAlert, CalendarDays, Pencil} from 'lucide-react-native';
+const glyphs = {layers:Layers, jobs:Layers, applications:BriefcaseBusiness, network:Users, resume:FileText, profile:UserRound, prep:GraduationCap, code:CodeXml, conversation:MessagesSquare, pin:MapPin, arrow:ArrowUpRight, next:ArrowRight, x:X, check:Check, filter:SlidersHorizontal, back:ChevronLeft, chevron:ChevronRight, bell:Bell, plus:Plus, upload:Upload, more:MoreHorizontal, sparkles:Sparkles, bookmark:Bookmark, search:Search, logout:LogOut, clock:Clock, mail:Mail, shield:ShieldCheck, done:CircleCheck, retry:RotateCcw, settings:Settings, alert:CircleAlert, calendar:CalendarDays};
+glyphs.edit = Pencil;
 export function Icon({name,size=22,color='#64748B'}) {return React.createElement(glyphs[name] || Layers,{size,color,strokeWidth:1.8});}
 export const apiBase = () => globalThis.__JAC_API_BASE_URL__ || Constants.expoConfig?.extra?.apiBaseUrl || 'http://127.0.0.1:8000';
 let token='', generation=0;
@@ -66,6 +67,7 @@ export function errorText(error){return error?.message || String(error);}
 export function isUnauthorized(error){return error?.status===401;}
 export function shortDate(seconds){return new Date(seconds*1000).toLocaleDateString(undefined,{month:'short',day:'numeric'});}
 export function dateTime(seconds){return new Date(seconds*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});}
+export function isoTime(value){const d=new Date(value);return value&&!isNaN(d)?d.toLocaleString(undefined,{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'Time not stated';}
 export function tomorrow(){return Date.now()/1000+86400;}
 export function later(minutes){return Date.now()/1000+minutes*60;}
 export function openSettings(){Linking.openSettings();}
@@ -81,6 +83,19 @@ export async function pickResume(){
     return {name:file.name,content};
   } finally {await Files.deleteAsync(file.uri,{idempotent:true}).catch(()=>{});}
 }
+// LaTeX sources: a .tex file or Overleaf's source .zip. iOS has no reliable .tex type, so the name is checked here.
+export async function pickLatexSource(){
+  const result=await Documents.getDocumentAsync({type:'*/*',copyToCacheDirectory:true,multiple:false});
+  if(result.canceled) return null;
+  const file=result.assets[0];
+  try {
+    if(!/\.(tex|zip)$/i.test(file.name||'')) throw new Error('Choose a .tex file, or the source .zip from Overleaf (Menu → Download → Source).');
+    const info=await Files.getInfoAsync(file.uri);
+    if((file.size||info.size||0)>2*1024*1024) throw new Error('LaTeX source must be 2 MB or smaller.');
+    const content=await Files.readAsStringAsync(file.uri,{encoding:Files.EncodingType.Base64});
+    return {name:file.name,content};
+  } finally {await Files.deleteAsync(file.uri,{idempotent:true}).catch(()=>{});}
+}
 export async function previewResume(id){
   const epoch=generation;
   const result=await rpc('read_resume',{id});
@@ -88,6 +103,16 @@ export async function previewResume(id){
   await Files.makeDirectoryAsync(cacheDir(),{intermediates:true});
   const uri=cacheDir()+id.replace(/[^a-zA-Z0-9]/g,'')+'.pdf';
   await Files.writeAsStringAsync(uri,result.content,{encoding:Files.EncodingType.Base64});
+  if(epoch!==generation){await Files.deleteAsync(uri,{idempotent:true});throw new Error('Session changed.');}
+  return uri;
+}
+// Agent-generated PDFs (tailored resume, cover letter) share the signed-out cache cleanup.
+export async function previewDocument(pdf){
+  const epoch=generation;
+  if(!pdf?.content) throw new Error('This document is not available to preview.');
+  await Files.makeDirectoryAsync(cacheDir(),{intermediates:true});
+  const uri=cacheDir()+'agent-'+String(pdf.name||'document').replace(/[^a-zA-Z0-9]/g,'')+'-'+Date.now()+'.pdf';
+  await Files.writeAsStringAsync(uri,pdf.content,{encoding:Files.EncodingType.Base64});
   if(epoch!==generation){await Files.deleteAsync(uri,{idempotent:true});throw new Error('Session changed.');}
   return uri;
 }

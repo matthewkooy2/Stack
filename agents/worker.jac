@@ -65,23 +65,34 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
             };
         }
         model_access(c, work['owner']);
-        if (
-            (step == 'tailor')
-            and not `any(
-                (f['key'].startswith('resume.') and f.get('verified'))
-                for f in context.get('facts', [])
-            )
-        ) {
-            return {
-                'needs_input': True,
-                'message': 'Confirm the facts extracted from your resume before tailoring.',
-                'requests': []
+        model_context = {** context, 'research': artifacts.get('research', {})};
+        if (step == 'tailor') {
+            import from agents.tailoring { prepare }
+            try {
+                prepared = prepare(call('agent_worker_resume_source', auth));
+            } except ValueError as exc {
+                return {'needs_input': True, 'message': str(exc), 'requests': []};
+            }
+            import from agents.tailoring { baseline_score }
+            import from agents.scoring { guidance }
+            before = baseline_score(
+                prepared,
+                context.get('job', {}),
+                [
+                    f
+                    for f in context.get('facts', [])
+                    if f.get('verified')
+                ]
+            );
+            model_context = {
+                ** model_context,
+                'resume_structure': prepared['outline'],
+                'resume_text': '',
+                'score_guidance': guidance(before)
             };
         }
         try {
-            result = generate(
-                step, {** context, 'research': artifacts.get('research', {})}, c, observe=observe
-            );
+            result = generate(step, model_context, c, observe=observe);
         } except ValueError as exc {
             if (c['provider'] in CLI_PROVIDERS) {
                 return {'needs_input': True, 'message': str(exc), 'requests': []};
@@ -89,23 +100,20 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
             raise;
         }
         if (step == 'tailor') {
+            import from agents.tailoring { tailor }
             import from agents.documents { render_variant }
-            facts = {
-                f['key']: f
-                for f in context['facts']
-                if (f.get('verified') and f['key'].startswith('resume.'))
-            };
-            keys = result['artifact']['ordered_fact_keys'];
-            if ((len(keys) != len(`set(keys))) or (`set(keys) != `set(facts))) {
-                raise ValueError(
-                    'Tailoring omitted or introduced facts. Review it before use.'
+            facts = [
+                f
+                for f in context.get('facts', [])
+                if f.get('verified')
+            ];
+            try {
+                result['artifact'] = tailor(
+                    prepared, result['artifact'], facts, context.get('job')
                 );
+            } except ValueError as exc {
+                return {'needs_input': True, 'message': str(exc), 'requests': []};
             }
-            result['artifact']['pdf'] = render_variant(
-                context.get('profile', {}).get('name', 'Resume'),
-                context.get('resume_text', ''),
-                [facts[k] for k in keys]
-            );
             fields = artifacts.get('inspect', {}).get('fields', []);
             if `any(
                 (('cover' in f['label'].lower()) and ('letter' in f['label'].lower()))
@@ -124,7 +132,10 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
                         )
                     }
                 ];
-                letter += [facts[k] for k in keys[:3]];
+                letter += [
+                    {'key': b['key'], 'value': b['value'].replace('**', '')}
+                    for b in result['artifact']['top_bullets']
+                ];
                 letter += [
                     {
                         'key': 'closing',
@@ -138,6 +149,26 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
             }
         }
         return result;
+    }
+    if (step == 'approve_resume') {
+        import from agents.tailoring { prepare, finalize }
+        try {
+            prepared = prepare(call('agent_worker_resume_source', auth));
+            return {
+                'artifact': finalize(
+                    prepared,
+                    artifacts['tailor'],
+                    context.get('job'),
+                    [
+                        f
+                        for f in context.get('facts', [])
+                        if f.get('verified')
+                    ]
+                )
+            };
+        } except ValueError as exc {
+            return {'needs_input': True, 'message': str(exc), 'requests': []};
+        }
     }
     if (step in ('inspect', 'fill', 'submit')) {
         if (step != 'inspect') {

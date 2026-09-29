@@ -18,6 +18,9 @@ npm --prefix integrations/resume-parser run build
 The generated bundle is `.jac/resume-parser.cjs`. Do not delete `.jac`; it also
 contains account data. `scripts/dev` starts the API, workers, and Metro as before.
 
+Tailoring edits your uploaded LaTeX source when you provide one. Otherwise it fills a
+built-in LaTeX template from these confirmed details. See `docs/RESUME_TAILORING.md`.
+
 ## Review Contract
 
 **Resume > Review resume details** opens labeled, editable rows in collapsible

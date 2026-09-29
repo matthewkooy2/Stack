@@ -19,14 +19,25 @@ def extract(content: str) -> str {
 }
 """Only verified, verbatim facts enter automatic PDFs. Rewrites require review."""
 def render_variant(name: str, original: str, ordered_facts: list[dict[str, any]]) -> dict[str, any] {
+    import reportlab;
+    import from pathlib { Path }
+    import from reportlab.pdfbase { pdfmetrics }
+    import from reportlab.pdfbase.ttfonts { TTFont }
     import from reportlab.lib.styles { getSampleStyleSheet }
-    import from reportlab.lib.enums { TA_LEFT }
     import from reportlab.platypus { SimpleDocTemplate, Paragraph, Spacer }
-    import from reportlab.lib { colors }
     import from xml.sax.saxutils { escape }
     import from pypdf { PdfReader }
     out = BytesIO();
     styles = getSampleStyleSheet();
+    if ('StackResume' not in pdfmetrics.getRegisteredFontNames()) {
+        pdfmetrics.registerFont(
+            TTFont(
+                'StackResume',
+                str((Path(reportlab.__file__).parent / 'fonts' / 'Vera.ttf'))
+            )
+        );
+    }
+    styles['Title'].fontName = styles['BodyText'].fontName='StackResume';
     styles['BodyText'].fontSize = 10;
     styles['BodyText'].leading = 14;
     doc = SimpleDocTemplate(
@@ -65,6 +76,7 @@ def render_variant(name: str, original: str, ordered_facts: list[dict[str, any]]
         'name': 'Tailored resume.pdf',
         'content': base64.b64encode(raw).decode(),
         'text': text,
+        'original_text': original,
         'pages': len(reader.pages),
         'source_keys': [f['key'] for f in ordered_facts],
         'diff': '\n'.join(

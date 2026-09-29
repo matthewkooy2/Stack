@@ -5,6 +5,7 @@ import os;
 import tempfile;
 import time;
 import from pathlib { Path }
+import from uuid { UUID }
 import from unittest.mock { patch }
 import from jaclang.testing.testing { JacTestClient }
 import from agents.worker { dispatch }
@@ -31,7 +32,7 @@ with entry:__main__ {
                 assert registered.ok, registered.text;
                 token = registered.data["token"];
                 owner = rpc(client, "agent_settings")["account_id"];
-                path.write_text(json.dumps({"provider": args.provider, "local_cli_owner": owner, "local_cli_daily_limit": 1}));
+                path.write_text(json.dumps({"provider": args.provider, "local_cli_owner": str(UUID(owner)), "local_cli_daily_limit": 1}));
                 rpc(client, "agent_save_policy", {"policy": {"enabled": True, "expires_at": time.time() + 3600, "actions": ["model"]}});
                 session = rpc(client, "prep_create", {"problem_id": "project"});
                 data = session["data"];
@@ -42,7 +43,7 @@ with entry:__main__ {
                 work = rpc(client, "agent_claim", {"token": "isolated-smoke-worker"});
                 assert work.get("id") == run["id"], work;
                 print("Requesting live coaching through " + args.provider, flush=True);
-                result = dispatch(work, "isolated-smoke-worker");
+                result = dispatch(work, "isolated-smoke-worker") as dict[str, any];
                 assert result.get("artifact", {}).get("rubric"), result;
                 rpc(client, "agent_finish", {"token": "isolated-smoke-worker", "id": work["id"], "owner": owner, "lease": work["lease"], "result": result});
                 client.set_auth_token(token);

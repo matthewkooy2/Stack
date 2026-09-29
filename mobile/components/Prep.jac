@@ -13,7 +13,7 @@ glob QUESTIONS: list[dict[str, any]] = [
     {"id":"setback", "track":"Behavioral", "title":"Learn from a setback", "topic":"Growth", "time":"5 min", "prompt":"Describe a mistake or setback. What did you do next, and what changed afterward?", "steps":["Choose a real example and briefly explain your responsibility.","Describe how you communicated and addressed the immediate problem.","Explain the change you made to prevent the same issue."], "guide":"Be specific and take responsibility for your part. Show how you asked for help, recovered, and adjusted your process. Keep the emphasis on learning and subsequent behavior rather than a perfect ending.", "check":"Can you point to a concrete change in how you now test, plan, communicate, or ask for feedback?"}
 ];
 
-def:pub Prep -> JsxElement {
+def:pub Prep(runs: list[dict[str, any]] = [], features: list[dict[str, any]] = [], onOpenTask: any = None, onNavigate: any = None) -> JsxElement {
     has track: str = "Technical", current: int = 0, revealed: bool = False;
 
     def changeTrack(value: str) -> None { track=value; current=0; revealed=False; }
@@ -23,7 +23,7 @@ def:pub Prep -> JsxElement {
     }
 
     <View style={{gap:22}}>
-        <Practice/>
+        <Practice runs={runs} features={features} onOpenTask={onOpenTask} onNavigate={onNavigate}/>
         <View style={{gap:7}}>
             <Text style={s.eyebrow}>A LITTLE PRACTICE. MORE CONFIDENCE.</Text>
             <Text style={s.title}>Show up ready.</Text>

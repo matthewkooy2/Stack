@@ -1,0 +1,221 @@
+%-------------------------
+% Resume in Latex
+% Author : Jake Gutierrez
+% Based off of: https://github.com/sb2nov/resume
+% License : MIT
+%-------------------------
+
+\documentclass[letterpaper,10pt]{article}
+
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage[english]{babel}
+\usepackage{tabularx}
+\usepackage{iftex}
+
+\ifPDFTeX
+  \input{glyphtounicode}
+\fi
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+% Adjust margins
+\addtolength{\oddsidemargin}{-0.5in}
+\addtolength{\evensidemargin}{-0.5in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-.35in}
+\addtolength{\textheight}{0.55in}
+
+\urlstyle{same}
+\raggedbottom
+\raggedright
+\setlength{\tabcolsep}{0in}
+
+% Sections formatting
+\titleformat{\section}{
+  \vspace{-4pt}\scshape\raggedright\large
+}{}{0em}{}[\color{black}\titlerule \vspace{-3pt}]
+
+% Ensure generated PDF is machine readable/ATS parsable
+\ifPDFTeX
+  \pdfgentounicode=1
+\fi
+
+%-------------------------
+% Custom commands
+\newcommand{\resumeItem}[1]{
+  \item\small{
+    {#1 \vspace{-1pt}}
+  }
+}
+
+% Arguments: school, degree, location, date.
+\newcommand{\resumeEducationHeading}[4]{
+  \vspace{-2pt}\item
+    \begin{minipage}[t]{0.70\linewidth}
+      \textbf{#1} \\[-1pt]
+      \textit{\small #2}
+    \end{minipage}\hfill
+    \begin{minipage}[t]{0.28\linewidth}
+      \raggedleft #3 \\[-1pt]
+      \textit{\small #4}
+    \end{minipage}\par\vspace{-5pt}
+}
+
+% Arguments: company, job title, location, date.
+% Title/date first and company/location second matches ATS field heuristics.
+\newcommand{\resumeExperienceHeading}[4]{
+  \vspace{-2pt}\item
+    \textbf{#2}\hfill #4 \\[-1pt]
+    \textit{\small #1}\hfill\textit{\small #3}\par\vspace{-5pt}
+}
+
+\newcommand{\resumeSubSubheading}[2]{
+  \item
+    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+      \textit{\small#1} & \textit{\small #2} \\
+    \end{tabular*}\vspace{-5pt}
+}
+
+\newcommand{\resumeProjectHeading}[2]{
+  \item
+    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+      \small#1 & #2 \\
+    \end{tabular*}\vspace{-5pt}
+}
+
+\newcommand{\resumeSubItem}[1]{\resumeItem{#1}\vspace{-4pt}}
+
+\renewcommand\labelitemii{$\vcenter{\hbox{\tiny$\bullet$}}$}
+
+\newcommand{\resumeSubHeadingListStart}{
+  \begin{itemize}[leftmargin=0.15in, label={}]
+}
+
+\newcommand{\resumeSubHeadingListEnd}{
+  \end{itemize}
+}
+
+\newcommand{\resumeItemListStart}{
+  \begin{itemize}
+}
+
+\newcommand{\resumeItemListEnd}{
+  \end{itemize}\vspace{-2pt}
+}
+
+%-------------------------------------------
+% Resume starts here. Layout mirrors a real Overleaf resume: 4-argument headings,
+% multi-line \resumeItem bodies, and a skills block of \textbf{Label:} lines split by \\[3pt].
+%-------------------------------------------
+
+\begin{document}
+
+\begin{center}
+    \textbf{\Huge \scshape Jordan Rivera} \\ \vspace{1pt}
+    \small
+    555-010-2040 $|$
+    \href{mailto:jordan.rivera@example.com}{jordan.rivera@example.com} $|$
+    \href{https://github.com/jordan-rivera-example}{github.com/jordan-rivera-example}
+\end{center}
+
+\section{Education}
+  \resumeSubHeadingListStart
+    \resumeEducationHeading
+      {Great Lakes University}
+      {Bachelor of Science in Computer Science}
+      {Detroit, MI}
+      {Expected May 2027}
+    \item
+      {\footnotesize
+      \textit{Relevant Coursework:}
+      Data Structures \& Algorithms, Database Systems, Distributed Systems}
+  \resumeSubHeadingListEnd
+
+\section{Experience}
+  \resumeSubHeadingListStart
+
+  \resumeExperienceHeading
+      {Harbor Logistics}
+      {Software Engineer Intern}
+      {Hybrid}
+      {March 2026 -- Present}
+      \resumeItemListStart
+        \resumeItem{
+          Built an authenticated customer portal serving 1,200+ monthly active users, using React, Express, and PostgreSQL for account-scoped workflows.
+        }
+        \resumeItem{
+          Engineered a Python ETL pipeline ingesting 13K+ shipment records daily with deterministic validation, manual-review gates, and idempotent processing.
+        }
+        \resumeItem{
+          Shipped 10--15 production releases per week through health-gated CI/CD on Cloud Run.
+        }
+      \resumeItemListEnd
+
+  \resumeExperienceHeading
+      {Lakeside Analytics}
+      {Data Engineering Intern}
+      {Remote}
+      {June 2025 -- August 2025}
+      \resumeItemListStart
+        \resumeItem{
+          Reduced SQL queries per request from 53 to 7 through batched reads, cutting median latency by 27.8\%.
+        }
+        \resumeItem{
+          Researched 5+ competing products and translated prioritized features into scoped tickets.
+        }
+      \resumeItemListEnd
+
+  \resumeSubHeadingListEnd
+
+\section{Projects}
+  \resumeSubHeadingListStart
+    \resumeProjectHeading
+      {\textbf{Transit Delay Forecaster}
+      $|$ \emph{Python, FastAPI, React}}{}
+      \resumeItemListStart
+        \resumeItem{
+          Trained gradient-boosted models on 10,000+ trips, improving held-out MAE by 1.9\% over a rolling baseline.
+        }
+        \resumeItem{
+          Served forecasts through a FastAPI and React stack with SQLite caching and rate limiting.
+        }
+      \resumeItemListEnd
+    \resumeProjectHeading
+      {\textbf{Court Vision Tracker}
+      $|$ \emph{Python, OpenCV}}{}
+      \resumeItemListStart
+        \resumeItem{
+          Built a computer-vision pipeline for player detection and multi-object tracking across game video.
+        }
+      \resumeItemListEnd
+  \resumeSubHeadingListEnd
+
+\section{Technical Skills}
+  \begin{itemize}[leftmargin=0.15in, label={}]
+    \small
+    \item{
+      \textbf{Languages:}
+      Python, TypeScript/JavaScript, C++, SQL \\[3pt]
+      \textbf{Frameworks \& Runtimes:}
+      React, FastAPI, Express, Node.js \\[3pt]
+      \textbf{Data \& ML:}
+      PostgreSQL, DuckDB, pandas, NumPy,
+      scikit-learn, OpenCV \\[3pt]
+      \textbf{Platforms \& Tools:}
+      Git, Docker, GitHub Actions, Cloud Run
+    }
+  \end{itemize}
+
+\end{document}

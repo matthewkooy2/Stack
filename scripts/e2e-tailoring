@@ -1,0 +1,40 @@
+#!/bin/sh
+# End-to-end resume tailoring: the real phone screens against an isolated API, agent worker,
+# local Codex/Claude subscription, and Tectonic. Uses its own throwaway Postgres and port, so the
+# phone preview and its data are untouched. Makes about three real model requests.
+#   ./scripts/e2e-tailoring            # Codex subscription
+#   STACK_E2E_PROVIDER=claude-cli ./scripts/e2e-tailoring
+set -eu
+ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$ROOT"
+PG_BIN=${PG_BIN:-$(dirname "$(ls -d /opt/homebrew/Cellar/postgresql@16/*/bin/postgres | tail -1)")}
+PORT=${STACK_E2E_PORT:-8300}
+PG_PORT=${STACK_E2E_PG_PORT:-55432}
+WORK=$(mktemp -d /tmp/stack-e2e.XXXXXX)
+API=""; WORKER=""
+cleanup() {
+  [ -n "$WORKER" ] && kill "$WORKER" 2>/dev/null || true
+  [ -n "$API" ] && kill "$API" 2>/dev/null || true
+  "$PG_BIN/pg_ctl" -D "$WORK/pg" -m fast stop >/dev/null 2>&1 || true
+  rm -rf "$WORK"
+}
+trap cleanup EXIT INT TERM
+
+"$PG_BIN/initdb" -U jac --auth=trust -D "$WORK/pg" >/dev/null
+"$PG_BIN/pg_ctl" -D "$WORK/pg" -l "$WORK/pg.log" -o "-p $PG_PORT -k '' -c listen_addresses=127.0.0.1 -c max_connections=200 -c max_pred_locks_per_transaction=1024" start >/dev/null
+"$PG_BIN/psql" -h 127.0.0.1 -p "$PG_PORT" -U jac -d postgres -qc "CREATE DATABASE stack_e2e"
+
+echo '{}' > "$WORK/agents.json"
+export JAC_DB_URL="postgresql://jac@127.0.0.1:$PG_PORT/stack_e2e"
+export STACK_AGENT_CONFIG="$WORK/agents.json" STACK_E2E_AGENT_CONFIG="$WORK/agents.json"
+export STACK_AGENT_WORKER_TOKEN=$(openssl rand -hex 24)
+export STACK_WORKER_API="http://127.0.0.1:$PORT" STACK_API_URL="http://127.0.0.1:$PORT"
+
+./scripts/jac run --no-serve scripts/compile-mobile.jac >/dev/null
+./scripts/jac run --no-client --port "$PORT" Stack > "$WORK/api.log" 2>&1 & API=$!
+i=0; until curl -s -o /dev/null -X POST "$STACK_API_URL/function/agent_admission" -H 'content-type: application/json' -d '{}'; do
+  i=$((i+1)); if [ $i -gt 120 ] || ! kill -0 "$API" 2>/dev/null; then tail -20 "$WORK/api.log"; exit 1; fi; sleep 2
+done
+./scripts/jac run --no-serve scripts/agent-worker.jac > "$WORK/worker.log" 2>&1 & WORKER=$!
+sleep 3
+STACK_E2E_WORKER_PID=$WORKER STACK_TEST_TAILOR_E2E=1 node tests/native.cjs || { echo "--- worker log"; tail -20 "$WORK/worker.log"; exit 1; }

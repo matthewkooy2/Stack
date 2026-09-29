@@ -27,6 +27,7 @@ node AgentRun {
         provider: str = "", subscription_calls: int = 0,
         approvals: dict[str, any] = {}, review: dict[str, any] = {}, dismissed: bool = False;
 }
+node AgentModelLog { has run_id: str, attempt_id: str, step: str, created_at: float, updated_at: float, data: dict[str, any]; }
 node AgentTicket { has owner: str, run_id: str, state: str = "queued", due_at: float = 0.0; }
 node AgentAction { has run_id: str, step: str, key: str, payload_hash: str, policy_revision: int, created_at: float, status: str = "intent", receipt: dict[str, any] = {}; }
 node AgentUsage { has key: str, cents: int = 0, actions: int = 0; }
@@ -241,6 +242,36 @@ def _agent_leased(id: str, owner: str, lease: str) -> AgentRun {
     _agent_owner(owner);r=_owned_run(id);
     if r is None or not lease or r.lease!=lease or r.lease_until<time.time() or r.status!="running" { raise ValueError("Run lease expired or cancelled."); }
     return r;
+}
+def:pub agent_model_log(token: str, id: str, owner: str, lease: str, record: dict[str, any]) -> dict[str, any] {
+    if not _agent_system(token) { return {"error":"Worker authorization required."}; }
+    with _catalog_lock {
+        _agent_fresh();
+        try { r=_agent_leased(id,owner,lease); } except ValueError as e { return {"error":str(e)}; }
+        step=STEPS[r.kind][r.index];
+        if (step not in PAID and step!="interview") or record.get("status") not in ["started","received","accepted","rejected","error","completed"] { return {"error":"Invalid model log."}; }
+        attempt=str(record.get("attempt_id",""));
+        if not attempt or len(attempt)>64 { return {"error":"Invalid model attempt."}; }
+        # Only response diagnostics belong here: never worker tokens or request input.
+        data={k:record[k] for k in ["provider","model","status","raw_response","response_format","error"] if k in record};
+        previous=[n for n in [root -->][?:AgentModelLog] if n.run_id==id and n.attempt_id==attempt];
+        if previous {
+            n=previous[0];
+            if n.step!=step { return {"error":"Model attempt belongs to another step."}; }
+            n.data=data;n.updated_at=time.time();
+        } else {
+            root ++> AgentModelLog(run_id=id,attempt_id=attempt,step=step,created_at=time.time(),updated_at=time.time(),data=data);
+        }
+        commit();return {"saved":True};
+    }
+}
+def _model_log_view(n: AgentModelLog) -> dict[str, any] {
+    return {"run_id":n.run_id,"attempt_id":n.attempt_id,"step":n.step,"created_at":n.created_at,"updated_at":n.updated_at,**n.data};
+}
+def:priv agent_model_logs(id: str) -> dict[str, any] {
+    _agent_access();
+    if _owned_run(id) is None { return {"error":"Task not found."}; }
+    return {"attempts":[_model_log_view(n) for n in [root --> [?:AgentModelLog, created_at]] if n.run_id==id]};
 }
 def:pub agent_authorize(token: str, id: str, owner: str, lease: str, payload_hash: str) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
@@ -500,7 +531,7 @@ def:pub agent_worker_connection(token: str, id: str, owner: str, lease: str) -> 
     }
 }
 def:priv agent_export() -> dict[str, any] {
-    _agent_access();return {"settings":agent_settings(),"runs":[_run_view(r,True) for r in [root -->][?:AgentRun]],"contacts":agent_contacts(),"sessions":[prep_get(jid(p)) for p in [root -->][?:PrepSession]],"events":[e.data for e in [root -->][?:AgentEvent]]};
+    _agent_access();return {"settings":agent_settings(),"model_logs":[_model_log_view(n) for n in [root -->][?:AgentModelLog]],"runs":[_run_view(r,True) for r in [root -->][?:AgentRun]],"contacts":agent_contacts(),"sessions":[prep_get(jid(p)) for p in [root -->][?:PrepSession]],"events":[e.data for e in [root -->][?:AgentEvent]]};
 }
 
 

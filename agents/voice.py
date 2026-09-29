@@ -6,6 +6,7 @@ import math
 import os
 from urllib.parse import quote
 from typing import Any
+from uuid import uuid4
 from agents.contracts import config
 from agents.provider import SYSTEM
 from agents.worker import call
@@ -44,6 +45,17 @@ def voice_reservation(context: dict[str, Any]) -> int:
     cents = TURNS * (maximum_input * value['maximum_input_cents_per_million'] + OUTPUT_TOKENS * value['maximum_output_cents_per_million']) / 1_000_000
     cents += TURNS * math.ceil(SECONDS / 60) * value['transcription_cents_per_minute']
     return max(1, math.ceil(cents))
+
+
+def record_response(auth, model, raw):
+    """Retain each completed/cancelled voice response, including its transcript."""
+    response = json.loads(raw).get('response', {})
+    call('agent_model_log', {**auth, 'record': {
+        'attempt_id': response.get('id') or uuid4().hex,
+        'provider': 'openai-realtime', 'model': model,
+        'status': 'completed' if response.get('status') == 'completed' else 'rejected',
+        'response_format': 'realtime_response_json', 'raw_response': raw,
+    }})
 
 
 class Limits:
@@ -100,6 +112,7 @@ async def serve_interview(client):
                         text = str(event.get('transcript', ''))[:12000];transcript.append(role + ': ' + text)
                         await client.send(json.dumps({'type': 'transcript', 'text': transcript[-1]}))
                     elif kind == 'response.done':
+                        await asyncio.to_thread(record_response, auth, settings['model'], raw)
                         playback['active'] = False
                         usage.append(event.get('response', {}).get('usage', {}))
                         await client.send(json.dumps({'type': 'listening' if limits.responses < TURNS else 'complete'}))

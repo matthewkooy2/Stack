@@ -137,3 +137,39 @@ step two without opening a browser or asking for another sign-in. Older tasks sa
 as needs_input with no questions now show Analysis paused and the same recovery.
 The model schema constrains finding section IDs and rewrite types; source checks
 still reject unsupported claims. Failed model output is not presented as a report.
+
+## Retained model responses
+
+All future agent model attempts (fit, tailoring, outreach drafts, coaching, profile
+suggestions, and LinkedIn reviews) are recorded in private `AgentModelLog` database
+nodes attached to their account. Each attempt has a distinct ID, task ID, step,
+provider/model, creation/update timestamps, raw response, and validation status or
+failure reason. Successful responses are retained too. The worker saves the raw
+response before parsing/source validation, including CLI output before temporary
+files are removed. Retries create new attempts and keep earlier responses.
+
+The status is `started` before calling the provider, `received` before validation,
+`accepted` after validation, `rejected` for returned but unusable output, or `error`
+when no response arrived. If a worker stops between receiving and validating,
+`received` remains available. Completed live interview response events are also
+retained, including transcripts and provider completion/cancellation metadata;
+these use `completed` rather than implying source validation. Audio chunks are
+not duplicated into these diagnostic logs.
+
+Read a task's history through authenticated `agent_model_logs(id)` or the
+`model_logs` section of account/agent export. Logs are not included in routine
+activity polling and are not rendered as validated reports. Only the task's owner
+can read them; the private worker write endpoint also checks the current lease.
+Account deletion removes them with the other private account nodes. No automatic
+expiry is applied. These are database records, not terminal logs or CLI credential
+files. Request prompts, browser input, cookies, worker tokens and credentials are
+not added to the log. The response itself can contain personal profile information.
+
+Logging is automatic for future calls once this version of the worker/API is
+running; it cannot recover earlier discarded output. A logging failure stops the
+request rather than silently accepting an unlogged result. A process crash before
+output reaches Stack, provider timeouts without a returned result, and responses
+discarded by the existing transport size limits cannot be recovered from these
+logs. `./dev` account refresh/restore still replaces the preview database, so use
+the existing account export or preview backup to preserve a feature worktree's
+history before replacing its database.

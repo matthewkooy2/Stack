@@ -48,9 +48,14 @@ def dispatch(work, token):
         model_access(c, work['owner'])
         if step == 'tailor' and not any(f['key'].startswith('resume.') and f.get('verified') for f in context.get('facts', [])):
             return {'needs_input': True, 'message': 'Confirm the facts extracted from your resume before tailoring.', 'requests': []}
+        def record(attempt):
+            try:
+                call('agent_model_log', {**auth, 'record': attempt})
+            except Exception:
+                raise ValueError('Stack could not retain the model response log. Check the API before retrying.') from None
         try:
             result = generate(step, {**context, 'research': artifacts.get('research', {}),
-                                     'linkedin_profile': artifacts.get('linkedin_scan', {})}, c)
+                                     'linkedin_profile': artifacts.get('linkedin_scan', {})}, c, record=record)
         except ValueError as exc:
             if step == 'linkedin_review':
                 return {'blocked': True, 'message': str(exc), 'requests': []}

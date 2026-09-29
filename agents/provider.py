@@ -2,6 +2,7 @@
 import json
 import math
 import os
+from uuid import uuid4
 from agents.contracts import CLI_PROVIDERS, config, validate_evidence
 from agents.security import http
 
@@ -49,7 +50,34 @@ def sources_for(context):
     return sources
 
 
-def generate(step, context, configuration=None):
+def generate(step, context, configuration=None, record=None):
+    """Retain the provider response before parsing or validating it.
+
+    The worker supplies a durable, owner-scoped recorder. Direct unit-test callers
+    can omit it; production generation always goes through the worker.
+    """
+    c = configuration if configuration is not None else config()
+    attempt = {'attempt_id': uuid4().hex, 'provider': c['provider'],
+               'model': c['model'], 'status': 'started'}
+    def save(**changes):
+        attempt.update(changes)
+        if record is not None:
+            record(dict(attempt))
+    def received(raw, response_format):
+        save(status='received', raw_response=raw, response_format=response_format)
+    save()
+    try:
+        result = _generate(step, context, c, received)
+    except Exception as exc:
+        # Do not persist transport exceptions, headers, environment, or tracebacks.
+        reason = str(exc) if isinstance(exc, ValueError) else type(exc).__name__
+        save(status='rejected' if 'raw_response' in attempt else 'error', error=reason)
+        raise
+    save(status='accepted')
+    return result
+
+
+def _generate(step, context, configuration, received):
     c = configuration if configuration is not None else config()
     provider = c['provider']
     key = os.environ.get('MODEL_API_KEY' if provider == 'meta' else 'OPENAI_API_KEY')
@@ -73,13 +101,14 @@ def generate(step, context, configuration=None):
     result = {}
     if provider in CLI_PROVIDERS:
         from agents.local_cli import generate as cli_generate
-        text = json.dumps(cli_generate(provider, c['model'], SYSTEM, payload['input'], SCHEMAS[step]))
+        text = json.dumps(cli_generate(provider, c['model'], SYSTEM, payload['input'], SCHEMAS[step], record_response=received))
     elif provider == 'meta':
         result = http('https://api.meta.ai/v1/chat/completions', {
             'model': c['model'], 'max_completion_tokens': c['max_output_tokens'],
             'messages': [{'role': 'system', 'content': SYSTEM}, {'role': 'user', 'content': payload['input']}],
             'response_format': {'type': 'json_schema', 'json_schema': {'name': 'stack_' + step, 'strict': True, 'schema': SCHEMAS[step]}},
         }, {'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'}, timeout=90)
+        received(json.dumps(result, ensure_ascii=False), 'provider_json')
         choice = result.get('choices', [{}])[0]
         if choice.get('finish_reason') != 'stop':
             raise ValueError('Muse did not complete this step.')
@@ -87,6 +116,7 @@ def generate(step, context, configuration=None):
     elif provider == 'openai':
         result = http('https://api.openai.com/v1/responses', payload,
                       {'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'}, timeout=90)
+        received(json.dumps(result, ensure_ascii=False), 'provider_json')
         if result.get('status') != 'completed':
             raise ValueError('The model did not complete this step.')
         text = ''.join(part.get('text', '') for item in result.get('output', []) for part in item.get('content', []) if part.get('type') == 'output_text')

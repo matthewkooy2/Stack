@@ -352,12 +352,26 @@ def:priv change_reminder(id: str, action: str) -> dict[str, any] {
 }
 
 
+"""The resume an application uses: its own, else the default, else the only one uploaded.
+Jobs saved before any resume was uploaded have no resume of their own."""
+def _application_resume(a: Application) -> Resume | None {
+    r=_owned_resume(a.resume_id);
+    if r is None { r=_owned_resume(_settings().selected_resume); }
+    resumes=[root -->][?:Resume];
+    if r is None and len(resumes)==1 { r=resumes[0]; }
+    return r;
+}
+"""How Stack can build a tailored PDF from this resume: "latex", "builtin", or "" when it cannot yet."""
+def _tailor_source(r: Resume | None) -> str {
+    if r is None { return ""; }
+    if r.template.get("kind")=="upload" { return "latex"; }
+    return "builtin" if r.review_confirmed else "";
+}
 def _application_agent_context(a: Application) -> dict[str, any] {
-    job=_application_job(a);p=_profile();
-    context={"application_id":jid(a),"job":job,"profile":{"name":p.name,"role":p.role,"location":p.location,"preferences":_match_preferences()},"resume_id":a.resume_id};
-    resume=_owned_resume(a.resume_id);
+    job=_application_job(a);p=_profile();resume=_application_resume(a);
+    context={"application_id":jid(a),"job":job,"profile":{"name":p.name,"role":p.role,"location":p.location,"preferences":_match_preferences()},"resume_id":jid(resume) if resume is not None else "","resume_format":_tailor_source(resume)};
     if resume is not None {
-        context["resume_format"]="latex" if resume.template.get("kind")=="upload" else "builtin";
+        context["resume_name"]=resume.name;
         try {
             reader=importlib.import_module("pypdf").PdfReader(_file_path(resume.file_key));
             context["resume_text"]="\n".join([page.extract_text() or "" for page in reader.pages])[:200000];
@@ -374,7 +388,10 @@ def:priv agent_start(kind: str, target_id: str) -> dict[str, any] {
                 if jid(a)==target_id and not a.demo {
                     job=_application_job(a);
                     if kind=="application" and (a.status!="Ready to apply" or not job.get("active") or job.get("stale")) { return {"error":"Only an active, unsubmitted application can be started."}; }
-                    return _agent_start(kind,target_id,_application_agent_context(a));
+                    context=_application_agent_context(a);
+                    # Attach the resolved resume so the job shows, and keeps, the resume it was tailored from.
+                    if context["resume_id"] and a.resume_id!=context["resume_id"] { a.resume_id=context["resume_id"]; }
+                    return _agent_start(kind,target_id,context);
                 }
             }
         } elif kind=="profile" {
@@ -394,6 +411,31 @@ def:priv agent_start(kind: str, target_id: str) -> dict[str, any] {
         }
     }
     return {"error":"This agent target was not found or is unavailable."};
+}
+"""Continues a task paused before tailoring, re-reading the job's resume after the user fixed it.
+A chosen resume_id is attached to the job first."""
+def:priv agent_continue_tailoring(id: str, resume_id: str = "") -> dict[str, any] {
+    _agent_access();
+    with _write_lock {
+        _agent_fresh();r=_owned_run(id);
+        if r is None { return _error("Task not found."); }
+        steps=STEPS[r.kind];
+        if r.status!="needs_input" or steps[min(r.index,len(steps)-1)]!="tailor" { return _error("This task is not waiting for a resume."); }
+        apps=[a for a in [root -->][?:Application] if jid(a)==r.context.get("application_id",r.target_id)];
+        if not apps { return _error("This saved job was removed. Start tailoring from another job."); }
+        a=apps[0];
+        if resume_id {
+            if _owned_resume(resume_id) is None { return _error("Resume not found."); }
+            a.resume_id=resume_id;
+        }
+        context=_application_agent_context(a);
+        if context["resume_id"] { a.resume_id=context["resume_id"]; }
+        r.context={**r.context,**{k:v for (k,v) in context.items() if k.startswith("resume_")}};r.updated_at=time.time();
+        commit();
+        if not context["resume_id"] { return _error("Upload a resume on the Resume tab first."); }
+        if not context["resume_format"] { return _error(context["resume_name"]+" has no LaTeX source or confirmed details yet."); }
+    }
+    return agent_respond(id,[],False);
 }
 def:priv agent_extract_resume(id: str) -> dict[str, any] {
     _agent_access();r=_owned_resume(id);
@@ -571,6 +613,9 @@ def _features() -> list[dict[str, any]] {
     try { voice_settings();voice_error=""; } except ValueError as e { voice_error=str(e); }
     if not voice_error and not (c["monthly_cents"]>0 and c["user_monthly_cents"]>0) { voice_error="Live interviews need an API budget; subscription providers cannot run them."; }
     facts=m.facts;real=[a for a in [root -->][?:Application] if not a.demo];
+    # The resume a newly tailored job uses; see _application_resume.
+    default_resume=_owned_resume(_settings().selected_resume);resumes=[root -->][?:Resume];
+    if default_resume is None and len(resumes)==1 { default_resume=resumes[0]; }
     return feature_status({
         "now":time.time(),"policy":m.policy,"model":model_status(jid(root)),"google_scopes":scopes,
         "google_client":bool(os.environ.get("GOOGLE_CLIENT_ID","")) and os.environ.get("GOOGLE_REDIRECT_URI","").startswith("https://"),
@@ -578,7 +623,7 @@ def _features() -> list[dict[str, any]] {
         "sandbox":bool(os.environ.get("STACK_SANDBOX_URL","")) or c["sandbox_available"],"voice_error":voice_error,"web_url":c["web_url"],
         "certified_adapters":c["certified_adapters"],"operator_limits":c["action_daily_limits"],
         "resumes":len([root -->][?:Resume]),"applications":len(real),
-        "latex_sources":len([r for r in [root -->][?:Resume] if r.template.get("kind")=="upload"]),
+        "tailor_source":_tailor_source(default_resume),"tailor_resume":default_resume.name if default_resume is not None else "",
         "resume_facts":len([f for f in facts if f.get("verified") and str(f["key"]).startswith("resume.")]),
         "verified_facts":len([f for f in facts if f.get("verified")]),
         "contacts_selected":len([x for x in [root -->][?:AgentContact] if x.data.get("selected") and not x.data.get("stopped")])

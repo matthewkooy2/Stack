@@ -1,5 +1,5 @@
 import from "@jac/mobui" { View, Text, Switch, Pressable }
-import from "../device.js" { rpc, errorText, openJobLink, dateTime, isoTime, Icon, Lifecycle, previewDocument, PDFView }
+import from "../device.js" { rpc, errorText, openJobLink, dateTime, isoTime, Icon, Lifecycle, previewDocument, PDFView, pickLatexSource }
 import from ..theme { s }
 import from .UI { Button, Field, Chip }
 import from .ResumeReview { ResumeReview }
@@ -168,10 +168,72 @@ def ArtifactView(name: str, value: dict[str, any], onPreview: any) -> JsxElement
     </View>
 }
 
+"""Tailoring paused because the job's resume has nothing Stack can edit. Every fix happens here, then tailoring continues."""
+def:pub TailorBlocker(run: dict[str, any], onContinued: any, onNavigate: any) -> JsxElement {
+    has resumes: list[dict[str, any]] = [], loaded: bool = False, reviewing: bool = False, busy: bool = False, working: str = "", error: str = "";
+    async can with entry {
+        try { resumes=(await rpc("bootstrap",{}))["resumes"]; } except Exception { resumes=[]; }
+        loaded=True;
+    }
+    async def continueWith(resumeId: str) -> None {
+        busy=True;error="";working="Starting tailoring…";
+        try { onContinued(await rpc("agent_continue_tailoring",{"id":run["id"],"resume_id":resumeId})); }
+        except Exception as e {
+            error=errorText(e);
+            # Stack may have attached the default resume; show what that resume still needs.
+            try { onContinued(await rpc("agent_run",{"id":run["id"]})); } except Exception { }
+        }
+        busy=False;working="";
+    }
+    async def upload -> None {
+        if busy { return; } error="";
+        try {
+            file=await pickLatexSource();
+            if not file { return; }
+            busy=True;working="Checking and compiling your LaTeX… the first compile on this Mac can take a minute.";
+            await rpc("upload_resume_source",{"id":run["resume_id"],"name":file["name"],"content":file["content"]});
+        } except Exception as e { error=errorText(e);busy=False;working="";return; }
+        await continueWith("");
+    }
+    name=run.get("resume_name") or "This job's resume";
+    # Another resume that is already tailorable is a one-tap fix.
+    usable=[r for r in resumes if r["format"]["kind"]=="upload" or r["details_status"]=="Confirmed"];
+    # Fixed on the Resume tab after this task paused.
+    # Started before any resume was uploaded: Stack attaches the default resume when it continues.
+    stale=not run.get("resume_id") and len(resumes)>0;
+    fixed=stale or len([r for r in usable if r["id"]==run.get("resume_id")])>0;usable=[r for r in usable if r["id"]!=run.get("resume_id")];
+    <View style={s.reviewBox}>
+        <Text style={s.eyebrow}>ONE STEP BEFORE TAILORING</Text>
+        {<Text style={s.body}>Checking your resume…</Text> if not loaded else (<View style={{gap:10}}>
+            <Text style={s.heading}>Upload a resume first</Text>
+            <Text style={s.body}>Stack tailors a resume you have uploaded, and you have none yet. Nothing has been generated.</Text>
+            <Button label="Go to the Resume tab" icon="resume" disabled={busy} onPress={lambda { onNavigate("resume"); }}/>
+            <Button label="I uploaded one · continue tailoring" secondary={True} disabled={busy} onPress={lambda { continueWith(""); }}/>
+        </View> if not run.get("resume_id") and not stale else (<View style={{gap:10}}>
+            <Text style={s.heading}>{"Your resume is uploaded" if stale else name+" is ready"}</Text>
+            <Text style={s.body}>{"This task started before you uploaded it. Continue, and Stack uses your default resume." if stale else "It now has LaTeX or confirmed details. Continue to generate your tailored resume."}</Text>
+            <Button label="Continue tailoring" icon="check" disabled={busy} onPress={lambda { continueWith(""); }}/>
+        </View> if fixed else <View style={{gap:10}}>
+            <Text style={s.heading}>{"Add the LaTeX for "+name}</Text>
+            <Text style={s.body}>Stack tailors by editing your resume's LaTeX, so your layout stays exactly the same. This resume is only a PDF so far, so nothing has been generated yet.</Text>
+            {[<Button key={r["id"]} label={"Use "+r["name"]+" instead · "+("your LaTeX" if r["format"]["kind"]=="upload" else "confirmed details")} icon="check" disabled={busy} onPress={lambda { continueWith(r["id"]); }}/> for r in usable]}
+            <Button label="Upload LaTeX (.tex or Overleaf .zip)" icon="upload" secondary={len(usable)>0} disabled={busy} onPress={upload}/>
+            <Text style={s.small}>In Overleaf: Menu → Download → Source. Tailoring starts as soon as it compiles.</Text>
+            {<View style={{gap:8}}>
+                <Text style={s.label}>OR USE A BUILT-IN TEMPLATE</Text>
+                <Text style={s.small}>Check the details Stack read from your PDF. Once you confirm them, Stack fills Jake's Resume template and tailors that.</Text>
+                <ResumeReview resumeId={run["resume_id"]} onConfirmed={lambda { continueWith(""); }}/>
+            </View> if reviewing else <Button label="No LaTeX? Use a built-in template" secondary={True} disabled={busy} onPress={lambda { reviewing=True; }}/>}
+        </View>))}
+        {<Text style={s.small}>{working}</Text> if working else <View/>}
+        {<Text style={s.errorText}>{error}</Text> if error else <View/>}
+    </View>
+}
+
 """One task: context, progress, what it needs from you, review, recovery, and results."""
 def:pub TaskDetail(id: str, features: list[dict[str, any]], webUrl: str, onBack: any, onNavigate: any) -> JsxElement {
     has run: dict[str, any] = {}, values: dict[str, str] = {}, subject: str = "", body: str = "", evidence: str = "", editsFor: str = "",
-        error: str = "", notice: str = "", busy: bool = False, pdfUri: str = "", reviewingResume: bool = False,
+        error: str = "", notice: str = "", busy: bool = False, pdfUri: str = "",
         rejected: list[str] = [], rejectFor: str = "";
     def remember -> None { DRAFTS[id]={"values":values,"subject":subject,"body":body,"evidence":evidence,"editsFor":editsFor,"rejected":rejected,"rejectFor":rejectFor}; }
     async def load -> None {
@@ -219,10 +281,6 @@ def:pub TaskDetail(id: str, features: list[dict[str, any]], webUrl: str, onBack:
     async def preview(pdf: dict[str, any]) -> None {
         try { pdfUri=await previewDocument(pdf); } except Exception as e { error=errorText(e); }
     }
-    async def resumeReviewed -> None {
-        await perform("agent_respond",{"id":id,"values":[],"reuse":False},"Resume confirmed. Tailoring is in progress.");
-        if not error { reviewingResume=False; }
-    }
     feature=featureFor(features,run.get("kind",""));review=run.get("review",{});
     <View style={{gap:16}}>
         <Lifecycle onRefresh={lambda { if len(run)==0 or run["status"] not in TERMINAL { load(); } }} onOpen={lambda (data: any) { }}/>
@@ -267,11 +325,7 @@ def:pub TaskDetail(id: str, features: list[dict[str, any]], webUrl: str, onBack:
                 {<Text style={s.small}>{"Prefer to do it yourself? "+feature["alternative"]}</Text> if len(feature)>0 else <View/>}
             </View> if run["status"]=="review" else <View/>}
 
-            {<View style={{gap:12}}>
-                <Text style={s.heading}>Review your resume first</Text>
-                <Text style={s.body}>No tailored PDF has been generated. Upload your LaTeX source on the Resume tab, or confirm your resume details to use a built-in template, then continue this task.</Text>
-                {<ResumeReview resumeId={run["resume_id"]} onConfirmed={resumeReviewed}/> if reviewingResume and run.get("resume_id") else <Button label="Review resume details" icon="resume" disabled={busy} onPress={lambda { if run.get("resume_id") { reviewingResume=True; } else { onNavigate("resume"); } }}/>}
-            </View> if run.get("needs_resume_review",False) else <View/>}
+            {<TailorBlocker run={run} onNavigate={onNavigate} onContinued={lambda (next: dict[str, any]) { run=next;notice="Tailoring started. Stack will show you every change to keep or reject." if next["status"]=="queued" else ""; }}/> if run.get("needs_resume_review",False) else <View/>}
 
             {<View style={s.reviewBox}>
                 <Text style={s.eyebrow}>STACK NEEDS YOUR ANSWERS</Text>

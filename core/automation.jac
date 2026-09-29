@@ -71,13 +71,17 @@ def _owned_run(id: str) -> AgentRun | None {
 def _needs_attention(r: AgentRun) -> bool {
     return r.status in ATTENTION or (r.status=="failed" and not r.dismissed);
 }
+"""Tailoring edits the user's uploaded LaTeX, or fills a built-in template from confirmed details (set by the app)."""
+def _tailor_ready(context: dict[str, any]) -> bool {
+    return context.get("resume_format","") in ["latex","builtin"];
+}
 def _run_view(r: AgentRun, detail: bool = False) -> dict[str, any] {
     steps=STEPS[r.kind];
     out={"id":jid(r),"kind":r.kind,"target_id":r.target_id,"status":r.status,"step":steps[min(r.index,len(steps)-1)],"message":r.message,"created_at":r.created_at,"updated_at":r.updated_at,"cost_cents":r.cost_cents,"provider":r.provider,"subscription_calls":r.subscription_calls,"dismissed":r.dismissed,
         **present(r.kind,r.status,r.index,steps,r.context,r.next_at)};
     out["attention"]=_needs_attention(r);
     if r.status=="review" { out["review"]=r.review; }
-    if detail { out.update({"requests":r.requests,"artifacts":r.artifacts,"resume_id":r.context.get("resume_id",""),"needs_resume_review":r.status=="needs_input" and out["step"]=="tailor" and r.context.get("resume_format","")!="latex" and not any(f.get("verified") and str(f.get("key","")).startswith("resume.") for f in r.context.get("facts",[]))}); }
+    if detail { out.update({"requests":r.requests,"artifacts":r.artifacts,"resume_id":r.context.get("resume_id",""),"resume_name":r.context.get("resume_name",""),"needs_resume_review":r.status=="needs_input" and out["step"]=="tailor" and not _tailor_ready(r.context)}); }
     return out;
 }
 def _agent_summary() -> dict[str, any] {
@@ -187,9 +191,10 @@ def:pub agent_claim(token: str) -> dict[str, any] {
             }
             r.context["facts"]=current_facts;
             reservation=0;c=config();
-            # An uploaded LaTeX source is the user's own resume; built-in templates are filled from confirmed details.
-            if step=="tailor" and r.context.get("resume_format","")!="latex" and not any(f.get("verified") and str(f.get("key","")).startswith("resume.") for f in current_facts) {
-                r.status="needs_input";r.requests=[];r.message="Upload your LaTeX source, or review and confirm your resume details, before tailoring. No new PDF has been generated.";r.updated_at=now;t.state="needs_input";continue;
+            if step=="tailor" and not _tailor_ready(r.context) {
+                r.status="needs_input";r.requests=[];r.updated_at=now;t.state="needs_input";
+                r.message="Upload a resume before tailoring." if not r.context.get("resume_id") else "Add this resume's LaTeX source, or confirm its details to use a built-in template. No new PDF has been generated.";
+                continue;
             }
             try {
                 _agent_access();

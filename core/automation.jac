@@ -2,12 +2,13 @@
 import os;
 import time;
 import json;
+import agents.worker as browser_worker;
 import secrets;
 import from uuid { uuid4, UUID }
 import from pathlib { Path }
 import from jaclang.runtime.runtime { JacRuntime }
 import from core.catalog { _catalog_lock }
-import from agents.contracts { VERSION, STEPS, PAID, EXTERNAL, TERMINAL, CLI_PROVIDERS, config, model_access, model_status, digest, default_policy, validate_policy, validate_facts, context_facts, authorize, reserve_cents, validate_contact }
+import from agents.contracts { VERSION, STEPS, workflow_steps, PAID, EXTERNAL, TERMINAL, CLI_PROVIDERS, config, model_access, model_status, digest, default_policy, validate_policy, validate_facts, context_facts, authorize, reserve_cents, validate_contact }
 import from agents.voice { voice_settings, voice_reservation, SECONDS }
 import from agents.prep { catalog, problem, validate_session }
 import from agents.security { seal, unseal }
@@ -27,9 +28,11 @@ node AgentRun {
         provider: str = "", subscription_calls: int = 0,
         trace_attempt: str = "", requested_model: str = "", stage_started_at: float = 0.0,
         approvals: dict[str, any] = {}, review: dict[str, any] = {}, dismissed: bool = False;
+    has workflow_version: int = 1, upgrade_pending: bool = False;
 }
 node AgentTrace { has run_id: str, attempt: str, step: str, event: str, at: float, data: dict[str, any]; }
 node AgentFeedback { has run_id: str, output_version: str, rating: str, note: str, at: float, snapshot: dict[str, any]; }
+node AgentModelLog { has run_id: str, attempt_id: str, step: str, created_at: float, updated_at: float, data: dict[str, any]; }
 node AgentTicket { has owner: str, run_id: str, state: str = "queued", due_at: float = 0.0; }
 node AgentAction { has run_id: str, step: str, key: str, payload_hash: str, policy_revision: int, created_at: float, status: str = "intent", receipt: dict[str, any] = {}; }
 node AgentUsage { has key: str, cents: int = 0, actions: int = 0; }
@@ -72,6 +75,40 @@ def _owned_run(id: str) -> AgentRun | None {
     for r in [root -->][?:AgentRun] { if jid(r)==id { return r; } }
     return None;
 }
+def _steps(r: AgentRun) -> list[str] { return workflow_steps(r.kind, r.workflow_version); }
+
+# Only explicit continuation changes an old run's workflow. Receipts keep their original step names.
+def _pause_legacy(r: AgentRun) -> bool {
+    if r.workflow_version != 1 or r.kind not in ["resume", "application"] or r.status in TERMINAL { return False; }
+    intents=[a for a in [root -->][?:AgentAction] if a.run_id==jid(r) and a.status=="intent"];
+    status="uncertain" if intents else "blocked";
+    if r.upgrade_pending and r.status==status { return False; }
+    r.upgrade_pending=True;r.status=status;r.lease="";r.lease_until=0.0;r.next_at=0.0;r.review={};r.approvals={};
+    r.message="Reconcile the previously dispatched action before continuing after the update." if intents else "Stack was updated. Retry to prepare this task with the new resume review; nothing will be shared automatically.";
+    r.updated_at=time.time();
+    for t in [root.shared -->][?:AgentTicket] { if t.run_id==jid(r) { t.state=status;t.due_at=0.0; } }
+    return True;
+}
+def _upgrade_legacy_runs() -> int {
+    changed=0;
+    with _catalog_lock {
+        for r in [root -->][?:AgentRun] { if _pause_legacy(r) { changed+=1; } }
+        if changed { commit(); }
+    }
+    return changed;
+}
+def _continue_legacy(r: AgentRun) -> None {
+    if r.workflow_version != 1 or r.kind not in ["resume", "application"] { return; }
+    actions=[a for a in [root -->][?:AgentAction] if a.run_id==jid(r)];
+    if any(a.status=="intent" for a in actions) { raise ValueError("Reconcile the dispatched action first."); }
+    if any(a.step=="submit" and a.status=="confirmed" for a in actions) {
+        r.status="completed";r.message="The previous submission is confirmed. It will not be repeated.";return;
+    }
+    r.workflow_version=2;r.upgrade_pending=False;r.index=0;r.artifacts={};r.review={};r.approvals={};
+    # The normal tailor blocker refreshes the current resume/source from the saved application.
+    r.context={**r.context,"resume_format":""};
+}
+
 def _needs_attention(r: AgentRun) -> bool {
     return r.status in ATTENTION or (r.status=="failed" and not r.dismissed);
 }
@@ -80,8 +117,8 @@ def _tailor_ready(context: dict[str, any]) -> bool {
     return context.get("resume_format","") in ["latex","builtin"];
 }
 def _run_view(r: AgentRun, detail: bool = False) -> dict[str, any] {
-    steps=STEPS[r.kind];
-    out={"id":jid(r),"kind":r.kind,"target_id":r.target_id,"status":r.status,"step":steps[min(r.index,len(steps)-1)],"message":r.message,"created_at":r.created_at,"updated_at":r.updated_at,"cost_cents":r.cost_cents,"provider":r.provider,"subscription_calls":r.subscription_calls,"dismissed":r.dismissed,
+    steps=_steps(r);
+    out={"id":jid(r),"kind":r.kind,"target_id":r.target_id,"status":r.status,"step":steps[min(r.index,len(steps)-1)],"message":r.message,"created_at":r.created_at,"updated_at":r.updated_at,"cost_cents":r.cost_cents,"provider":r.provider,"subscription_calls":r.subscription_calls,"dismissed":r.dismissed,"workflow_version":r.workflow_version,"upgrade_pending":r.upgrade_pending,
         **present(r.kind,r.status,r.index,steps,r.context,r.next_at)};
     out["attention"]=_needs_attention(r);
     out["needs_resume_review"]=r.status=="needs_input" and out["step"]=="tailor" and not _tailor_ready(r.context);
@@ -92,7 +129,7 @@ def _run_view(r: AgentRun, detail: bool = False) -> dict[str, any] {
     return out;
 }
 def _agent_summary() -> dict[str, any] {
-    m=_agent_memory();
+    m=_agent_memory();_upgrade_legacy_runs();
     ordered=[root --> [?:AgentRun, -created_at]];
     # Runs needing the user stay listed even when newer tasks push them past the recent window.
     shown=[r for r in ordered if _needs_attention(r)]+[r for r in ordered[:30] if not _needs_attention(r)];
@@ -125,10 +162,10 @@ def:priv agent_save_policy(policy: dict[str, any]) -> dict[str, any] {
 def:priv agent_activity() -> dict[str, any] { _agent_access();return _agent_summary(); }
 def:priv agent_events() -> dict[str, any] { _agent_access();return {"events":[{"id":jid(e),**e.data} for e in [root --> [?:AgentEvent, -created_at]][:100]],"interviews":[{"id":jid(i),"application_id":i.application_id,"study_plan":i.study_plan,**i.event} for i in [root -->][?:AgentInterview]]}; }
 def:priv agent_run(id: str) -> dict[str, any] {
-    _agent_access();r=_owned_run(id);return _run_view(r,True) if r is not None else {"error":"Run not found."};
+    _agent_access();_upgrade_legacy_runs();r=_owned_run(id);return _run_view(r,True) if r is not None else {"error":"Run not found."};
 }
 def _trace(r: AgentRun, event: str, data: dict[str, any]) -> None {
-    root ++> AgentTrace(run_id=jid(r),attempt=r.trace_attempt,step=STEPS[r.kind][min(r.index,len(STEPS[r.kind])-1)],event=event,at=time.time(),data=trace_data(data));
+    root ++> AgentTrace(run_id=jid(r),attempt=r.trace_attempt,step=_steps(r)[min(r.index,len(_steps(r))-1)],event=event,at=time.time(),data=trace_data(data));
 }
 def:pub agent_trace(token: str, id: str, owner: str, lease: str, event: str, data: dict[str, any]) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
@@ -137,7 +174,7 @@ def:pub agent_trace(token: str, id: str, owner: str, lease: str, event: str, dat
         _agent_fresh();
         try { r=_agent_leased(id,owner,lease);_agent_access(); }
         except ValueError as e { return {"error":str(e)}; }
-        if not capture_enabled() { data={k:v for (k,v) in data.items() if k in ["provider","requested_model","reported_models","exit_code","valid"]}; }
+        if not capture_enabled() { data={k:v for (k,v) in data.items() if k in ["provider","requested_model","reported_models","exit_code","valid","model_attempt"]}; }
         _trace(r,event,data);commit();return {"saved":True};
     }
 }
@@ -168,7 +205,7 @@ def _agent_start(kind: str, target_id: str, context: dict[str, any], nonce: str 
     m=_agent_memory();context={**context,"facts":context_facts(m.facts,context),"prompt_version":VERSION};
     key=digest([kind,target_id,nonce or ("once" if kind in ["application","network"] else context)]);
     for old in [root -->][?:AgentRun] { if old.key==key { return _run_view(old,True); } }
-    r=root ++> AgentRun(kind=kind,target_id=target_id,context=context,created_at=time.time(),updated_at=time.time(),key=key,policy_revision=m.revision);
+    r=root ++> AgentRun(workflow_version=2,kind=kind,target_id=target_id,context=context,created_at=time.time(),updated_at=time.time(),key=key,policy_revision=m.revision);
     ticket=root.shared ++> AgentTicket(owner=jid(root),run_id=jid(r));
     JacRuntime.allow_root(ticket,UUID(jid(root.shared)),AccessLevel.WRITE); # jac:ignore[E1053]
     if persist { commit(); }
@@ -184,8 +221,15 @@ def:priv agent_cancel(id: str) -> dict[str, any] {
         intents=[a for a in [root -->][?:AgentAction] if a.run_id==id and a.status=="intent"];
         r.status="uncertain" if intents else "cancelled";
         r.message="Cancellation requested; reconcile the dispatched action." if intents else "Cancelled";
-        r.lease="";r.updated_at=time.time();commit();return _run_view(r,True);
+        r.lease="";r.updated_at=time.time();commit();
+        close_browser=r.kind=="linkedin";owner=jid(root);out=_run_view(r,True);
     }
+    # Closing a remote browser must not hold up every account's database writer.
+    if close_browser {
+        try { browser_worker.browser_call("close",{"owner":owner,"id":id},5); }
+        except Exception { out["message"]="Cancelled. The browser could not be reached; its session expires after one idle hour."; }
+    }
+    return out;
 }
 def:priv agent_respond(id: str, values: list[dict[str, any]] = [], reuse: bool = True) -> dict[str, any] {
     _agent_access();
@@ -193,6 +237,9 @@ def:priv agent_respond(id: str, values: list[dict[str, any]] = [], reuse: bool =
     with _catalog_lock {
         _agent_fresh();r=_owned_run(id);
         if r is None or r.status not in ["needs_input","blocked"] { return {"error":"This run is not waiting for input."}; }
+        if r.kind=="linkedin" and len(validated)>0 { return {"error":"Enter LinkedIn login details only in the browser handoff, never in task answers."}; }
+        _continue_legacy(r);
+        if r.status=="completed" { commit();return _run_view(r,True); }
         m=_agent_memory();keys=[f["key"] for f in validated];
         if reuse { m.facts=[f for f in m.facts if f["key"] not in keys]+validated;m.revision+=1; }
         r.context["facts"]=[f for f in m.facts if f["key"] not in keys]+validated;
@@ -217,9 +264,10 @@ def:pub agent_claim(token: str) -> dict[str, any] {
         for t in tickets {
             commit();_agent_owner(t.owner);r=_owned_run(t.run_id);
             if r is None { t.state="cancelled";continue; }
+            if _pause_legacy(r) { commit();continue; }
             if r.status in TERMINAL or r.status in ["needs_input","blocked","uncertain","review"] { t.state=r.status;continue; }
             if r.lease_until>now { continue; }
-            step=STEPS[r.kind][r.index];
+            step=_steps(r)[r.index];
             if r.status=="running" {
                 intents=[a for a in [root -->][?:AgentAction] if a.run_id==jid(r) and a.step==step and a.status=="intent"];
                 if intents { r.status="uncertain";r.message="The action may have completed. Verify its receipt before continuing.";t.state="uncertain";continue; }
@@ -228,7 +276,7 @@ def:pub agent_claim(token: str) -> dict[str, any] {
             m=_agent_memory();overrides=r.context.get("fact_overrides",[]);override_keys=[f["key"] for f in overrides];
             current_facts=context_facts([f for f in m.facts if f["key"] not in override_keys]+overrides,r.context);
             if digest(r.context.get("facts",[]))!=digest(current_facts) and r.kind in ["application","resume","jobs"] {
-                r.index=0;r.artifacts={};step=STEPS[r.kind][0];
+                r.index=0;r.artifacts={};step=_steps(r)[0];
                 for a in [root -->][?:AgentAction] { if a.run_id==jid(r) and a.step=="fill" and a.status=="confirmed" { a.key=a.key+":"+jid(a); } }
             }
             r.context["facts"]=current_facts;
@@ -251,6 +299,7 @@ def:pub agent_claim(token: str) -> dict[str, any] {
                         r.message="Review before Stack continues: "+r.review["title"];r.updated_at=now;t.state="review";continue;
                     }
                 }
+                if step=="linkedin_scan" { authorize(m.policy,"model");model_access(c,t.owner); }
                 if step in PAID {
                     authorize(m.policy,"model");model_access(c,t.owner);
                     if c["provider"] in CLI_PROVIDERS {
@@ -259,7 +308,7 @@ def:pub agent_claim(token: str) -> dict[str, any] {
                         if usage.actions>=c["local_cli_daily_limit"] { raise ValueError("The local subscription daily request limit is reached."); }
                         usage.actions+=1;commit();_agent_owner(t.owner);r.subscription_calls+=1;
                     } else {
-                        reservation=reserve_cents(r.context);
+                        reservation=reserve_cents({**r.context,"linkedin_profile":r.artifacts.get("linkedin_scan",{})} if step=="linkedin_review" else r.context);
                         commit();month=time.strftime("%Y-%m",time.gmtime());
                         global_usage=_usage("cost:"+month);user_usage=_usage("cost:"+month+":"+t.owner);
                         if global_usage.cents+reservation>c["monthly_cents"] or user_usage.cents+reservation>c["user_monthly_cents"] { raise ValueError("The monthly agent budget is exhausted."); }
@@ -282,12 +331,42 @@ def _agent_leased(id: str, owner: str, lease: str) -> AgentRun {
     if r is None or not lease or r.lease!=lease or r.lease_until<time.time() or r.status!="running" { raise ValueError("Run lease expired or cancelled."); }
     return r;
 }
+def:pub agent_model_log(token: str, id: str, owner: str, lease: str, record: dict[str, any]) -> dict[str, any] {
+    if not _agent_system(token) { return {"error":"Worker authorization required."}; }
+    with _catalog_lock {
+        _agent_fresh();
+        try { r=_agent_leased(id,owner,lease); } except ValueError as e { return {"error":str(e)}; }
+        step=_steps(r)[r.index];
+        if (step not in PAID and step!="interview") or record.get("status") not in ["started","received","accepted","rejected","error","completed"] { return {"error":"Invalid model log."}; }
+        attempt=str(record.get("attempt_id",""));
+        if not attempt or len(attempt)>64 { return {"error":"Invalid model attempt."}; }
+        # Only response diagnostics belong here: never worker tokens or request input.
+        data={k:record[k] for k in ["provider","model","status","raw_response","response_format","error"] if k in record};
+        previous=[n for n in [root -->][?:AgentModelLog] if n.run_id==id and n.attempt_id==attempt];
+        if previous {
+            n=previous[0];
+            if n.step!=step { return {"error":"Model attempt belongs to another step."}; }
+            n.data=data;n.updated_at=time.time();
+        } else {
+            root ++> AgentModelLog(run_id=id,attempt_id=attempt,step=step,created_at=time.time(),updated_at=time.time(),data=data);
+        }
+        commit();return {"saved":True};
+    }
+}
+def _model_log_view(n: AgentModelLog) -> dict[str, any] {
+    return {"run_id":n.run_id,"attempt_id":n.attempt_id,"step":n.step,"created_at":n.created_at,"updated_at":n.updated_at,**n.data};
+}
+def:priv agent_model_logs(id: str) -> dict[str, any] {
+    _agent_access();
+    if _owned_run(id) is None { return {"error":"Task not found."}; }
+    return {"attempts":[_model_log_view(n) for n in [root --> [?:AgentModelLog, created_at]] if n.run_id==id]};
+}
 def:pub agent_authorize(token: str, id: str, owner: str, lease: str, payload_hash: str) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
     with _catalog_lock {
         _agent_fresh();
         try {
-            r=_agent_leased(id,owner,lease);step=STEPS[r.kind][r.index];m=_agent_memory();
+            r=_agent_leased(id,owner,lease);step=_steps(r)[r.index];m=_agent_memory();
             if step not in EXTERNAL { return {"error":"This step has no external action."}; }
             if step in REVIEWED and (not r.approvals.get(step) or r.approvals.get(step)!=payload_hash) { raise ValueError("This action does not match what you approved. Review it again."); }
             action=EXTERNAL[step];destination=r.context.get("contact",{}).get("email","") if step=="send" else r.context.get("job",{}).get("url","");
@@ -317,12 +396,14 @@ def _agent_complete(token: str, id: str, owner: str, lease: str, result: dict[st
     with _catalog_lock {
         _agent_fresh();
         try { r=_agent_leased(id,owner,lease); } except ValueError as e { return {"error":str(e)}; }
-        step=STEPS[r.kind][r.index];
+        step=_steps(r)[r.index];
         _trace(r,"stage_end",{"outcome":"error" if result.get("error") else "needs_input" if result.get("needs_input") else "result_received","duration_ms":max(0,int((time.time()-r.stage_started_at)*1000)) if r.stage_started_at else 0,"result":result if capture_enabled() else {"error":result.get("error",""),"message":result.get("message","")}});
         r.lease="";r.lease_until=0;r.updated_at=time.time();
         intents=[a for a in [root -->][?:AgentAction] if a.run_id==id and a.step==step and a.status=="intent"];
         if result.get("error") {
             r.status="uncertain" if intents else "queued";r.message=str(result["error"])[:1000];r.next_at=time.time()+min(300.0,15.0*(2**r.attempts));
+        } elif result.get("blocked") {
+            r.status="uncertain" if intents else "blocked";r.requests=[];r.message=str(result.get("message","This step could not complete. Retry when ready."))[:1000];
         } elif result.get("needs_input") {
             r.status="needs_input";r.requests=result.get("requests",[]);r.message=str(result.get("message","Your input is needed."))[:1000];
             # The browser can prove it stopped before sending/filling anything.
@@ -339,7 +420,7 @@ def _agent_complete(token: str, id: str, owner: str, lease: str, result: dict[st
                 }
                 r.artifacts[step]=artifact;
                 for a in intents { a.status="confirmed";a.receipt=artifact; }
-                r.index+=1;r.attempts=0;r.status="completed" if r.index>=len(STEPS[r.kind]) else "queued";r.message="Completed" if r.status=="completed" else "Ready for next step";
+                r.index+=1;r.attempts=0;r.status="completed" if r.index>=len(_steps(r)) else "queued";r.message="Completed" if r.status=="completed" else "Ready for next step";
                 if step=="coach" {
                     for p in [root -->][?:PrepSession] { if jid(p)==r.target_id { p.feedback=p.feedback+[{"at":time.time(),"revision":r.context.get("session_revision",0),"run_id":jid(r),"output_version":digest(r.artifacts),"data":artifact}]; } }
                 }
@@ -358,7 +439,7 @@ def:priv agent_reconcile(id: str, outcome: str, evidence: str) -> dict[str, any]
     with _catalog_lock {
         _agent_fresh();r=_owned_run(id);
         if r is None or r.status!="uncertain" { return {"error":"This run does not need reconciliation."}; }
-        step=STEPS[r.kind][r.index];
+        step=_steps(r)[r.index];
         for a in [root -->][?:AgentAction] {
             if a.run_id==id and a.step==step and a.status=="intent" {
                 a.status=outcome;a.receipt={"user_confirmed":True,"evidence":evidence};
@@ -366,11 +447,12 @@ def:priv agent_reconcile(id: str, outcome: str, evidence: str) -> dict[str, any]
             }
         }
         if outcome=="not_sent" and step=="submit" {
-            r.index=STEPS[r.kind].index("fill");
+            r.index=_steps(r).index("fill");
             for a in [root -->][?:AgentAction] { if a.run_id==id and a.step=="fill" and a.status=="confirmed" { a.key=a.key+":"+jid(a); } }
         }
         if outcome=="confirmed" { r.artifacts[step]={"receipt":evidence,"user_confirmed":True};r.index+=1; }
-        r.status="completed" if r.index>=len(STEPS[r.kind]) else "queued";r.message="Reconciled by you";r.attempts=0;
+        r.status="completed" if r.index>=len(_steps(r)) else "queued";r.message="Reconciled by you";r.attempts=0;
+        _pause_legacy(r);
         for t in [root.shared -->][?:AgentTicket] { if t.run_id==id { t.state=r.status;t.due_at=0; } }
         commit();return _run_view(r,True);
     }
@@ -389,7 +471,7 @@ def:priv agent_approve(id: str, step: str, review_hash: str, edits: dict[str, an
         _agent_fresh();r=_owned_run(id);
         if r is None or r.status!="review" { return {"error":"This task is not waiting for your review."}; }
         # The approval covers exactly the version the user saw; a newer version needs a new look.
-        if r.review.get("step")!=step or r.review.get("hash")!=review_hash or STEPS[r.kind][r.index]!=step { return {"error":"This review changed. Look it over again before approving."}; }
+        if r.review.get("step")!=step or r.review.get("hash")!=review_hash or _steps(r)[r.index]!=step { return {"error":"This review changed. Look it over again before approving."}; }
         # Approving something Stack cannot deliver would only fail later; keep the review and say why.
         missing=_google_missing(step);
         if missing { return {"error":missing}; }
@@ -419,6 +501,8 @@ def:priv agent_retry(id: str) -> dict[str, any] {
         # Uncertain runs must be reconciled; completed or cancelled work is never replayed.
         if r.status not in ["failed","blocked"] or r.kind=="live" { return {"error":"Only a failed or paused task can be retried."}; }
         if [a for a in [root -->][?:AgentAction] if a.run_id==id and a.status=="intent"] { return {"error":"An action may have been dispatched. Reconcile it first."}; }
+        _continue_legacy(r);
+        if r.status=="completed" { commit();return _run_view(r,True); }
         r.status="queued";r.message="Retry requested";r.attempts=0;r.next_at=0.0;r.dismissed=False;r.lease="";r.updated_at=time.time();
         for t in [root.shared -->][?:AgentTicket] { if t.run_id==id { t.state="queued";t.due_at=0; } }
         commit();return _run_view(r,True);
@@ -535,7 +619,7 @@ def:pub agent_worker_connection(token: str, id: str, owner: str, lease: str) -> 
     with _catalog_lock {
         _agent_fresh();
         try {
-            r=_agent_leased(id,owner,lease);step=STEPS[r.kind][r.index];
+            r=_agent_leased(id,owner,lease);step=_steps(r)[r.index];
             if step not in ["send","sync","calendar"] { return {"error":"This step cannot access Google."}; }
             authorize(_agent_memory().policy,"gmail_read" if step=="sync" else ("calendar_write" if step=="calendar" else "send_email"));
             for c in [root -->][?:AgentConnection] {
@@ -550,7 +634,7 @@ def:pub agent_worker_connection(token: str, id: str, owner: str, lease: str) -> 
     }
 }
 def:priv agent_export() -> dict[str, any] {
-    _agent_access();return {"settings":agent_settings(),"runs":[{**_run_view(r,True),"trace":agent_traces(jid(r))["events"]} for r in [root -->][?:AgentRun]],"feedback":[{"run_id":f.run_id,"output_version":f.output_version,"rating":f.rating,"note":f.note,"at":f.at,"snapshot":f.snapshot} for f in [root -->][?:AgentFeedback]],"contacts":agent_contacts(),"sessions":[prep_get(jid(p)) for p in [root -->][?:PrepSession]],"events":[e.data for e in [root -->][?:AgentEvent]]};
+    _agent_access();return {"settings":agent_settings(),"model_logs":[_model_log_view(n) for n in [root -->][?:AgentModelLog]],"runs":[{**_run_view(r,True),"trace":agent_traces(jid(r))["events"]} for r in [root -->][?:AgentRun]],"feedback":[{"run_id":f.run_id,"output_version":f.output_version,"rating":f.rating,"note":f.note,"at":f.at,"snapshot":f.snapshot} for f in [root -->][?:AgentFeedback]],"contacts":agent_contacts(),"sessions":[prep_get(jid(p)) for p in [root -->][?:PrepSession]],"events":[e.data for e in [root -->][?:AgentEvent]]};
 }
 
 
@@ -640,7 +724,7 @@ def:priv prep_live(id: str) -> dict[str, any] {
             if g.cents+reservation>c["monthly_cents"] or u.cents+reservation>c["user_monthly_cents"] { _agent_owner(owner);return {"error":"The live interview exceeds the available budget."}; }
             g.cents+=reservation;u.cents+=reservation;commit();_agent_owner(owner);
             context["voice_settings"]=settings;
-            ticket=secrets.token_urlsafe(32);r=root ++> AgentRun(kind="live",target_id=id,context=context,created_at=time.time(),updated_at=time.time(),key=digest(ticket),ticket_hash=digest(ticket),status="waiting",message="Ready to start live interview",lease_until=time.time()+60,cost_cents=reservation);
+            ticket=secrets.token_urlsafe(32);r=root ++> AgentRun(workflow_version=2,kind="live",target_id=id,context=context,created_at=time.time(),updated_at=time.time(),key=digest(ticket),ticket_hash=digest(ticket),status="waiting",message="Ready to start live interview",lease_until=time.time()+60,cost_cents=reservation);
             commit();return {"id":jid(r),"owner":owner,"ticket":ticket,"url":settings["url"],"reserved_cents":reservation};
         } except ValueError as e { _agent_owner(owner);return {"error":str(e)}; }
     }
@@ -679,4 +763,11 @@ def:pub agent_live_finish(token: str, owner: str, id: str, lease: str, transcrip
 
 def:priv prep_progress() -> dict[str, any] {
     _agent_access();return {"attempts":[{"id":jid(p),"problem_id":p.data["problem_id"],"revision":p.revision,"test_results":p.results,"feedback":p.feedback,"updated_at":p.updated_at} for p in [root -->][?:PrepSession]]};
+}
+
+def:pub agent_upgrade_workflows(token: str) -> dict[str, any] {
+    if not _agent_system(token) { return {"error":"Worker authorization required."}; }
+    owners=[a.owner for a in [root.shared -->][?:AgentAdmission]];changed=0;
+    for owner in owners { _agent_owner(owner);changed+=_upgrade_legacy_runs(); }
+    return {"paused":changed};
 }

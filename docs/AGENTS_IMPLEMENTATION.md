@@ -15,12 +15,14 @@ CLI subscription requests use an account-bound daily cap rather than API budgets
 | Resume | Local OpenResume parsing and grouped editable review; explicit confirmation; selected-resume provenance; source-preserving ordering; generated PDF with embedded font, text-recovery checks, full original/tailored text and diff; requested cover-letter PDFs use verified text |
 | Applications | Greenhouse/Lever/Ashby host recognition and semantic form pipeline; required-answer collection; PDF upload; form checks; one submit attempt; confirmation evidence; same-session browser takeover with encrypted checkpoints |
 | Google | Account-bound OAuth state and PKCE, encrypted refresh tokens, incremental scope requests, Gmail history synchronization and bounded recovery search, daily watch renewal, conservative message association, UTC calendar invitation extraction and idempotent event IDs |
-| Network | Real contact entry and CSV import; imported contacts remain unselected; selected-recipient outreach; reply detection; bounded follow-ups; manual LinkedIn handoff |
+| Network | Real contact entry and CSV import; selected-recipient outreach and bounded follow-ups; user-requested LinkedIn profile capture with sign-in handoff, recruiter-focused analysis and suggested rewrites |
 | Prep | Persistent typed sessions for algorithms, debugging, review, SQL, fundamentals, system design and behavioral practice; Python/C++/SQL harnesses; separate deterministic results and model coaching; optimistic revisions across devices |
 | Interfaces | Native agent inbox/rules/facts/contacts, per-application launch, native practice sessions; focused web editor, timer, hints, canvas, results, transcript review, task inbox and browser takeover |
 | Operations | Invited-beta gateway, one-writer systemd units, disabled budget configuration, private sandbox service, release HTTPS enforcement, Expo push registration/delivery plumbing, account export/deletion, backup/restore utility |
 
 `core/automation.jac` owns state transitions. Models only return structured proposals through `agents/provider.jac`; they do not call tools or expand permissions. `agents/worker.jac` performs external work through authenticated Jac endpoints. Browser and code services never access the graph directly. See [Jac migration status and verification](JAC_MIGRATION.md) for the current implementation-language boundaries.
+
+See [LinkedIn profile review](LINKEDIN_PROFILE_REVIEW.md) for the login flow, configuration, capture limits, and validation status.
 
 ### Reliability and costs
 
@@ -55,7 +57,7 @@ These files are deployment templates, not evidence of a deployed service. Provis
 
 ### Browser and code isolation
 
-Run the browser service on a separate hardened Linux host/container, with no database/model/Google credentials. Install `deploy/browser-requirements.txt` and the matching Chromium build. Run `python3 -m agents.browser_service` as a non-root user with Chromium sandboxing enabled. Configure `STACK_BROWSER_TOKEN`, `STACK_BROWSER_SESSION_KEY`, `STACK_BROWSER_STORAGE` on a persistent private volume, and only the explicitly required `STACK_BROWSER_RESOURCE_HOSTS`. Use a private authenticated tunnel/TLS between hosts. Browser traffic also needs an egress firewall blocking private/link-local addresses to supplement URL checks. Follow [Playwright's browser isolation guidance](https://playwright.dev/python/docs/docker).
+Run the browser service on a separate hardened Linux host/container, with no database/model/Google credentials. Build `deploy/browser.Dockerfile` using the explicit file list in `scripts/browser-preview.py`; it installs Jac 0.37.21, pinned Playwright and cryptography, and matching Chromium. Its Jac entrypoint runs as a non-root user with Chromium sandboxing enabled. Configure `STACK_BROWSER_TOKEN`, `STACK_BROWSER_SESSION_KEY`, `STACK_BROWSER_STORAGE` on a persistent private volume, and only the explicitly required `STACK_BROWSER_RESOURCE_HOSTS`. Use a private authenticated tunnel/TLS between hosts. Browser traffic also needs an egress firewall blocking private/link-local addresses to supplement URL checks. Follow [Playwright's browser isolation guidance](https://playwright.dev/python/docs/docker).
 
 Run `python3 -m agents.sandbox_service` on a **different** Linux execution host with Docker and `runsc`. Build `deploy/sandbox.Dockerfile`, publish it to your private registry, and set `STACK_SANDBOX_IMAGE` to its immutable `repository@sha256:...` digest. Set a distinct `STACK_SANDBOX_TOKEN`; expose the service only through the private tunnel configured in the worker. Never mount the Docker socket into the application or model worker. Each exercise uses a read-only, non-root, networkless disposable container with resource/output/time limits. Follow [gVisor production guidance](https://gvisor.dev/docs/user_guide/production/).
 

@@ -1,6 +1,6 @@
 // Native capabilities only. Product state, workflows and screens live in Jac.
 import React, {useEffect, useRef, useState} from 'react';
-import {Alert, Animated, AppState, Linking, PanResponder, View, Text, Pressable, Image, useWindowDimensions} from 'react-native';
+import {Alert, Animated, AppState, Linking, PanResponder, View, Text, TextInput, Modal, ScrollView, Pressable, Image, useWindowDimensions} from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import * as Documents from 'expo-document-picker';
 import * as Files from 'expo-file-system/legacy';
@@ -152,6 +152,81 @@ export function Lifecycle({onRefresh,onOpen}){
     const response=Notifications.addNotificationResponseReceivedListener(route);
     return()=>{clearInterval(timer);app.remove();response.remove();};
   },[]); return null;
+}
+
+// Display and control the remote browser; login input never enters task drafts.
+export function AgentBrowser({id,interactive=false,requestBrowser,onAnalyze,canAnalyze=false,statusMessage=''}) {
+  const [frame,setFrame]=useState(null),[input,setInput]=useState(''),[error,setError]=useState('');
+  const [busy,setBusy]=useState(false),[expanded,setExpanded]=useState(false),[width,setWidth]=useState(1),[expired,setExpired]=useState(false);
+  const current=useRef({id,interactive,requestBrowser});current.current={id,interactive,requestBrowser};
+  const locked=useRef(false),alive=useRef(false),active=useRef(AppState.currentState==='active');
+  const session=useRef(generation);
+  const send=async(event={type:'snapshot'})=>{
+    if(locked.current||!active.current||!alive.current||session.current!==generation) return;
+    if(event.type!=='snapshot'&&!current.current.interactive) return;
+    locked.current=true;setBusy(true);
+    const task=current.current.id;
+    try {
+      const result=await current.current.requestBrowser('agent_browser',{id:task,event});
+      if(alive.current&&active.current&&task===current.current.id&&session.current===generation){
+        setExpired(!!result.expired);
+        if(result.expired){setFrame(null);setInput('');}
+        else if(result.image)setFrame(result);
+        setError('');
+      }
+    } catch(e){if(alive.current&&active.current&&task===current.current.id)setError(errorText(e));}
+    finally {locked.current=false;if(alive.current)setBusy(false);}
+  };
+  const typeInput=()=>{
+    if(locked.current)return;
+    const text=input;setInput('');send({type:'text',text});
+  };
+  const latestSend=useRef(send);latestSend.current=send;
+  useEffect(()=>{
+    alive.current=true;session.current=generation;setFrame(null);setInput('');setError('');setExpired(false);
+    latestSend.current();
+    const timer=setInterval(()=>latestSend.current(),1500);
+    const app=AppState.addEventListener('change',state=>{
+      active.current=state==='active';
+      if(!active.current){setInput('');setFrame(null);setExpanded(false);}
+      else latestSend.current();
+    });
+    return()=>{alive.current=false;clearInterval(timer);app.remove();};
+  },[id]);
+  useEffect(()=>{if(!interactive)setInput('');},[interactive]);
+  const button=(label,action,disabled=false)=>React.createElement(Pressable,{accessibilityRole:'button',accessibilityLabel:label,onPress:action,disabled,style:{padding:12,borderRadius:12,backgroundColor:disabled?'#EDF0F5':'#E5EDFF'}},React.createElement(Text,{style:{color:'#17345C',fontWeight:'600'}},label));
+  const controls=()=>React.createElement(View,{style:{gap:10}},
+    React.createElement(Text,{style:{fontWeight:'700',fontSize:18}},'Agent browser'),
+    React.createElement(Text,null,interactive?(statusMessage||'Your turn. Sign in here, then confirm the profile is yours.'):'The agent is working. You can watch; controls return when it needs you.'),
+    frame?.url?React.createElement(Text,{numberOfLines:1},frame.url):null,
+    !interactive&&frame?.progress?React.createElement(Text,{accessibilityLiveRegion:'polite'},frame.progress):null,
+    error?React.createElement(Text,{accessibilityRole:'alert',style:{color:'#B42318'}},error):null,
+    frame?.image?React.createElement(Pressable,{
+      accessibilityLabel:'Agent browser page',disabled:!interactive||busy,
+      onLayout:e=>setWidth(e.nativeEvent.layout.width),
+      onPress:e=>{const {locationX,locationY}=e.nativeEvent;send({type:'click',x:Math.min(frame.width-1,Math.max(0,locationX*frame.width/width)),y:Math.min(frame.height-1,Math.max(0,locationY*frame.width/width))});},
+      style:{width:'100%',aspectRatio:frame.width/frame.height,borderWidth:1,borderColor:'#CBD5E1',borderRadius:8,overflow:'hidden'}
+    },React.createElement(Image,{source:{uri:'data:image/jpeg;base64,'+frame.image},resizeMode:'contain',style:{width:'100%',height:'100%'}})):
+      error?null:expired?React.createElement(Text,null,'This browser session ended. Open it again to sign in.'):React.createElement(Text,null,'Opening the agent’s browser…'),
+    expired&&interactive?button('Open browser again',()=>send({type:'reopen'}),busy):null,
+    React.createElement(View,{style:{flexDirection:'row',flexWrap:'wrap',gap:8}},
+      button(expanded?'Close full screen':'Full screen',()=>setExpanded(!expanded)),
+      button('Refresh browser',()=>send(),busy),
+      ...[[-550,'Scroll up'],[550,'Scroll down']].map(([dy,label])=>React.createElement(React.Fragment,{key:label},button(label,()=>send({type:'scroll',dy}),!interactive||busy)))),
+    interactive&&!expired?React.createElement(View,{style:{gap:8}},
+      React.createElement(Text,null,'Tap a field in the browser, type below, then choose Type in browser. Passwords and verification codes stay out of your saved task.'),
+      React.createElement(TextInput,{accessibilityLabel:'Private browser input',value:input,onChangeText:setInput,secureTextEntry:true,autoCapitalize:'none',autoCorrect:false,autoComplete:'off',textContentType:'none',
+        style:{padding:12,borderWidth:1,borderColor:'#CBD5E1',borderRadius:10},
+        onSubmitEditing:typeInput}),
+      React.createElement(View,{style:{flexDirection:'row',flexWrap:'wrap',gap:8}},
+        button('Type in browser',typeInput,busy||!input),
+        ...['Tab','Enter','Backspace'].map(key=>React.createElement(React.Fragment,{key},button(key,()=>send({type:'key',key}),busy)))),
+      button('Open my profile',()=>send({type:'reload'}),busy),
+      button('Open LinkedIn sign-in',()=>send({type:'login'}),busy),
+      canAnalyze?button('I’m signed in · Analyze my profile',()=>{setInput('');onAnalyze();},busy):null):null);
+  return React.createElement(View,{style:{gap:10}},expanded?null:controls(),
+    React.createElement(Modal,{visible:expanded,animationType:'slide',presentationStyle:'fullScreen',onRequestClose:()=>setExpanded(false)},
+      React.createElement(ScrollView,{contentContainerStyle:{padding:20,paddingTop:60,paddingBottom:40},keyboardShouldPersistTaps:'handled'},controls())));
 }
 export function SwipeSurface({children,onSwipe,disabled,cardId}){
   const x=useRef(new Animated.Value(0)).current;

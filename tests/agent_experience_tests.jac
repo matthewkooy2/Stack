@@ -30,7 +30,7 @@ def worker_call(client: any, name: str, args: dict[str, any]) -> dict[str, any] 
     return value;
 }
 """A stand-in model: rewrites the first bullet of the supplied resume structure without new facts."""
-def propose(step: str, context: dict[str, any], configuration: any = None) -> dict[str, any] {
+def propose(step: str, context: dict[str, any], configuration: any = None, observe: any = None, record: any = None) -> dict[str, any] {
     first=[b for s in context["resume_structure"] for e in s["entries"] for b in e["bullets"]][0];
     return {"artifact":{"summary":"Focused on analysis.","ranking":[first["id"]],"entry_order":[],"omit":[],"evidence":[],
         "rewrites":[{"id":first["id"],"text":"Rewritten: "+first["text"],"reason":"Leads with the most relevant work."}]},"cost_cents":0,"provider_id":""};
@@ -68,7 +68,7 @@ test "agents never launch implicitly and outbound steps wait for review of the e
                 client.set_auth_token(a);state=rpc(client,"bootstrap");owner=state["user_id"];
                 # Before any setup, every feature explains itself and what is missing.
                 features={f["key"]:f for f in state["agents"]["features"]};
-                assert len(features)==10 and features["coaching"]["state"]=="unavailable", features["coaching"];
+                assert len(features)==11 and features["coaching"]["state"]=="unavailable", features["coaching"];
                 assert [c for c in features["networking"]["checks"] if c["key"]=="rules" and c["action"]=="rules" and not c["ok"]];
                 assert features["code"]["alternative"] and features["applications"]["review"];
                 assert state["agents"]["active"]==0 and state["agents"]["attention"]==0;
@@ -280,7 +280,7 @@ test "an uploaded LaTeX source is checked, compiled, and tailored without confir
                 assert rpc(client,"agent_activity")["runs"]==[];
                 # A PDF-only resume can still be scored for the job, from what the parser reads.
                 pdf_score=rpc(client,"score_resume",{"application_id":application["id"]});
-                assert pdf_score["source"]=="pdf" and pdf_score["resume_name"]=="Candidate.pdf" and pdf_score["score"]["quality"] is not None, pdf_score;
+                assert pdf_score.get("source")=="pdf" and pdf_score["resume_name"]=="Candidate.pdf" and pdf_score["score"]["quality"] is not None, pdf_score;
                 readiness=[c for f in rpc(client,"agent_features")["features"] if f["key"]=="tailoring" for c in f["checks"] if c["key"]=="facts"][0];
                 assert not readiness["ok"] and "Candidate.pdf" in readiness["fix"], readiness;
                 # Built-in templates need confirmed details; unsafe or broken sources are refused.
@@ -295,6 +295,8 @@ test "an uploaded LaTeX source is checked, compiled, and tailored without confir
                 assert shown["kind"]=="upload" and shown["pages"]==1 and shown["summary"]["bullets"]==20 and shown["summary"]["sections"]==4, shown;
                 source=rpc(client,"read_resume_source",{"id":resume_id});
                 assert source["tex"]==tex and base64.b64decode(source["preview"]["content"]).startswith(b"%PDF-");
+                exported=rpc(client,"account_export")["resumes"][0];
+                assert exported["id"]==resume_id and exported["source"]["files"],exported;
                 assert [c for f in rpc(client,"agent_features")["features"] if f["key"]=="tailoring" for c in f["checks"] if c["key"]=="facts"][0]["ok"];
                 latex_score=rpc(client,"score_resume",{"application_id":application["id"]});
                 assert latex_score["source"]=="latex" and latex_score["score"]["match"] is not None and latex_score["score"]["match_components"], latex_score;

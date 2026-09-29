@@ -5,12 +5,14 @@ After=stack-api.service
 [Service]
 User=stack
 WorkingDirectory=/opt/stack
-ExecStart=/usr/bin/python3 -m agents.gateway
+Environment=STACK_JAC_BIN=/usr/local/bin/jac
+ExecStart=/opt/stack/scripts/jac run --no-serve scripts/gateway-service.jac
 Restart=on-failure
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
+ReadWritePaths=/opt/stack/.jac
 
 [Install]
 WantedBy=multi-user.target

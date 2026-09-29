@@ -100,7 +100,7 @@ def body(template: any, values: any) -> any {
                 }
                 if v((p + 'gpa')) {
                     degree = (
-                        (degree + ', ') if degree else '' + 'GPA: ' + v((p + 'gpa'))
+                        ((degree + ', ') if degree else '') + 'GPA: ' + v((p + 'gpa'))
                     );
                 }
                 rows += [

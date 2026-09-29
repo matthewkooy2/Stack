@@ -20,10 +20,10 @@ word, so the result could never get shorter or more focused, and page count was 
      - It compiles the source unchanged.
      - It finds the editable structure.
    - **Built-in template:** Jake's Resume or Classic (`agents/templates/`), filled from
-     confirmed resume details (`agents/resume_templates.py`).
+     confirmed resume details (`agents/resume_templates.jac`).
    - **Neither:** a resume that is only a PDF is never tailored. **Tailor for this job** asks for
      its LaTeX right there, then starts. A job uses its own resume, else the default resume.
-2. **Structure.** `agents/latex.py` finds, by source position:
+2. **Structure.** `agents/latex.jac` finds, by source position:
    - sections: `\section`
    - entries: heading macros with `\item` in their definition, such as `\resumeSubheading`
    - bullets: one-argument item macros such as `\resumeItem`, or plain `\item`
@@ -31,7 +31,7 @@ word, so the result could never get shorter or more focused, and page count was 
 
    Each item gets a stable id (`s1.e0.b2`). The model sees only this outline as plain text.
 3. **Proposal.** The model returns a relevance ranking of every bullet, optional entry
-   order, rewrites in plain text (`**bold**` allowed), and omissions. `agents/tailoring.py`
+   order, rewrites in plain text (`**bold**` allowed), and omissions. `agents/tailoring.jac`
    discards any rewrite that:
    - adds a number not in that bullet or your verified facts
    - names a tool or proper noun that is not in your resume or facts
@@ -73,7 +73,7 @@ The upload itself is never changed. Deleting a tailored resume removes only that
 
 ## Parser check
 
-Each tailored PDF is read back with the local OpenResume parser (`agents/parse_check.py`).
+Each tailored PDF is read back with the local OpenResume parser (`agents/parse_check.jac`).
 The parser's result is compared with what Stack wrote:
 
 - the header's name, email and phone, which must match exactly;
@@ -116,7 +116,7 @@ compiling (`\pdfgentounicode`, `glyphtounicode`). The shim is never stored in yo
 
 ## Verification
 
-- `PYTHONPATH=tests:. .jac/venv/bin/python -m unittest tests/test_latex.py` covers:
+- `./scripts/jac run --no-serve tests/test_latex.py` covers:
   - loading, zip unwrapping, and flattening
   - refusing unsafe sources
   - structure of Jake's Resume

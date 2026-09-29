@@ -572,4 +572,147 @@ async function tailoringEndToEnd(){
  console.log('PASS tailoring end to end: both paths, '+(done.subscription_calls+resumed.subscription_calls)+' model calls, one-page PDFs from your LaTeX.');
 }
 
-(async()=>{if(process.env.STACK_TEST_TAILOR_E2E==='1'){await tailoringEndToEnd();return;}if(process.env.STACK_TEST_TAILOR_UI==='1'){await tailoringScreenTests();return;}try{await notificationTests();await gestureTests();await feedbackTests();await resumeFieldSizingTests();await resumeBulletTests();await screenTests();}finally{await worker('discovery_manage',{id:fixtureSource,action:'purge'}).catch(()=>{});}})().catch(e=>{console.error(e);process.exitCode=1;});
+async function browserKeyboardTests(){
+ let ui,release,hold=false;
+ const frame={image:'fixture-frame',width:430,height:780,url:'https://www.linkedin.com/login'};
+ const requestBrowser=async()=>hold?new Promise(resolve=>{release=()=>resolve(frame);}):frame;
+ const button=label=>ui.root.findAll(n=>n.type==='Pressable'&&n.props.accessibilityLabel===label)[0];
+ const input=()=>ui.root.findAll(n=>n.type==='TextInput'&&n.props.accessibilityLabel==='Private browser input')[0];
+ try {
+  await act(async()=>{ui=renderer.create(React.createElement(device.AgentBrowser,{id:'keyboard-test',interactive:true,requestBrowser}));await pause();});
+  for(const fullScreen of [false,true]){
+   if(fullScreen)await act(async()=>button('Full screen').props.onPress());
+   const original=input();
+   await act(async()=>input().props.onChangeText('partially-typed'));
+   hold=true;
+   await act(async()=>{button('Refresh browser').props.onPress();await pause();});
+   assert.ok(button('Refresh browser').props.disabled,'Snapshot is still in flight');
+   assert.notEqual(input().props.editable,false,'In-flight screen refresh must not disable the login input');
+   assert.equal(input(),original,'Screen refresh must not replace the native input');
+   await act(async()=>input().props.onChangeText('continued-during-refresh'));
+   await act(async()=>input().props.onSubmitEditing());
+   assert.equal(input().props.value,'continued-during-refresh','A busy connection must not discard unsent login input');
+   hold=false;
+   await act(async()=>{release();release=null;await pause();});
+   assert.equal(input(),original);
+   assert.equal(input().props.value,'continued-during-refresh','Receiving a frame preserves local typing');
+  }
+ } finally {
+  await act(async()=>{if(release)release();if(ui)ui.unmount();});
+ }
+ console.log('PASS browser input: remains mounted and editable during pending snapshots; typing and unsent input survive refreshes in embedded and full-screen views.');
+}
+async function linkedinScreenTests(){
+ const calls=[],refreshers=new Set();let ui,opened='',failStart=true,failBrowser=true,expiredBrowser=false,storedLinkedInUrl='';
+ let run={id:'linkedin',kind:'linkedin',status:'needs_input',title:'LinkedIn profile review',context_label:'Candidate',created_at:1,updated_at:1,step_number:1,step_total:2,steps:['Sign in and read your profile','Analyze recruiter appeal'],step_label:'Sign in and read your profile',explanation:'Sign in and confirm your profile.',message:'',requests:[{key:'browser',label:'Sign in through the browser.'}],artifacts:{},results_where:'This task',cost_cents:0,subscription_calls:0};
+ const Lifecycle=({onRefresh})=>{const latest=React.useRef(onRefresh);latest.current=onRefresh;React.useEffect(()=>{const tick=()=>latest.current();refreshers.add(tick);return()=>refreshers.delete(tick);},[]);return null;};
+ const rpc=async(name,args)=>{
+  calls.push({name,args});
+  if(name==='agent_linkedin_start'){if(failStart)throw new Error('Browser worker unavailable');return run;}
+  if(name==='agent_linkedin_profile'){if(args.url!==undefined)storedLinkedInUrl=args.url;return {url:storedLinkedInUrl};}
+  if(name==='agent_run')return run;
+  if(name==='agent_browser'){if(failBrowser)throw new Error('Browser connection failed');if(args.event.type==='reopen')expiredBrowser=false;if(expiredBrowser)return {expired:true};return {image:'fixture-jpeg',width:430,height:780,url:'https://www.linkedin.com/login'};}
+  if(name==='agent_retry'){run={...run,status:'queued'};return run;}
+  if(name==='agent_respond'){assert.deepEqual(args.values,[]);run={...run,status:'queued'};return run;}
+  throw new Error('Unexpected RPC '+name);
+ };
+ modules.set(path.join(root,'.jac/mobile-rn/jac-src/mobile/device.js'),{exports:{...device,rpc,Lifecycle}});
+ const {LinkedInProfile}=load(path.join(root,'.jac/mobile-rn/jac-src/mobile/components/LinkedInProfile.js'));
+ const {TaskDetail}=load(path.join(root,'.jac/mobile-rn/jac-src/mobile/components/Agents.js'));
+ const text=()=>JSON.stringify(ui.toJSON());
+ const button=label=>ui.root.findAll(n=>n.type==='Pressable'&&n.props.accessibilityLabel===label)[0];
+ const press=async label=>{const b=button(label);assert.ok(b,'Missing '+label);assert.ok(!b.props.disabled,'Disabled '+label);await act(async()=>{await b.props.onPress();await pause();});};
+ const field=async(label,value)=>{const f=ui.root.findAll(n=>n.type==='TextInput'&&n.props.accessibilityLabel===label)[0];assert.ok(f,'Missing '+label);await act(async()=>f.props.onChangeText(value));};
+ const features=[{key:'linkedin',kinds:['linkedin'],title:'LinkedIn profile review',state:'ready',summary:'Analyze your profile',checks:[]}];
+ await act(async()=>{ui=renderer.create(React.createElement(LinkedInProfile,{features,runs:[],onOpenTask:id=>{opened=id;},onNavigate:()=>{}}));});
+ assert.ok(button('Review my LinkedIn profile').props.disabled);
+ await field('Your LinkedIn profile URL','https://www.linkedin.com/in/candidate/');await field('Target role (optional)','Product designer');
+ await press('Save profile details');assert.equal(storedLinkedInUrl,'https://www.linkedin.com/in/candidate/');
+ await press('Review my LinkedIn profile');assert.match(text(),/Browser worker unavailable/);
+ assert.match(text(),/https:\/\/www.linkedin.com\/in\/candidate\//);
+ failStart=false;await press('Review my LinkedIn profile');assert.equal(opened,'linkedin');
+ assert.deepEqual(calls.at(-1),{name:'agent_linkedin_start',args:{url:'https://www.linkedin.com/in/candidate/',target_role:'Product designer'}});
+ await act(async()=>{ui.update(React.createElement(TaskDetail,{id:'linkedin',features,webUrl:'https://stack.example.com',onBack:()=>{},onNavigate:()=>{}}));await pause();});
+ assert.match(text(),/Browser connection failed/);assert.ok(!text().includes('Opening the agent’s browser'),'Failure must not look like ongoing loading');
+ failBrowser=false;await press('Refresh browser');
+ assert.equal(openedLinks.length,0,'Phone stays in the exact agent browser');
+ const privateInput=()=>ui.root.findAll(n=>n.type==='TextInput'&&n.props.accessibilityLabel==='Private browser input')[0];
+ assert.equal(privateInput().props.secureTextEntry,true);
+ assert.equal(ui.root.findAll(n=>n.type==='TextInput').length,1,'Only a transient private input, no credential facts');
+ const page=button('Agent browser page');
+ await act(async()=>page.props.onLayout({nativeEvent:{layout:{width:215}}}));
+ await act(async()=>{await button('Agent browser page').props.onPress({nativeEvent:{locationX:100,locationY:150}});await pause();});
+ assert.deepEqual(calls.at(-1),{name:'agent_browser',args:{id:'linkedin',event:{type:'click',x:200,y:300}}});
+ await field('Private browser input','synthetic-private-value');await press('Type in browser');
+ assert.equal(privateInput().props.value,'');
+ assert.deepEqual(calls.at(-1).args.event,{type:'text',text:'synthetic-private-value'});
+ await press('Open LinkedIn sign-in');assert.equal(calls.at(-1).args.event.type,'login');
+ expiredBrowser=true;await press('Refresh browser');assert.match(text(),/This browser session ended/);assert.ok(!text().includes('Opening the agent’s browser'));assert.equal(ui.root.findAll(n=>n.type==='TextInput').length,0);
+ await press('Open browser again');assert.ok(button('Agent browser page'));
+ await press('Full screen');assert.ok(button('Close full screen'));await press('Close full screen');
+ await press('I’m signed in · Analyze my profile');assert.equal(run.status,'queued');
+ assert.ok(button('Agent browser page').props.disabled,'Watch-only while the agent is working');
+ assert.equal(ui.root.findAll(n=>n.type==='TextInput').length,0);
+ assert.ok(!JSON.stringify(calls.filter(c=>c.name==='agent_respond')).includes('synthetic-private-value'));
+
+ run={...run,status:'needs_input',step_number:2,requests:[],message:'The model response could not be validated against its sources.',artifacts:{linkedin_scan:{sections:{intro:'Candidate'}}}};
+ await act(async()=>{for(const tick of refreshers)await tick();await pause();});
+ assert.match(text(),/ANALYSIS PAUSED/);assert.ok(!text().includes('STACK NEEDS YOUR ANSWERS'));assert.equal(ui.root.findAll(n=>n.type==='TextInput').length,0);
+ await press('Retry analysis');assert.equal(run.status,'queued');assert.ok(run.artifacts.linkedin_scan);
+ run={...run,status:'blocked'};
+ await act(async()=>{for(const tick of refreshers)await tick();await pause();});
+ await press('Retry analysis');assert.equal(calls.at(-1).name,'agent_retry');assert.ok(run.artifacts.linkedin_scan);
+ run={...run,status:'completed',step_number:2,artifacts:{linkedin_review:{summary:'Clarify your impact.',profile_url:'https://www.linkedin.com/in/candidate/',captured_at:1,strengths:['Relevant work.'],findings:[{priority:'high',section:'about',weakness:'Generic positioning',quote:'I build tools.',why_it_matters:'Recruiters need your focus.',recommendation:'Name your audience.'}],rewrites:[{section:'headline',text:'Product designer | Building tools'}],questions:['What impact did you have?'],limitations:'Only visible text was captured.',unread_sections:['skills']}}};
+ await act(async()=>{for(const tick of refreshers)await tick();await pause();});
+ for(const expected of ['Generic positioning','I build tools.','Name your audience.','Product designer | Building tools','Sections not read: skills'])assert.ok(text().includes(expected),expected);
+ assert.ok(ui.root.findAll(n=>n.type==='Text'&&n.props.selectable===true).length>0,'Rewrites can be copied');
+ await act(async()=>{ui.update(React.createElement(LinkedInProfile,{key:'reopen-saved',features,runs:[],onOpenTask:()=>{},onNavigate:()=>{}}));await pause();});
+ assert.equal(ui.root.findAll(n=>n.type==='TextInput'&&n.props.accessibilityLabel==='Your LinkedIn profile URL')[0].props.value,storedLinkedInUrl);
+ storedLinkedInUrl='';
+ await act(async()=>{ui.update(React.createElement(LinkedInProfile,{key:'other-account',features,runs:[],onOpenTask:()=>{},onNavigate:()=>{}}));await pause();});
+ assert.equal(ui.root.findAll(n=>n.type==='TextInput'&&n.props.accessibilityLabel==='Your LinkedIn profile URL')[0].props.value,'','Another account must not see the previous URL');
+ await act(async()=>ui.unmount());
+ console.log('PASS LinkedIn screens: URL/role, failure preserves form, starts task, browser handoff, no credential fact fields, resume, findings and copyable rewrites.');
+}
+async function linkedinWebTests(){
+ let ui,events=[],calls=[];
+ let run={id:'linkedin-web',kind:'linkedin',status:'needs_input',step:'linkedin_scan',title:'LinkedIn profile review',context_label:'Candidate',explanation:'Sign in to continue.',message:'Confirm this is your profile.',steps:['Sign in and read your profile','Analyze recruiter appeal'],requests:[{key:'browser',label:'Sign in'}],artifacts:{},results_where:'This task'};
+ const compiled=path.join(root,'.jac/client/workspace/compiled/web');
+ const transport=load(path.join(root,'web/transport.js'));
+ const rpc=async(name,args)=>{
+  calls.push({name,args});
+  if(name==='agent_settings')return {activity:{runs:[]}};
+  if(name==='prep_catalog')return {problems:[]};
+  if(name==='prep_sessions')return {sessions:[]};
+  if(name==='agent_events')return {events:[],interviews:[]};
+  if(name==='bootstrap')return {applications:[],agents:{features:[]}};
+  if(name==='agent_linkedin_profile')return {url:''};
+  if(name==='agent_linkedin_start'||name==='agent_run')return run;
+  if(name==='agent_browser'){events.push(args.event);return {private_login:true,url:'https://www.linkedin.com/login',image:'fixture',width:1100,height:800};}
+  if(name==='agent_respond'){assert.deepEqual(args.values,[]);run={...run,status:'completed',step:'linkedin_review',artifacts:{linkedin_review:{summary:'Make impact clearer.',findings:[{section:'about',priority:'high',weakness:'Generic language',quote:'I build tools.',why_it_matters:'Recruiters need detail.',recommendation:'Name your audience.'}],rewrites:[{section:'headline',text:'Software engineer | Building tools'}],questions:['Which audience?'],limitations:'Visible text only.',unread_sections:['skills']}}};return run;}
+  throw new Error('Unexpected RPC '+name);
+ };
+ modules.set(path.join(compiled,'transport.js'),{exports:{...transport,rpc,login:async()=>{},oauthResult:()=>({}),Poll:()=>null}});
+ modules.set(path.join(compiled,'style.css'),{exports:{}});
+ const {app:App}=load(path.join(compiled,'main.js'));
+ // This suite also loads native bindings; select DOM rendering for the web screen.
+ globalThis.__jacRenderer__={create:(tag,props,children)=>React.createElement(tag,props,...children)};
+ const text=()=>JSON.stringify(ui.toJSON());
+ const press=async label=>{const b=ui.root.findAll(n=>n.type==='button'&&n.children.join('')===label)[0];assert.ok(b,'Missing '+label);assert.ok(!b.props.disabled);await act(async()=>{await b.props.onClick();await pause();});};
+ const field=async(label,value)=>{const row=ui.root.findAll(n=>n.type==='label'&&n.children[0]===label)[0];assert.ok(row,'Missing '+label);await act(async()=>row.findByType('input').props.onChange({target:{value}}));};
+ await act(async()=>{ui=renderer.create(React.createElement(App));await pause();});
+ await field('Username','fixture');await field('Password','fixture');await press('Continue');await press('Network');
+ await field('Your LinkedIn profile URL','https://www.linkedin.com/in/candidate/');await field('Target role (optional)','Engineer');await press('Review my LinkedIn profile');
+ assert.ok(calls.some(c=>c.name==='agent_linkedin_start'&&c.args.target_role==='Engineer'));
+ await press('Open same browser session');assert.match(text(),/linkedin.com\/login/);
+ const privateInput=ui.root.findAll(n=>n.type==='input'&&n.props['aria-label']==='Type into selected browser field')[0];assert.equal(privateInput.props.type,'password');
+ assert.equal(ui.root.findAll(n=>n.type==='input'&&n.props.type==='file').length,0);
+ const inputEvent={key:'Enter',currentTarget:{value:'temporary-login-input'}};
+ await act(async()=>{privateInput.props.onKeyDown(inputEvent);await pause();});assert.equal(inputEvent.currentTarget.value,'');assert.deepEqual(events.at(-1),{type:'text',text:'temporary-login-input'});
+ await press('Analyze my profile');
+ for(const expected of ['Generic language','Name your audience.','Software engineer | Building tools','Sections not read: skills'])assert.ok(text().includes(expected),expected);
+ assert.equal(ui.root.findAll(n=>n.type==='input'&&n.props['aria-label']==='Type into selected browser field').length,0,'Handoff closes after analysis');
+ await act(async()=>ui.unmount());
+ console.log('PASS LinkedIn web: login, Network entry, task start, masked browser handoff, no uploads, resume, findings/rewrites, closed handoff.');
+}
+(async()=>{if(process.env.STACK_TEST_LINKEDIN_UI==='1'){await browserKeyboardTests();await linkedinScreenTests();return;}if(process.env.STACK_TEST_LINKEDIN_WEB==='1'){await linkedinWebTests();return;}if(process.env.STACK_TEST_TAILOR_E2E==='1'){await tailoringEndToEnd();return;}if(process.env.STACK_TEST_TAILOR_UI==='1'){await tailoringScreenTests();return;}try{await notificationTests();await gestureTests();await feedbackTests();await resumeReviewTests();await resumeFieldSizingTests();await resumeBulletTests();await screenTests();}finally{await worker('discovery_manage',{id:fixtureSource,action:'purge'}).catch(()=>{});}})().catch(e=>{console.error(e);process.exitCode=1;});

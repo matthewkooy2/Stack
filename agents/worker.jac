@@ -21,7 +21,7 @@ def call(name: str, args: dict[str, any]) -> dict[str, any] {
     }
     return value;
 }
-def browser_call(step: str, work: dict[str, any]) -> dict[str, any] {
+def browser_call(step: str, work: dict[str, any], timeout: int = 100) -> dict[str, any] {
     # The private browser origin is operator-owned, never taken from task content.
     base = os.environ.get('STACK_BROWSER_URL', '');
     token = os.environ.get('STACK_BROWSER_TOKEN', '');
@@ -38,7 +38,7 @@ def browser_call(step: str, work: dict[str, any]) -> dict[str, any] {
             'Authorization': ('Bearer ' + token)
         }
     );
-    with urllib.request.urlopen(request, timeout=100) as response {
+    with urllib.request.urlopen(request, timeout=timeout) as response {
         result = json.load(response);
     }
     if result.get('error') {
@@ -51,11 +51,12 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
     (step, context, artifacts) = (work['step'], work['context'], work['artifacts']);
     auth = {k: work[k] for k in ('id', 'owner', 'lease')};
     auth['token'] = token;
+    if step == 'linkedin_scan' { return browser_call(step, work); }
     if (step == 'research') {
         import from agents.research { contact_source }
         return {'artifact': contact_source(context['contact'])};
     }
-    if (step in ('fit', 'tailor', 'draft', 'coach', 'profile')) {
+    if (step in ('fit', 'tailor', 'draft', 'coach', 'profile', 'linkedin_review')) {
         c = config();
         if (work.get('provider_config_hash') != digest(c)) {
             return {
@@ -65,7 +66,7 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
             };
         }
         model_access(c, work['owner']);
-        model_context = {** context, 'research': artifacts.get('research', {})};
+        model_context = {** context, 'research': artifacts.get('research', {}), 'linkedin_profile':artifacts.get('linkedin_scan', {})};
         if (step == 'tailor') {
             import from agents.tailoring { prepare }
             try {
@@ -91,9 +92,14 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
                 'score_guidance': guidance(before)
             };
         }
+        def record(attempt: dict[str, any]) -> None {
+            try { call('agent_model_log', {**auth, 'record':attempt}); }
+            except Exception { raise ValueError('Stack could not retain the model response log. Check the API before retrying.') from None; }
+        }
         try {
-            result = generate(step, model_context, c, observe=observe);
+            result = generate(step, model_context, c, observe=observe, record=record);
         } except ValueError as exc {
+            if step == 'linkedin_review' { return {'blocked':True, 'message':str(exc), 'requests':[]}; }
             if (c['provider'] in CLI_PROVIDERS) {
                 return {'needs_input': True, 'message': str(exc), 'requests': []};
             }

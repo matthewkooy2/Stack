@@ -1,5 +1,5 @@
 import from "@jac/mobui" { View, Text, Switch, Pressable }
-import from "../device.js" { rpc, errorText, openJobLink, dateTime, isoTime, Icon, Lifecycle, previewDocument, PDFView, pickLatexSource }
+import from "../device.js" { rpc, errorText, openJobLink, dateTime, isoTime, Icon, Lifecycle, previewDocument, PDFView, AgentBrowser, pickLatexSource }
 import from ..theme { s }
 import from .UI { Button, Field, Chip }
 import from .Feedback { AgentFeedback }
@@ -151,6 +151,23 @@ def TailoredResumeResult(value: dict[str, any], onPreview: any) -> JsxElement {
 }
 
 def ArtifactView(name: str, value: dict[str, any], onPreview: any) -> JsxElement {
+    if name=="linkedin_review" {
+        return <View style={s.hero}>
+            <Text style={s.heading}>Your LinkedIn review</Text><Text style={s.body}>{value.get("summary","")}</Text>
+            <Text style={s.small}>{value.get("profile_url","")+" · Captured "+dateTime(value.get("captured_at",0))}</Text>
+            {[<Text key={str(i)} style={s.body}>{"✓ "+item}</Text> for (i,item) in enumerate(value.get("strengths",[]))]}
+            {[<View key={str(i)} style={s.taskCard}><Text style={s.strong}>{item["priority"].title()+" priority · "+item["section"].title()}</Text>
+                <Text style={s.strong}>{item["weakness"]}</Text><Text style={s.small}>{"“"+item["quote"]+"”"}</Text>
+                <Text style={s.body}>{item["why_it_matters"]}</Text><Text style={s.body}>{item["recommendation"]}</Text>
+            </View> for (i,item) in enumerate(value.get("findings",[]))]}
+            {[<View key={str(i)} style={{gap:6}}><Text style={s.strong}>{"Suggested "+item["section"]}</Text><Text selectable={True} style={s.body}>{item["text"]}</Text></View> for (i,item) in enumerate(value.get("rewrites",[]))]}
+            {[<Text key={str(i)} style={s.body}>{"To strengthen this: "+q}</Text> for (i,q) in enumerate(value.get("questions",[]))]}
+            <Text style={s.small}>{value.get("limitations","")}</Text>
+            <Text style={s.small}>{"Sections not read: "+", ".join(value.get("unread_sections",[]))}</Text>
+            <Text style={s.small}>Suggested edits are yours to review and apply on LinkedIn.</Text>
+        </View>;
+    }
+    if name=="linkedin_scan" { return <View style={s.mutedBox}><Text style={s.strong}>Profile captured</Text><Text style={s.body}>{value.get("summary","")}</Text><Text style={s.small}>{value.get("limitations","")}</Text></View>; }
     if name=="tailor" { return <TailoredResumeResult value={value} onPreview={onPreview}/>; }
     <View style={s.hero}>
         <Text style={s.eyebrow}>{{"inspect":"APPLICATION FORM","fit":"JOB FIT","tailor":"TAILORED RESUME","fill":"FORM FILLED","submit":"SUBMISSION RECEIPT","research":"CONTACT SOURCE","draft":"EMAIL DRAFT","send":"EMAIL SENT","profile":"PROFILE SUGGESTIONS","coach":"COACHING","execute":"TEST RESULTS","sync":"GMAIL CHECK","calendar":"CALENDAR","interview":"TRANSCRIPT"}.get(name,name.upper())}</Text>
@@ -233,6 +250,7 @@ def:pub TaskDetail(id: str, features: list[dict[str, any]], webUrl: str, onBack:
             review=latest.get("review",{});
             if review.get("step")=="send" and review.get("hash")!=editsFor { subject=review.get("subject","");body=review.get("body","");editsFor=review["hash"];remember(); }
             if review.get("step")=="approve_resume" and review.get("hash")!=rejectFor { rejected=review.get("rejected",[]);rejectFor=review["hash"];remember(); }
+            if latest.get("kind")=="linkedin" and latest.get("status") in ["needs_input","blocked","completed","failed"] { notice=""; }
             run=latest;
         } except Exception as e { error=errorText(e); }
     }
@@ -249,7 +267,7 @@ def:pub TaskDetail(id: str, features: list[dict[str, any]], webUrl: str, onBack:
     }
     async def respond -> None {
         answers=[{"key":k,"value":v,"verified":True,"source":"User confirmed application answer"} for (k,v) in values.items() if v.strip()];
-        await perform("agent_respond",{"id":id,"values":answers,"reuse":True},"Answers saved and confirmed. The task resumes automatically." if len(answers)>0 else "Trying again. Progress updates here automatically.");
+        await perform("agent_respond",{"id":id,"values":answers,"reuse":True},"Reading your LinkedIn profile. Progress appears below." if run.get("kind")=="linkedin" else "Answers saved and confirmed. The task resumes automatically." if len(answers)>0 else "Trying again. Progress updates here automatically.");
         if not error { values={};remember(); }
     }
     async def approve -> None {
@@ -326,7 +344,19 @@ def:pub TaskDetail(id: str, features: list[dict[str, any]], webUrl: str, onBack:
                 {<Text style={s.small}>Answers you save are confirmed facts and can be reused on later applications. Review them in Agents → Facts.</Text> if len([q for q in run.get("requests",[]) if q["key"]!="browser"])>0 else <View/>}
                 <Button label={"Save answers and resume" if len(run.get("requests",[]))>0 else "Try again"} icon={"" if len(run.get("requests",[]))>0 else "retry"} disabled={busy} onPress={respond}/>
                 {<Button label="Open web workspace for the browser" secondary={True} onPress={lambda { openJobLink(webUrl); }}/> if webUrl else <Text style={s.small}>Browser handoff opens in the web workspace once it is hosted. Until then, complete the form on the employer site.</Text>}
-            </View> if run["status"]=="needs_input" and not run.get("needs_resume_review",False) else <View/>}
+            </View> if run["kind"]!="linkedin" and run["status"]=="needs_input" and not run.get("needs_resume_review",False) else <View/>}
+
+            {<View style={s.reviewBox}>
+                <Text style={s.eyebrow}>{"ANALYSIS PAUSED" if run["kind"]=="linkedin" and run.get("step_number",1)==2 else "STACK NEEDS YOUR ANSWERS"}</Text>
+                {<View style={{gap:8}}><Text style={s.body}>{run["message"]}</Text><Text style={s.small}>There is no question to answer. Your captured profile is saved; retry analysis without signing in again.</Text><Button label="Retry analysis" disabled={busy} onPress={respond}/></View> if run["kind"]=="linkedin" and run.get("step_number",1)==2 and len(run.get("requests",[]))==0 else <View/>}
+                {[<Field key={q["key"]} label={q["label"]} value={values.get(q["key"],"")} onChange={lambda (v: str) { values=withKey(values,q["key"],v);remember(); }}/> for q in run.get("requests",[]) if q["key"]!="browser"]}
+                {[<Text key={q["label"]} style={s.body}>{"In the browser: "+q["label"]}</Text> for q in run.get("requests",[]) if q["key"]=="browser"]}
+                {<Text style={s.small}>Answers you save are confirmed facts and can be reused on later applications. Review them in Agents → Facts.</Text> if len([q for q in run.get("requests",[]) if q["key"]!="browser"])>0 else <View/>}
+                {<Button label="Save answers and resume" disabled={busy} onPress={respond}/> if run["kind"]!="linkedin" else <View/>}
+                {<Button label="Open web workspace for the browser" secondary={True} onPress={lambda { openJobLink(webUrl); }}/> if webUrl and run["kind"]!="linkedin" else <View/>}
+            </View> if run["kind"]=="linkedin" and run["status"]=="needs_input" else <View/>}
+
+            {<AgentBrowser key={id} id={id} requestBrowser={rpc} statusMessage={run.get("message","")} interactive={run["status"] in ["needs_input","blocked"] and not busy} canAnalyze={run["status"]=="needs_input" and not busy} onAnalyze={respond}/> if run["kind"]=="linkedin" and run.get("step_number",1)==1 and run["status"] not in TERMINAL else <View/>}
 
             {<View style={s.reviewBox}>
                 <Text style={s.eyebrow}>CONFIRM WHAT HAPPENED</Text>
@@ -340,7 +370,7 @@ def:pub TaskDetail(id: str, features: list[dict[str, any]], webUrl: str, onBack:
                 <Text style={s.eyebrow}>{"HOW TO CONTINUE" if run["status"]=="blocked" else "WHAT WENT WRONG"}</Text>
                 <Text style={s.body}>{run["message"]}</Text>
                 {[<View key={c["key"]} style={{gap:4}}><Text style={s.small}>{"✕ "+c["label"]+" — "+c["fix"]}</Text>{<Chip label={"Fix: "+c["label"]} onPress={lambda { onNavigate(c["action"]); }}/> if c["action"] else <View/>}</View> for c in missingChecks(feature) if not c["optional"]]}
-                <Button label="Retry now" icon="retry" disabled={busy} onPress={lambda { perform("agent_retry",{"id":id},"Retrying. Progress updates here automatically."); }}/>
+                <Button label={"Retry analysis" if run["kind"]=="linkedin" and run.get("step_number",1)==2 else "Retry now"} icon="retry" disabled={busy} onPress={lambda { perform("agent_retry",{"id":id},"Retrying. Progress updates here automatically."); }}/>
                 {<Text style={s.small}>{"Meanwhile: "+feature["alternative"]}</Text> if len(feature)>0 else <View/>}
             </View> if run["status"] in ["blocked","failed"] else <View/>}
 

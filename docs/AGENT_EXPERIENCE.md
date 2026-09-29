@@ -87,7 +87,7 @@ recovery in one place. It does not add a provider, adapter, or new permission.
 
 ## Implementation notes
 
-- `agents/experience.py` holds review payloads/summaries, task presentation, and the feature
+- `agents/experience.jac` holds review payloads/summaries, task presentation, and the feature
   catalog with readiness (`ready`, `setup`, `unavailable`, plus `limited` when an optional
   capability such as sending from Stack is off). `bootstrap().agents` carries `active`,
   `attention`, enriched runs, and `features`, so the phone's existing 4-second poll keeps the

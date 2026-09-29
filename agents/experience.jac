@@ -7,6 +7,7 @@ with entry {
     ATTENTION = {'needs_input', 'blocked', 'uncertain', 'review'};
     ACTIVE = {'queued', 'running', 'waiting'};
     KIND_TITLES = {
+        'linkedin': 'LinkedIn profile review',
         'application': 'Prepare & apply',
         'jobs': 'Job-fit analysis',
         'resume': 'Resume tailoring',
@@ -19,6 +20,7 @@ with entry {
         'calendar': 'Calendar assistant'
     };
     STEP_LABELS = {
+        'linkedin_scan':'Sign in and read your profile', 'linkedin_review':'Analyze recruiter appeal',
         'inspect': 'Read the application form',
         'fit': 'Analyze job fit',
         'tailor': 'Tailor your resume',
@@ -36,6 +38,7 @@ with entry {
         'interview': 'Live practice interview'
     };
     RESULTS = {
+        'linkedin':'Network → LinkedIn profile review, and this task. Copy suggested edits into LinkedIn yourself.',
         'application': 'Applications → this job → Agent help. Submission receipts update the application status.',
         'jobs': 'Applications → this job → Agent help, and this task.',
         'resume': 'This task: your tailored one-page PDF in your own LaTeX format, each change with its reason, and the .tex source. Your original is never modified.',
@@ -182,9 +185,7 @@ def review_summary(
         return {
             'step': step,
             'title': (
-                'Send follow-up to '
-                    if context.get('followup')
-                    else 'Send email to ' + str(contact.get('name', 'your contact'))
+                ('Send follow-up to ' if context.get('followup') else 'Send email to ') + str(contact.get('name', 'your contact'))
             ),
             'to': contact.get('email', ''),
             'subject': draft.get('subject', ''),
@@ -224,9 +225,7 @@ def context_label(kind: str, context: dict[(str, any)]) -> str {
     if context.get('contact') {
         c = context['contact'];
         return (
-            str(c.get('name', 'Contact')) + (' · ' + str(c['company']))
-                if c.get('company')
-                else ''
+            str(c.get('name', 'Contact')) + ((' · ' + str(c['company'])) if c.get('company') else '')
         );
     }
     if context.get('problem') {
@@ -235,6 +234,7 @@ def context_label(kind: str, context: dict[(str, any)]) -> str {
     if context.get('event') {
         return str(context['event'].get('summary', 'Interview'));
     }
+    if kind == 'linkedin' { return context.get('linkedin_url', '') + (' · ' + context['target_role'] if context.get('target_role') else ''); }
     if (kind == 'profile') {
         return 'Your professional profile';
     }
@@ -282,6 +282,17 @@ def present(
 }
 with entry {
     FEATURES = [
+        {
+            'key': 'linkedin',
+            'kinds': ['linkedin'],
+            'title': 'LinkedIn profile review',
+            'where': 'Network or web workspace → Network',
+            'summary': 'Reads your profile after you sign in, identifies recruiter-facing weaknesses, and suggests evidence-backed rewrites.',
+            'input': 'Your LinkedIn profile URL, optional target role, and sign-in inside the agent browser on your task.',
+            'review': 'You confirm the profile before capture. Profile text goes to your configured model; login details stay in the browser session. You apply edits yourself.',
+            'alternative': 'Use Profile suggestions on Resume to draft a headline and About from your confirmed facts.'
+        },
+
         {
             'key': 'applications',
             'kinds': ['application'],
@@ -500,6 +511,28 @@ def feature_status(facts: dict[(str, any)]) -> list[dict[(str, any)]] {
     }
     model_checks = [provider(), rules(), permission('model')];
     table: dict[str, any] = {
+        'linkedin': (
+            model_checks
+            + [
+                check(
+                    'browser',
+                    'Browser worker available',
+                    facts.get('browser'),
+                    'The operator must configure the isolated browser worker.',
+                    '',
+                    user=False
+                ),
+                check(
+                    'facts',
+                    'Confirmed facts for stronger rewrites',
+                    (facts.get('verified_facts', 0) > 0),
+                    'Confirm resume facts to support your suggestions.',
+                    'facts',
+                    optional=True
+                )
+            ]
+        ),
+
         'applications': (
             model_checks
             + [

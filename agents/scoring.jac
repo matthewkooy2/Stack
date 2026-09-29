@@ -257,7 +257,7 @@ def resume_items(outline: any) -> any {
         for `entry in section.get('entries', []) {
             heading = _plain(`entry.get('heading', ''));
             where = (
-                section['title'] + (' · ' + heading.split(' | ')[0]) if heading else ''
+                section['title'] + ((' · ' + heading.split(' | ')[0]) if heading else '')
             );
             if heading {
                 headings.append(
@@ -971,9 +971,9 @@ def quality(outline: any, parse: any = None, pages: any = None) -> any {
         entries_ok = [(BULLETS[0] <= n <= BULLETS[1]) for n in per_entry.values()];
         brevity = (
             ((0.7 * sum(in_range)) / len(in_range))
-            + (0.3 * (sum(entries_ok) / len(entries_ok)) if entries_ok else 1.0)
+            + (0.3 * ((sum(entries_ok) / len(entries_ok)) if entries_ok else 1.0))
         );
-        components['brevity'] = brevity * 0.8 if (pages and (pages > 1)) else 1.0;
+        components['brevity'] = brevity * (0.8 if (pages and (pages > 1)) else 1.0);
         issues += [
             {
                 'kind': 'length',

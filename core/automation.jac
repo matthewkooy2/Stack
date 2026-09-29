@@ -13,6 +13,7 @@ import from agents.prep { catalog, problem, validate_session }
 import from agents.security { seal, unseal }
 import from agents.contacts { parse_contacts }
 import from agents.google { authorization_url, exchange, refreshed, SCOPES }
+import from agents.tracing { capture_enabled, trace_data }
 import from jaclang.server.identity.app_tokens { token_create, token_peek, token_consume }
 
 node AgentMemory { has facts: list[dict[str, any]] = [], policy: dict[str, any] = {}, revision: int = 0, admitted: bool = False, deleted: bool = False; }
@@ -22,8 +23,11 @@ node AgentRun {
         message: str = "Queued", requests: list[dict[str, any]] = [], artifacts: dict[str, any] = {},
         cost_cents: int = 0, lease: str = "", lease_until: float = 0.0, attempts: int = 0,
         policy_revision: int = 0, next_at: float = 0.0, projected: bool = False, ticket_hash: str = "",
-        provider: str = "", subscription_calls: int = 0;
+        provider: str = "", subscription_calls: int = 0,
+        trace_attempt: str = "", requested_model: str = "", stage_started_at: float = 0.0;
 }
+node AgentTrace { has run_id: str, attempt: str, step: str, event: str, at: float, data: dict[str, any]; }
+node AgentFeedback { has run_id: str, output_version: str, rating: str, note: str, at: float, snapshot: dict[str, any]; }
 node AgentTicket { has owner: str, run_id: str, state: str = "queued", due_at: float = 0.0; }
 node AgentAction { has run_id: str, step: str, key: str, payload_hash: str, policy_revision: int, created_at: float, status: str = "intent", receipt: dict[str, any] = {}; }
 node AgentUsage { has key: str, cents: int = 0, actions: int = 0; }
@@ -69,7 +73,7 @@ def _owned_run(id: str) -> AgentRun | None {
 def _run_view(r: AgentRun, detail: bool = False) -> dict[str, any] {
     steps=STEPS[r.kind];
     out={"id":jid(r),"kind":r.kind,"target_id":r.target_id,"status":r.status,"step":steps[min(r.index,len(steps)-1)],"message":r.message,"created_at":r.created_at,"updated_at":r.updated_at,"cost_cents":r.cost_cents,"provider":r.provider,"subscription_calls":r.subscription_calls};
-    if detail { out.update({"requests":r.requests,"artifacts":r.artifacts}); }
+    if detail { out.update({"requests":r.requests,"artifacts":r.artifacts,"output_version":digest(r.artifacts),"feedback":[{"id":jid(f),"rating":f.rating,"note":f.note,"at":f.at,"output_version":f.output_version} for f in [root --> [?:AgentFeedback, run_id==jid(r), -at]][:50]]}); }
     return out;
 }
 def _agent_summary() -> dict[str, any] {
@@ -103,6 +107,41 @@ def:priv agent_activity() -> dict[str, any] { _agent_access();return _agent_summ
 def:priv agent_events() -> dict[str, any] { _agent_access();return {"events":[{"id":jid(e),**e.data} for e in [root --> [?:AgentEvent, -created_at]][:100]],"interviews":[{"id":jid(i),"application_id":i.application_id,"study_plan":i.study_plan,**i.event} for i in [root -->][?:AgentInterview]]}; }
 def:priv agent_run(id: str) -> dict[str, any] {
     _agent_access();r=_owned_run(id);return _run_view(r,True) if r is not None else {"error":"Run not found."};
+}
+def _trace(r: AgentRun, event: str, data: dict[str, any]) -> None {
+    root ++> AgentTrace(run_id=jid(r),attempt=r.trace_attempt,step=STEPS[r.kind][min(r.index,len(STEPS[r.kind])-1)],event=event,at=time.time(),data=trace_data(data));
+}
+def:pub agent_trace(token: str, id: str, owner: str, lease: str, event: str, data: dict[str, any]) -> dict[str, any] {
+    if not _agent_system(token) { return {"error":"Worker authorization required."}; }
+    if event not in ["model_request","model_response","model_validation"] { return {"error":"Unsupported trace event."}; }
+    with _catalog_lock {
+        _agent_fresh();
+        try { r=_agent_leased(id,owner,lease);_agent_access(); }
+        except ValueError as e { return {"error":str(e)}; }
+        if not capture_enabled() { data={k:v for (k,v) in data.items() if k in ["provider","requested_model","reported_models","exit_code","valid"]}; }
+        _trace(r,event,data);commit();return {"saved":True};
+    }
+}
+def:priv agent_traces(id: str) -> dict[str, any] {
+    _agent_access();
+    if _owned_run(id) is None { return {"error":"Run not found."}; }
+    return {"events":[{"id":jid(t),"attempt":t.attempt,"step":t.step,"event":t.event,"at":t.at,"data":t.data} for t in [root --> [?:AgentTrace, run_id==id, at]]]};
+}
+def:priv agent_feedback(id: str, output_version: str, rating: str, note: str) -> dict[str, any] {
+    _agent_access();note=note.strip();
+    if rating not in ["good","mixed","bad"] or not note or len(note)>4000 { return {"error":"Choose a rating and enter feedback (1-4,000 characters)."}; }
+    note=str(trace_data({"note":note})["note"]);
+    with _catalog_lock {
+        _agent_fresh();r=_owned_run(id);
+        if r is None { return {"error":"Run not found."}; }
+        if not r.artifacts or digest(r.artifacts)!=output_version { return {"error":"The output changed. Refresh the task before leaving feedback."}; }
+        existing=[f for f in [root -->][?:AgentFeedback] if f.run_id==id and f.output_version==output_version and f.rating==rating and f.note==note];
+        if not existing {
+            root ++> AgentFeedback(run_id=id,output_version=output_version,rating=rating,note=note,at=time.time(),snapshot=trace_data({"artifacts":r.artifacts,"provider":r.provider,"requested_model":r.requested_model,"attempt":r.trace_attempt}));
+            commit();
+        }
+        return _run_view(r,True);
+    }
 }
 def _agent_start(kind: str, target_id: str, context: dict[str, any], nonce: str = "", persist: bool = True) -> dict[str, any] {
     _agent_access();
@@ -194,8 +233,10 @@ def:pub agent_claim(token: str) -> dict[str, any] {
                     }
                     r.provider=c["provider"];
                 }
-            } except ValueError as e { _agent_owner(t.owner);r.status="blocked";r.message=str(e);t.state="blocked";continue; }
+            } except ValueError as e { _agent_owner(t.owner);r.status="blocked";r.message=str(e);t.state="blocked";_trace(r,"blocked",{"message":str(e)});continue; }
             r.status="running";r.lease=secrets.token_urlsafe(32);r.lease_until=now+180;r.attempts+=1;r.updated_at=now;r.message="Working on "+step;t.state="running";
+            r.trace_attempt=str(uuid4());r.requested_model=c["model"] or "provider default";r.stage_started_at=time.time();
+            _trace(r,"stage_start",{"provider":c["provider"],"requested_model":r.requested_model,"attempt_number":r.attempts,"prompt_version":r.context.get("prompt_version"),"context":r.context if capture_enabled() else {"content_capture":False}});
             commit();return {"id":jid(r),"owner":t.owner,"lease":r.lease,"step":step,"context":r.context,"artifacts":r.artifacts,"reservation_cents":reservation,"provider_config_hash":digest(c)};
         }
         commit();return {"idle":True};
@@ -240,7 +281,9 @@ def _agent_complete(token: str, id: str, owner: str, lease: str, result: dict[st
     with _catalog_lock {
         _agent_fresh();
         try { r=_agent_leased(id,owner,lease); } except ValueError as e { return {"error":str(e)}; }
-        step=STEPS[r.kind][r.index];r.lease="";r.lease_until=0;r.updated_at=time.time();
+        step=STEPS[r.kind][r.index];
+        _trace(r,"stage_end",{"outcome":"error" if result.get("error") else "needs_input" if result.get("needs_input") else "result_received","duration_ms":max(0,int((time.time()-r.stage_started_at)*1000)) if r.stage_started_at else 0,"result":result if capture_enabled() else {"error":result.get("error",""),"message":result.get("message","")}});
+        r.lease="";r.lease_until=0;r.updated_at=time.time();
         intents=[a for a in [root -->][?:AgentAction] if a.run_id==id and a.step==step and a.status=="intent"];
         if result.get("error") {
             r.status="uncertain" if intents else "queued";r.message=str(result["error"])[:1000];r.next_at=time.time()+min(300.0,15.0*(2**r.attempts));
@@ -257,7 +300,7 @@ def _agent_complete(token: str, id: str, owner: str, lease: str, result: dict[st
                 for a in intents { a.status="confirmed";a.receipt=artifact; }
                 r.index+=1;r.attempts=0;r.status="completed" if r.index>=len(STEPS[r.kind]) else "queued";r.message="Completed" if r.status=="completed" else "Ready for next step";
                 if step=="coach" {
-                    for p in [root -->][?:PrepSession] { if jid(p)==r.target_id { p.feedback=p.feedback+[{"at":time.time(),"revision":r.context.get("session_revision",0),"data":artifact}]; } }
+                    for p in [root -->][?:PrepSession] { if jid(p)==r.target_id { p.feedback=p.feedback+[{"at":time.time(),"revision":r.context.get("session_revision",0),"run_id":jid(r),"output_version":digest(r.artifacts),"data":artifact}]; } }
                 }
                 if step=="execute" {
                     for p in [root -->][?:PrepSession] { if jid(p)==r.target_id { p.results=p.results+[{"at":time.time(),"revision":r.context.get("session_revision",0),"data":artifact}]; } }
@@ -409,7 +452,7 @@ def:pub agent_worker_connection(token: str, id: str, owner: str, lease: str) -> 
     }
 }
 def:priv agent_export() -> dict[str, any] {
-    _agent_access();return {"settings":agent_settings(),"runs":[_run_view(r,True) for r in [root -->][?:AgentRun]],"contacts":agent_contacts(),"sessions":[prep_get(jid(p)) for p in [root -->][?:PrepSession]],"events":[e.data for e in [root -->][?:AgentEvent]]};
+    _agent_access();return {"settings":agent_settings(),"runs":[{**_run_view(r,True),"trace":agent_traces(jid(r))["events"]} for r in [root -->][?:AgentRun]],"feedback":[{"run_id":f.run_id,"output_version":f.output_version,"rating":f.rating,"note":f.note,"at":f.at,"snapshot":f.snapshot} for f in [root -->][?:AgentFeedback]],"contacts":agent_contacts(),"sessions":[prep_get(jid(p)) for p in [root -->][?:PrepSession]],"events":[e.data for e in [root -->][?:AgentEvent]]};
 }
 
 

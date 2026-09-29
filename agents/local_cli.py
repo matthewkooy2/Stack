@@ -52,7 +52,7 @@ def run(command, directory, prompt='', seconds=90, limit=2_000_000, merge_stderr
             proc.wait();proc.stdout.close()
 
 
-def generate(provider, model, system, prompt, schema):
+def generate(provider, model, system, prompt, schema, record_response=None):
     executable = shutil.which('codex' if provider == 'codex-cli' else 'claude')
     if not executable:
         raise ValueError('Install and sign in to ' + provider + ' on the Mac running Stack.')
@@ -77,11 +77,16 @@ def generate(provider, model, system, prompt, schema):
             if model: command += ['--model', model]
             command += ['-']
             status, _ = run(command, tmp, system + '\nReturn only the requested JSON.\n' + prompt)
+            raw = None
+            if result_path.exists() and result_path.stat().st_size <= 131072:
+                raw = result_path.read_text()
+                if record_response is not None:
+                    record_response(raw, 'model_json')
             if status or not result_path.exists():
                 raise ValueError('Codex could not complete the request. Check ChatGPT sign-in and usage limits; no API fallback was attempted.')
             if result_path.stat().st_size > 131072:
                 raise ValueError('The local CLI result exceeded its output limit.')
-            return json.loads(result_path.read_text())
+            return json.loads(raw)
         status, login = run([executable, 'auth', 'status'], tmp, seconds=10)
         auth = json.loads(login) if not status else {}
         if not auth.get('loggedIn') or auth.get('authMethod') not in ('oauth', 'claude.ai') or auth.get('apiProvider') != 'firstParty':
@@ -93,6 +98,8 @@ def generate(provider, model, system, prompt, schema):
                    '--json-schema', json.dumps(schema), '--system-prompt', system]
         if model: command += ['--model', model]
         status, output = run(command, tmp, prompt)
+        if record_response is not None:
+            record_response(output, 'provider_json')
         if status:
             raise ValueError('Claude could not complete the request. Check subscription sign-in and usage limits; no API fallback was attempted.')
         result = json.loads(output)

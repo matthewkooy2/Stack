@@ -141,6 +141,21 @@ class Proposals(unittest.TestCase):
         plan, _, _ = tailoring.check(self.structure, {**data, 'rewrites': data['rewrites'][2:3]}, [{'key': 'resume.x', 'value': 'Wrote 90K lines', 'verified': True}])
         self.assertIn('s1.e2.b2', plan['rewrites'])
 
+    def test_rewrites_that_read_worse_are_discarded(self):
+        """A rewrite may not drop a number or add a weak opener, filler, a pronoun or passive voice."""
+        first = self.structure['bullets'][0]
+        target = next(b for b in self.structure['bullets'] if tailoring._numbers(b['text']))
+        number = sorted(tailoring._numbers(target['text']))[0]
+        data = {'ranking': [], 'rewrites': [
+            {'id': target['id'], 'text': target['text'].replace(number, 'many'), 'reason': 'x'},
+            {'id': first['id'], 'text': 'Helped with ' + first['text'][0].lower() + first['text'][1:], 'reason': 'x'},
+            {'id': self.structure['bullets'][1]['id'], 'text': 'I ' + self.structure['bullets'][1]['text'][0].lower() + self.structure['bullets'][1]['text'][1:], 'reason': 'x'}]}
+        plan, _, notes = tailoring.check(self.structure, data, [])
+        self.assertEqual(plan['rewrites'], {})
+        self.assertTrue(any('dropped ' + number in n for n in notes), notes)
+        self.assertTrue(any('opens with "helped"' in n for n in notes), notes)
+        self.assertTrue(any('a personal pronoun' in n for n in notes), notes)
+
     def test_unknown_ranking_ids_are_dropped(self):
         first = self.structure['bullets'][0]['id']
         plan, changes, _ = tailoring.check(self.structure, {'ranking': ['s9.e9.b9', first, self.structure['lines'][0]['id']]}, [])

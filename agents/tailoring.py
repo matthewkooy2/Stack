@@ -128,6 +128,17 @@ def check(structure, data, facts):
             if new_terms:
                 notes.append('Kept a bullet in ' + where + ' unchanged: the rewrite mentioned ' + ', '.join(new_terms[:3]) + ', which is not in your resume.')
                 continue
+            # A rewrite must not read worse: every number stays, and no weak opener, filler, pronoun or passive voice is added.
+            # A number may be replaced only by one from the user's verified facts.
+            dropped = sorted(_numbers(original['text']) - _numbers(text))
+            replaced = (_numbers(text) - _numbers(original['text'])) & fact_numbers
+            if len(dropped) > len(replaced):
+                notes.append('Kept a bullet in ' + where + ' unchanged: the rewrite dropped ' + ', '.join(dropped[:3]) + ' from the original.')
+                continue
+            weaker = sorted(scoring.bullet_flaws(text) - scoring.bullet_flaws(original['text']))
+            if weaker:
+                notes.append('Kept a bullet in ' + where + ' unchanged: the rewrite added ' + ', '.join(weaker[:2]) + '.')
+                continue
             limit = max(len(original['text']) * 1.25, len(original['text']) + 15)
             if len(text) > limit:
                 notes.append('Kept a bullet in ' + where + ' unchanged: the rewrite was much longer than the original.')

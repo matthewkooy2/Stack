@@ -8,6 +8,10 @@ from agents import latex
 MAX_PAGES = 1
 TERM = re.compile(r'[A-Za-z][A-Za-z0-9+#]*(?:[./-][A-Za-z0-9+#]+)*')
 NUMBER = re.compile(r'\d+(?:[.,]\d+)*')
+# Work and education sections keep reverse-chronological order; projects and the like may lead with the most relevant.
+CHRONOLOGICAL = re.compile(r'experience|employment|work|education|career|internship', re.I)
+# LaTeX that leaked into the rendered text, such as "[3pt]" from a lost line break, or a command name.
+RESIDUE = re.compile(r'\[\s*-?\d*\.?\d+\s*(?:pt|em|ex|mm|cm|in|bp)\s*\]|\\[A-Za-z]+')
 
 
 def prepare(value):
@@ -112,6 +116,10 @@ def check(structure, data, facts):
                 notes.append('Kept “' + original['label'] + '” unchanged: skill lines can only be reordered or shortened (not in your resume: ' + ', '.join(extra[:3]) + ').')
                 continue
         else:
+            a, z = original['arg']
+            if re.search(r'\\\\|\\(?:newline|par|linebreak)(?![A-Za-z])', structure['tex'][a:z]):
+                notes.append('Kept a bullet in ' + where + ' unchanged: it contains line breaks, which a rewrite would lose.')
+                continue
             invented = sorted(_numbers(text) - _numbers(original['text']) - fact_numbers)
             if invented:
                 notes.append('Kept a bullet in ' + where + ' unchanged: the rewrite added numbers not in your resume (' + ', '.join(invented[:3]) + ').')
@@ -148,6 +156,9 @@ def check(structure, data, facts):
     for item in data.get('entry_order', []):
         section = item.get('section', '')
         movable = [e['id'] for e in structure['entries'] if e['section'] == section and e['movable']]
+        titles = [s['title'] for s in structure['sections'] if s['id'] == section]
+        if titles and CHRONOLOGICAL.search(titles[0]):
+            continue
         wanted = [e for e in dict.fromkeys(item.get('entries', [])) if e in movable]
         order = wanted + [e for e in movable if e not in wanted]
         if order != movable:
@@ -260,10 +271,23 @@ def _outline_text(structure):
     return out
 
 
+def _pdf_text(pdf):
+    from io import BytesIO
+    from pypdf import PdfReader
+    return '\n'.join(page.extract_text() or '' for page in PdfReader(BytesIO(pdf)).pages)
+
+
 def _document(prepared, tex, compiled, dropped):
     structure = prepared['structure']
+    # Edits only replace content with escaped text, so leaked LaTeX means Stack misread the layout.
+    # Never hand that PDF over.
+    leaked = sorted(set(RESIDUE.findall(_pdf_text(compiled['pdf']))))
+    if leaked:
+        raise ValueError('Stack misread part of your LaTeX layout, and the tailored PDF showed LaTeX code (' + ', '.join(leaked[:3]) +
+                         '). No resume was produced. Please report this with your .tex file.')
     before = _outline_text(structure)
-    after = _outline_text(latex.parse(latex.with_main(prepared['source'], tex)))
+    tailored = latex.parse(latex.with_main(prepared['source'], tex))
+    after = _outline_text(tailored)
     bullets = {b['id']: b for b in structure['bullets']}
     entries = {e['id']: e for e in structure['entries']}
     described = [{'id': id, 'where': _where(structure, id),
@@ -272,14 +296,14 @@ def _document(prepared, tex, compiled, dropped):
            'text': '\n'.join(after), 'original_text': '\n'.join(before),
            'diff': '\n'.join(unified_diff(before, after, fromfile='Original', tofile='Tailored', lineterm='')),
            'checks': {'pages': compiled['pages'], 'fits': compiled['pages'] <= MAX_PAGES}}
-    return pdf, described
+    return pdf, described, latex.outline(tailored)
 
 
 def tailor(prepared, data, facts):
     """Model proposal -> proposed tailored resume (all changes applied) for the user's review."""
     plan, changes, notes = check(prepared['structure'], data, facts)
     tex, compiled, dropped = fit(prepared, plan)
-    pdf, described = _document(prepared, tex, compiled, dropped)
+    pdf, described, _ = _document(prepared, tex, compiled, dropped)
     if described:
         notes.append('To fit one page, Stack left out ' + str(len(described)) + ' of the least relevant item' + ('s' if len(described) > 1 else '') + '.')
     return {'summary': str(data.get('summary', '')), 'changes': changes, 'dropped': described, 'notes': notes, 'plan': plan,
@@ -299,7 +323,8 @@ def finalize(prepared, tailored):
     rejected = [r for r in tailored.get('rejected', []) if r in {c['id'] for c in tailored.get('changes', [])}]
     plan = effective(tailored['plan'], rejected)
     tex, compiled, dropped = fit(prepared, plan)
-    pdf, described = _document(prepared, tex, compiled, dropped)
+    pdf, described, outline = _document(prepared, tex, compiled, dropped)
     kept = len(tailored.get('changes', [])) - len(rejected)
     return {'summary': 'Applied ' + str(kept) + ' of ' + str(len(tailored.get('changes', []))) + ' changes.',
-            'tailor': {'pdf': pdf, 'tex': tex, 'dropped': described, 'final': True, 'applied_plan': plan}}
+            # The outline is what the parser check compares the final PDF against.
+            'tailor': {'pdf': pdf, 'tex': tex, 'dropped': described, 'final': True, 'applied_plan': plan, 'outline': outline}}

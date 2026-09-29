@@ -55,6 +55,40 @@ word, so the result could never get shorter or more focused, and page count was 
 Results show the PDF, each change with its reason, what was left out, the original and
 tailored text, and the tailored `.tex` to copy back into Overleaf.
 
+## Where tailored resumes go
+
+When a tailoring task finishes, Stack saves the final PDF and `.tex` under
+**Resume → Tailored resumes**. That list is separate from **Your uploads**. Each item shows:
+
+- the job and company it was tailored for;
+- the resume it came from;
+- a parser check.
+
+The upload itself is never changed. Deleting a tailored resume removes only that copy.
+
+## Parser check
+
+Each tailored PDF is read back with the local OpenResume parser (`agents/parse_check.py`).
+The parser's result is compared with what Stack wrote:
+
+- the header's name, email and phone, which must match exactly;
+- each work, education and project entry, with its bullets;
+- every skill line;
+- the absence of leaked LaTeX such as `[3pt]`.
+
+The same check runs on the original upload's PDF. Issues that the original also has are marked
+**also in your original upload**; tailoring did not cause those. The summary reads
+"No new parser issues" when every issue is pre-existing. **Check again** reruns the check.
+
+## Layout safety
+
+- Skill blocks written as `\textbf{Label:} items \\[3pt] ...` inside one `\item` are read as
+  separate skill lines, even when their items wrap over several lines. Labels and line breaks are
+  never rewritten.
+- A bullet containing line breaks is never reworded.
+- Work, experience and education sections always keep their order; projects may move.
+- If any LaTeX code shows up in the tailored PDF's text, no resume is produced.
+
 ## Setup
 
 `scripts/setup` installs Tectonic (`brew install tectonic`) and compiles the templates once,

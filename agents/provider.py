@@ -62,7 +62,7 @@ def generate(step, context, configuration=None):
         'fit': 'Explain fit and gaps with citations. Preserve the supplied deterministic requirement checks.',
         'tailor': ('Tailor the resume in context.resume_structure for this job. Items have stable ids. '
                    'ranking: every bullet id, most to least relevant to this job; Stack removes the least relevant bullets until the resume fits one page. '
-                   'entry_order: only for sections whose entries should move; keep work and education in reverse-chronological order unless the listing strongly favors another entry; projects may lead with the most relevant. '
+                   'entry_order: only for sections whose entries should move. Work, experience and education sections always keep their order (Stack ignores reorders there); projects may lead with the most relevant. '
                    'rewrites: at most one per bullet or skill line, only where it clearly helps for this job. Plain text, no LaTeX; use **bold** only where the original bolded text. '
                    'Keep every number, tool, employer and claim exactly as supported by that bullet or verified facts; never add skills, tools, metrics, scope or seniority. '
                    'Use the listing’s wording only where the original already shows that experience. Keep a rewrite no longer than the original. '

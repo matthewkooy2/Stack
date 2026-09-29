@@ -5,6 +5,8 @@ cd "$STACK_ROOT"
 STACK_VERSION=$(./scripts/jac --version)
 case "$STACK_VERSION" in *"jac 0.37.21 "*) ;; *) echo "Install Jac 0.37.21 before setup (found: $STACK_VERSION)." >&2; exit 1;; esac
 ./scripts/jac install --no-npm
+npm --prefix integrations/resume-parser ci --no-audit --no-fund
+npm --prefix integrations/resume-parser run build
 ./scripts/jac setup mobile
 cp native/package.json native/package-lock.json native/app.config.js .jac/mobile-rn/
 cd .jac/mobile-rn

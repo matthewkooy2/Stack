@@ -2,6 +2,7 @@ import from "@jac/mobui" { View, Text }
 import from "../device.js" { rpc, errorText, openJobLink }
 import from ..theme { s }
 import from .UI { Button, Field, Chip }
+import from .Feedback { AgentFeedback }
 
 def:pub Practice -> JsxElement {
     has problems: list[dict[str, any]] = [], sessions: list[dict[str, any]] = [], current: dict[str, any] = {},
@@ -45,7 +46,7 @@ def:pub Practice -> JsxElement {
             {<Button label="Run code" secondary={True} onPress={lambda { save("code"); }} disabled={busy}/> if data.get("language") else <View/>}
             <Button label="Get coaching" onPress={lambda { save("prep"); }} disabled={busy}/><Button label="Refresh this session" secondary={True} onPress={lambda { resume(current["id"]); }}/>
             {[<Text key={str(r["at"])} style={s.body}>{"Tests: "+str(r["data"].get("passed",0))+" / "+str(r["data"].get("total",0))+" "+r["data"].get("error","")}</Text> for r in current.get("results",[])]}
-            {[<Text key={str(f["at"])} style={s.body}>{f["data"]["summary"]}</Text> for f in current.get("feedback",[])]}
+            {[<View key={str(f["at"])} style={{gap:10}}><Text style={s.body}>{f["data"]["summary"]}</Text>{<AgentFeedback key={f["run_id"]+f["output_version"]} runId={f["run_id"]} outputVersion={f["output_version"]}/> if f.get("run_id") and f.get("output_version") else <View/>}</View> for f in current.get("feedback",[])]}
         </View> if len(current)>0 else <View/>}
         <Button label="Choose another exercise" secondary={True} onPress={lambda { current={}; }}/><Text style={s.strong}>Continue a session</Text>{[<Button key={p["id"]} label={p["data"]["problem_id"]+" · "+p["data"]["language"]} secondary={True} onPress={lambda { resume(p["id"]); }}/> for p in sessions]}
     </View>

@@ -38,6 +38,8 @@ Provider subscription limits still apply. CLI failures pause for input; there is
 no automatic paid API fallback. Requests time out before the worker lease expires.
 Existing API spend remains visible separately from subscription request counts.
 Changing provider configuration while a task is claimed pauses that task for retry.
+Stack currently selects one provider deployment-wide at a time; there is no
+per-agent provider selector or automatic multi-provider fallback.
 
 Provider setup is checked separately from authentication: the activity panel's
 configured state does not prove that CLI login, provider capacity, or a live
@@ -45,6 +47,19 @@ model request will succeed. Run a real task to establish that.
 
 ## Verification status (September 28, 2026)
 
+- After the Jac migration, both Codex and Claude completed a real practice-coaching
+  workflow using synthetic answers and isolated account stores: session creation,
+  permission and quota checks, task claim, actual worker dispatch and model call,
+  source validation, completion, and feedback retrieval after application reload.
+  Each consumed one subscription request and zero API cents. This exercised the
+  backend through an in-process API client, not the physical iPhone or HTTP worker loop.
+- Repeat explicitly with `./scripts/jac run --no-serve scripts/provider-smoke.jac codex-cli`
+  or replace the last argument with `claude-cli`. Each run makes one real model
+  request against the signed-in subscription; it does not alter the user's account
+  or deployment provider configuration. Do not include this smoke check in ordinary CI.
+- Fixed the missing Meta HTTP allowlist entry. Two offline transport tests cover
+  the real provider-to-HTTP path and rejection of insecure/lookalike destinations;
+  this is not verification of live Muse inference.
 - Codex and Claude: each returned a real structured fit report through Stack's
   adapter using its existing subscription login. Exact-source validation passed;
   no API key or API fallback was used. These were synthetic inputs, not user data.
@@ -58,6 +73,32 @@ model request will succeed. Run a real task to establish that.
   binding and Model permission are still required before trying it on the phone.
 - Meta live inference and the Muse connector are unverified. No connector has
   been implemented or submitted. Automatic application submission stays disabled.
+
+## Testing traces and Agent Feedback
+
+New worker attempts save account-owned execution traces: stage inputs, model
+requests/responses, validation, duration, and returned results/errors. Full content
+requires `"capture_agent_content": true` in `storage/agents/config.json` (enabled
+on this personal testing setup; off by default). The provider and requested model
+are recorded; an unspecified model is labeled `provider default`, not guessed.
+Resolved model metadata is included when the provider reports it.
+
+Use **Agent Feedback** under a new Prep coaching result or an output in **Agent
+activity**. Choose Good / Mixed / Bad and enter a note. Feedback is saved with the
+reviewed output version and a bounded snapshot, independently of later retries.
+It is evaluation data, not automatic training or a change to agent behavior.
+
+The web workspace's selected task has **Download execution trace**. Account export
+also includes traces and feedback; account deletion removes them. They remain
+local in the account database, without a retention timer or additional encryption.
+Treat that database and exports as sensitive: prompts can contain resume details.
+Known credentials and binary files are filtered; this is not a guarantee against
+all secrets appearing in free text. Each trace/snapshot is capped at 256 KiB and
+marked when truncated. No third-party telemetry is added.
+
+This captures Stack's worker/model stages, not hidden model reasoning or every
+internal CLI tool event. Live voice has its existing transcript/receipt storage,
+not this full prompt trace. Old runs cannot be reconstructed retroactively.
 
 ## API providers
 

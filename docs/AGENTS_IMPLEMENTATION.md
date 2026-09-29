@@ -12,7 +12,7 @@ CLI subscription requests use an account-bound daily cap rather than API budgets
 | --- | --- |
 | Shared workflows | Account-owned facts, expiring standing rules, task queue, step leases, bounded retries, cancellation, bundled questions, explicit reconciliation, activity artifacts, operator reservations and action counters |
 | Jobs | Source-backed fit reports for selected real applications; the existing deterministic matcher remains authoritative; run keys include the current job/profile/fact context |
-| Resume | Text extraction with unconfirmed facts; selected-resume provenance; source-preserving ordering; generated PDF, text-recovery checks, and readable diff; requested cover-letter PDFs use verified text |
+| Resume | Local OpenResume parsing; editable sectioned review with draft/explicit confirmation and selected-resume provenance; source-preserving ordering; generated PDF, text-recovery checks, and readable diff; requested cover-letter PDFs use verified text. Parser setup, limits, and AGPL obligations: [RESUME_PARSER.md](RESUME_PARSER.md) |
 | Applications | Greenhouse/Lever/Ashby host recognition and semantic form pipeline; required-answer collection; PDF upload; form checks; one submit attempt; confirmation evidence; same-session browser takeover with encrypted checkpoints |
 | Google | Account-bound OAuth state and PKCE, encrypted refresh tokens, incremental scope requests, Gmail history synchronization and bounded recovery search, daily watch renewal, conservative message association, UTC calendar invitation extraction and idempotent event IDs |
 | Network | Real contact entry and CSV import; imported contacts remain unselected; selected-recipient outreach; reply detection; bounded follow-ups; manual LinkedIn handoff |

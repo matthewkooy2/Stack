@@ -69,6 +69,7 @@ function load(filename){
  return module.exports;
 }
 const device=load(path.join(root,'native/device.js'));
+modules.set(path.join(root,'.jac/mobile-rn/jac-src/mobile/device.js'),{exports:device});
 const pause=()=>new Promise(resolve=>setTimeout(resolve,30));
 async function notificationTests(){
  await storage.setItemAsync('stack.session.v1','test-token');await device.restoreSession();
@@ -101,6 +102,107 @@ async function gestureTests(){
  await act(async()=>{card().props.onPanResponderRelease(null,{dx:-130,dy:0,vx:-1});await pause();});assert.deepEqual(actions,['apply','pass']);
  await act(async()=>{ui.update(make('c',true));});assert.equal(card().props.onMoveShouldSetPanResponderCapture(null,{dx:140,dy:0}),false);
  await act(async()=>ui.unmount());console.log('PASS real swipe responder: capture, vertical scroll, left/right, duplicate release, disabled state.');
+}
+async function feedbackTests(){
+ const {AgentFeedback}=load(path.join(root,'.jac/mobile-rn/jac-src/mobile/components/Feedback.js'));
+ let ui,body;const originalFetch=globalThis.fetch;
+ try{
+  await act(async()=>{ui=renderer.create(React.createElement(AgentFeedback,{runId:'test-run',outputVersion:'test-version'}));});
+  const button=label=>ui.root.findAll(n=>n.type==='Pressable'&&n.props.accessibilityLabel===label)[0];
+  const note=()=>ui.root.findAll(n=>n.type==='TextInput')[0];
+  assert.equal(button('Save agent feedback').props.disabled,true);
+  await act(async()=>{button('Mixed').props.onPress();note().props.onChangeText('Helpful, but needs more specifics.');});
+  globalThis.fetch=async()=>{throw new Error('Network request failed');};
+  await act(async()=>{await button('Save agent feedback').props.onPress();});
+  assert.match(JSON.stringify(ui.toJSON()),/Cannot reach Stack/);assert.equal(note().props.value,'Helpful, but needs more specifics.');
+  globalThis.fetch=async(url,options)=>{assert.match(url,/\/function\/agent_feedback$/);body=JSON.parse(options.body);return {ok:true,json:async()=>({data:{result:{feedback:[]}}})};};
+  await act(async()=>{await button('Save agent feedback').props.onPress();});
+  assert.deepEqual(body,{id:'test-run',output_version:'test-version',rating:'mixed',note:'Helpful, but needs more specifics.'});
+  assert.match(JSON.stringify(ui.toJSON()),/Feedback saved/);assert.equal(note().props.value,'');assert.equal(button('Save agent feedback').props.disabled,true);
+ }finally{globalThis.fetch=originalFetch;if(ui)await act(async()=>ui.unmount());}
+ console.log('PASS Agent Feedback: rating/note required, failed-save draft retained, output-linked request, saved confirmation.');
+}
+async function resumeFieldSizingTests(){
+ const {ResumeField}=load(path.join(root,'.jac/mobile-rn/jac-src/mobile/components/ResumeReview.js'));
+ let ui,changed='';
+ const make=value=>React.createElement(ResumeField,{label:'Resume details',value,onChange:value=>{changed=value;},disabled:false});
+ try{
+  for(const value of ['A long school name that wraps when the available field width is narrow','First line\nSecond line\nThird line\n','Short','']){
+   await act(async()=>{if(ui)ui.update(make(value));else ui=renderer.create(make(value));});
+   const mirror=ui.root.findAll(n=>n.type==='Text')[0],input=ui.root.findAll(n=>n.type==='TextInput')[0];
+   const flat=style=>Object.assign({},...([style].flat()));
+   assert.equal(mirror.props.children,(value||'Not found')+'\u200b');
+   assert.equal(mirror.props.accessible,false);assert.equal(mirror.props.accessibilityElementsHidden,true);
+   assert.equal(flat(mirror.props.style).height,undefined);assert.equal(mirror.props.numberOfLines,undefined);
+   assert.equal(input.props.onContentSizeChange,undefined,'Initial sizing must not depend on an input event');
+   assert.equal(input.props.multiline,true);assert.equal(input.props.scrollEnabled,false);assert.equal(flat(input.props.style).height,'100%');
+   for(const key of ['fontSize','lineHeight','letterSpacing','padding','includeFontPadding'])assert.equal(flat(input.props.style)[key],flat(mirror.props.style)[key]);
+   await act(async()=>input.props.onChangeText('Edited\nvalue'));assert.equal(changed,'Edited\nvalue');
+  }
+ }finally{if(ui)await act(async()=>ui.unmount());}
+ console.log('PASS resume field sizing: initial wrapping, explicit/trailing newlines, value changes, accessible editing, no fixed-height/event dependency.');
+}
+async function resumeReviewTests(){
+ const username='resume_ui_'+Date.now(),password='Resume-review-test-123';
+ const {ResumeReview}=load(path.join(root,'.jac/mobile-rn/jac-src/mobile/components/ResumeReview.js'));
+ let ui;const originalFetch=globalThis.fetch;
+ await device.authenticate(username,password,true);
+ try{
+  const state=await device.rpc('upload_resume',{name:'Candidate.pdf',content:fs.readFileSync(path.join(root,'tests/fixtures/openresume-laverne.pdf')).toString('base64')});
+  const id=state.resumes[0].id;
+  await act(async()=>{ui=renderer.create(React.createElement(ResumeReview,{resumeId:id}));await pause();});
+  const button=label=>ui.root.findAll(n=>n.type==='Pressable'&&n.props.accessibilityLabel===label)[0];
+  const field=label=>ui.root.findAll(n=>n.type==='TextInput'&&n.props.accessibilityLabel===label)[0];
+  for(let i=0;i<100&&!field('Profile Name');i++)await act(async()=>{await new Promise(r=>setTimeout(r,100));});
+  assert.ok(field('Profile Name'),JSON.stringify(ui.toJSON()));assert.equal(field('Profile Name').props.value,'Leo Leopard');assert.ok(!field('Education School'));
+  await act(async()=>{button('Education').props.onPress();});assert.match(field('Education School').props.value,/University of La Verne/);
+  await act(async()=>{button('Work experience 1').props.onPress();});
+  assert.ok(ui.root.findAll(n=>n.type==='Text'&&n.props.children==='\u2022').length,'Parsed descriptions must show bullet markers');
+  await act(async()=>{button('Edit Work experience 1 Descriptions').props.onPress();});
+  const originalDescriptions=field('Work experience 1 Descriptions').props.value;
+  assert.ok(originalDescriptions.trim(),'Sample PDF supplies a description item');
+  await act(async()=>{field('Work experience 1 Descriptions').props.onChangeText(originalDescriptions+'\nAdded resume bullet');});
+  await act(async()=>{button('Finish editing Work experience 1 Descriptions').props.onPress();});
+  assert.ok(!field('Work experience 1 Descriptions'));assert.match(JSON.stringify(ui.toJSON()),/Added resume bullet/);
+  await act(async()=>{field('Profile Name').props.onChangeText('Reviewed Candidate');});
+  globalThis.fetch=async()=>{throw new Error('Network request failed');};
+  await act(async()=>{await button('Save draft').props.onPress();});assert.equal(field('Profile Name').props.value,'Reviewed Candidate');assert.match(JSON.stringify(ui.toJSON()),/Cannot reach Stack/);
+  globalThis.fetch=originalFetch;
+  await act(async()=>{await button('Save draft').props.onPress();});assert.match(JSON.stringify(ui.toJSON()),/Draft saved/);
+  const draft=await device.rpc('agent_settings');assert.ok(draft.facts.length);assert.ok(draft.facts.every(f=>!f.verified));
+  const reloaded=await device.rpc('agent_extract_resume',{id});
+  assert.equal(reloaded.sections.flatMap(s=>s.fields).find(f=>f.key==='workExperiences.0.descriptions').value,originalDescriptions+'\nAdded resume bullet');
+  await act(async()=>{button('Add experience').props.onPress();});assert.ok(field('Work experience 3 Company'));
+  await act(async()=>{field('Work experience 3 Company').props.onChangeText('Added Employer');});
+  await act(async()=>{await button('Confirm resume details').props.onPress();});assert.match(JSON.stringify(ui.toJSON()),/Resume details confirmed/);
+  const facts=(await device.rpc('agent_settings')).facts;assert.ok(facts.every(f=>f.verified));assert.ok(facts.some(f=>f.value.includes('Added Employer')));
+  assert.equal(button('Confirm resume details').props.disabled,true);
+  await act(async()=>{button('View extracted text').props.onPress();});assert.match(JSON.stringify(ui.toJSON()),/ON CAMPUS INVOLVEMENT/);
+ }finally{
+  globalThis.fetch=originalFetch;if(ui)await act(async()=>ui.unmount());
+  await device.rpc('account_delete',{username,password});await device.signOut();
+ }
+ console.log('PASS resume review: real PDF parser, section toggles, editable field/value rows, offline draft retention, unconfirmed draft, add experience, one-step confirmation, source text.');
+}
+async function resumeBulletTests(){
+ const {ResumeBulletField}=load(path.join(root,'.jac/mobile-rn/jac-src/mobile/components/ResumeReview.js'));
+ let ui,changed;
+ const make=(value,disabled=false)=>React.createElement(ResumeBulletField,{label:'Details',value,disabled,onChange:value=>{changed=value;}});
+ const button=label=>ui.root.findAll(n=>n.type==='Pressable'&&n.props.accessibilityLabel===label)[0];
+ const text=()=>ui.root.findAll(n=>n.type==='Text').map(n=>n.props.children);
+ try{
+  await act(async()=>{ui=renderer.create(make('First item\n\n\u2022 Already marked\nLong item that wraps without becoming another bullet\n'));});
+  assert.equal(text().filter(t=>t==='\u2022').length,3);assert.ok(text().includes('Already marked'));assert.ok(!text().includes('\u2022 Already marked'));
+  assert.equal(changed,undefined,'Displaying bullets must not modify stored contents');
+  await act(async()=>button('Edit Details').props.onPress());
+  const input=()=>ui.root.findAll(n=>n.type==='TextInput')[0];
+  assert.match(input().props.value,/\u2022 Already marked/);
+  await act(async()=>input().props.onChangeText('Updated\nAnother item'));assert.equal(changed,'Updated\nAnother item');
+  await act(async()=>ui.update(make(changed)));await act(async()=>button('Finish editing Details').props.onPress());
+  assert.equal(text().filter(t=>t==='\u2022').length,2);assert.ok(text().includes('Updated'));
+  await act(async()=>ui.update(make('',true)));assert.ok(text().includes('Not found'));assert.equal(button('Edit Details').props.disabled,true);assert.ok(!text().includes('\u2022'));
+ }finally{if(ui)await act(async()=>ui.unmount());}
+ console.log('PASS resume bullet display: item boundaries, wrapping structure, blanks, existing markers, unchanged storage, edit/preview, disabled state.');
 }
 async function screenTests(){
  // Reuse the actual adapter, with only lifecycle timing replaced by explicit test refreshes.
@@ -161,4 +263,4 @@ async function screenTests(){
  await act(async()=>ui.unmount());
  console.log('PASS Jac screens: signup, onboarding, apply, application notes, offline save/retry, reminder, filters, rapid repeated input, gestures, deck exhaustion, tab order, technical/behavioral prep guides, avatar profile, PDF upload/preview/cancel, sample preview, sign-out.');
 }
-(async()=>{try{await notificationTests();await gestureTests();await screenTests();}finally{await worker('discovery_manage',{id:fixtureSource,action:'purge'}).catch(()=>{});}})().catch(e=>{console.error(e);process.exitCode=1;});
+(async()=>{try{await notificationTests();await gestureTests();await feedbackTests();await resumeFieldSizingTests();await resumeBulletTests();await resumeReviewTests();await screenTests();}finally{await worker('discovery_manage',{id:fixtureSource,action:'purge'}).catch(()=>{});}})().catch(e=>{console.error(e);process.exitCode=1;});

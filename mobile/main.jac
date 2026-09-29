@@ -6,6 +6,7 @@ import from .components.Prep { Prep }
 import from .components.Agents { AgentHub, AgentLaunch }
 import from .components.Discovery { Discovery }
 import from .components.MatchInputs { MatchInputs }
+import from .components.ResumeReview { ResumeReview }
 
 def _find(items: list[dict[str, any]], id: str) -> dict[str, any] {
     for item in items { if item["id"]==id { return item; } }
@@ -111,10 +112,7 @@ def:pub app -> JsxElement {
     async def openApplication(url: str) -> None {
         try { await openJobLink(url); } except Exception as e { error=errorText(e); }
     }
-    async def extractFacts(id: str) -> None {
-        try { result=await rpc("agent_extract_resume",{"id":id});notice="Resume text extracted. Review and confirm it in Agent activity → Facts."; }
-        except Exception as e { error=errorText(e); }
-    }
+    def extractFacts(id: str) -> None { selected=id;error="";notice="";modal="Resume details"; }
     async def upload -> None {
         if busy { return; } revision=revision+1; busy=True; error="";
         try {
@@ -199,7 +197,7 @@ def:pub app -> JsxElement {
                     {(
                         <View style={{gap:20}}><View style={{gap:7}}><Text style={s.eyebrow}>PUT YOUR BEST SELF FORWARD</Text><Text style={s.title}>Your story, on paper.</Text><Text style={s.body}>One home for your experience and potential.</Text></View>
                             <Pressable style={[s.card,{borderStyle:"dashed",borderColor:"#B9CAEE",alignItems:"center",paddingVertical:27}]} onPress={upload} disabled={busy} accessibilityRole="button" accessibilityLabel="Upload PDF resume"><View style={[s.avatar,{backgroundColor:"#EDF2FF"}]}><Icon name="upload" color="#3765E8"/></View><Text style={s.heading}>Add your resume</Text><Text style={s.small}>Choose a PDF from Files · up to 10 MB</Text></Pressable>
-                            {[<View key={r["id"]} style={s.card}><View style={s.row}><Icon name="resume" size={29} color="#3765E8"/><View style={s.grow}><Text style={s.strong}>{r["name"]}</Text><Text style={s.small}>{shortDate(r["created_at"])} · Private PDF</Text></View><Pressable accessibilityLabel="Manage resume" style={s.iconButton} onPress={lambda { selected=r["id"]; rename=r["name"]; modal="Manage resume"; }}><Icon name="more"/></Pressable></View>{<Chip label="Default resume" active={True}/> if state["selected_resume"]==r["id"] else <View/>}<Button label="Preview resume" onPress={lambda { preview(r["id"]); }} secondary={True} disabled={busy}/><Button label="Extract resume facts" secondary={True} onPress={lambda { extractFacts(r["id"]); }}/></View> for r in state["resumes"]]}
+                            {[<View key={r["id"]} style={s.card}><View style={s.row}><Icon name="resume" size={29} color="#3765E8"/><View style={s.grow}><Text style={s.strong}>{r["name"]}</Text><Text style={s.small}>{shortDate(r["created_at"])} · Private PDF</Text></View><Pressable accessibilityLabel="Manage resume" style={s.iconButton} onPress={lambda { selected=r["id"]; rename=r["name"]; modal="Manage resume"; }}><Icon name="more"/></Pressable></View>{<Chip label="Default resume" active={True}/> if state["selected_resume"]==r["id"] else <View/>}<Button label="Preview resume" onPress={lambda { preview(r["id"]); }} secondary={True} disabled={busy}/><Button label="Review resume details" icon="resume" secondary={True} disabled={busy} onPress={lambda { extractFacts(r["id"]); }}/></View> for r in state["resumes"]]}
                             <View style={s.hero}><View style={s.row}><Icon name="sparkles" color="#3765E8"/><Text style={s.heading}>A resume for the role.</Text></View><Text style={s.body}>See how a tailored version could highlight the right experience.</Text><Button label="Explore a sample" secondary={True} onPress={lambda { modal="Tailoring preview"; }}/><Text style={s.small}>Demo preview. Your uploaded PDF is never modified.</Text></View>
                         </View>
                     ) if tab=="Resume" else <View/>}
@@ -217,7 +215,8 @@ def:pub app -> JsxElement {
                 {<View style={s.notice}><Text style={s.noticeText}>{notice}</Text></View> if notice else <View/>}
                 {<PDFView uri={pdfUri}/> if modal=="PDF preview" else (
                 <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-                    {<AgentHub/> if modal=="Agents" else <View/>}
+                    {<AgentHub resumes={state["resumes"]} onReviewResume={extractFacts}/> if modal=="Agents" else <View/>}
+                    {<ResumeReview key={selected} resumeId={selected}/> if modal=="Resume details" else <View/>}
                     {(
                         <View style={{gap:20}}><View style={s.card}><View style={s.row}><View style={[s.avatar,{backgroundColor:"#E8EFFE",width:65,height:65}]}><Text style={[s.avatarText,{fontSize:25}]}>{state["profile"]["name"][0:1].upper()}</Text></View><View style={s.grow}><Text style={s.heading}>{state["profile"]["name"]}</Text><Text style={s.body}>{state["profile"]["role"]}</Text></View></View><Text style={s.body}>{state["profile"]["location"]} · {state["profile"]["mode"]}</Text><Button label="Edit profile & preferences" onPress={editProfile} secondary={True}/></View>
                             <Text style={s.heading}>Your agent connection.</Text><Text style={s.strong}>{state.get("agents",{}).get("model_provider",{}).get("provider","Not configured")}</Text><Text style={s.small}>{state.get("agents",{}).get("model_provider",{}).get("message","")}</Text><Button label="Agent activity and rules" secondary={True} onPress={lambda { modal="Agents"; }}/>

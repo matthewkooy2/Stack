@@ -15,9 +15,9 @@ from urllib.parse import urlsplit
 PERSONAL = set('''bootstrap save_profile save_timeline swipe save_application mark_application_submitted
 select_application_resume save_contact upload_resume read_resume change_resume save_reminder change_reminder
 search_jobs get_job save_search reset_search import_job_url get_import_status source_status
-agent_settings agent_save_facts agent_save_policy agent_activity agent_run agent_cancel agent_respond
+agent_settings agent_save_facts agent_save_policy agent_activity agent_run agent_cancel agent_respond agent_traces agent_feedback
 agent_reconcile agent_contacts agent_save_contact agent_stop_contact agent_import_contacts agent_events agent_resolve_event
-agent_google_start agent_google_finish agent_disconnect agent_export agent_start agent_extract_resume
+agent_google_start agent_google_finish agent_disconnect agent_export agent_start agent_extract_resume resume_save_details
 agent_browser prep_live prep_progress prep_for_application prep_catalog prep_sessions prep_create prep_get prep_save account_export account_delete
 agent_register_push agent_remove_push agent_admission'''.split())
 IDENTITY = {'/user/register', '/user/login'}

@@ -100,7 +100,7 @@ def run(
     }
 }
 def generate(
-    provider: str, model: str, system: str, prompt: str, schema: dict[str, any]
+    provider: str, model: str, system: str, prompt: str, schema: dict[str, any], observe: any = None
 ) -> dict[str, any] {
     executable = shutil.which('codex' if (provider == 'codex-cli') else 'claude');
     if not executable {
@@ -168,6 +168,7 @@ def generate(
                 command, tmp, (system + '\nReturn only the requested JSON.\n' + prompt)
             );
             if (status or not result_path.exists()) {
+                if observe { observe("model_response", {"exit_code":status,"response":"","reported_models":[]}); }
                 raise ValueError(
                     'Codex could not complete the request. Check ChatGPT sign-in and usage limits; no API fallback was attempted.'
                 );
@@ -175,7 +176,9 @@ def generate(
             if (result_path.stat().st_size > 131072) {
                 raise ValueError('The local CLI result exceeded its output limit.');
             }
-            return json.loads(result_path.read_text());
+            text = result_path.read_text();
+            if observe { observe("model_response", {"exit_code":status,"text":text,"reported_models":[]}); }
+            return json.loads(text);
         }
         (status, login) = run([executable, 'auth', 'status'], tmp, seconds=10);
         auth = json.loads(login) if not status else {};
@@ -214,6 +217,7 @@ def generate(
             command += ['--model', model];
         }
         (status, output) = run(command, tmp, prompt);
+        if observe { observe("model_response", {"exit_code":status,"text":output}); }
         if status {
             raise ValueError(
                 'Claude could not complete the request. Check subscription sign-in and usage limits; no API fallback was attempted.'

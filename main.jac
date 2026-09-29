@@ -21,10 +21,12 @@ import from core.automation {
     _agent_access, _agent_memory, _agent_summary, _agent_start, _agent_fresh, _agent_system, _agent_owner, _owned_run,
     agent_settings, agent_report, agent_admission, agent_register_push, agent_remove_push, agent_notification_claim, agent_notification_finish, agent_save_facts, agent_save_policy, agent_activity, agent_run, agent_cancel, agent_respond, agent_reconcile,
     agent_contacts, agent_save_contact, agent_stop_contact, agent_import_contacts, agent_events, agent_claim, agent_authorize, _agent_complete, agent_worker_connection,
+    agent_trace, agent_traces, agent_feedback,
     agent_invite, agent_accept_invite, agent_google_start, agent_google_finish, agent_disconnect, agent_export,
     prep_progress, prep_live, agent_live_claim, agent_live_check, agent_live_finish, prep_catalog, prep_sessions, prep_create, prep_get, prep_save
 }
-import from agents.contracts { authorize, config, digest }
+import from agents.contracts { authorize, config, digest, validate_facts }
+import from agents.resume_parser { parse_pdf, sections as resume_sections, validate_values, confirmed_facts }
 import from agents.prep { problem, validate_session }
 import from agents.study { plan as study_plan }
 
@@ -34,7 +36,7 @@ node Profile {
 node Decision { has job_id: str, action: str; }
 node Application { has job_id: str, created_at: float, status: str = "", notes: str = "", resume_id: str = "", demo: bool = True, snapshot: dict[str, any] = {}, status_at: float = 0.0, history: list[dict[str, any]] = []; }
 node Contact { has person_id: str, saved: bool = False, draft: str = "", notes: str = ""; }
-node Resume { has name: str, file_key: str, size: int, created_at: float; }
+node Resume { has name: str, file_key: str, size: int, created_at: float, review: dict[str, any] = {}, review_revision: int = 0, review_confirmed: bool = False; }
 node Reminder { has target_type: str, target_id: str, title: str, due_at: float, done: bool = False; }
 node Settings { has selected_resume: str = ""; }
 
@@ -102,7 +104,7 @@ def:priv bootstrap() -> dict[str, any] {
       "applications":[_app_view(a) for a in [root -->][?:Application]],
       "people":PEOPLE,
       "contacts":[{"id":jid(c),"person_id":c.person_id,"saved":c.saved,"draft":c.draft,"notes":c.notes} for c in [root -->][?:Contact]],
-      "resumes":[{"id":jid(r),"name":r.name,"size":r.size,"created_at":r.created_at} for r in [root -->][?:Resume]],
+      "resumes":[{"id":jid(r),"name":r.name,"size":r.size,"created_at":r.created_at,"details_status":"Confirmed" if r.review_confirmed else "Needs review" if r.review else "Not parsed"} for r in [root -->][?:Resume]],
       "selected_resume":_settings().selected_resume,
       "agents":_agent_summary(),
       "reminders":[{"id":jid(r),"target_type":r.target_type,"target_id":r.target_id,"title":r.title,"due_at":r.due_at,"done":r.done} for r in [root -->][?:Reminder]]
@@ -199,7 +201,7 @@ def:priv read_resume(id: str) -> dict[str, any] {
     r = _owned_resume(id); if r is None { return _error("Resume not found."); }
     path = _file_path(r.file_key);
     if not path.exists() { return _error("This file is unavailable. Please upload it again."); }
-    return {"name":r.name,"content":base64.b64encode(path.read_bytes()).decode()};
+    return {"name":r.name,"content":base64.b64encode(path.read_bytes()).decode(),"review":_resume_review(r) if r.review else {}};
 }
 def:priv change_resume(id: str, action: str, name: str = "") -> dict[str, any] {
     r = _owned_resume(id); if r is None { return _error("Resume not found."); }
@@ -288,14 +290,36 @@ def:priv agent_start(kind: str, target_id: str) -> dict[str, any] {
 def:priv agent_extract_resume(id: str) -> dict[str, any] {
     _agent_access();r=_owned_resume(id);
     if r is None { return {"error":"Resume not found."}; }
+    if r.review { return _resume_review(r); }
     try {
-        pdf=importlib.import_module("pypdf").PdfReader(_file_path(r.file_key));
-        text="\n".join([page.extract_text() or "" for page in pdf.pages]);
-        lines=[line.strip() for line in text.splitlines() if line.strip()];
-        if not lines { return {"error":"No readable text. Upload a text PDF or enter your facts."}; }
-        values=[{"key":"resume."+id+"."+str(i),"resume_id":id,"value":line,"source":r.name+" ("+id+")","verified":False} for (i,line) in enumerate(lines[:200])];
-        return agent_save_facts(values);
-    } except Exception { return {"error":"This resume could not be extracted."}; }
+        parsed=parse_pdf(_file_path(r.file_key));
+    } except ValueError as e { return _error(str(e)); }
+    with _write_lock {
+        _agent_fresh();r=_owned_resume(id);
+        if r is None { return _error("Resume not found."); }
+        if not r.review { r.review=parsed;r.review_revision+=1;commit(); }
+        return _resume_review(r);
+    }
+}
+def _resume_review(r: Resume) -> dict[str, any] {
+    return {"id":jid(r),"name":r.name,"revision":r.review_revision,"confirmed":r.review_confirmed,"sections":resume_sections(r.review.get("values",{})),"text":r.review.get("text",""),"parser":r.review.get("parser",""),"warnings":["OpenResume works best with single-column English resumes. Missing or misclassified details need review."]};
+}
+def:priv resume_save_details(id: str, revision: int, values: dict[str, any], confirm: bool = False) -> dict[str, any] {
+    _agent_access();confirm=confirm is True;
+    try {
+        clean=validate_values(values);
+        if confirm and not any(v for v in clean.values()) { return _error("Enter at least one resume detail before confirming."); }
+    } except ValueError as e { return _error(str(e)); }
+    with _write_lock {
+        _agent_fresh();r=_owned_resume(id);
+        if r is None { return _error("Resume not found."); }
+        if revision!=r.review_revision or not r.review { return _error("Resume details changed. Close and reopen the review before saving."); }
+        try { facts=validate_facts([{**f,"verified":confirm} for f in confirmed_facts(id,r.name,clean)]); }
+        except ValueError as e { return _error(str(e)); }
+        memory=_agent_memory();memory.facts=[f for f in memory.facts if f.get("resume_id")!=id]+facts;memory.revision+=1;
+        r.review={**r.review,"values":clean};r.review_confirmed=confirm;r.review_revision+=1;commit();
+        return _resume_review(r);
+    }
 }
 def:priv agent_browser(id: str, event: dict[str, any]) -> dict[str, any] {
     _agent_access();r=_owned_run(id);
@@ -316,7 +340,9 @@ def:pub agent_finish(token: str, id: str, owner: str, lease: str, result: dict[s
 }
 def _notify_agent(r: AgentRun) -> None {
     if r.status not in ["needs_input","failed","uncertain"] and not (r.kind=="calendar" and r.status=="completed") { return; }
-    if not _profile().notifications { return; }
+    # Read the preference without profile initialization aborting the pending completion.
+    profiles=[root -->][?:Profile];
+    if profiles and not profiles[0].notifications { return; }
     key=digest([jid(r),r.status,r.index]);
     if not [n for n in [root -->][?:AgentNotification] if n.key==key] { root ++> AgentNotification(key=key,run_id=jid(r)); }
 }

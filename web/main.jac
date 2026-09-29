@@ -1,5 +1,6 @@
 import from "./transport.js" { rpc, login, logout, errorText, oauthResult, downloadJSON, downloadPDF, Timer, Diagram, BrowserView, Recorder, LiveInterview, confirmAccountDelete }
 import "./style.css";
+import from .Feedback { AgentFeedback }
 
 def:pub app -> JsxElement {
     has logged: bool = False, username: str = "", password: str = "", invite: str = "", error: str = "", notice: str = "",
@@ -46,6 +47,10 @@ def:pub app -> JsxElement {
         try { selected=await rpc("agent_run",{"id":id});values={};browser={}; }
         except Exception as e { error=errorText(e); }
     }
+    async def exportTrace -> None {
+        try { downloadJSON(await rpc("agent_traces",{"id":selected["id"]})); }
+        except Exception as e { error=errorText(e); }
+    }
     async def handoff(event: dict[str, any]) -> None {
         try { browser=await rpc("agent_browser",{"id":selected["id"],"event":event}); }
         except Exception as e { error=errorText(e); }
@@ -85,7 +90,7 @@ def:pub app -> JsxElement {
                     <div className="toolbar">{<button disabled={busy} onClick={lambda { save("code"); }}>Run tests</button> if data["language"] else <span/>}<button className="primary" disabled={busy} onClick={lambda { save("prep"); }}>Get coaching</button></div>
                     <Recorder onTranscript={lambda (text: str) { data={**data,"transcript":text}; }}/><label>Review your transcript<textarea value={data["transcript"]} onChange={lambda (e: any) { data={**data,"transcript":e.target.value}; }}/></label><LiveInterview sessionId={current["id"]} onTranscript={lambda (text: str) { data={**data,"transcript":text}; }}/>
                     {[<article key={str(r["at"])}><h3>{"Tests: "+str(r["data"].get("passed",0))+" / "+str(r["data"].get("total",0))}</h3><pre>{r["data"].get("error","")}</pre><p>{"Attempt revision "+str(r["revision"])}</p></article> for r in current["results"]]}
-                    {[<article key={str(f["at"])}><h3>Coaching</h3><p>{f["data"]["summary"]}</p>{[<p key={row["criterion"]}><strong>{row["criterion"]+" · "+str(row["score"])+"/4"}</strong>{" — "+row["feedback"]}</p> for row in f["data"].get("rubric",[])]}{[<p key={q}>{q}</p> for q in f["data"].get("followup_questions",[])]}</article> for f in current["feedback"]]}
+                    {[<article key={str(f["at"])}><h3>Coaching</h3><p>{f["data"]["summary"]}</p>{[<p key={row["criterion"]}><strong>{row["criterion"]+" · "+str(row["score"])+"/4"}</strong>{" — "+row["feedback"]}</p> for row in f["data"].get("rubric",[])]}{[<p key={q}>{q}</p> for q in f["data"].get("followup_questions",[])]}{<AgentFeedback key={f["run_id"]+f["output_version"]} runId={f["run_id"]} outputVersion={f["output_version"]}/> if f.get("run_id") and f.get("output_version") else <span/>}</article> for f in current["feedback"]]}
                 </div> if len(current)>0 else <article><h2>Choose a session.</h2><p>Start on your phone or here. Your answers, code, and feedback stay together.</p></article>}</section>
             </div> if page=="Practice" else <div/>}
             {<section><h2>Messages needing review</h2>{[<article key={e["id"]}><strong>{e["subject"]}</strong><p>{e["excerpt"]}</p><button onClick={lambda { mailSelected=e;eventApplication=e.get("application_id","");eventStatus=e.get("status",""); }}>Associate this message</button></article> for e in mail if e.get("ambiguous")]}
@@ -94,9 +99,12 @@ def:pub app -> JsxElement {
                 <h2>Agent activity</h2>{[<article key={r["id"]}><strong>{r["kind"].title()+" · "+r["status"].replace("_"," ")}</strong><p>{r["message"]}</p><button onClick={lambda { openRun(r["id"]); }}>Open task</button></article> for r in activity.get("runs",[])]}
                 {<article><h2>{selected["message"]}</h2>{[<label key={q["key"]}>{q["label"]}<input value={values.get(q["key"],"")} onChange={lambda (e: any) { updated={**values};updated[q["key"]]=e.target.value;values=updated; }}/></label> for q in selected.get("requests",[]) if q["key"]!="browser"]}
                     {<button onClick={respond}>Save answers and resume</button> if selected["status"] in ["needs_input","blocked"] else <span/>}
+                    <button onClick={exportTrace}>Download execution trace</button>
                     <button onClick={lambda { handoff({"type":"snapshot"}); }}>Open same browser session</button><BrowserView image={browser} onEvent={handoff}/>
                     {<div><label>Reconciliation evidence<textarea value={values.get("evidence","")} onChange={lambda (e: any) { values={**values,"evidence":e.target.value}; }}/></label><button onClick={lambda { reconcile("confirmed"); }}>I verified it completed</button><button onClick={lambda { reconcile("not_sent"); }}>I verified nothing was sent</button></div> if selected["status"]=="uncertain" else <span/>}
                     {[<article key={k}><h3>{k.title()}</h3><p>{v.get("summary",v.get("body",v.get("receipt","Artifact saved")))}</p>{[<p key={t}>{t}</p> for t in v.get("strengths",[])+v.get("gaps",[])+v.get("unknowns",[])+v.get("edits",[])]}<p>{v.get("suggested_headline","")}</p><p>{v.get("suggested_about","")}</p>{<button onClick={lambda { downloadPDF(v["pdf"]); }}>Download tailored PDF</button> if v.get("pdf") else <span/>}{<pre>{v["pdf"]["diff"]}</pre> if v.get("pdf") else <span/>}</article> for (k,v) in selected.get("artifacts",{}).items()]}
+                    {<AgentFeedback key={selected["id"]+selected["output_version"]} runId={selected["id"]} outputVersion={selected["output_version"]}/> if selected.get("artifacts") and selected.get("output_version") else <span/>}
+                    {[<p key={f["id"]}><strong>{"Your feedback · "+f["rating"].title()+": "}</strong>{f["note"]}</p> for f in selected.get("feedback",[])]}
                 </article> if len(selected)>0 else <div/>}
             </section> if page=="Activity" else <div/>}
             {<section><h2>Your account</h2><p>Manage standing permissions and confirmed facts in the iPhone app.</p><button onClick={exportData}>Export account data</button><label>Confirm password to delete account<input type="password" value={deletePassword} onChange={lambda (e: any) { deletePassword=e.target.value; }}/></label><button onClick={deleteAccount}>Delete my account and data</button><p>Paid execution remains disabled until the operator configures a shared budget.</p></section> if page=="Account" else <div/>}

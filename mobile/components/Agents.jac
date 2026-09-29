@@ -2,6 +2,7 @@ import from "@jac/mobui" { View, Text, Switch }
 import from "../device.js" { rpc, errorText, openJobLink, dateTime }
 import from ..theme { s }
 import from .UI { Button, Field, Chip }
+import from .Feedback { AgentFeedback }
 
 def:pub AgentLaunch(target: str) -> JsxElement {
     has message: str = "", busy: bool = False;
@@ -22,7 +23,7 @@ def:pub AgentLaunch(target: str) -> JsxElement {
     </View>{<Text style={s.small}>{message}</Text> if message else <View/>}</View>
 }
 
-def:pub AgentHub(initial: str = "Activity") -> JsxElement {
+def:pub AgentHub(initial: str = "Activity", resumes: list[dict[str, any]] = [], onReviewResume: any = None) -> JsxElement {
     has page: str = initial, settings: dict[str, any] = {}, activity: dict[str, any] = {},
         selected: dict[str, any] = {}, contacts: list[dict[str, any]] = [], values: dict[str, str] = {},
         error: str = "", busy: bool = False, enabled: bool = False, actions: list[str] = [], domains: str = "",
@@ -77,6 +78,8 @@ def:pub AgentHub(initial: str = "Activity") -> JsxElement {
                 {<Button label="Save answers and resume" disabled={busy} onPress={respond}/> if selected["status"] in ["needs_input","blocked"] else <View/>}
                 {<Button label="Open workspace for browser handoff" secondary={True} onPress={lambda { openJobLink(settings["web_url"]); }}/> if settings.get("web_url") else <Text style={s.small}>Browser handoff appears in the web workspace when hosting is configured.</Text>}
                 {[<View key={k} style={s.hero}><Text style={s.strong}>{k.title()}</Text><Text style={s.body}>{v.get("summary",v.get("body",v.get("receipt","Saved artifact")))}</Text>{[<Text key={text} style={s.body}>{text}</Text> for text in v.get("strengths",[])+v.get("gaps",[])+v.get("unknowns",[])+v.get("edits",[])]}<Text style={s.body}>{v.get("suggested_headline","")}</Text><Text style={s.body}>{v.get("suggested_about","")}</Text>{[<Text key={e["quote"]} style={s.small}>{"“"+e["quote"]+"”"}</Text> for e in v.get("evidence",[])]}</View> for (k,v) in selected.get("artifacts",{}).items()]}
+                {<AgentFeedback key={selected["id"]+selected["output_version"]} runId={selected["id"]} outputVersion={selected["output_version"]}/> if selected.get("artifacts") and selected.get("output_version") else <View/>}
+                {[<View key={f["id"]}><Text style={s.strong}>{"Your feedback · "+f["rating"].title()}</Text><Text style={s.body}>{f["note"]}</Text></View> for f in selected.get("feedback",[])]}
                 <Button label="Cancel agent task" secondary={True} disabled={busy} onPress={lambda { perform("agent_cancel",{"id":selected["id"]}); }}/>
             </View> if len(selected)>0 else <View/>}
         </View> if page=="Activity" else <View/>}
@@ -93,7 +96,8 @@ def:pub AgentHub(initial: str = "Activity") -> JsxElement {
             {[<View key={c["id"]} style={s.card}><Text style={s.strong}>{c["provider"].title()+" · "+c["state"]}</Text><Button label="Disconnect" onPress={lambda { perform("agent_disconnect",{"id":c["id"]}); }} secondary={True}/></View> for c in settings.get("connections",[])]}
         </View> if page=="Rules" else <View/>}
         {<View style={{gap:12}}><Text style={s.body}>Only confirmed facts are reused. Review extracted resume text before confirming it.</Text>
-            {[<View key={f["key"]} style={s.card}><Text style={s.strong}>{f["key"]}</Text><Text style={s.body}>{f["value"]}</Text><Text style={s.small}>{f["source"]}</Text>{<Button label="Confirm this fact" secondary={True} onPress={lambda { perform("agent_save_facts",{"facts":[{**f,"verified":True}]}); }}/> if not f["verified"] else <Chip label="Confirmed" active={True}/>}</View> for f in settings.get("facts",[])]}
+            {[<View key={r["id"]} style={s.card}><Text style={s.strong}>{r["name"]}</Text><Button label="Review resume details" secondary={True} disabled={onReviewResume is None} onPress={lambda { onReviewResume(r["id"]); }}/></View> for r in resumes]}
+            {[<View key={f["key"]} style={s.card}><Text style={s.strong}>{f["key"].replace("_"," ").title()}</Text><Text style={s.body}>{f["value"]}</Text><Text style={s.small}>{f["source"]}</Text>{<Button label="Confirm this fact" secondary={True} onPress={lambda { perform("agent_save_facts",{"facts":[{**f,"verified":True}]}); }}/> if not f["verified"] else <Chip label="Confirmed" active={True}/>}</View> for f in settings.get("facts",[]) if not f.get("resume_id")]}
             <Button label="Review my professional profile" secondary={True} onPress={lambda { perform("agent_start",{"kind":"profile","target_id":"self"}); }}/><Field label="Fact name" value={factKey} onChange={lambda (v: str) { factKey=v; }} placeholder="email, phone, name, resume.project"/>
             <Field label="Your answer" value={factValue} onChange={lambda (v: str) { factValue=v; }} multiline={True}/>
             <Button label="Save confirmed fact" disabled={busy} onPress={lambda { perform("agent_save_facts",{"facts":[{"key":factKey,"value":factValue,"verified":True,"source":"User confirmed"}]}); }}/>

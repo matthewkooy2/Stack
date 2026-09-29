@@ -7,6 +7,7 @@ import re;
 import time;
 import from pathlib { Path }
 import from urllib.parse { urlsplit }
+import from uuid { UUID }
 with entry {
     VERSION = 1;
     CLI_PROVIDERS = {'codex-cli', 'claude-cli'};
@@ -76,12 +77,17 @@ def config() -> dict[(str, any)] {
         'web_url': str(raw.get('web_url', ''))
     };
 }
+def account_key(value: str) -> str {
+    # Jac jid() uses UUID hex; operator tools may save the hyphenated form.
+    try { return UUID(value).hex; }
+    except ValueError { return value; }
+}
 def model_access(c: dict[(str, any)], owner: str) {
     if (c['provider'] not in PROVIDERS) {
         raise ValueError('Choose a supported model provider.');
     }
     if (c['provider'] in CLI_PROVIDERS) {
-        if (not owner or (c['local_cli_owner'] != owner)) {
+        if (not owner or (account_key(c['local_cli_owner']) != account_key(owner))) {
             raise ValueError(
                 'The operator must connect this Stack account to the local CLI subscription.'
             );

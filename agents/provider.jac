@@ -103,7 +103,7 @@ def sources_for(context: dict[str, any]) -> dict[str, str] {
     );
     return sources;
 }
-def generate(step: str, context: dict[str, any], configuration: dict[str, any] | None = None) -> dict[str, any] {
+def generate(step: str, context: dict[str, any], configuration: dict[str, any] | None = None, observe: any = None) -> dict[str, any] {
     c = configuration if (configuration is not None) else config();
     provider = c['provider'];
     key = os.environ.get('MODEL_API_KEY' if (provider == 'meta') else 'OPENAI_API_KEY');
@@ -139,10 +139,11 @@ def generate(step: str, context: dict[str, any], configuration: dict[str, any] |
         }
     };
     result = {};
+    if observe { observe("model_request", {"provider":provider,"requested_model":c["model"] or "provider default","transport":"codex exec" if provider=="codex-cli" else "claude -p" if provider=="claude-cli" else "HTTPS API","system":SYSTEM,"input":json.loads(payload["input"]),"prompt_text":SYSTEM+'\nReturn only the requested JSON.\n'+payload["input"] if provider=="codex-cli" else payload["input"],"schema":SCHEMAS[step],"max_output_tokens":c["max_output_tokens"] if provider not in CLI_PROVIDERS else None}); }
     if (provider in CLI_PROVIDERS) {
         import from agents.local_cli { generate as cli_generate }
         text = json.dumps(
-            cli_generate(provider, c['model'], SYSTEM, payload['input'], SCHEMAS[step])
+            cli_generate(provider, c['model'], SYSTEM, payload['input'], SCHEMAS[step], observe=observe) if observe else cli_generate(provider, c['model'], SYSTEM, payload['input'], SCHEMAS[step])
         );
     } elif (provider == 'meta') {
         result = http(
@@ -166,6 +167,7 @@ def generate(step: str, context: dict[str, any], configuration: dict[str, any] |
             {'Authorization': ('Bearer ' + (key as str)), 'Content-Type': 'application/json'},
             timeout=90
         );
+        if observe { observe("model_response", {"response":result,"reported_models":[result["model"]] if result.get("model") else []}); }
         choice = result.get('choices', [{}])[0];
         if (choice.get('finish_reason') != 'stop') {
             raise ValueError('Muse did not complete this step.');
@@ -178,6 +180,7 @@ def generate(step: str, context: dict[str, any], configuration: dict[str, any] |
             {'Authorization': ('Bearer ' + (key as str)), 'Content-Type': 'application/json'},
             timeout=90
         );
+        if observe { observe("model_response", {"response":result,"reported_models":[result["model"]] if result.get("model") else []}); }
         if (result.get('status') != 'completed') {
             raise ValueError('The model did not complete this step.');
         }
@@ -227,10 +230,12 @@ def generate(step: str, context: dict[str, any], configuration: dict[str, any] |
             );
         }
     } except (ValueError, KeyError, TypeError) {
+        if observe { observe("model_validation", {"valid":False,"message":"Response failed source validation."}); }
         raise ValueError(
             'The model response could not be validated against its sources.'
         ) from None;
     }
+    if observe { observe("model_validation", {"valid":True}); }
     usage = result.get('usage', {});
     cents = math.ceil(
         (

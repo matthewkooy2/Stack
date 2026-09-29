@@ -5,6 +5,7 @@ import from pathlib { Path }
 import time;
 import urllib.request;
 import from agents.contracts { CLI_PROVIDERS, config, digest, model_access }
+import from agents.tracing { trace_data }
 def call(name: str, args: dict[str, any]) -> dict[str, any] {
     base = os.environ.get('STACK_WORKER_API', 'http://127.0.0.1:8000');
     request = urllib.request.Request(
@@ -45,7 +46,7 @@ def browser_call(step: str, work: dict[str, any]) -> dict[str, any] {
     }
     return result;
 }
-def dispatch(work: dict[str, any], token: str) -> dict[str, any] {
+def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str, any] {
     import from agents.provider { generate }
     (step, context, artifacts) = (work['step'], work['context'], work['artifacts']);
     auth = {k: work[k] for k in ('id', 'owner', 'lease')};
@@ -79,7 +80,7 @@ def dispatch(work: dict[str, any], token: str) -> dict[str, any] {
         }
         try {
             result = generate(
-                step, {** context, 'research': artifacts.get('research', {})}, c
+                step, {** context, 'research': artifacts.get('research', {})}, c, observe=observe
             );
         } except ValueError as exc {
             if (c['provider'] in CLI_PROVIDERS) {
@@ -264,7 +265,10 @@ def main() {
                 continue;
             }
             try {
-                result = dispatch(work, token);
+                def observe(event: str, data: dict[str, any]) -> None {
+                    call('agent_trace', {'token':token, **{k:work[k] for k in ('id','owner','lease')}, 'event':event, 'data':trace_data(data)});
+                }
+                result = dispatch(work, token, observe=observe);
             } except Exception as exc {
                 result = {
                     'error': str(exc)

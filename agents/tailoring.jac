@@ -99,7 +99,7 @@ def _where(structure: any, id: any) -> any {
     heading = `entry['heading'].replace('**', '').split(' | ')[0]
         if (`entry and `entry['heading'])
         else '';
-    return (sections.get(section, '') + (' · ' + heading) if heading else '');
+    return (sections.get(section, '') + ((' · ' + heading) if heading else ''));
 }
 """Returns (plan, changes, notes). Unsupported edits are discarded with a note, never applied."""
 def check(structure: any, data: any, facts: any) -> any {
@@ -518,7 +518,7 @@ def fit(prepared: any, plan: any) -> any {
             build((dropped_entries + bullets[:j]))[1]['pages'] <= MAX_PAGES
         ); }
     );
-    extra = dropped_entries + bullets[:j] if (j is not None) else bullets;
+    extra = dropped_entries + (bullets[:j] if (j is not None) else bullets);
     (tex, compiled) = build(extra);
     return (tex, compiled, extra);
 }
@@ -603,12 +603,7 @@ def tailor(prepared: any, data: any, facts: any, job: any = None) -> any {
     if described {
         notes.append(
             (
-                'To fit one page, Stack left out '
-                    + str(len(described))
-                    + ' of the least relevant item'
-                    + 's'
-                    if (len(described) > 1)
-                    else '' + '.'
+                'To fit one page, Stack left out ' + str(len(described)) + ' of the least relevant item' + ('s' if len(described) > 1 else '') + '.'
             )
         );
     }

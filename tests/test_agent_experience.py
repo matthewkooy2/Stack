@@ -78,9 +78,9 @@ class Features(unittest.TestCase):
                 'resume_facts': 0, 'verified_facts': 0, 'contacts_selected': 0}
         return {**base, **changes}
 
-    def test_catalog_covers_all_ten_features_with_explanations(self):
+    def test_catalog_covers_all_features_with_explanations(self):
         features = experience.feature_status(self.facts())
-        self.assertEqual(len(features), 10)
+        self.assertEqual(len(features), 11)
         for f in features:
             for key in ('summary', 'input', 'review', 'alternative', 'where'):
                 self.assertTrue(f[key], (f['key'], key))

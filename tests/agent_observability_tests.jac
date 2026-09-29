@@ -36,18 +36,25 @@ test "traces and feedback are persistent private and bound to reviewed output" {
                     assert result.get("saved"),result;
                 }
                 artifact={"summary":"Specific ownership; add a tradeoff.","rubric":[{"criterion":"Structure","score":3,"feedback":"Clear."}],"next_exercises":[],"followup_questions":[],"evidence":[]};
-                def fake_cli(name: str, model: str, system: str, prompt: str, schema: dict[str, any], observe: any = None) -> dict[str, any] {
+                def fake_cli(name: str, model: str, system: str, prompt: str, schema: dict[str, any], observe: any = None, record_response: any = None) -> dict[str, any] {
                     assert "Synthetic project answer" in prompt;
+                    if record_response { record_response(json.dumps(artifact), "model_json"); }
                     observe("model_response",{"text":json.dumps(artifact),"exit_code":0});
                     return artifact;
                 }
-                with patch.object(local_cli,"generate",side_effect=fake_cli) {
+                def worker_rpc(name: str, args: dict[str, any]) -> dict[str, any] {
+                    client.clear_auth();return rpc(client,name,args);
+                }
+                with patch.object(local_cli,"generate",side_effect=fake_cli), patch.object(worker,"call",side_effect=worker_rpc) {
                     result=worker.dispatch(work,"trace-test-worker",observe=observe);
                 }
                 done=rpc(client,"agent_finish",{**auth,"result":result});assert done["status"]=="completed",done;
                 assert "error" in rpc(client,"agent_trace",{**auth,"event":"model_response","data":{}});
                 client.set_auth_token(token);
                 events=rpc(client,"agent_traces",{"id":run["id"]})["events"];
+                logs=rpc(client,"agent_model_logs",{"id":run["id"]})["attempts"];
+                assert len(logs)==1 and logs[0]["status"]=="accepted",logs;
+                assert all(e["data"].get("model_attempt")==logs[0]["attempt_id"] for e in events if e["event"].startswith("model_"));
                 assert [e["event"] for e in events]==["stage_start","model_request","model_response","model_validation","stage_end"],events;
                 assert len({e["attempt"] for e in events})==1;
                 assert events[0]["data"]["context"]["session"]["answer"]=="Synthetic project answer";
@@ -63,7 +70,7 @@ test "traces and feedback are persistent private and bound to reviewed output" {
                 assert rpc(client,"agent_run",{"id":run["id"]})["feedback"][0]["note"]==feedback["note"];
                 assert len(rpc(client,"agent_traces",{"id":run["id"]})["events"])==5;
                 assert rpc(client,"prep_get",{"id":session["id"]})["feedback"][0]["run_id"]==run["id"];
-                exported=rpc(client,"agent_export");assert exported["feedback"][0]["snapshot"]["artifacts"]["coach"]==artifact;
+                exported=rpc(client,"agent_export");assert exported["feedback"][0]["snapshot"]["artifacts"]["coach"]==artifact,repr(exported["feedback"]);
                 other=client.register_user("trace-other","Trace-password-456");assert other.ok;
                 assert "error" in rpc(client,"agent_run",{"id":run["id"]});
                 assert "error" in rpc(client,"agent_traces",{"id":run["id"]});

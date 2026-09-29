@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+# All compilation/runtime writes stay on the temporary filesystem.
+cp -a /app /tmp/stack-browser
+cp -a /opt/jac-cache /tmp/jac-cache
+cd /tmp/stack-browser
+exec /usr/local/bin/jac run --no-serve deploy/browser-service.jac

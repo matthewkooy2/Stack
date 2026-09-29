@@ -13,6 +13,7 @@ with entry {
     CLI_PROVIDERS = {'codex-cli', 'claude-cli'};
     PROVIDERS = CLI_PROVIDERS | {'openai', 'meta'};
     STEPS = {
+        'linkedin': ['linkedin_scan', 'linkedin_review'],
         'live': ['interview'],
         'jobs': ['fit'],
         'resume': ['tailor', 'approve_resume'],
@@ -24,7 +25,7 @@ with entry {
         'code': ['execute'],
         'calendar': ['calendar']
     };
-    PAID = {'fit', 'tailor', 'draft', 'coach', 'profile'};
+    PAID = {'fit', 'tailor', 'draft', 'coach', 'profile', 'linkedin_review'};
     EXTERNAL = {
         'fill': 'browser_fill',
         'submit': 'submit_application',
@@ -430,4 +431,11 @@ def summarize_run(run: dict[str, any]) -> dict[str, any] {
             'cost_cents'
         )
     };
+}
+
+# Version 1 is the workflow persisted before per-resume review was introduced.
+def workflow_steps(kind: str, version: int = 2) -> list[str] {
+    if version == 1 and kind == "resume" { return ["tailor"]; }
+    if version == 1 and kind == "application" { return ["inspect", "fit", "tailor", "fill", "submit"]; }
+    return STEPS[kind];
 }

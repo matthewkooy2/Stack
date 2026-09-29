@@ -1,6 +1,7 @@
 import from "@jac/mobui" { View, Text }
 import from "../device.js" { rpc, errorText, dateTime, Icon }
 import from ..theme { s }
+import from .LinkedInProfile { LinkedInProfile }
 import from .UI { Button, Field, Chip }
 import from .Agents { FeatureCard, TaskRow, featureByKey, runsFor, withKey }
 
@@ -38,6 +39,7 @@ def:pub NetworkAgent(runs: list[dict[str, any]], features: list[dict[str, any]],
     }
     feature=featureByKey(features,"networking");
     <View style={{gap:14}}>
+        <LinkedInProfile runs={runs} features={features} onOpenTask={onOpenTask} onNavigate={onNavigate}/>
         <View style={s.row}><Icon name="mail" color="#3765E8"/><Text style={s.heading}>Your contacts</Text></View>
         <Text style={s.body}>Add people you know or have researched. Saving a contact never contacts them. When you ask, Stack drafts a short email from your confirmed facts and waits for you to review, edit, and approve it.</Text>
         {<FeatureCard feature={feature} onNavigate={onNavigate} compact={True}/> if len(feature)>0 else <View/>}

@@ -1,7 +1,7 @@
 # Resume Scoring
 
 Stack scores a resume for a saved job with two separate numbers from 0 to 100. It uses no model:
-the scores are deterministic, instant and reproducible (`agents/scoring.py`).
+the scores are deterministic, instant and reproducible (`agents/scoring.jac`).
 
 - **Job match:** how well this resume covers this listing.
 - **Resume quality:** how the resume reads, regardless of job.
@@ -109,7 +109,7 @@ Stack follows the same families. It rewards skills you *demonstrate* over skills
 The weights and targets above are Stack's defaults. Apart from the
 [Ladders eye-tracking study](https://www.hrdive.com/news/eye-tracking-study-shows-recruiters-look-at-resumes-for-7-seconds/541582/),
 published figures (for example "80% of bullets should be quantified") come from vendors. So treat
-these numbers as tunable. They are constants at the top of `agents/scoring.py` and covered by
+these numbers as tunable. They are constants at the top of `agents/scoring.jac` and covered by
 `tests/test_scoring.py`.
 
 ## Skills vocabulary
@@ -123,7 +123,7 @@ these numbers as tunable. They are constants at the top of `agents/scoring.py` a
     and not at the start of a sentence.
 - `agents/data/skill_aliases.json` adds concepts O*NET lacks (machine learning, REST APIs, CI/CD…),
   newer tools, and short forms (JS, Postgres, k8s, GCP).
-- `agents/skills.py` matches them, keeping C++, C#, Node.js and CI/CD whole and splitting
+- `agents/skills.jac` matches them, keeping C++, C#, Node.js and CI/CD whole and splitting
   "Supabase/PostgreSQL".
 
 ## Limits

@@ -7,7 +7,7 @@ def:pub app -> JsxElement {
         signup: bool = False, busy: bool = False, page: str = "Practice", problems: list[dict[str, any]] = [], sessions: list[dict[str, any]] = [],
         current: dict[str, any] = {}, data: dict[str, any] = {}, activity: dict[str, any] = {}, selected: dict[str, any] = {}, browser: dict[str, any] = {},
         values: dict[str, str] = {}, oauth: dict[str, any] = {}, settings: dict[str, any] = {}, mail: list[dict[str, any]] = [], interviews: list[dict[str, any]] = [], applications: list[dict[str, any]] = [], mailSelected: dict[str, any] = {}, eventApplication: str = "", eventStatus: str = "", deletePassword: str = "",
-        features: list[dict[str, any]] = [], subject: str = "", body: str = "", editsFor: str = "";
+        linkedinUrl: str = "", targetRole: str = "", features: list[dict[str, any]] = [], subject: str = "", body: str = "", editsFor: str = "";
     can with entry { oauth=oauthResult(); }
     async def refresh -> None {
         settings=await rpc("agent_settings",{});activity=settings["activity"];
@@ -46,6 +46,7 @@ def:pub app -> JsxElement {
             await login(username,password,signup);password="";
             if invite { await rpc("agent_accept_invite",{"invite":invite}); }
             if oauth.get("code") { await rpc("agent_google_finish",oauth);oauth={};notice="Google connected."; }
+            saved=await rpc("agent_linkedin_profile",{});linkedinUrl=saved["url"];targetRole=saved.get("target_role","");
             await refresh();logged=True;
         } except Exception as e { error=errorText(e); }
         busy=False;
@@ -80,6 +81,12 @@ def:pub app -> JsxElement {
         try { browser=await rpc("agent_browser",{"id":selected["id"],"event":event}); }
         except Exception as e { error=errorText(e); }
     }
+    async def startLinkedIn -> None {
+        busy=True;error="";
+        try { showRun(await rpc("agent_linkedin_start",{"url":linkedinUrl,"target_role":targetRole}));browser={};values={};page="Activity";await refresh(); }
+        except Exception as e { error=errorText(e); }
+        busy=False;
+    }
     async def respond -> None {
         try { showRun(await rpc("agent_respond",{"id":selected["id"],"values":[{"key":k,"value":v,"verified":True,"source":"User confirmed"} for (k,v) in values.items() if v.strip()],"reuse":True}));await refresh(); }
         except Exception as e { error=errorText(e); }
@@ -103,11 +110,17 @@ def:pub app -> JsxElement {
     }
     <main>
         <Poll onTick={poll}/>
-        <header><div><span className="brand">stack</span><h1>Your next chapter, in motion.</h1><p>Practice deeply. Let your agents handle the follow-through.</p></div>{<button onClick={lambda { logout();logged=False;current={};selected={};settings={};data={}; }}>Sign out</button> if logged else <span>Private beta</span>}</header>
+        <header><div><span className="brand">stack</span><h1>Your next chapter, in motion.</h1><p>Practice deeply. Let your agents handle the follow-through.</p></div>{<button onClick={lambda { logout();logged=False;linkedinUrl="";targetRole="";current={};selected={};settings={};data={}; }}>Sign out</button> if logged else <span>Private beta</span>}</header>
         {<p className="error" role="alert">{error}</p> if error else <div/>}{<p className="notice">{notice}</p> if notice else <div/>}
         {<section className="login"><h2>{"Join Stack" if signup else "Welcome back"}</h2><label>Username<input value={username} onChange={lambda (e: any) { username=e.target.value; }}/></label><label>Password<input type="password" value={password} onChange={lambda (e: any) { password=e.target.value; }}/></label><label>Invitation (first visit)<input value={invite} onChange={lambda (e: any) { invite=e.target.value; }}/></label><button className="primary" disabled={busy} onClick={signin}>Continue</button><button onClick={lambda { signup=not signup; }}>{"I already have an account" if signup else "Create an account"}</button></section> if not logged else <div/>}
         {<div>
-            <nav>{[<button key={p} className={"active" if page==p else ""} onClick={lambda { page=p; }}>{p}</button> for p in ["Practice","Activity","Features","Account"]]}<button onClick={refresh}>Refresh</button></nav>
+            {<section><h2>Strengthen your LinkedIn profile</h2><p>Get prioritized recruiter-focused weaknesses and suggested rewrites based on your visible profile and confirmed facts.</p>
+                <p>Your profile URL is saved to your Stack account when you start a review.</p><label>Your LinkedIn profile URL<input value={linkedinUrl} placeholder="https://www.linkedin.com/in/your-name/" onChange={lambda (e: any) { linkedinUrl=e.target.value; }}/></label>
+                <label>Target role (optional)<input value={targetRole} onChange={lambda (e: any) { targetRole=e.target.value; }}/></label>
+                <p>Sign in through the browser handoff, confirm the profile is yours, then start analysis. Captured profile text goes to your configured model. Login details stay in a temporary browser session. You apply suggested edits yourself.</p>
+                <button className="primary" disabled={busy or not linkedinUrl.strip()} onClick={startLinkedIn}>Review my LinkedIn profile</button>
+            </section> if page=="Network" else <div/>}
+            <nav>{[<button key={p} className={"active" if page==p else ""} onClick={lambda { page=p; }}>{p}</button> for p in ["Practice","Network","Activity","Features","Account"]]}<button onClick={refresh}>Refresh</button></nav>
             {<div className="workspace"><aside><h2>Practice library</h2>{[<article key={p["id"]}><strong>{p["title"]}</strong><p>{p["topic"]+" · "+str(p["minutes"])+" minutes"}</p>{[<button key={lang} onClick={lambda { create(p["id"],lang); }}>{"C++" if lang=="cpp" else lang.upper()}</button> for lang in p["languages"]]}{<button onClick={lambda { create(p["id"],""); }}>Start</button> if len(p["languages"])==0 else <span/>}</article> for p in problems]}<h2>Continue</h2>{[<button key={p["id"]} onClick={lambda { openSession(p["id"]); }}>{p["data"]["problem_id"]}</button> for p in sessions]}</aside>
                 <section>{<div><div className="toolbar"><Timer key={current["id"]} seconds={data.get("elapsed_seconds",0)} onChange={lambda (v: int) { data={**data,"elapsed_seconds":v}; }}/><button disabled={busy} onClick={lambda { save(); }}>Save</button><button onClick={lambda { openSession(current["id"]); }}>Refresh results</button></div>
                     {[<article key={p["id"]}><h2>{p["title"]}</h2><p>{p["prompt"]}</p><details><summary>Hints</summary>{[<p key={hint}>{hint}</p> for hint in p["hints"]]}</details></article> for p in problems if p["id"]==data["problem_id"]]}
@@ -141,11 +154,16 @@ def:pub app -> JsxElement {
                     {<button disabled={busy} onClick={lambda { act("agent_retry",{"id":selected["id"]},"Retrying."); }}>Retry</button> if selected["status"] in ["blocked","failed"] else <span/>}
                     {<button disabled={busy} onClick={lambda { act("agent_dismiss",{"id":selected["id"]},"Dismissed."); }}>Dismiss</button> if selected["status"]=="failed" and not selected.get("dismissed") else <span/>}
                     <p>{"Where results appear: "+selected.get("results_where","")}</p>{[<label key={q["key"]}>{q["label"]}<input value={values.get(q["key"],"")} onChange={lambda (e: any) { updated={**values};updated[q["key"]]=e.target.value;values=updated; }}/></label> for q in selected.get("requests",[]) if q["key"]!="browser"]}
-                    {<button onClick={respond}>Save answers and resume</button> if selected["status"] in ["needs_input","blocked"] else <span/>}
-                    <button onClick={exportTrace}>Download execution trace</button>
-                    <button onClick={lambda { handoff({"type":"snapshot"}); }}>Open same browser session</button><BrowserView image={browser} onEvent={handoff}/>
+                    {<button onClick={respond}>{("Retry analysis" if selected.get("step")=="linkedin_review" else "Analyze my profile") if selected["kind"]=="linkedin" else "Save answers and resume"}</button> if selected["status"] in ["needs_input","blocked"] else <span/>}
+                    {<div><button onClick={lambda { handoff({"type":"snapshot"}); }}>Open same browser session</button><BrowserView image={browser} onEvent={handoff}/></div> if selected["kind"] in ["application","linkedin"] and selected["status"] in ["needs_input","blocked","review","uncertain"] and (selected["kind"]!="linkedin" or selected["step"]=="linkedin_scan") else <span/>}
+                    {<button disabled={busy} onClick={lambda { browser={};act("agent_cancel",{"id":selected["id"]},"Task cancelled."); }}>Cancel profile review</button> if selected["kind"]=="linkedin" and selected["status"] not in ["completed","cancelled","failed"] else <span/>}
                     {<div><label>Reconciliation evidence<textarea value={values.get("evidence","")} onChange={lambda (e: any) { values={**values,"evidence":e.target.value}; }}/></label><button onClick={lambda { reconcile("confirmed"); }}>I verified it completed</button><button onClick={lambda { reconcile("not_sent"); }}>I verified nothing was sent</button></div> if selected["status"]=="uncertain" else <span/>}
-                    {[<article key={k}><h3>{k.title()}</h3><p>{v.get("summary",v.get("body",v.get("receipt","Artifact saved")))}</p>{[<p key={"s"+t}>{"✓ "+t}</p> for t in v.get("strengths",[])]}{[<p key={"g"+t}>{"~ "+t}</p> for t in v.get("gaps",[])]}{[<p key={"u"+t}>{"? "+t}</p> for t in v.get("unknowns",[])]}{[<p key={"e"+t}>{"• "+t}</p> for t in v.get("edits",[])]}{[<p key={"x"+t}>{"• "+t}</p> for t in v.get("suggested_edits",[])]}<p>{v.get("suggested_headline","")}</p><p>{v.get("suggested_about","")}</p>{<button onClick={lambda { downloadPDF(v["pdf"]); }}>Download tailored PDF</button> if v.get("pdf") else <span/>}{<pre>{v["pdf"]["diff"]}</pre> if v.get("pdf") else <span/>}</article> for (k,v) in selected.get("artifacts",{}).items()]}
+                    {[<article key={k}><h3>{k.title()}</h3><p>{v.get("summary",v.get("body",v.get("receipt","Artifact saved")))}</p>{[<p key={"s"+t}>{"✓ "+t}</p> for t in v.get("strengths",[])]}{[<p key={"g"+t}>{"~ "+t}</p> for t in v.get("gaps",[])]}{[<p key={"u"+t}>{"? "+t}</p> for t in v.get("unknowns",[])]}{[<p key={"e"+t}>{"• "+t}</p> for t in v.get("edits",[])]}{[<p key={"x"+t}>{"• "+t}</p> for t in v.get("suggested_edits",[])]}{[<section key={str(i)}><h4>{f["priority"].title()+" priority · "+f["section"].title()+": "+f["weakness"]}</h4><blockquote>{f["quote"]}</blockquote><p>{f["why_it_matters"]}</p><p>{f["recommendation"]}</p></section> for (i,f) in enumerate(v.get("findings",[]))]}
+                        {[<section key={str(i)}><h4>{"Suggested "+r["section"]}</h4><p style={{whiteSpace:"pre-wrap"}}>{r["text"]}</p></section> for (i,r) in enumerate(v.get("rewrites",[]))]}
+                        {[<p key={str(i)}>{"To strengthen this: "+q}</p> for (i,q) in enumerate(v.get("questions",[]))]}
+                        {<p>{v["limitations"]+" Sections not read: "+", ".join(v.get("unread_sections",[]))}</p> if v.get("limitations") else <span/>}
+                        <p>{v.get("suggested_headline","")}</p><p>{v.get("suggested_about","")}</p>{<button onClick={lambda { downloadPDF(v["pdf"]); }}>Download tailored PDF</button> if v.get("pdf") else <span/>}{<pre>{v["pdf"]["diff"]}</pre> if v.get("pdf") else <span/>}</article> for (k,v) in selected.get("artifacts",{}).items()]}
+                    <button onClick={exportTrace}>Download execution trace</button>
                     {<AgentFeedback key={selected["id"]+selected["output_version"]} runId={selected["id"]} outputVersion={selected["output_version"]}/> if selected.get("artifacts") and selected.get("output_version") else <span/>}
                     {[<p key={f["id"]}><strong>{"Your feedback · "+f["rating"].title()+": "}</strong>{f["note"]}</p> for f in selected.get("feedback",[])]}
                 </article> if len(selected)>0 else <div/>}

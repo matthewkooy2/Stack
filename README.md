@@ -4,6 +4,8 @@ An iPhone-first job-search application with real US job discovery across profess
 
 Five tabs, in order: sample **Network**, real **Applications** tracking, swipeable **Jobs**, private PDF **Resume** management, and interview **Prep**. Prep includes technical and behavioral practice prompts with revealable guides. Profile settings and sign-out are available through the top-right avatar. Accounts, saved data, PDFs, and local reminders are real. Jobs come from real sources. Right swipe saves a Ready to apply record, confirms it on screen, and offers optional agent help; it never starts an agent. Users can complete the source application and mark it submitted, or ask the application agent to prepare it. The **Agents** header entry shows running and needs-you counts and opens the Agents center (features, tasks, rules, facts, email & calendar). Stack never shares application answers or documents, submits, sends email or follow-ups, or changes a calendar without approval of the exact content; saving a contact never sends anything. See [agent experience](docs/AGENT_EXPERIENCE.md). Existing demo history, people, and tailoring previews remain labeled. Muse, ChatGPT, and Claude are planned integrations.
 
+LinkedIn profile review is available from Network: sign in through the browser handoff, then review recruiter-focused weaknesses and suggested rewrites. See [setup and current verification limits](docs/LINKEDIN_PROFILE_REVIEW.md).
+
 See [job-discovery setup, source coverage, and budget controls](docs/JOB_DISCOVERY.md). Provider credentials are optional for public feeds and required for Adzuna, TheirStack, and USAJOBS.
 
 ## Run on your iPhone

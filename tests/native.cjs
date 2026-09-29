@@ -390,6 +390,7 @@ async function tailoringEndToEnd(){
  await press('Find my next chapter');
  for(let i=0;i<200&&!ui.root.findAll(n=>n.props.testID==='job-swipe-card').length;i++)await act(async()=>{await new Promise(r=>setTimeout(r,100));});
  await press('Save job');await until(/Saved to Applications/,20,'Job saved');step('job saved before any resume exists');
+ const firstTitle=(await device.rpc('bootstrap',{})).applications.find(a=>!a.demo).job.title;
 
  await press('Resume');
  pick('tests/fixtures/openresume-laverne.pdf','Candidate.pdf');await press('Upload PDF resume');await until(/Candidate.pdf/,20,'PDF uploaded');
@@ -416,7 +417,8 @@ async function tailoringEndToEnd(){
  assert.match(text(),/CHANGES · \d+ OF \d+ KEPT/);assert.doesNotMatch(text(),/STACK NEEDS YOUR ANSWERS|ONE STEP BEFORE TAILORING/);
  const proposal=(await device.rpc('agent_run',{id:run.id})).artifacts.tailor;
  assert.equal(proposal.format,'latex');assert.equal(proposal.pdf.pages,1);assert.ok(Buffer.from(proposal.pdf.content,'base64').subarray(0,5).toString()==='%PDF-');
- step('proposal: '+proposal.changes.length+' changes, '+proposal.pdf.pages+' page, your LaTeX format; '+reviewScore+', quality '+proposal.score.before.quality+' → '+proposal.score.after.quality);
+ const moved=(kind)=>proposal.score.after[kind+'_components'].filter(c=>{const b=proposal.score.before[kind+'_components'].find(x=>x.key===c.key);return !b||b.score!==c.score;}).map(c=>c.label+' '+(proposal.score.before[kind+'_components'].find(x=>x.key===c.key)||{}).score+'→'+c.score);
+ step('proposal: '+proposal.changes.length+' changes ('+proposal.changes.map(c=>c.kind).join(', ')+'), '+proposal.pdf.pages+' page; '+reviewScore+', quality '+proposal.score.before.quality+' → '+proposal.score.after.quality+' ['+moved('match').concat(moved('quality')).join('; ')+']');
  await press('Apply the changes I kept');
  await until(/Preview tailored resume/,300,'Final PDF built');
  const done=await device.rpc('agent_run',{id:run.id});
@@ -430,7 +432,7 @@ async function tailoringEndToEnd(){
 
  // The approved resume is saved under Resume → Tailored resumes, labelled with its job and checked by the parser.
  await press('Open Tailored resumes');await until(/Tailored for E2E Employer/,20,'Tailored resume listed on arrival');
- assert.match(visible(),/YOUR UPLOADS/);assert.match(visible(),/Tailored for E2E Employer/);assert.match(visible(),new RegExp(marker+' Software Engineer'));
+ assert.match(visible(),/YOUR UPLOADS/);assert.match(visible(),/Tailored for E2E Employer/);assert.ok(visible().includes(firstTitle),'Saved job title shown');
  // The fixture's own layout makes OpenResume miss its Education heading; tailoring must add no new issues.
  await until(/(Parses well|No new parser issues) · \d+ of \d+ checks/,30,'Parser finds no issues caused by tailoring');
  await press('Parser check');assert.match(visible(),/WHAT THE OPENRESUME PARSER READ/);
@@ -464,7 +466,7 @@ async function tailoringEndToEnd(){
  // The parser check finishes just after the task completes.
  let both=[];for(let i=0;i<30;i++){both=(await device.rpc('bootstrap',{})).tailored_resumes;if(both.length===2&&both.every(x=>x.parse.checks))break;await new Promise(r=>setTimeout(r,1000));}
  assert.equal(both.length,2);assert.ok(both.every(x=>x.parse.compared_to_original&&x.parse.new_issues===0),JSON.stringify(both.map(x=>x.parse)));
- assert.ok(both.some(x=>x.job_title.endsWith('Data Engineer')),'Second job saved separately');
+ assert.equal(new Set(both.map(x=>x.job_title)).size,2,'Second job saved separately');
  console.log('PASS tailoring end to end: both paths, '+(done.subscription_calls+resumed.subscription_calls)+' model calls, one-page PDFs from your LaTeX.');
 }
 

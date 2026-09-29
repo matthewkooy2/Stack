@@ -404,6 +404,19 @@ def _verb(word):
     return '', ''
 
 
+def bullet_flaws(text):
+    """What makes one bullet read worse: a weak opener, filler words, pronouns or passive voice."""
+    pair, first = _opener(text)
+    low = _plain(text).lower()
+    flaws = {'opens with "' + w + '"' for w in WEAK if pair.startswith(w) or first == w}
+    flaws |= {'"' + f + '"' for f in FILLER if re.search(r'\b' + re.escape(f) + r'\b', low)}
+    if PRONOUNS.search(_plain(text)):
+        flaws.add('a personal pronoun')
+    if PASSIVE.search(_plain(text)):
+        flaws.add('passive voice')
+    return flaws
+
+
 def quality(outline, parse=None, pages=None):
     bullets, _, _ = resume_items(outline)
     components, issues = {}, []

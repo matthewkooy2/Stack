@@ -105,3 +105,34 @@ restart; native screen, tailoring screen, LinkedIn phone/web checks; and 30
 preview-tool tests (one pre-existing skip). The first Jac browser image passed
 authenticated health and four controlled Chromium DOM cases. Final image and
 main cutover results are recorded separately after completion.
+
+## Current integration checkpoint
+
+Combined implementation: `117e145` (following the resume/experience integration
+at `fbc5195`). The integration checkout is clean. Main remains `bb6bc92`; it has
+not been merged or restarted. No feature-worktree edits after the pinned source
+revisions were consumed.
+
+The final source passed the three resume workflows, LinkedIn settings/workflow
+persistence, and three diagnostic tests in separate disposable databases. A
+copy of main's real backup was also upgraded twice: account identities and all
+four terminal run records remained byte-for-byte unchanged, and the second
+upgrade paused zero tasks. Test API/gateway processes and the disposable database
+cluster have been stopped; the authoritative backups remain.
+
+A fresh paired main backup is in
+`.integration-backups/cutover-20260929-142604`, including 31 upload files and the
+login secret. Its database archive and file checksums were verified.
+
+**Remaining cutover gate:** load and cold-start the final browser image with the
+explicit cryptography dependency, repeat health/DOM/encrypted-session checks,
+then recheck main, merge, run compatibility handling and start the main preview.
+The earlier image passed authenticated health (anonymous requests denied) and
+all four controlled DOM tests. The final image export was interrupted by disk
+exhaustion. Docker was recovered only after logs and process checks established
+that its VM had already stopped. A subsequent guarded build refused to start
+with less than 3 GB free. Free at least 10 GB before resuming; do not delete user
+worktrees, account data, or unrelated Docker images to obtain it.
+
+Live LinkedIn sign-in, live providers and physical-device delivery remain
+unverified. No live messages, calendar actions, or applications were submitted.

@@ -75,7 +75,7 @@ def review_summary(step: str, context: dict[str, Any], artifacts: dict[str, Any]
         tailored = artifacts.get('tailor', {})
         return {'step': step, 'title': 'Review your tailored resume for ' + employer, 'summary': tailored.get('summary', ''),
                 'changes': tailored.get('changes', []), 'rejected': tailored.get('rejected', []), 'dropped': tailored.get('dropped', []),
-                'pages': tailored.get('pdf', {}).get('pages', 0), 'notes': list(tailored.get('notes', [])),
+                'pages': tailored.get('pdf', {}).get('pages', 0), 'notes': list(tailored.get('notes', [])), 'score': tailored.get('score', {}),
                 'consequence': 'Stack keeps the changes you accept, rebuilds the PDF in your format, and fits it to one page. Nothing is shared.'}
     if step == 'fill':
         verified = answers(context.get('facts', []))

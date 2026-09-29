@@ -55,6 +55,11 @@ word, so the result could never get shorter or more focused, and page count was 
 Results show the PDF, each change with its reason, what was left out, the original and
 tailored text, and the tailored `.tex` to copy back into Overleaf.
 
+## Scores
+
+Tailoring is scored for the job before and after: job match and resume quality. It is guided by the
+original resume's gaps. See [RESUME_SCORING.md](RESUME_SCORING.md).
+
 ## Where tailored resumes go
 
 When a tailoring task finishes, Stack saves the final PDF and `.tex` under

@@ -52,7 +52,11 @@ def dispatch(work, token):
                 prepared = prepare(call('agent_worker_resume_source', auth))
             except ValueError as exc:
                 return {'needs_input': True, 'message': str(exc), 'requests': []}
-            model_context = {**model_context, 'resume_structure': prepared['outline'], 'resume_text': ''}
+            from agents.tailoring import baseline_score
+            from agents.scoring import guidance
+            # Concrete, honest targets from the resume's score for this job (docs/RESUME_SCORING.md).
+            before = baseline_score(prepared, context.get('job', {}), [f for f in context.get('facts', []) if f.get('verified')])
+            model_context = {**model_context, 'resume_structure': prepared['outline'], 'resume_text': '', 'score_guidance': guidance(before)}
         try:
             result = generate(step, model_context, c)
         except ValueError as exc:
@@ -64,7 +68,7 @@ def dispatch(work, token):
             from agents.documents import render_variant
             facts = [f for f in context.get('facts', []) if f.get('verified')]
             try:
-                result['artifact'] = tailor(prepared, result['artifact'], facts)
+                result['artifact'] = tailor(prepared, result['artifact'], facts, context.get('job'))
             except ValueError as exc:
                 # Compiling and fitting are deterministic; retrying would only repeat the model call.
                 return {'needs_input': True, 'message': str(exc), 'requests': []}
@@ -82,7 +86,7 @@ def dispatch(work, token):
         # Runs only after the user approved this exact proposal (the claim checks the review hash).
         try:
             prepared = prepare(call('agent_worker_resume_source', auth))
-            return {'artifact': finalize(prepared, artifacts['tailor'])}
+            return {'artifact': finalize(prepared, artifacts['tailor'], context.get('job'), [f for f in context.get('facts', []) if f.get('verified')])}
         except ValueError as exc:
             return {'needs_input': True, 'message': str(exc), 'requests': []}
     if step in ('inspect', 'fill', 'submit'):

@@ -256,6 +256,8 @@ async function agentScreenTests({ui,text,button,press,field,input,tick,labelled,
 }
 async function tailoringScreenTests(){
  const calls=[],refreshers=new Set();let opened='',confirmed=false,failSave=true,failUpload=true,ui;
+ const pdfOnly=[{id:'resume',name:'Candidate.pdf',format:{kind:''},details_status:'Needs review'},{id:'latex',name:'Overleaf.pdf',format:{kind:'upload'},details_status:'Not parsed'}];
+ let resumes=pdfOnly;const withFormat=kind=>resumes.map(r=>r.id==='resume'?{...r,format:{kind}}:r);
  let run={id:'tailor',kind:'resume',status:'needs_input',title:'Tailor resume',context_label:'Analyst at Example',created_at:1,updated_at:1,step_number:1,step_total:1,steps:['Tailor resume'],step_label:'Tailor resume',explanation:'Stack needs information from you to continue.',message:'',resume_id:'',resume_name:'',needs_resume_review:true,artifacts:{},results_where:'This task',cost_cents:0,subscription_calls:0};
  const review={name:'Candidate.pdf',revision:1,confirmed:false,sections:[{key:'profile',label:'Profile',summary:'Candidate',fields:[{key:'profile.name',label:'Name',value:'Candidate'}]}]};
  const TestLifecycle=({onRefresh})=>{const latest=React.useRef(onRefresh);latest.current=onRefresh;React.useEffect(()=>{const tick=()=>latest.current();refreshers.add(tick);return()=>refreshers.delete(tick);},[]);return null;};
@@ -267,12 +269,13 @@ async function tailoringScreenTests(){
    if(failSave)throw new Error('Could not save details');
    assert.equal(args.confirm,true);confirmed=true;return {...review,confirmed:true,revision:2};
   }
-  if(name==='bootstrap')return {resumes:[{id:'resume',name:'Candidate.pdf',format:{kind:''},details_status:'Needs review'},{id:'latex',name:'Overleaf.pdf',format:{kind:'upload'},details_status:'Not parsed'}]};
-  if(name==='upload_resume_source'){assert.equal(args.id,'resume');assert.equal(args.name,'main.tex');if(failUpload)throw new Error('LaTeX error on line 3: Undefined control sequence');return {};}
+  if(name==='bootstrap')return {resumes};
+  if(name==='upload_resume_source'){assert.equal(args.id,'resume');assert.equal(args.name,'main.tex');if(failUpload)throw new Error('LaTeX error on line 3: Undefined control sequence');resumes=withFormat('upload');return {resumes};}
+  if(name==='use_resume_template'){assert.ok(confirmed,'Template only after confirmed details');assert.equal(args.template,'jake');resumes=withFormat('builtin');return {resumes};}
   if(name==='agent_continue_tailoring'){
-   assert.equal(args.id,'tailor');assert.equal(args.resume_id,'');
+   assert.equal(args.id,'tailor');assert.ok(['','resume'].includes(args.resume_id));
    // A task started before any resume existed: Stack attaches the default resume, which is only a PDF.
-   if(!run.resume_id){run={...run,resume_id:'resume',resume_name:'Candidate.pdf'};throw new Error('Candidate.pdf has no LaTeX source or confirmed details yet.');}
+   if(!run.resume_id){run={...run,resume_id:'resume',resume_name:'Candidate.pdf'};throw new Error('Upload the LaTeX for Candidate.pdf to tailor it.');}
    run={...run,status:'queued',needs_resume_review:false};return run;
   }
   if(name==='agent_approve'){assert.equal(args.step,'approve_resume');assert.equal(args.review_hash,'h1');assert.deepEqual(args.edits,{rejected:['s1.e0.b0']});const {review:_done,...rest}=run;run={...rest,status:'queued'};return run;}
@@ -283,23 +286,30 @@ async function tailoringScreenTests(){
  const text=()=>JSON.stringify(ui.toJSON());
  const press=async label=>{const b=ui.root.findAll(n=>n.type==='Pressable'&&n.props.accessibilityLabel===label)[0];assert.ok(b,'Missing '+label);assert.ok(!b.props.disabled,'Disabled '+label);await act(async()=>{await b.props.onPress();await pause();});};
  const features=[{key:'tailoring',title:'Tailor resume',state:'ready',summary:'Resume for this job',checks:[]}];
- await act(async()=>{ui=renderer.create(React.createElement(ResumeAgents,{applications:[{id:'application',demo:false,job:{title:'Analyst',company:'Example'}}],runs:[],features,onOpenTask:id=>{opened=id;},onNavigate:()=>{}}));});
+ const job=ready=>({id:'application',demo:false,job:{title:'Analyst',company:'Example'},tailor:{resume_id:'resume',resume_name:'Candidate.pdf',ready}});
+ const agents=ready=>React.createElement(ResumeAgents,{applications:[job(ready)],runs:[],features,onOpenTask:id=>{opened=id;},onNavigate:()=>{},resumes,onChanged:()=>{}});
+ // A PDF-only resume asks for its LaTeX right under the job; no task starts.
+ await act(async()=>{ui=renderer.create(agents(false));});assert.match(text(),/needs its LaTeX/);
+ await press('Tailor for this job');assert.match(text(),/Add the LaTeX for Candidate.pdf/);assert.ok(!calls.some(c=>c.name==='agent_start'));
+ await act(async()=>{ui.update(agents(true));});await act(async()=>{ui.unmount();ui=renderer.create(agents(true));});
  await press('Tailor for this job');assert.equal(opened,'tailor');
+ // A task paused for LaTeX (for example, started before any resume existed) is labelled and fixed in place.
  await act(async()=>{ui.update(React.createElement(TaskDetail,{id:'tailor',features,webUrl:'',onBack:()=>{},onNavigate:()=>{}}));await pause();});
  const continued=()=>calls.filter(c=>c.name==='agent_continue_tailoring').length-1;
+ assert.match(text(),/Needs your LaTeX/);assert.doesNotMatch(text(),/Needs your answers/);
  assert.match(text(),/Your resume is uploaded/);assert.doesNotMatch(text(),/Upload a resume first/);
- await press('Continue tailoring');assert.match(text(),/has no LaTeX source or confirmed details/);assert.doesNotMatch(text(),/Tailoring started/);
- assert.match(text(),/Add the LaTeX for Candidate.pdf/);assert.match(text(),/nothing has been generated/);assert.doesNotMatch(text(),/STACK NEEDS YOUR ANSWERS/);
+ await press('Continue tailoring');assert.match(text(),/Upload the LaTeX for Candidate.pdf to tailor it/);assert.doesNotMatch(text(),/Tailoring started/);
+ assert.match(text(),/Add the LaTeX for Candidate.pdf/);assert.match(text(),/Nothing has been generated yet/);assert.doesNotMatch(text(),/STACK NEEDS YOUR ANSWERS/);
  // Another resume that already has LaTeX is offered as a one-tap fix.
- assert.ok(ui.root.findAll(n=>n.type==='Pressable'&&n.props.accessibilityLabel==='Use Overleaf.pdf instead · your LaTeX').length);
+ assert.ok(ui.root.findAll(n=>n.type==='Pressable'&&n.props.accessibilityLabel==='Use Overleaf.pdf instead · has LaTeX').length);
  // Uploading LaTeX here continues tailoring only once it compiles.
  await press('Upload LaTeX (.tex or Overleaf .zip)');assert.match(text(),/Undefined control sequence/);assert.equal(continued(),0);
  failUpload=false;await press('Upload LaTeX (.tex or Overleaf .zip)');assert.equal(run.status,'queued');assert.equal(continued(),1);
  assert.match(text(),/Tailoring started/);assert.doesNotMatch(text(),/ONE STEP BEFORE TAILORING/);
- // Without LaTeX, confirming the parsed details continues the same task with a built-in template.
- run={...run,status:'needs_input',needs_resume_review:true};await act(async()=>{for(const tick of refreshers)await tick();await pause();});
- await press('No LaTeX? Use a built-in template');assert.match(text(),/Profile/);
- await press('Confirm and continue tailoring');assert.match(text(),/Could not save details/);assert.equal(continued(),1);
+ // Without a LaTeX file, confirming the parsed details builds Jake's template, then the same task continues.
+ resumes=pdfOnly;run={...run,status:'needs_input',needs_resume_review:true};await act(async()=>{for(const tick of refreshers)await tick();await pause();});
+ await press("No LaTeX file? Build one from Jake's template");assert.match(text(),/Profile/);
+ await press('Confirm and continue tailoring');assert.match(text(),/Could not save details/);assert.equal(continued(),1);assert.ok(!calls.some(c=>c.name==='use_resume_template'));
  failSave=false;await press('Confirm and continue tailoring');assert.ok(confirmed);assert.equal(run.status,'queued');assert.equal(continued(),2);
  const original='Original '.repeat(220)+'ORIGINAL END',tailored='Tailored '.repeat(220)+'TAILORED END';
  const changes=[{id:'s1.e0.b0',kind:'rewrite',where:'Experience · Analyst',before:'Built a **tool**.',after:'Built an analysis **tool** for finance.',reason:'Matches the listing.'},
@@ -330,4 +340,94 @@ async function tailoringScreenTests(){
  await act(async()=>ui.unmount());
  console.log('PASS tailoring screens: opens task, other LaTeX resume offered, inline LaTeX upload continues only after it compiles, inline structured review, save failure does not resume, explicit confirmation resumes, per-change review with reject kept through refresh, approval sends rejections, final result with LaTeX, comparison text, PDF preview and return.');
 }
-(async()=>{if(process.env.STACK_TEST_TAILOR_UI==='1'){await tailoringScreenTests();return;}try{await notificationTests();await gestureTests();await screenTests();}finally{await worker('discovery_manage',{id:fixtureSource,action:'purge'}).catch(()=>{});}})().catch(e=>{console.error(e);process.exitCode=1;});
+
+// End to end against a real API and agent worker (see docs/RESUME_TAILORING.md): the real screens, a real
+// Codex/Claude subscription call, and real Tectonic compiles. Only the phone's file picker is simulated,
+// returning real fixture files. The job is saved before any resume exists, as a new user would.
+async function tailoringEndToEnd(){
+ const configPath=process.env.STACK_E2E_AGENT_CONFIG;assert.ok(configPath,'Set STACK_E2E_AGENT_CONFIG to the isolated API agent config');
+ const refreshers=new Set();
+ const TestLifecycle=({onRefresh})=>{const latest=React.useRef(onRefresh);latest.current=onRefresh;React.useEffect(()=>{const f=()=>latest.current();refreshers.add(f);return()=>refreshers.delete(f);},[]);return null;};
+ files.readAsStringAsync=async uri=>fs.readFileSync(uri).toString('base64');files.getInfoAsync=async uri=>({size:fs.existsSync(uri)?fs.statSync(uri).size:50});
+ const pick=(file,name)=>{pickerResult={canceled:false,assets:[{uri:path.join(root,file),name,size:fs.statSync(path.join(root,file)).size}]};};
+ // The adapter copies the file-system module when it loads, so load a fresh one that reads the picked files.
+ modules.delete(path.join(root,'native/device.js'));const device=load(path.join(root,'native/device.js'));
+ modules.set(path.join(root,'.jac/mobile-rn/jac-src/mobile/device.js'),{exports:{...device,Lifecycle:TestLifecycle,PDFView:({uri})=>React.createElement('PDF',{uri})}});
+ const {app:App}=load(path.join(root,'.jac/mobile-rn/jac-src/mobile/main.js'));
+ let ui;await act(async()=>{ui=renderer.create(React.createElement(App));await pause();});
+ const text=()=>JSON.stringify(ui.toJSON());
+ const buttons=label=>ui.root.findAll(n=>n.type==='Pressable'&&n.props.accessibilityLabel===label);
+ const tap=async b=>{for(let i=0;i<600&&b.props.disabled;i++)await act(async()=>{await new Promise(r=>setTimeout(r,100));});assert.ok(!b.props.disabled,'Disabled '+b.props.accessibilityLabel);await act(async()=>{await b.props.onPress();await pause();});};
+ const press=async(label,index=0)=>{const b=buttons(label).at(index);assert.ok(b,'Missing '+label+'\nSCREEN: '+visible());await tap(b);};
+ const field=async(label,value)=>{const f=ui.root.findAll(n=>n.type==='TextInput'&&n.props.accessibilityLabel===label)[0];assert.ok(f,'Missing field '+label);await act(async()=>f.props.onChangeText(value));};
+ // What the user can read, for failure messages.
+ const visible=()=>ui.root.findAll(n=>n.type==='Text').map(n=>[].concat(n.props.children).filter(c=>typeof c==='string'||typeof c==='number').join('')).filter(Boolean).join(' | ');
+ const until=async(pattern,seconds,label)=>{for(let i=0;i<seconds&&!pattern.test(text());i++){await act(async()=>{for(const f of [...refreshers])await f();await new Promise(r=>setTimeout(r,1000));});}
+  assert.match(text(),pattern,label+'\nSCREEN: '+visible());};
+ const step=m=>console.log('  · '+m);
+
+ await field('Username','e2e_'+Date.now());await field('Password','Stack-test-'+Date.now());await press('Get started');
+ await field('Your name','E2E Tester');await field('Target role',marker);await field('Expected graduation (YYYY-MM)','2027-05');await field('Available full-time from (YYYY-MM)','2027-06');
+ await press('Experienced');await field('Years of experience in this field','2');await press('Full-time');
+ const owner=(await device.rpc('bootstrap',{})).user_id;
+ fs.writeFileSync(configPath,JSON.stringify({provider:process.env.STACK_E2E_PROVIDER||'codex-cli',local_cli_owner:owner,local_cli_daily_limit:50}));
+ await device.rpc('agent_save_policy',{policy:{enabled:true,expires_at:Date.now()/1000+3600,actions:['model'],domains:[],daily_limits:{},followup_limit:0,followup_days:7,analyze_top_matches:false}});
+ await device.rpc('import_job_url',{url:fixtureURL});const work=await worker('discovery_claim',{preferred_id:fixtureSource});
+ const now=Date.now()/1000,jobIds=[0,1].map(i=>'job_'+crypto.createHash('sha256').update(fixtureURL+'/'+i).digest('hex').slice(0,32));
+ const descriptions=['Build REST APIs in Python and Flask, work with PostgreSQL, and write React front ends. Experience with data pipelines is a plus.','Own data pipelines and analytics in Python and SQL, and present findings to stakeholders.'];
+ await worker('discovery_complete',{id:fixtureSource,lease:work.lease,result:{complete:true,jobs:[0,1].map(i=>({id:jobIds[i],identity:fixtureURL+'/'+i,canonical_url:fixtureURL+'/'+i,url:'https://jobs.lever.co/stacke2e/'+marker+i,title:marker+[' Software Engineer',' Data Engineer'][i],company:'E2E Employer',
+  description:descriptions[i],country:'US',location:'Detroit, MI',locations:['Detroit, MI'],mode:'Remote',employment_type:'Full-time',seniority:'Entry-level',occupation:'Software',compensation:{},salary:'Pay not listed',salary_note:'',source:'smartrecruiters',source_id:fixtureSource,source_name:'E2E',source_job_id:String(i),attribution:{},posted:'Today',posted_at:now,checked_at:now,discovered_at:now,expires_at:0,snippet:false,requirements:[],qualifications:'',eligibility:'',remote_eligibility:'',initial:'E',color:'#EDF2FF',tags:['Full-time'],reason:'E2E',demo:false}))}});
+ await press('Find my next chapter');
+ for(let i=0;i<200&&!ui.root.findAll(n=>n.props.testID==='job-swipe-card').length;i++)await act(async()=>{await new Promise(r=>setTimeout(r,100));});
+ await press('Save job');await until(/Saved to Applications/,20,'Job saved');step('job saved before any resume exists');
+
+ await press('Resume');
+ pick('tests/fixtures/openresume-laverne.pdf','Candidate.pdf');await press('Upload PDF resume');await until(/Candidate.pdf/,20,'PDF uploaded');
+ assert.match(text(),/TAILORING FORMAT/);assert.match(text(),/No LaTeX yet/);assert.ok(buttons('Upload LaTeX (.tex or Overleaf .zip)').length,'Resume card offers a LaTeX upload');
+ assert.match(text(),/Upload the LaTeX for Candidate.pdf/,'Readiness names the missing LaTeX');assert.doesNotMatch(text(),/"Ready"/,'Tailoring is not shown as ready');
+ assert.match(text(),/Resume: Candidate.pdf · needs its LaTeX/);step('PDF only: readiness and the job both say LaTeX is needed');
+
+ await press('Tailor for this job');
+ assert.match(text(),/Add the LaTeX for Candidate.pdf/);assert.equal((await device.rpc('agent_activity',{})).runs.length,0,'No task is started without LaTeX');
+ assert.equal(buttons('Upload LaTeX (.tex or Overleaf .zip)').length,2,'Card and the tailoring panel both offer upload');
+ const broken=path.join('tests/fixtures','.e2e-broken.tex');fs.writeFileSync(path.join(root,broken),fs.readFileSync(path.join(root,'tests/fixtures/jake-resume.tex'),'utf8').replace('\\section{Projects}','\\section{Projects}\\undefinedmacro'));
+ try{pick(broken,'broken.tex');await press('Upload LaTeX (.tex or Overleaf .zip)',-1);}finally{fs.unlinkSync(path.join(root,broken));}
+ await until(/could not compile/i,120,'Compile error shown');assert.equal((await device.rpc('agent_activity',{})).runs.length,0,'A failed compile starts nothing');step('broken LaTeX: error shown, nothing started');
+ pick('tests/fixtures/jake-resume.tex','main.tex');await press('Upload LaTeX (.tex or Overleaf .zip)',-1);
+ await until(/Tailor resume|Working|Queued/,180,'Tailoring task opened');step('LaTeX uploaded from the tailoring panel; task started and opened');
+ const run=(await device.rpc('agent_activity',{})).runs[0];assert.equal(run.kind,'resume');
+ await until(/Review your tailored resume/,600,'Model proposal ready for review');
+ assert.match(text(),/CHANGES · \d+ OF \d+ KEPT/);assert.doesNotMatch(text(),/STACK NEEDS YOUR ANSWERS|ONE STEP BEFORE TAILORING/);
+ const proposal=(await device.rpc('agent_run',{id:run.id})).artifacts.tailor;
+ assert.equal(proposal.format,'latex');assert.equal(proposal.pdf.pages,1);assert.ok(Buffer.from(proposal.pdf.content,'base64').subarray(0,5).toString()==='%PDF-');
+ step('proposal: '+proposal.changes.length+' changes, '+proposal.pdf.pages+' page, your LaTeX format');
+ await press('Apply the changes I kept');
+ await until(/Preview tailored resume/,300,'Final PDF built');
+ const done=await device.rpc('agent_run',{id:run.id});
+ assert.equal(done.status,'completed');assert.ok(done.artifacts.tailor.final);assert.equal(done.artifacts.tailor.pdf.pages,1);
+ assert.ok(done.artifacts.tailor.tex.startsWith(fs.readFileSync(path.join(root,'tests/fixtures/jake-resume.tex'),'utf8').split('\\begin{document}')[0]),'Preamble unchanged');
+ step('approved: final one-page PDF from your LaTeX, preamble unchanged');
+
+ // A task that paused because its resume lost its LaTeX (as when a preview switch replaced the data) is fixed from the task.
+ const workerPid=Number(process.env.STACK_E2E_WORKER_PID);assert.ok(workerPid,'Set STACK_E2E_WORKER_PID');
+ const state=await device.rpc('bootstrap',{}),resumeId=state.resumes[0].id;
+ const saved=new Set(state.applications.map(a=>a.job_id));const second=jobIds.find(j=>!saved.has(j));
+ const app=(await device.rpc('swipe',{job_id:second,action:'apply'})).applications.find(a=>a.job_id===second);
+ process.kill(workerPid,'SIGSTOP');let pausedRun;
+ try{pausedRun=await device.rpc('agent_start',{kind:'resume',target_id:app.id});await device.rpc('use_resume_template',{id:resumeId,template:''});}
+ finally{process.kill(workerPid,'SIGCONT');}
+ for(let i=0;i<60&&!(await device.rpc('agent_run',{id:pausedRun.id})).needs_resume_review;i++)await new Promise(r=>setTimeout(r,1000));
+ assert.ok((await device.rpc('agent_run',{id:pausedRun.id})).needs_resume_review,'Worker paused the task for LaTeX');
+ await press('Back to tasks');await until(/Needs you \(\d+\)/,20,'Hub shows a task needing you');
+ await tap(ui.root.findAll(n=>n.type==='Pressable'&&/^Needs you/.test(n.props.accessibilityLabel||''))[0]);
+ await until(/Needs your LaTeX/,20,'Paused task is labelled as needing LaTeX');assert.doesNotMatch(visible(),/Needs your answers/);
+ await tap(ui.root.findAll(n=>n.type==='Pressable'&&/^Open task .* · Needs your LaTeX$/.test(n.props.accessibilityLabel||''))[0]);
+ await until(/Add the LaTeX for Candidate.pdf/,30,'Paused task offers the LaTeX upload');assert.doesNotMatch(visible(),/STACK NEEDS YOUR ANSWERS/);
+ pick('tests/fixtures/jake-resume.tex','main.tex');await press('Upload LaTeX (.tex or Overleaf .zip)',-1);
+ await until(/Review your tailored resume/,600,'Paused task continued to a proposal');step('paused task: LaTeX uploaded from the task, tailoring continued');
+ await press('Apply the changes I kept');await until(/Preview tailored resume/,300,'Final PDF built');
+ const resumed=await device.rpc('agent_run',{id:pausedRun.id});assert.equal(resumed.status,'completed');assert.equal(resumed.artifacts.tailor.pdf.pages,1);
+ console.log('PASS tailoring end to end: both paths, '+(done.subscription_calls+resumed.subscription_calls)+' model calls, one-page PDFs from your LaTeX.');
+}
+
+(async()=>{if(process.env.STACK_TEST_TAILOR_E2E==='1'){await tailoringEndToEnd();return;}if(process.env.STACK_TEST_TAILOR_UI==='1'){await tailoringScreenTests();return;}try{await notificationTests();await gestureTests();await screenTests();}finally{await worker('discovery_manage',{id:fixtureSource,action:'purge'}).catch(()=>{});}})().catch(e=>{console.error(e);process.exitCode=1;});

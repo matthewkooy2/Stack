@@ -89,7 +89,9 @@ def _file_path(key: str) -> Path {
     return directory / key;
 }
 def _app_view(a: Application) -> dict[str, any] {
-    return {"id":jid(a), "job_id":a.job_id, "created_at":a.created_at, "status":a.status or _demo_status(a.created_at,time.time()), "notes":a.notes, "resume_id":a.resume_id, "demo":a.demo,"job":_application_job(a),"history":a.history};
+    resume=_application_resume(a);
+    return {"id":jid(a), "job_id":a.job_id, "created_at":a.created_at, "status":a.status or _demo_status(a.created_at,time.time()), "notes":a.notes, "resume_id":a.resume_id, "demo":a.demo,"job":_application_job(a),"history":a.history,
+        "tailor":{"resume_id":jid(resume) if resume is not None else "","resume_name":resume.name if resume is not None else "","ready":bool(_tailor_source(resume))}};
 }
 def _application_job(a: Application) -> dict[str, any] {
     if a.demo {
@@ -212,7 +214,7 @@ def _resume_format(r: Resume) -> dict[str, any] {
     if t.get("kind")=="builtin" {
         return {"kind":"builtin","template":t["builtin"],"label":LATEX_TEMPLATES[t["builtin"]],"pages":t.get("pages",0),"summary":t.get("summary",{}),"skipped":[]};
     }
-    return {"kind":"","template":"jake","label":"Jake's Resume (default)" if r.review_confirmed else "Not set","pages":0,"summary":{},"skipped":[]};
+    return {"kind":"","template":"","label":"No LaTeX yet","pages":0,"summary":{},"skipped":[]};
 }
 def _remove_template_files(r: Resume) -> None {
     for key in ["files_key","preview_key"] {
@@ -222,15 +224,16 @@ def _remove_template_files(r: Resume) -> None {
 def _write_private(key: str, data: bytes) -> None {
     path=_file_path(key);path.write_bytes(data);path.chmod(384);
 }
-"""The LaTeX source Stack edits: the user's upload, or a built-in template filled from confirmed details."""
+"""The LaTeX source Stack edits: the user's upload, or the built-in template they chose, filled from confirmed details."""
 def _resume_source(r: Resume) -> dict[str, any] {
     if r.template.get("kind")=="upload" {
         path=_file_path(r.template["files_key"]);
         if not path.exists() { raise ValueError("Your LaTeX source is unavailable. Upload it again on the Resume tab."); }
         return {**latex_unpack(path.read_bytes()),"format":"latex"};
     }
-    if not r.review_confirmed { raise ValueError("Upload your LaTeX source, or confirm your resume details to use a built-in template."); }
-    return {**fill_template(r.template.get("builtin","jake"),r.review.get("values",{})),"format":"builtin"};
+    if r.template.get("kind")!="builtin" { raise ValueError("Upload the LaTeX for "+r.name+" on the Resume tab before tailoring."); }
+    if not r.review_confirmed { raise ValueError("Confirm the details for "+r.name+" to fill its built-in template."); }
+    return {**fill_template(r.template["builtin"],r.review.get("values",{})),"format":"builtin"};
 }
 def _save_template(id: str, template: dict[str, any], files: dict[str, any]) -> dict[str, any] {
     key=str(uuid4());stored={};
@@ -298,7 +301,12 @@ def:pub agent_worker_resume_source(token: str, id: str, owner: str, lease: str) 
             r=_agent_leased(id,owner,lease);
             if STEPS[r.kind][r.index] not in ["tailor","approve_resume"] { return {"error":"This step cannot read resume sources."}; }
             resume=_owned_resume(r.context.get("resume_id",""));
-            if resume is None { raise ValueError("Choose a resume for this application on the Resume tab, then try again."); }
+            if resume is None or not _tailor_source(resume) {
+                # The resume lost its LaTeX (or was deleted) after the task started. Record it so the task
+                # pauses on the LaTeX step instead of asking a generic question.
+                r.context={**r.context,"resume_format":""};commit();
+                raise ValueError("Choose a resume for this application on the Resume tab, then try again." if resume is None else "Upload the LaTeX for "+resume.name+" to tailor it.");
+            }
             source=_resume_source(resume);
             return {**latex_encode(source),"format":source["format"]};
         } except ValueError as e { return {"error":str(e)}; }
@@ -361,11 +369,12 @@ def _application_resume(a: Application) -> Resume | None {
     if r is None and len(resumes)==1 { r=resumes[0]; }
     return r;
 }
-"""How Stack can build a tailored PDF from this resume: "latex", "builtin", or "" when it cannot yet."""
+"""The LaTeX Stack tailors for this resume: "latex" (uploaded), "builtin" (a chosen template), or "" when it has none.
+A PDF alone is never tailored."""
 def _tailor_source(r: Resume | None) -> str {
     if r is None { return ""; }
     if r.template.get("kind")=="upload" { return "latex"; }
-    return "builtin" if r.review_confirmed else "";
+    return "builtin" if r.template.get("kind")=="builtin" and r.review_confirmed else "";
 }
 def _application_agent_context(a: Application) -> dict[str, any] {
     job=_application_job(a);p=_profile();resume=_application_resume(a);
@@ -389,6 +398,9 @@ def:priv agent_start(kind: str, target_id: str) -> dict[str, any] {
                     job=_application_job(a);
                     if kind=="application" and (a.status!="Ready to apply" or not job.get("active") or job.get("stale")) { return {"error":"Only an active, unsubmitted application can be started."}; }
                     context=_application_agent_context(a);
+                    # Tailoring edits LaTeX. Refuse up front rather than create a task that can only pause.
+                    if kind=="resume" and not context["resume_id"] { return _error("Upload your resume on the Resume tab first."); }
+                    if kind=="resume" and not context["resume_format"] { return _error("Upload the LaTeX for "+context["resume_name"]+" to tailor it."); }
                     # Attach the resolved resume so the job shows, and keeps, the resume it was tailored from.
                     if context["resume_id"] and a.resume_id!=context["resume_id"] { a.resume_id=context["resume_id"]; }
                     return _agent_start(kind,target_id,context);
@@ -433,7 +445,7 @@ def:priv agent_continue_tailoring(id: str, resume_id: str = "") -> dict[str, any
         r.context={**r.context,**{k:v for (k,v) in context.items() if k.startswith("resume_")}};r.updated_at=time.time();
         commit();
         if not context["resume_id"] { return _error("Upload a resume on the Resume tab first."); }
-        if not context["resume_format"] { return _error(context["resume_name"]+" has no LaTeX source or confirmed details yet."); }
+        if not context["resume_format"] { return _error("Upload the LaTeX for "+context["resume_name"]+" to tailor it."); }
     }
     return agent_respond(id,[],False);
 }

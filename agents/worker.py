@@ -47,7 +47,7 @@ def dispatch(work, token):
         model_context = {**context, 'research': artifacts.get('research', {})}
         if step == 'tailor':
             from agents.tailoring import prepare
-            # The LaTeX source (uploaded, or a template filled from confirmed details) is the resume Stack edits.
+            # The LaTeX source (uploaded, or a chosen template filled from confirmed details) is the resume Stack edits.
             try:
                 prepared = prepare(call('agent_worker_resume_source', auth))
             except ValueError as exc:

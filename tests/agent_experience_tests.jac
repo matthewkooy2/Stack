@@ -90,10 +90,11 @@ test "agents never launch implicitly and outbound steps wait for review of the e
                 contacts=rpc(client,"agent_save_contact",{"data":{"name":"Casey","email":"casey@example.com","company":"Example","selected":True}})["contacts"];
                 assert len(contacts)==1 and rpc(client,"agent_activity")["runs"]==[];
 
-                # Tailoring needs a resume with LaTeX or confirmed details; the job was saved first and uses the default resume.
+                # Tailoring needs LaTeX: here Jake's template, filled from confirmed details. The job was saved first and uses the default resume.
                 resume_id=rpc(client,"upload_resume",{"name":"Candidate.pdf","content":base64.b64encode(Path("tests/fixtures/openresume-laverne.pdf").read_bytes()).decode()})["resumes"][0]["id"];
                 parsed=rpc(client,"agent_extract_resume",{"id":resume_id});
                 assert rpc(client,"resume_save_details",{"id":resume_id,"revision":parsed["revision"],"values":{f["key"]:f["value"] for section in parsed["sections"] for f in section["fields"]},"confirm":True})["confirmed"];
+                assert rpc(client,"use_resume_template",{"id":resume_id,"template":"jake"})["resumes"][0]["format"]["kind"]=="builtin";
 
                 # Application: inspect, fit and tailor run; the fill waits for review.
                 run=rpc(client,"agent_start",{"kind":"application","target_id":application["id"]});
@@ -182,7 +183,7 @@ test "agents never launch implicitly and outbound steps wait for review of the e
     }
 }
 
-test "tailoring pauses without quota use then confirms renders and persists a preview" {
+test "tailoring refuses a PDF-only resume, then tailors a chosen built-in template and persists a preview" {
     with tempfile.TemporaryDirectory(prefix="stack-tailoring-test-") as directory {
         path=Path(directory)/"agents.json";path.write_text(json.dumps({}));
         discovery=Path("storage/discovery/worker-token").read_text().strip();
@@ -197,21 +198,19 @@ test "tailoring pauses without quota use then confirms renders and persists a pr
                 resume_id=uploaded["resumes"][0]["id"];
                 job=lever_job(client,token,discovery);client.set_auth_token(token);
                 application=rpc(client,"swipe",{"job_id":job,"action":"apply"})["applications"][0];
-                run=rpc(client,"agent_start",{"kind":"resume","target_id":application["id"]});
-                assert work(client,"agent_claim").get("idle");
-                client.set_auth_token(token);paused=rpc(client,"agent_run",{"id":run["id"]});
-                assert paused["status"]=="needs_input" and paused["needs_resume_review"];
-                assert paused["resume_id"]==resume_id and paused["subscription_calls"]==0 and paused["artifacts"]=={};
-                # Repeated attempts before confirmation must not reserve a model request.
-                rpc(client,"agent_respond",{"id":run["id"]});assert work(client,"agent_claim").get("idle");
-                client.set_auth_token(token);assert rpc(client,"agent_run",{"id":run["id"]})["subscription_calls"]==0;
+                # A PDF alone is never tailored: no task is created and no model request is reserved.
+                assert "Upload the LaTeX for Candidate.pdf" in rpc(client,"agent_start",{"kind":"resume","target_id":application["id"]}).get("error","");
+                assert rpc(client,"agent_activity")["runs"]==[] and not [a for a in rpc(client,"bootstrap")["applications"] if a["id"]==application["id"]][0]["tailor"]["ready"];
                 review=rpc(client,"agent_extract_resume",{"id":resume_id});
                 values={f["key"]:f["value"] for section in review["sections"] for f in section["fields"]};
                 assert not review["confirmed"];
                 confirmed=rpc(client,"resume_save_details",{"id":resume_id,"revision":review["revision"],"values":values,"confirm":True});assert confirmed["confirmed"];
-                assert rpc(client,"agent_continue_tailoring",{"id":run["id"]})["status"]=="queued";
+                # Confirmed details alone are still not LaTeX; choosing Jake's template makes them LaTeX.
+                assert "error" in rpc(client,"agent_start",{"kind":"resume","target_id":application["id"]});
+                rpc(client,"use_resume_template",{"id":resume_id,"template":"jake"});
+                run=rpc(client,"agent_start",{"kind":"resume","target_id":application["id"]});
                 claim=work(client,"agent_claim");assert claim["id"]==run["id"] and claim["step"]=="tailor";
-                # Without an upload, Stack fills Jake's template from the confirmed details and edits that LaTeX.
+                # Stack fills the chosen Jake's template from the confirmed details and edits that LaTeX.
                 with patch("agents.provider.generate",side_effect=propose) {
                     with patch.dict(dispatch.__globals__,{"call":partial(worker_call,client)}) { result=dispatch(claim,WORKER) as dict[str, any]; }
                 }
@@ -257,17 +256,13 @@ test "an uploaded LaTeX source is checked, compiled, and tailored without confir
                 # The job is saved before any resume exists, so it has no resume of its own.
                 job=lever_job(client,token,discovery);client.set_auth_token(token);
                 application=rpc(client,"swipe",{"job_id":job,"action":"apply"})["applications"][0];assert application["resume_id"]=="";
-                run=rpc(client,"agent_start",{"kind":"resume","target_id":application["id"]});
-                assert work(client,"agent_claim").get("idle");client.set_auth_token(token);
-                paused=rpc(client,"agent_run",{"id":run["id"]});
-                assert paused["needs_resume_review"] and paused["resume_id"]=="" and "Upload a resume" in paused["message"], paused;
-                assert "Upload a resume" in rpc(client,"agent_continue_tailoring",{"id":run["id"]}).get("error","");
+                assert "Upload your resume" in rpc(client,"agent_start",{"kind":"resume","target_id":application["id"]}).get("error","");
                 uploaded=rpc(client,"upload_resume",{"name":"Candidate.pdf","content":base64.b64encode(Path("tests/fixtures/openresume-laverne.pdf").read_bytes()).decode()});
                 resume_id=uploaded["resumes"][0]["id"];
-                assert uploaded["resumes"][0]["format"]["label"]=="Not set";
-                # The default resume is used now, but it is only a PDF: tailoring stays paused and readiness says why.
-                assert "no LaTeX source" in rpc(client,"agent_continue_tailoring",{"id":run["id"]}).get("error","");
-                assert rpc(client,"agent_run",{"id":run["id"]})["resume_id"]==resume_id;
+                assert uploaded["resumes"][0]["format"]["label"]=="No LaTeX yet";
+                # The job now uses the default resume, but it is only a PDF: tailoring is refused and readiness says why.
+                assert "Upload the LaTeX for Candidate.pdf" in rpc(client,"agent_start",{"kind":"resume","target_id":application["id"]}).get("error","");
+                assert rpc(client,"agent_activity")["runs"]==[];
                 readiness=[c for f in rpc(client,"agent_features")["features"] if f["key"]=="tailoring" for c in f["checks"] if c["key"]=="facts"][0];
                 assert not readiness["ok"] and "Candidate.pdf" in readiness["fix"], readiness;
                 # Built-in templates need confirmed details; unsafe or broken sources are refused.
@@ -283,8 +278,8 @@ test "an uploaded LaTeX source is checked, compiled, and tailored without confir
                 source=rpc(client,"read_resume_source",{"id":resume_id});
                 assert source["tex"]==tex and base64.b64decode(source["preview"]["content"]).startswith(b"%PDF-");
                 assert [c for f in rpc(client,"agent_features")["features"] if f["key"]=="tailoring" for c in f["checks"] if c["key"]=="facts"][0]["ok"];
-                # The user's own LaTeX needs no parsed-details confirmation; the paused task continues with it.
-                assert rpc(client,"agent_continue_tailoring",{"id":run["id"]})["status"]=="queued";
+                # The user's own LaTeX needs no parsed-details confirmation.
+                run=rpc(client,"agent_start",{"kind":"resume","target_id":application["id"]});
                 assert [a for a in rpc(client,"bootstrap")["applications"] if a["id"]==application["id"]][0]["resume_id"]==resume_id;
                 claim=work(client,"agent_claim");assert claim["id"]==run["id"] and claim["step"]=="tailor", claim;
                 with patch("agents.provider.generate",side_effect=propose) {
@@ -301,8 +296,23 @@ test "an uploaded LaTeX source is checked, compiled, and tailored without confir
                 assert "error" in rpc(client,"read_resume_source",{"id":resume_id}) and "error" in rpc(client,"upload_resume_source",{"id":resume_id,"name":"resume.tex","content":base64.b64encode(tex.encode()).decode()});
                 client.set_auth_token(token);
                 assert rpc(client,"agent_run",{"id":run["id"]})["review"]["step"]=="approve_resume";
+                # LaTeX removed after a task started (as when preview data is replaced): the task pauses on the
+                # LaTeX step, not a generic question, and continues once LaTeX is back.
+                job2=lever_job(client,token,discovery);client.set_auth_token(token);
+                app2=[a for a in rpc(client,"swipe",{"job_id":job2,"action":"apply"})["applications"] if a["job_id"]==job2][0];
+                second=rpc(client,"agent_start",{"kind":"resume","target_id":app2["id"]});
                 removed=rpc(client,"use_resume_template",{"id":resume_id,"template":""});
                 assert removed["resumes"][0]["format"]["kind"]=="";
+                claim=work(client,"agent_claim");assert claim["id"]==second["id"] and claim["step"]=="tailor", claim;
+                with patch.dict(dispatch.__globals__,{"call":partial(worker_call,client)}) { result=dispatch(claim,WORKER) as dict[str, any]; }
+                assert result.get("needs_input") and "Upload the LaTeX for Candidate.pdf" in result["message"], result;
+                finish(client,claim,result);client.set_auth_token(token);
+                paused=rpc(client,"agent_run",{"id":second["id"]});
+                assert paused["status"]=="needs_input" and paused["needs_resume_review"], paused;
+                assert "Upload the LaTeX" in rpc(client,"agent_continue_tailoring",{"id":second["id"]}).get("error","");
+                rpc(client,"upload_resume_source",{"id":resume_id,"name":"resume.tex","content":base64.b64encode(tex.encode()).decode()});
+                assert rpc(client,"agent_continue_tailoring",{"id":second["id"]})["status"]=="queued";
+                claim=work(client,"agent_claim");assert claim["id"]==second["id"] and claim["step"]=="tailor", claim;
             } finally {
                 if resume_id { client.set_auth_token(token);rpc(client,"change_resume",{"id":resume_id,"action":"delete"}); }
                 client.close();

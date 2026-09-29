@@ -88,10 +88,9 @@ def check(structure, data, facts):
     fact_numbers = _numbers(fact_text)
     notes, changes = [], []
 
-    unknown = [i for i in data.get('ranking', []) if i not in bullets]
-    if unknown:
-        raise ValueError('The tailoring referred to bullets that are not in your resume.')
-    ranking = list(dict.fromkeys(data.get('ranking', [])))
+    # The ranking only orders bullets. Models sometimes include skill-line or entry ids, or a
+    # mistyped id; those are dropped rather than failing the whole proposal.
+    ranking = list(dict.fromkeys(i for i in data.get('ranking', []) if i in bullets))
     ranking += [b for b in bullets if b not in ranking]
 
     rewrites = {}

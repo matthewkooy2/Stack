@@ -2,7 +2,7 @@ import from "@jac/mobui" { View, Text, Switch, Pressable }
 import from "../device.js" { rpc, errorText, openJobLink, dateTime, isoTime, Icon, Lifecycle, previewDocument, PDFView, pickLatexSource }
 import from ..theme { s }
 import from .UI { Button, Field, Chip }
-import from .ResumeReview { ResumeReview }
+import from .ResumeFormat { LatexSetup }
 
 """Unsent answers and email edits survive refreshes and closing a task (per session)."""
 glob DRAFTS: dict[str, any] = {};
@@ -15,6 +15,13 @@ glob ATTENTION: list[str] = ["needs_input","blocked","review","uncertain","faile
 glob ACTIVE: list[str] = ["queued","running","waiting"];
 
 def:pub statusLabel(status: str) -> str { return STATUS_LABELS.get(status,status); }
+"""A task paused for its resume's LaTeX is not waiting for answers; say what it needs."""
+def:pub runLabel(run: dict[str, any]) -> str {
+    if run.get("needs_resume_review") { return "Needs your LaTeX"; }
+    # Stopped with a message but nothing to answer: it needs a retry, not answers.
+    if run["status"]=="needs_input" and not run.get("has_requests",True) { return "Stopped · try again"; }
+    return statusLabel(run["status"]);
+}
 def:pub stateLabel(state: str) -> str { return STATE_LABELS.get(state,state); }
 def:pub toneFor(status: str) -> dict[str, str] {
     if status in ATTENTION { return {"bg":"#FFF1E3","fg":"#A4540F"}; }
@@ -49,7 +56,7 @@ def:pub missingChecks(feature: dict[str, any]) -> list[dict[str, any]] {
 def:pub Pill(label: str, tone: dict[str, str]) -> JsxElement {
     <View style={[s.pill,{backgroundColor:tone["bg"]}]}><Text style={[s.pillText,{color:tone["fg"]}]}>{label}</Text></View>
 }
-def:pub StatusPill(status: str) -> JsxElement { <Pill label={statusLabel(status)} tone={toneFor(status)}/> }
+def:pub StatusPill(status: str, label: str = "") -> JsxElement { <Pill label={label or statusLabel(status)} tone={toneFor(status)}/> }
 
 """Persistent header entry: running and needs-you counts from the polled bootstrap summary."""
 def:pub AgentBadge(summary: dict[str, any], onPress: any) -> JsxElement {
@@ -62,8 +69,8 @@ def:pub AgentBadge(summary: dict[str, any], onPress: any) -> JsxElement {
 }
 
 def:pub TaskRow(run: dict[str, any], onOpen: any) -> JsxElement {
-    <Pressable accessibilityRole="button" accessibilityLabel={"Open task "+run["title"]+" · "+statusLabel(run["status"])} onPress={onOpen} style={s.taskCard}>
-        <View style={s.between}><Text style={[s.strong,{flex:1}]}>{run["title"]}</Text><StatusPill status={run["status"]}/></View>
+    <Pressable accessibilityRole="button" accessibilityLabel={"Open task "+run["title"]+" · "+runLabel(run)} onPress={onOpen} style={s.taskCard}>
+        <View style={s.between}><Text style={[s.strong,{flex:1}]}>{run["title"]}</Text><StatusPill status={run["status"]} label={runLabel(run)}/></View>
         {<Text style={s.small}>{run["context_label"]}</Text> if run.get("context_label") else <View/>}
         <Text style={s.small}>{("Step "+str(run["step_number"])+" of "+str(run["step_total"])+" · " if run["step_total"]>1 else "")+run["step_label"]}</Text>
         <Text style={s.body}>{run["explanation"]}</Text>
@@ -168,9 +175,11 @@ def ArtifactView(name: str, value: dict[str, any], onPreview: any) -> JsxElement
     </View>
 }
 
-"""Tailoring paused because the job's resume has nothing Stack can edit. Every fix happens here, then tailoring continues."""
+def:pub hasLatex(resume: dict[str, any]) -> bool { return resume.get("format",{}).get("kind","") in ["upload","builtin"]; }
+
+"""A task paused before tailoring because its resume has no LaTeX. The fix happens here, then the task continues."""
 def:pub TailorBlocker(run: dict[str, any], onContinued: any, onNavigate: any) -> JsxElement {
-    has resumes: list[dict[str, any]] = [], loaded: bool = False, reviewing: bool = False, busy: bool = False, working: str = "", error: str = "";
+    has resumes: list[dict[str, any]] = [], loaded: bool = False, busy: bool = False, working: str = "", error: str = "";
     async can with entry {
         try { resumes=(await rpc("bootstrap",{}))["resumes"]; } except Exception { resumes=[]; }
         loaded=True;
@@ -185,45 +194,23 @@ def:pub TailorBlocker(run: dict[str, any], onContinued: any, onNavigate: any) ->
         }
         busy=False;working="";
     }
-    async def upload -> None {
-        if busy { return; } error="";
-        try {
-            file=await pickLatexSource();
-            if not file { return; }
-            busy=True;working="Checking and compiling your LaTeX… the first compile on this Mac can take a minute.";
-            await rpc("upload_resume_source",{"id":run["resume_id"],"name":file["name"],"content":file["content"]});
-        } except Exception as e { error=errorText(e);busy=False;working="";return; }
-        await continueWith("");
-    }
-    name=run.get("resume_name") or "This job's resume";
-    # Another resume that is already tailorable is a one-tap fix.
-    usable=[r for r in resumes if r["format"]["kind"]=="upload" or r["details_status"]=="Confirmed"];
-    # Fixed on the Resume tab after this task paused.
-    # Started before any resume was uploaded: Stack attaches the default resume when it continues.
-    stale=not run.get("resume_id") and len(resumes)>0;
-    fixed=stale or len([r for r in usable if r["id"]==run.get("resume_id")])>0;usable=[r for r in usable if r["id"]!=run.get("resume_id")];
+    current=[r for r in resumes if r["id"]==run.get("resume_id")];
+    # Started before any resume existed, or its resume was deleted: continuing attaches the default resume.
+    stale=len(current)==0 and len(resumes)>0;
+    fixed=stale or (len(current)>0 and hasLatex(current[0]));
     <View style={s.reviewBox}>
         <Text style={s.eyebrow}>ONE STEP BEFORE TAILORING</Text>
         {<Text style={s.body}>Checking your resume…</Text> if not loaded else (<View style={{gap:10}}>
             <Text style={s.heading}>Upload a resume first</Text>
             <Text style={s.body}>Stack tailors a resume you have uploaded, and you have none yet. Nothing has been generated.</Text>
             <Button label="Go to the Resume tab" icon="resume" disabled={busy} onPress={lambda { onNavigate("resume"); }}/>
-            <Button label="I uploaded one · continue tailoring" secondary={True} disabled={busy} onPress={lambda { continueWith(""); }}/>
-        </View> if not run.get("resume_id") and not stale else (<View style={{gap:10}}>
-            <Text style={s.heading}>{"Your resume is uploaded" if stale else name+" is ready"}</Text>
-            <Text style={s.body}>{"This task started before you uploaded it. Continue, and Stack uses your default resume." if stale else "It now has LaTeX or confirmed details. Continue to generate your tailored resume."}</Text>
+        </View> if len(resumes)==0 else (<View style={{gap:10}}>
+            <Text style={s.heading}>{"Your resume is uploaded" if stale else current[0]["name"]+" has its LaTeX"}</Text>
+            <Text style={s.body}>{"This task started before you uploaded it. Continue, and Stack uses your default resume." if stale else "Continue to generate your tailored resume."}</Text>
             <Button label="Continue tailoring" icon="check" disabled={busy} onPress={lambda { continueWith(""); }}/>
         </View> if fixed else <View style={{gap:10}}>
-            <Text style={s.heading}>{"Add the LaTeX for "+name}</Text>
-            <Text style={s.body}>Stack tailors by editing your resume's LaTeX, so your layout stays exactly the same. This resume is only a PDF so far, so nothing has been generated yet.</Text>
-            {[<Button key={r["id"]} label={"Use "+r["name"]+" instead · "+("your LaTeX" if r["format"]["kind"]=="upload" else "confirmed details")} icon="check" disabled={busy} onPress={lambda { continueWith(r["id"]); }}/> for r in usable]}
-            <Button label="Upload LaTeX (.tex or Overleaf .zip)" icon="upload" secondary={len(usable)>0} disabled={busy} onPress={upload}/>
-            <Text style={s.small}>In Overleaf: Menu → Download → Source. Tailoring starts as soon as it compiles.</Text>
-            {<View style={{gap:8}}>
-                <Text style={s.label}>OR USE A BUILT-IN TEMPLATE</Text>
-                <Text style={s.small}>Check the details Stack read from your PDF. Once you confirm them, Stack fills Jake's Resume template and tailors that.</Text>
-                <ResumeReview resumeId={run["resume_id"]} onConfirmed={lambda { continueWith(""); }}/>
-            </View> if reviewing else <Button label="No LaTeX? Use a built-in template" secondary={True} disabled={busy} onPress={lambda { reviewing=True; }}/>}
+            <Text style={s.body}>Nothing has been generated yet.</Text>
+            <LatexSetup resume={current[0]} others={[r for r in resumes if hasLatex(r) and r["id"]!=current[0]["id"]]} onChanged={lambda (next: dict[str, any]) { resumes=next["resumes"]; }} onReady={continueWith}/>
         </View>))}
         {<Text style={s.small}>{working}</Text> if working else <View/>}
         {<Text style={s.errorText}>{error}</Text> if error else <View/>}
@@ -259,7 +246,7 @@ def:pub TaskDetail(id: str, features: list[dict[str, any]], webUrl: str, onBack:
     }
     async def respond -> None {
         answers=[{"key":k,"value":v,"verified":True,"source":"User confirmed application answer"} for (k,v) in values.items() if v.strip()];
-        await perform("agent_respond",{"id":id,"values":answers,"reuse":True},"Answers saved and confirmed. The task resumes automatically.");
+        await perform("agent_respond",{"id":id,"values":answers,"reuse":True},"Answers saved and confirmed. The task resumes automatically." if len(answers)>0 else "Trying again. Progress updates here automatically.");
         if not error { values={};remember(); }
     }
     async def approve -> None {
@@ -290,7 +277,7 @@ def:pub TaskDetail(id: str, features: list[dict[str, any]], webUrl: str, onBack:
         {<View style={s.noticeBox}><Text style={s.noticeText}>{notice}</Text></View> if notice else <View/>}
         {<View style={{gap:12}}><Button label="Close preview" secondary={True} icon="back" onPress={lambda { pdfUri=""; }}/><View style={{height:480}}><PDFView uri={pdfUri}/></View></View> if pdfUri else <View/>}
         {<View style={{gap:14}}>
-            <View style={{gap:6}}><View style={s.between}><Text style={[s.heading,{flex:1}]}>{run["title"]}</Text><StatusPill status={run["status"]}/></View>
+            <View style={{gap:6}}><View style={s.between}><Text style={[s.heading,{flex:1}]}>{run["title"]}</Text><StatusPill status={run["status"]} label={runLabel(run)}/></View>
                 {<Text style={s.body}>{run["context_label"]}</Text> if run.get("context_label") else <View/>}
                 <Text style={s.small}>{"Started "+dateTime(run["created_at"])+" · Updated "+dateTime(run["updated_at"] or run["created_at"])}</Text></View>
             <View style={s.mutedBox}><Text style={s.strong}>{"What’s happening"}</Text>{<Text style={s.small}>{"Step "+str(run["step_number"])+" of "+str(run["step_total"])+" · "+run["step_label"]}</Text> if run["step_total"]>1 else <View/>}<Text style={s.body}>{run["explanation"]}</Text>{<Text style={s.small}>{run["message"]}</Text> if run["message"] and run["message"]!=run["explanation"] else <View/>}{<StepList run={run}/> if run["step_total"]>1 else <View/>}</View>
@@ -328,11 +315,12 @@ def:pub TaskDetail(id: str, features: list[dict[str, any]], webUrl: str, onBack:
             {<TailorBlocker run={run} onNavigate={onNavigate} onContinued={lambda (next: dict[str, any]) { run=next;notice="Tailoring started. Stack will show you every change to keep or reject." if next["status"]=="queued" else ""; }}/> if run.get("needs_resume_review",False) else <View/>}
 
             {<View style={s.reviewBox}>
-                <Text style={s.eyebrow}>STACK NEEDS YOUR ANSWERS</Text>
+                <Text style={s.eyebrow}>{"STACK NEEDS YOUR ANSWERS" if len(run.get("requests",[]))>0 else "WHAT STOPPED THIS TASK"}</Text>
+                {<Text style={s.body}>{run["message"]}</Text> if len(run.get("requests",[]))==0 and run["message"] else <View/>}
                 {[<Field key={q["key"]} label={q["label"]} value={values.get(q["key"],"")} onChange={lambda (v: str) { values=withKey(values,q["key"],v);remember(); }}/> for q in run.get("requests",[]) if q["key"]!="browser"]}
                 {[<Text key={q["label"]} style={s.body}>{"In the browser: "+q["label"]}</Text> for q in run.get("requests",[]) if q["key"]=="browser"]}
                 {<Text style={s.small}>Answers you save are confirmed facts and can be reused on later applications. Review them in Agents → Facts.</Text> if len([q for q in run.get("requests",[]) if q["key"]!="browser"])>0 else <View/>}
-                <Button label="Save answers and resume" disabled={busy} onPress={respond}/>
+                <Button label={"Save answers and resume" if len(run.get("requests",[]))>0 else "Try again"} icon={"" if len(run.get("requests",[]))>0 else "retry"} disabled={busy} onPress={respond}/>
                 {<Button label="Open web workspace for the browser" secondary={True} onPress={lambda { openJobLink(webUrl); }}/> if webUrl else <Text style={s.small}>Browser handoff opens in the web workspace once it is hosted. Until then, complete the form on the employer site.</Text>}
             </View> if run["status"]=="needs_input" and not run.get("needs_resume_review",False) else <View/>}
 
@@ -384,7 +372,7 @@ def:pub AgentLaunch(application: dict[str, any], runs: list[dict[str, any]], fea
     <View style={{gap:12}}>
         {<View style={{gap:8}}><View style={s.row}><Icon name="sparkles" color="#3765E8"/><Text style={s.heading}>Agent help</Text></View>
             <Text style={s.body}>Optional. Nothing starts until you choose it, and nothing is sent without your approval.</Text></View> if not compact else <View/>}
-        {[<View key={t["id"]}><TaskRow run={t} onOpen={lambda { onOpenTask(t["id"]); }}/></View> for t in started] if not compact else [<Chip key={t["id"]} label={"✦ "+t["title"]+" · "+statusLabel(t["status"])+" · Open"} active={True} onPress={lambda { onOpenTask(t["id"]); }}/> for t in started]}
+        {[<View key={t["id"]}><TaskRow run={t} onOpen={lambda { onOpenTask(t["id"]); }}/></View> for t in started] if not compact else [<Chip key={t["id"]} label={"✦ "+t["title"]+" · "+runLabel(t)+" · Open"} active={True} onPress={lambda { onOpenTask(t["id"]); }}/> for t in started]}
         {<View style={s.wrap}>{[<Chip key={a["kind"]} label={a["label"]+({"setup":" · setup needed","unavailable":" · see requirements"}.get(featureFor(features,a["kind"]).get("state",""),"") if a["kind"]!="plan" else "")} onPress={lambda { if a["kind"]!="plan" and featureFor(features,a["kind"]).get("state","")=="unavailable" { onNavigate("features"); } else { start(a["kind"]); } }}/> for a in actions]}</View> if compact else <View/>}
         {[<View key={a["kind"]} style={s.actionRow}>
             <View style={s.between}><Text style={[s.strong,{flex:1}]}>{a["label"]}</Text>{<Pill label={stateLabel(str(featureFor(features,a["kind"]).get("state","")))} tone={stateTone(featureFor(features,a["kind"]).get("state",""))}/> if a["kind"]!="plan" and len(featureFor(features,a["kind"]))>0 else <View/>}</View>
@@ -399,8 +387,8 @@ def:pub AgentLaunch(application: dict[str, any], runs: list[dict[str, any]], fea
 }
 
 """Resume-side agents: fact confirmation, tailoring for a saved job, profile suggestions."""
-def:pub ResumeAgents(applications: list[dict[str, any]], runs: list[dict[str, any]], features: list[dict[str, any]], onOpenTask: any, onNavigate: any) -> JsxElement {
-    has error: str = "", message: str = "", busy: bool = False;
+def:pub ResumeAgents(applications: list[dict[str, any]], runs: list[dict[str, any]], features: list[dict[str, any]], onOpenTask: any, onNavigate: any, resumes: list[dict[str, any]] = [], onChanged: any = None) -> JsxElement {
+    has error: str = "", message: str = "", busy: bool = False, setupFor: str = "";
     real=[a for a in applications if not a["demo"]];
     async def start(kind: str, target: str) -> None {
         if busy { return; } busy=True;error="";message="";
@@ -408,14 +396,25 @@ def:pub ResumeAgents(applications: list[dict[str, any]], runs: list[dict[str, an
         except Exception as e { error=errorText(e); }
         busy=False;
     }
+    """Tailor with this resume, attaching it to the job first when the user picked a different one."""
+    async def tailorWith(app: dict[str, any], resumeId: str) -> None {
+        error="";
+        if resumeId!=app["tailor"]["resume_id"] {
+            try { next=await rpc("select_application_resume",{"id":app["id"],"resume_id":resumeId});if onChanged { onChanged(next); } }
+            except Exception as e { error=errorText(e);return; }
+        }
+        setupFor="";await start("resume",app["id"]);
+    }
     tailoring=featureByKey(features,"tailoring");profile=featureByKey(features,"profile");
     <View style={{gap:14}}>
         <View style={s.row}><Icon name="sparkles" color="#3765E8"/><Text style={s.heading}>Resume agents</Text></View>
         {<View style={{gap:14}}><FeatureCard feature={tailoring} onNavigate={onNavigate} compact={True}/>
             <Button label="Review resume details" secondary={True} onPress={lambda { onNavigate("resume-details"); }}/>
             {[<View key={a["id"]} style={s.actionRow}><Text style={s.strong}>{a["job"]["title"]}</Text><Text style={s.small}>{a["job"]["company"]}</Text>
+                {<Text style={s.small}>{"Resume: "+a["tailor"]["resume_name"]+(" · LaTeX ready" if a["tailor"]["ready"] else " · needs its LaTeX")}</Text> if a.get("tailor",{}).get("resume_id") else <Text style={s.small}>Upload your resume above to tailor for this job.</Text>}
                 {[<View key={t["id"]}><TaskRow run={t} onOpen={lambda { onOpenTask(t["id"]); }}/></View> for t in runsFor(runs,a["id"],["resume"])]}
-                <Button label="Tailor for this job" secondary={True} disabled={busy or tailoring["state"]=="unavailable"} onPress={lambda { start("resume",a["id"]); }}/></View> for a in real[0:5]]}
+                {<LatexSetup resume={[r for r in resumes if r["id"]==a["tailor"]["resume_id"]][0]} others={[r for r in resumes if hasLatex(r) and r["id"]!=a["tailor"]["resume_id"]]} onChanged={lambda (next: dict[str, any]) { if onChanged { onChanged(next); } }} onReady={lambda (resumeId: str) { tailorWith(a,resumeId); }}/> if setupFor==a["id"] and len([r for r in resumes if r["id"]==a.get("tailor",{}).get("resume_id","")])>0 else
+                    <Button label="Tailor for this job" secondary={True} disabled={busy or tailoring["state"]=="unavailable" or not a.get("tailor",{}).get("resume_id")} onPress={lambda { if a["tailor"]["ready"] { start("resume",a["id"]); } else { setupFor=a["id"]; } }}/>}</View> for a in real[0:5]]}
             {<Text style={s.small}>Save a real job from Jobs to tailor for it.</Text> if len(real)==0 else <View/>}
         </View> if len(tailoring)>0 else <View/>}
         {<View style={{gap:12}}><FeatureCard feature={profile} onNavigate={onNavigate} compact={True}/>

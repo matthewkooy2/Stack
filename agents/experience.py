@@ -260,9 +260,9 @@ def feature_status(facts: dict[str, Any]) -> list[dict[str, Any]]:
         'tailoring': model_checks + [
             check('resume', 'An uploaded resume', facts.get('resumes', 0) > 0, 'Upload a PDF on the Resume tab.', 'resume'),
             # Judged on the default resume, which is the one a job without its own resume is tailored from.
-            check('facts', 'Default resume has LaTeX source or confirmed details', facts.get('tailor_source', '') in ('latex', 'builtin'),
-                  (facts.get('tailor_resume') or 'Your default resume') + ' has no LaTeX source or confirmed details. '
-                  'On the Resume tab, upload its LaTeX, or review and confirm its details to use a built-in template.', 'resume'),
+            check('facts', 'Default resume has its LaTeX', facts.get('tailor_source', '') in ('latex', 'builtin'),
+                  'Upload the LaTeX for ' + (facts.get('tailor_resume') or 'your default resume') +
+                  ' on the Resume tab (.tex, or Overleaf\'s source .zip).', 'resume'),
             check('applications', 'A saved real job', facts.get('applications', 0) > 0, 'Swipe right on a job to save it.', 'jobs')],
         'fit': model_checks + [
             check('applications', 'A saved real job', facts.get('applications', 0) > 0, 'Swipe right on a job to save it.', 'jobs'),

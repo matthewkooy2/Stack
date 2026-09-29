@@ -2,6 +2,7 @@ import from "@jac/mobui" { View, Text }
 import from "../device.js" { rpc, errorText, pickLatexSource, previewDocument, PDFView }
 import from ..theme { s }
 import from .UI { Button, Chip }
+import from .ResumeReview { ResumeReview }
 
 glob TEMPLATES: list[dict[str, str]] = [{"key":"jake","label":"Jake's Resume"},{"key":"classic","label":"Classic"}];
 
@@ -40,7 +41,7 @@ def:pub ResumeFormat(resume: dict[str, any], onChanged: any) -> JsxElement {
         <Button label={"Replace LaTeX source" if kind=="upload" else "Upload LaTeX (.tex or Overleaf .zip)"} icon="upload" secondary={kind=="upload"} disabled={busy} onPress={upload}/>
         <View style={s.wrap}>
             {[<Chip key={t["key"]} label={t["label"]} active={kind=="builtin" and format.get("template")==t["key"]} onPress={lambda { change("use_resume_template",{"id":resume["id"],"template":t["key"]},t["label"]+" will be used for tailored versions."); }}/> for t in TEMPLATES]}
-            {<Chip label="Remove format" onPress={lambda { change("use_resume_template",{"id":resume["id"],"template":""},"Removed. Stack uses Jake's Resume with your confirmed details."); }}/> if kind else <View/>}
+            {<Chip label="Remove format" onPress={lambda { change("use_resume_template",{"id":resume["id"],"template":""},"Removed. Upload LaTeX or choose a template to tailor this resume again."); }}/> if kind else <View/>}
         </View>
         {<View style={s.wrap}><Chip label="Preview format" onPress={lambda { open(False); }}/><Chip label={"Hide LaTeX" if showTex else "Show LaTeX"} active={showTex} onPress={lambda { if showTex { showTex=False; } else { open(True); } }}/></View> if kind or resume.get("details_status")=="Confirmed" else <View/>}
         {<Text style={s.small}>Working… The first LaTeX compile on this Mac can take a minute.</Text> if busy else <View/>}
@@ -48,5 +49,43 @@ def:pub ResumeFormat(resume: dict[str, any], onChanged: any) -> JsxElement {
         {<Text style={s.errorText}>{error}</Text> if error else <View/>}
         {<View style={{gap:8}}><Chip label="Close preview" onPress={lambda { pdfUri=""; }}/><View style={{height:480}}><PDFView uri={pdfUri}/></View></View> if pdfUri else <View/>}
         {<Text selectable={True} style={[s.small,{fontFamily:"Menlo"}]}>{tex}</Text> if showTex and tex else <View/>}
+    </View>
+}
+
+"""Tailoring edits LaTeX, so a resume that is only a PDF gets its LaTeX here, then onReady(resume id) continues.
+Offers resumes that already have LaTeX, an upload, or Jake's template filled from confirmed details."""
+def:pub LatexSetup(resume: dict[str, any], others: list[dict[str, any]], onChanged: any, onReady: any) -> JsxElement {
+    has busy: bool = False, working: str = "", error: str = "", reviewing: bool = False;
+    async def upload -> None {
+        if busy { return; } error="";
+        try {
+            file=await pickLatexSource();
+            if not file { return; }
+            busy=True;working="Checking and compiling your LaTeX… the first compile can take a minute.";
+            onChanged(await rpc("upload_resume_source",{"id":resume["id"],"name":file["name"],"content":file["content"]}));
+        } except Exception as e { error=errorText(e);busy=False;working="";return; }
+        busy=False;working="";
+        await onReady(resume["id"]);
+    }
+    async def useTemplate -> None {
+        busy=True;error="";working="Filling Jake's Resume template from your details…";
+        try { onChanged(await rpc("use_resume_template",{"id":resume["id"],"template":"jake"})); }
+        except Exception as e { error=errorText(e);busy=False;working="";return; }
+        busy=False;working="";reviewing=False;
+        await onReady(resume["id"]);
+    }
+    <View style={[s.mutedBox,{gap:10}]}>
+        <Text style={s.strong}>{"Add the LaTeX for "+resume["name"]}</Text>
+        <Text style={s.small}>Tailoring rewrites and trims your LaTeX for this job, so your layout stays exactly the same. A PDF alone can't be tailored.</Text>
+        {[<Button key={r["id"]} label={"Use "+r["name"]+" instead · has LaTeX"} icon="check" disabled={busy} onPress={lambda { onReady(r["id"]); }}/> for r in others]}
+        <Button label="Upload LaTeX (.tex or Overleaf .zip)" icon="upload" secondary={len(others)>0} disabled={busy} onPress={upload}/>
+        <Text style={s.small}>In Overleaf: Menu → Download → Source.</Text>
+        {<View style={{gap:8}}>
+            <Text style={s.label}>BUILD LATEX FROM JAKE'S TEMPLATE</Text>
+            <Text style={s.small}>Check the details Stack read from your PDF. Confirming fills Jake's Resume template, which Stack then tailors.</Text>
+            <ResumeReview resumeId={resume["id"]} onConfirmed={useTemplate}/>
+        </View> if reviewing else <Button label="No LaTeX file? Build one from Jake's template" secondary={True} disabled={busy} onPress={lambda { if resume.get("details_status")=="Confirmed" { useTemplate(); } else { reviewing=True; } }}/>}
+        {<Text style={s.small}>{working}</Text> if working else <View/>}
+        {<Text style={s.errorText}>{error}</Text> if error else <View/>}
     </View>
 }

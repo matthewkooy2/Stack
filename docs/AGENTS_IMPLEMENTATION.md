@@ -12,19 +12,21 @@ CLI subscription requests use an account-bound daily cap rather than API budgets
 | --- | --- |
 | Shared workflows | Account-owned facts, expiring standing rules, task queue, step leases, bounded retries, cancellation, bundled questions, explicit reconciliation, activity artifacts, operator reservations and action counters |
 | Jobs | Source-backed fit reports for selected real applications; the existing deterministic matcher remains authoritative; run keys include the current job/profile/fact context |
-| Resume | Text extraction with unconfirmed facts; selected-resume provenance; source-preserving ordering; generated PDF, text-recovery checks, and readable diff; requested cover-letter PDFs use verified text |
+| Resume | Local OpenResume parsing and grouped editable review; explicit confirmation; selected-resume provenance; source-preserving ordering; generated PDF with embedded font, text-recovery checks, full original/tailored text and diff; requested cover-letter PDFs use verified text |
 | Applications | Greenhouse/Lever/Ashby host recognition and semantic form pipeline; required-answer collection; PDF upload; form checks; one submit attempt; confirmation evidence; same-session browser takeover with encrypted checkpoints |
 | Google | Account-bound OAuth state and PKCE, encrypted refresh tokens, incremental scope requests, Gmail history synchronization and bounded recovery search, daily watch renewal, conservative message association, UTC calendar invitation extraction and idempotent event IDs |
-| Network | Real contact entry and CSV import; imported contacts remain unselected; selected-recipient outreach; reply detection; bounded follow-ups; manual LinkedIn handoff |
+| Network | Real contact entry and CSV import; selected-recipient outreach and bounded follow-ups; user-requested LinkedIn profile capture with sign-in handoff, recruiter-focused analysis and suggested rewrites |
 | Prep | Persistent typed sessions for algorithms, debugging, review, SQL, fundamentals, system design and behavioral practice; Python/C++/SQL harnesses; separate deterministic results and model coaching; optimistic revisions across devices |
 | Interfaces | Native agent inbox/rules/facts/contacts, per-application launch, native practice sessions; focused web editor, timer, hints, canvas, results, transcript review, task inbox and browser takeover |
 | Operations | Invited-beta gateway, one-writer systemd units, disabled budget configuration, private sandbox service, release HTTPS enforcement, Expo push registration/delivery plumbing, account export/deletion, backup/restore utility |
 
 `core/automation.jac` owns state transitions. Models only return structured proposals through `agents/provider.py`; they do not call tools or expand permissions. `agents/worker.py` performs external work through authenticated Jac endpoints. Browser and code services never access the graph directly.
 
+See [LinkedIn profile review](LINKEDIN_PROFILE_REVIEW.md) for the login flow, configuration, capture limits, and validation status.
+
 ### Reliability and costs
 
-Only a new explicit automation request or an enabled policy on an upgraded client's right swipe starts an application. The legacy `swipe` signature defaults `start_agent` to false. Application and initial outreach runs use stable idempotency keys.
+Only an explicit request starts an agent. A right swipe only saves; `swipe` still accepts `start_agent` from older clients and ignores it. Saving or selecting a contact never starts outreach. Every `fill`, `submit`, `send`, and `calendar` step pauses in `review` until the user approves that exact payload; `agent_authorize` rejects a dispatch whose payload hash differs from the approval (see [agent experience](AGENT_EXPERIENCE.md)). Application and initial outreach runs use stable idempotency keys.
 
 The API persists an intent before fill, submission, send, or calendar writes. A missing receipt, expired lease after dispatch, cancellation during dispatch, or ambiguous error moves the run into reconciliation. There is no blind retry of those actions. A user can attest completion or provide evidence that nothing was sent. Completed run projections are replayable; confirmed application status and contact follow-up state are recorded by the same writer.
 
@@ -37,6 +39,8 @@ External content is data, not authority. Unsupported resume claims cannot enter 
 ### Data and privacy
 
 Facts record confirmation and source. Resume extraction does not verify facts. OAuth credentials remain encrypted server-side; workers receive only the short-lived access token. Browser storage uses a separate encryption key on its isolated host. Checkpoints omit password controls, expire after one day, and are never returned to the model.
+
+Tailoring opens its task immediately. Missing confirmed resume details pause before reserving a model request; the task embeds resume review and explicit confirmation before continuing. Completed tasks offer a PDF preview and full text comparison. The generated PDF reorders verified entries in a single-column layout; suggested rewrites are displayed separately and are **not applied**. The uploaded original is unchanged. See [OpenResume setup and license](RESUME_PARSER.md).
 
 The Gmail permission is mailbox-wide. Application/contact filters narrow processing, not OAuth access. Only relevant excerpts are persisted. Push messages contain no employer, email or resume contents. Export includes personal application data, agent artifacts and PDFs, but excludes connection secrets. Deletion requires the account password, disables new actions, cancels leases, erases private graph data/PDFs, attempts provider revocation/browser purge, and removes the login identity. Minimal non-content quota records remain for deployment accounting. Previously dispatched external actions cannot be recalled. Backups need a documented retention/deletion period before launch.
 
@@ -79,6 +83,8 @@ python3 scripts/backup-agents.py restore /private/backups/stack-before-agents --
 Encrypt the archive before off-host storage. Run account/PDF/restart checks against the restored copy before cutover. The utility rejects a nonempty database and an existing storage target. An operator restore drill against the production migration target remains a release gate.
 
 ## Verification and remaining release gates
+
+The tailoring regression uploads a fixture PDF, pauses without consuming a request, explicitly confirms parsed details, renders a real PDF with a stubbed model response, and reloads its saved artifact. Parser tests cover ownership, stale revisions and confirmation. `STACK_TEST_TAILOR_UI=1 node tests/native.cjs` checks task navigation, confirmation failure/retry, full text comparison and the native PDF boundary against mocked RPCs. These checks do not certify model output quality or physical iPhone layout.
 
 The automated suites cover account isolation, ownership, duplicate starts/callbacks, revisions, cancellation, unset budgets, concurrent shared-cap reservations, deletion of an account with leased work, source quotation validation, PDF generation/extraction, conservative Gmail association and calendar parsing, output caps and sandbox launch restrictions. Browser verification exercised web sign-in, practice creation, editing, save and reload. Existing discovery/matching/account/native regressions are retained.
 

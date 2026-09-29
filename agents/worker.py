@@ -17,14 +17,14 @@ def call(name, args):
     return value
 
 
-def browser_call(step, work):
+def browser_call(step: str, work: dict, timeout: int = 100) -> dict:
     base = os.environ.get('STACK_BROWSER_URL', '')
     token = os.environ.get('STACK_BROWSER_TOKEN', '')
     if not base or not token:
         raise ValueError('Browser automation is unavailable until the browser worker is configured.')
     # This operator-owned private origin is never derived from a job or model output.
     request = urllib.request.Request(base.rstrip('/') + '/' + step, data=json.dumps(work).encode(), headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token})
-    with urllib.request.urlopen(request, timeout=100) as response:
+    with urllib.request.urlopen(request, timeout=timeout) as response:
         result = json.load(response)
     if result.get('error'):
         raise ValueError(result['error'])
@@ -36,10 +36,12 @@ def dispatch(work, token):
     step, context, artifacts = work['step'], work['context'], work['artifacts']
     auth = {k: work[k] for k in ('id', 'owner', 'lease')}
     auth['token'] = token
+    if step == 'linkedin_scan':
+        return browser_call(step, work)
     if step == 'research':
         from agents.research import contact_source
         return {'artifact': contact_source(context['contact'])}
-    if step in ('fit', 'tailor', 'draft', 'coach', 'profile'):
+    if step in ('fit', 'tailor', 'draft', 'coach', 'profile', 'linkedin_review'):
         c = config()
         if work.get('provider_config_hash') != digest(c):
             return {'needs_input': True, 'message': 'Model configuration changed. Resume this task to use the current provider.', 'requests': []}
@@ -47,8 +49,11 @@ def dispatch(work, token):
         if step == 'tailor' and not any(f['key'].startswith('resume.') and f.get('verified') for f in context.get('facts', [])):
             return {'needs_input': True, 'message': 'Confirm the facts extracted from your resume before tailoring.', 'requests': []}
         try:
-            result = generate(step, {**context, 'research': artifacts.get('research', {})}, c)
+            result = generate(step, {**context, 'research': artifacts.get('research', {}),
+                                     'linkedin_profile': artifacts.get('linkedin_scan', {})}, c)
         except ValueError as exc:
+            if step == 'linkedin_review':
+                return {'blocked': True, 'message': str(exc), 'requests': []}
             if c['provider'] in CLI_PROVIDERS:
                 return {'needs_input': True, 'message': str(exc), 'requests': []}
             raise
@@ -59,6 +64,7 @@ def dispatch(work, token):
             if len(keys) != len(set(keys)) or set(keys) != set(facts):
                 raise ValueError('Tailoring omitted or introduced facts. Review it before use.')
             result['artifact']['pdf'] = render_variant(context.get('profile', {}).get('name', 'Resume'), context.get('resume_text', ''), [facts[k] for k in keys])
+            result['artifact']['pdf']['order_changed'] = keys != list(facts)
             fields = artifacts.get('inspect', {}).get('fields', [])
             if any('cover' in f['label'].lower() and 'letter' in f['label'].lower() for f in fields):
                 job = context['job']

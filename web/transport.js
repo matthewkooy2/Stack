@@ -34,10 +34,10 @@ export function Diagram({value,onChange}){
  ...nodes.map(n=>React.createElement('g',{key:n.id,onClick:e=>{e.stopPropagation();if(selected&&selected!==n.id){onChange({nodes,edges:[...edges,{from:selected,to:n.id}]});setSelected('');}else setSelected(n.id);}},React.createElement('rect',{x:n.x-65,y:n.y-22,width:130,height:44,rx:8,fill:selected===n.id?'#dbe7ff':'white',stroke:'#3765e8'}),React.createElement('text',{x:n.x,y:n.y+5,textAnchor:'middle',fontSize:13},n.label)))),React.createElement('button',{onClick:()=>onChange({nodes:[],edges:[]})},'Clear diagram'));
 }
 export function BrowserView({image,onEvent}){
- return React.createElement('div',{},image?.image?React.createElement('img',{src:'data:image/jpeg;base64,'+image.image,alt:'Your application browser',style:{width:'100%',border:'1px solid #ccc'},onClick:e=>{const r=e.currentTarget.getBoundingClientRect();onEvent({type:'click',x:(e.clientX-r.left)*image.width/r.width,y:(e.clientY-r.top)*image.height/r.height});}}):null,
- React.createElement('input',{type:'file',accept:'application/pdf','aria-label':'Upload PDF to selected browser control',onChange:async e=>{const file=e.currentTarget.files?.[0];if(!file)return;if(file.size>10000000){alert('Choose a PDF smaller than 10 MB.');return;}const raw=new Uint8Array(await file.arrayBuffer());let binary='';for(const byte of raw)binary+=String.fromCharCode(byte);onEvent({type:'file',name:file.name,content:btoa(binary)});}}),
- React.createElement('input',{'aria-label':'Type into selected browser field',placeholder:'Type into the selected field',onKeyDown:e=>{if(e.key==='Enter'){onEvent({type:'text',text:e.currentTarget.value});e.currentTarget.value='';}}}),
- ...['Tab','Enter','Backspace'].map(key=>React.createElement('button',{key,onClick:()=>onEvent({type:'key',key})},key)),React.createElement('button',{onClick:()=>onEvent({type:'scroll',dy:500})},'Scroll down'),React.createElement('button',{onClick:()=>onEvent({type:'snapshot'})},'Refresh browser'));
+ return React.createElement('div',{},image?.url?React.createElement('p',{},'Browser: '+image.url):null,image?.image?React.createElement('img',{src:'data:image/jpeg;base64,'+image.image,alt:'Your task browser',style:{width:'100%',border:'1px solid #ccc'},onClick:e=>{const r=e.currentTarget.getBoundingClientRect();onEvent({type:'click',x:(e.clientX-r.left)*image.width/r.width,y:(e.clientY-r.top)*image.height/r.height});}}):null,
+ !image?.private_login?React.createElement('input',{type:'file',accept:'application/pdf','aria-label':'Upload PDF to selected browser control',onChange:async e=>{const file=e.currentTarget.files?.[0];if(!file)return;if(file.size>10000000){alert('Choose a PDF smaller than 10 MB.');return;}const raw=new Uint8Array(await file.arrayBuffer());let binary='';for(const byte of raw)binary+=String.fromCharCode(byte);onEvent({type:'file',name:file.name,content:btoa(binary)});}}):null,
+ React.createElement('input',{type:image?.private_login?'password':'text',autoComplete:'off','aria-label':'Type into selected browser field',placeholder:'Type here, then press Enter to insert',onKeyDown:e=>{if(e.key==='Enter'){onEvent({type:'text',text:e.currentTarget.value});e.currentTarget.value='';}}}),
+ ...['Tab','Enter','Backspace'].map(key=>React.createElement('button',{key,onClick:()=>onEvent({type:'key',key})},key)),React.createElement('button',{onClick:()=>onEvent({type:'scroll',dy:500})},'Scroll down'),React.createElement('button',{onClick:()=>onEvent({type:'snapshot'})},'Refresh browser'),image?.private_login?React.createElement('button',{onClick:()=>onEvent({type:'reload'})},'Reload my profile'):null);
 }
 export function Recorder({onTranscript}){
  const [recording,setRecording]=useState(false),[message,setMessage]=useState('');const recognition=useRef();
@@ -96,4 +96,11 @@ export function LiveInterview({sessionId,onTranscript}){
   active?React.createElement('div',{},React.createElement('button',{onClick:interrupt},'Interrupt'),React.createElement('button',{onClick:answer,disabled:!listening},'Finish answer'),React.createElement('button',{onClick:()=>{resources.current?.socket.send(JSON.stringify({type:'end'}));stop();}},'End interview')):React.createElement('button',{onClick:start},'Start live interviewer'),React.createElement('p',{role:'status'},status));
 }
 
+// Refreshes agent progress while the tab is visible; the callback decides what is safe to replace.
+export function Poll({onTick,seconds=5}){
+ const callback=useRef(onTick);callback.current=onTick;
+ useEffect(()=>{const t=setInterval(()=>{if(document.visibilityState==='visible')callback.current();},seconds*1000);return()=>clearInterval(t);},[seconds]);
+ return null;
+}
+export function isoTime(value){const d=new Date(value);return value&&!isNaN(d)?d.toLocaleString():'Time not stated';}
 export function confirmAccountDelete(){return window.confirm('Delete your Stack account, applications, PDFs, and practice data? This cannot be undone. External submissions and messages cannot be recalled.');}

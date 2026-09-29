@@ -18,7 +18,7 @@ search_jobs get_job save_search reset_search import_job_url get_import_status so
 agent_settings agent_save_facts agent_save_policy agent_activity agent_run agent_cancel agent_respond
 agent_reconcile agent_contacts agent_save_contact agent_stop_contact agent_import_contacts agent_events agent_resolve_event
 agent_google_start agent_google_finish agent_disconnect agent_export agent_start agent_extract_resume
-agent_browser prep_live prep_progress prep_for_application prep_catalog prep_sessions prep_create prep_get prep_save account_export account_delete
+agent_browser agent_linkedin_profile agent_linkedin_start agent_features prep_live prep_progress prep_for_application prep_catalog prep_sessions prep_create prep_get prep_save account_export account_delete
 agent_register_push agent_remove_push agent_admission'''.split())
 IDENTITY = {'/user/register', '/user/login'}
 BASE = os.environ.get('STACK_WORKER_API', 'http://127.0.0.1:8000')
@@ -90,4 +90,4 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 if __name__ == '__main__':
-    ThreadingHTTPServer(('127.0.0.1', int(os.environ.get('STACK_GATEWAY_PORT', '8080'))), Handler).serve_forever()
+    ThreadingHTTPServer((os.environ.get('STACK_GATEWAY_BIND', '127.0.0.1'), int(os.environ.get('STACK_GATEWAY_PORT', '8080'))), Handler).serve_forever()

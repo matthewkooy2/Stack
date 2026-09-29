@@ -21,7 +21,8 @@ word, so the result could never get shorter or more focused, and page count was 
      - It finds the editable structure.
    - **Built-in template:** Jake's Resume or Classic (`agents/templates/`), filled from
      confirmed resume details (`agents/resume_templates.py`).
-   - **Default:** with no format chosen, Jake's Resume is filled from your confirmed details.
+   - **Neither:** a resume that is only a PDF is never tailored. **Tailor for this job** asks for
+     its LaTeX right there, then starts. A job uses its own resume, else the default resume.
 2. **Structure.** `agents/latex.py` finds, by source position:
    - sections: `\section`
    - entries: heading macros with `\item` in their definition, such as `\resumeSubheading`
@@ -70,6 +71,9 @@ compiling (`\pdfgentounicode`, `glyphtounicode`). The shim is never stored in yo
 - **XeTeX spacing can differ slightly from Overleaf's pdfLaTeX** for some fonts. Stack
   checks the page count against its own compile.
 - **The cover letter still uses the simple generated PDF.**
+- **Switching the phone preview with `./dev agent-experience` replaces this worktree's data with
+  mainworktree's**, which has no LaTeX support, so uploaded LaTeX must be added again. Start the
+  preview with `./scripts/dev` inside this worktree to keep its data.
 
 ## Verification
 
@@ -89,5 +93,14 @@ compiling (`\pdfgentounicode`, `glyphtounicode`). The shim is never stored in yo
   - the rebuilt final PDF
   - ownership checks
   - approval before **fill** in the application flow
+- `./scripts/e2e-tailoring` runs the real phone screens against an isolated API, agent worker, your
+  local Codex subscription (or `STACK_E2E_PROVIDER=claude-cli`), and Tectonic, on its own Postgres and
+  port 8300. It covers both paths:
+  - A job saved before any resume; the PDF-only resume is refused up front; LaTeX is added under
+    the job (a broken file shows the compile error); then tailor, review, and approve.
+  - A task whose resume lost its LaTeX after starting pauses as **Needs your LaTeX**. The LaTeX is
+    uploaded from the task, and it continues to a final one-page PDF.
+
+  It makes about three real model requests and takes several minutes.
 - `STACK_TEST_TAILOR_UI=1 node tests/native.cjs` covers the phone review: reject and keep
   kept through refresh, approval sending the rejections, and the final result with LaTeX.

@@ -140,9 +140,14 @@ class Proposals(unittest.TestCase):
         plan, _, _ = tailoring.check(self.structure, {**data, 'rewrites': data['rewrites'][2:3]}, [{'key': 'resume.x', 'value': 'Wrote 90K lines', 'verified': True}])
         self.assertIn('s1.e2.b2', plan['rewrites'])
 
-    def test_unknown_ids_are_rejected(self):
-        with self.assertRaises(ValueError):
-            tailoring.check(self.structure, {'ranking': ['s9.e9.b9']}, [])
+    def test_unknown_ranking_ids_are_dropped(self):
+        first = self.structure['bullets'][0]['id']
+        plan, changes, _ = tailoring.check(self.structure, {'ranking': ['s9.e9.b9', first, self.structure['lines'][0]['id']]}, [])
+        self.assertEqual(plan['ranking'][0], first)
+        self.assertEqual(set(plan['ranking']), {b['id'] for b in self.structure['bullets']})
+        plan, _, notes = tailoring.check(self.structure, {'rewrites': [{'id': 's9.e9.b9', 'text': 'Invented'}]}, [])
+        self.assertEqual(plan['rewrites'], {})
+        self.assertIn('Ignored a rewrite for an unknown item.', notes)
 
     def test_rejected_changes_are_removed(self):
         plan = {'rewrites': {'a': 'x', 'b': 'y'}, 'omit': ['c'], 'entry_order': {'s1': []}, 'bullet_order': {'s1.e0': []}, 'ranking': []}

@@ -8,6 +8,7 @@ import socket
 import subprocess
 import sys
 import time
+from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parent.parent
 MOBILE = ROOT / '.jac/mobile-rn'
@@ -46,10 +47,34 @@ def compile_mobile():
 def snapshot(paths):
     return {str(p):p.stat().st_mtime_ns for parent in paths for p in parent.rglob('*') if p.is_file() and p.suffix in ('.jac','.js','.py','.json')}
 
+def configure_browser_preview(host):
+    """Regenerate local service settings after every main-account refresh."""
+    os.environ['STACK_BROWSER_URL']='http://127.0.0.1:8011'
+    os.environ['STACK_BROWSER_TOKEN']=secrets.token_urlsafe(48)
+    path=ROOT/'storage/agents/config.json'
+    config=json.loads(path.read_text())
+    config['web_url']=f'http://{host}:8080'
+    path.write_text(json.dumps(config,indent=2)+'\n');path.chmod(0o600)
+    return config['web_url']
+
+def wait_for_service(process, url, token=''):
+    for _ in range(60):
+        if process.poll() is not None:
+            raise RuntimeError('A preview service failed to start. Inspect .jac/logs/browser.log or workspace.log.')
+        try:
+            request=Request(url,headers={'Authorization':'Bearer '+token} if token else {})
+            with urlopen(request,timeout=1) as response:
+                if response.status==200 and (not token or json.load(response).get('ready')):
+                    return
+        except (OSError,ValueError):
+            pass
+        time.sleep(0.5)
+    raise RuntimeError('A preview service did not become ready. Inspect .jac/logs.')
+
 def main():
     if not (MOBILE/'node_modules').exists():
         raise SystemExit('Run ./scripts/setup first.')
-    for port in (8000,8081):
+    for port in (8000,8081,8011,8080):
         with socket.socket() as probe:
             if probe.connect_ex(('127.0.0.1',port)) == 0:
                 raise SystemExit(f'Port {port} is already in use. Stop the existing Stack process before restarting.')
@@ -66,6 +91,7 @@ def main():
     if not agent_token.exists():agent_token.write_text(secrets.token_urlsafe(48));agent_token.chmod(0o600)
     host=host_address()
     api=f'http://{host}:8000'
+    web=configure_browser_preview(host)
     write_host(host)
     compile_mobile()
     # Jac's generated entry imports this file; the compiler may recreate its stub.
@@ -85,6 +111,12 @@ def main():
     def interrupted(*_):raise KeyboardInterrupt
     signal.signal(signal.SIGTERM,interrupted)
     try:
+        browser=start([sys.executable,'scripts/browser-preview.py','run'],ROOT,'browser.log')
+        wait_for_service(browser,os.environ['STACK_BROWSER_URL']+'/health',os.environ['STACK_BROWSER_TOKEN'])
+        gateway_env={**os.environ,'STACK_GATEWAY_BIND':'0.0.0.0'}
+        workspace=start([sys.executable,'-m','agents.gateway'],ROOT,'workspace.log',gateway_env)
+        wait_for_service(workspace,'http://127.0.0.1:8080/')
+        print(f'LinkedIn browser ready. Sign-in workspace: {web}',flush=True)
         backend=start([JAC,'run','--no-client','--port','8000','Stack'],ROOT,'api.log')
         worker=start([JAC,'run','--no-serve','scripts/discovery-worker.jac'],ROOT,'discovery.log')
         agent_worker=start([JAC,'run','--no-serve','scripts/agent-worker.jac'],ROOT,'agents.log')
@@ -96,7 +128,7 @@ def main():
         backend_time=(ROOT/'main.jac').stat().st_mtime_ns
         while True:
             time.sleep(1)
-            if backend.poll() is not None or metro.poll() is not None or worker.poll() is not None or agent_worker.poll() is not None:
+            if any(p.poll() is not None for p in (backend,metro,worker,agent_worker,browser,workspace)):
                 raise RuntimeError('A development server stopped. Inspect .jac/logs.')
             if time.monotonic()-network_check>=5:
                 address=wifi_address();network_check=time.monotonic()

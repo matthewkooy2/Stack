@@ -14,27 +14,36 @@ import from uuid { uuid4 }
 import from pathlib { Path }
 import from io { BytesIO }
 import importlib;
+import logging;
+import agents.worker as browser_worker;
 import from core.fixtures { JOBS, PEOPLE }
 import from core.agents { _demo_status }
 import from core.automation {
     AgentMemory, AgentNotification, AgentPushDevice, AgentTicket, AgentRun, AgentContact, AgentConnection, AgentEvent, AgentAdmission, AgentInterview, PrepSession,
-    _agent_access, _agent_memory, _agent_summary, _agent_start, _agent_fresh, _agent_system, _agent_owner, _owned_run,
+    _agent_access, _agent_memory, _agent_summary, _agent_start, _agent_fresh, _agent_system, _agent_owner, _owned_run, _run_view,
     agent_settings, agent_report, agent_admission, agent_register_push, agent_remove_push, agent_notification_claim, agent_notification_finish, agent_save_facts, agent_save_policy, agent_activity, agent_run, agent_cancel, agent_respond, agent_reconcile,
-    agent_contacts, agent_save_contact, agent_stop_contact, agent_import_contacts, agent_events, agent_claim, agent_authorize, _agent_complete, agent_worker_connection,
+    agent_contacts, agent_save_contact, agent_stop_contact, agent_import_contacts, agent_events, agent_claim, agent_authorize, _agent_complete, agent_worker_connection, agent_approve, agent_retry, agent_dismiss,
     agent_invite, agent_accept_invite, agent_google_start, agent_google_finish, agent_disconnect, agent_export,
     prep_progress, prep_live, agent_live_claim, agent_live_check, agent_live_finish, prep_catalog, prep_sessions, prep_create, prep_get, prep_save
 }
-import from agents.contracts { authorize, config, digest }
+import from agents.contracts { authorize, config, digest, model_status, model_access, validate_facts }
+import from agents.resume_parser { parse_pdf, sections as resume_sections, validate_values, confirmed_facts }
+import from agents.linkedin { profile_url }
+import from agents.voice { voice_settings }
 import from agents.prep { problem, validate_session }
 import from agents.study { plan as study_plan }
+import from agents.experience { feature_status }
+import from agents.google { SCOPES }
+import os;
 
 node Profile {
+    has linkedin_url: str = "";
     has name: str = "", role: str = "", location: str = "United States", mode: str = "Any", onboarded: bool = False, notifications: bool = True;
 }
 node Decision { has job_id: str, action: str; }
 node Application { has job_id: str, created_at: float, status: str = "", notes: str = "", resume_id: str = "", demo: bool = True, snapshot: dict[str, any] = {}, status_at: float = 0.0, history: list[dict[str, any]] = []; }
 node Contact { has person_id: str, saved: bool = False, draft: str = "", notes: str = ""; }
-node Resume { has name: str, file_key: str, size: int, created_at: float; }
+node Resume { has name: str, file_key: str, size: int, created_at: float, review: dict[str, any] = {}, review_revision: int = 0, review_confirmed: bool = False; }
 node Reminder { has target_type: str, target_id: str, title: str, due_at: float, done: bool = False; }
 node Settings { has selected_resume: str = ""; }
 
@@ -95,16 +104,16 @@ def:priv bootstrap() -> dict[str, any] {
     p = _profile();
     return {
       "user_id":jid(root),
-      "profile":{"name":p.name,"role":p.role,"location":p.location,"mode":p.mode,"onboarded":p.onboarded,"notifications":p.notifications,**_timeline_preferences(),"preferences":_match_preferences()},
+      "profile":{"name":p.name,"role":p.role,"linkedin_url":p.linkedin_url,"location":p.location,"mode":p.mode,"onboarded":p.onboarded,"notifications":p.notifications,**_timeline_preferences(),"preferences":_match_preferences()},
       "jobs":[_application_job(a) for a in [root -->][?:Application]],
       "saved_search":_saved_search(),
       "decisions":[{"job_id":d.job_id,"action":d.action} for d in [root -->][?:Decision]],
       "applications":[_app_view(a) for a in [root -->][?:Application]],
       "people":PEOPLE,
       "contacts":[{"id":jid(c),"person_id":c.person_id,"saved":c.saved,"draft":c.draft,"notes":c.notes} for c in [root -->][?:Contact]],
-      "resumes":[{"id":jid(r),"name":r.name,"size":r.size,"created_at":r.created_at} for r in [root -->][?:Resume]],
+      "resumes":[{"id":jid(r),"name":r.name,"size":r.size,"created_at":r.created_at,"details_status":"Confirmed" if r.review_confirmed else "Needs review" if r.review else "Not parsed"} for r in [root -->][?:Resume]],
       "selected_resume":_settings().selected_resume,
-      "agents":_agent_summary(),
+      "agents":{**_agent_summary(),"features":_features()},
       "reminders":[{"id":jid(r),"target_type":r.target_type,"target_id":r.target_id,"title":r.title,"due_at":r.due_at,"done":r.done} for r in [root -->][?:Reminder]]
     };
 }
@@ -136,6 +145,8 @@ def:priv save_timeline(graduation_month: str, available_from: str = "") -> dict[
     with _write_lock { _refresh_transaction(); _save_timeline(graduation_month,available_from); commit(); }
     return bootstrap();
 }
+"""Save or pass a job. `start_agent` is accepted from older clients and ignored:
+a right swipe only saves; agent help is offered afterwards and starts on request."""
 def:priv swipe(job_id: str, action: str, start_agent: bool = False) -> dict[str, any] {
     with _write_lock {
         _refresh_transaction();
@@ -146,8 +157,7 @@ def:priv swipe(job_id: str, action: str, start_agent: bool = False) -> dict[str,
         for d in [root -->][?:Decision] { if d.job_id == job_id { return bootstrap(); } }
         root ++> Decision(job_id=job_id, action=action);
         if action == "apply" {
-            a=root ++> Application(job_id=job_id,created_at=time.time(),resume_id=_settings().selected_resume,demo=demo,status="" if demo else "Ready to apply",snapshot=job);
-            if start_agent and not demo and _agent_memory().policy.get("enabled") { _agent_start("application",jid(a),_application_agent_context(a)); }
+            root ++> Application(job_id=job_id,created_at=time.time(),resume_id=_settings().selected_resume,demo=demo,status="" if demo else "Ready to apply",snapshot=job);
         }
         commit();
         return bootstrap();
@@ -199,7 +209,7 @@ def:priv read_resume(id: str) -> dict[str, any] {
     r = _owned_resume(id); if r is None { return _error("Resume not found."); }
     path = _file_path(r.file_key);
     if not path.exists() { return _error("This file is unavailable. Please upload it again."); }
-    return {"name":r.name,"content":base64.b64encode(path.read_bytes()).decode()};
+    return {"name":r.name,"content":base64.b64encode(path.read_bytes()).decode(),"review":_resume_review(r) if r.review else {}};
 }
 def:priv change_resume(id: str, action: str, name: str = "") -> dict[str, any] {
     r = _owned_resume(id); if r is None { return _error("Resume not found."); }
@@ -285,23 +295,98 @@ def:priv agent_start(kind: str, target_id: str) -> dict[str, any] {
     }
     return {"error":"This agent target was not found or is unavailable."};
 }
+def:priv agent_linkedin_profile(url: str = "") -> dict[str, any] {
+    _agent_access();
+    if url {
+        try { url=profile_url(url); } except ValueError as e { return _error(str(e)); }
+    }
+    with _write_lock {
+        _agent_fresh();p=_profile();
+        if url { p.linkedin_url=url; }
+        elif not p.linkedin_url {
+            for r in [root --> [?:AgentRun, -created_at]] {
+                if r.kind=="linkedin" and r.context.get("linkedin_url") {
+                    p.linkedin_url=profile_url(r.context["linkedin_url"]);break;
+                }
+            }
+        }
+        commit();return {"url":p.linkedin_url};
+    }
+}
+
+def:priv agent_linkedin_start(url: str = "", target_role: str = "") -> dict[str, any] {
+    _agent_access();
+    try {
+        url=profile_url(url or agent_linkedin_profile()["url"]);target_role=target_role.strip() or _profile().role;
+        if len(target_role)>200 { return _error("Keep the target role under 200 characters."); }
+        authorize(_agent_memory().policy,"model");model_access(config(),jid(root));
+        if not os.environ.get("STACK_BROWSER_URL","") or not os.environ.get("STACK_BROWSER_TOKEN","") { return _error("LinkedIn review needs the isolated browser worker. Configure it before starting."); }
+    } except ValueError as e { return _error(str(e)); }
+    with _write_lock {
+        _agent_fresh();
+        _profile().linkedin_url=url;commit();
+        for r in [root -->][?:AgentRun] {
+            if r.kind=="linkedin" and r.status not in ["completed","cancelled","failed"] and r.context.get("linkedin_url")==url and r.context.get("target_role")==target_role { return _run_view(r,True); }
+        }
+        p=_profile();
+        return _agent_start("linkedin","self",{"linkedin_url":url,"target_role":target_role or p.role,"profile":{"name":p.name}},str(uuid4()));
+    }
+}
 def:priv agent_extract_resume(id: str) -> dict[str, any] {
     _agent_access();r=_owned_resume(id);
     if r is None { return {"error":"Resume not found."}; }
+    if r.review { return _resume_review(r); }
     try {
-        pdf=importlib.import_module("pypdf").PdfReader(_file_path(r.file_key));
-        text="\n".join([page.extract_text() or "" for page in pdf.pages]);
-        lines=[line.strip() for line in text.splitlines() if line.strip()];
-        if not lines { return {"error":"No readable text. Upload a text PDF or enter your facts."}; }
-        values=[{"key":"resume."+id+"."+str(i),"resume_id":id,"value":line,"source":r.name+" ("+id+")","verified":False} for (i,line) in enumerate(lines[:200])];
-        return agent_save_facts(values);
-    } except Exception { return {"error":"This resume could not be extracted."}; }
+        parsed=parse_pdf(_file_path(r.file_key));
+    } except ValueError as e { return _error(str(e)); }
+    with _write_lock {
+        _agent_fresh();r=_owned_resume(id);
+        if r is None { return _error("Resume not found."); }
+        if not r.review { r.review=parsed;r.review_revision+=1;commit(); }
+        return _resume_review(r);
+    }
+}
+def _resume_review(r: Resume) -> dict[str, any] {
+    return {"id":jid(r),"name":r.name,"revision":r.review_revision,"confirmed":r.review_confirmed,"sections":resume_sections(r.review.get("values",{})),"text":r.review.get("text",""),"parser":r.review.get("parser",""),"warnings":["OpenResume works best with single-column English resumes. Missing or misclassified details need review."]};
+}
+def:priv resume_save_details(id: str, revision: int, values: dict[str, any], confirm: bool = False) -> dict[str, any] {
+    _agent_access();confirm=confirm is True;
+    try {
+        clean=validate_values(values);
+        if confirm and not any(v for v in clean.values()) { return _error("Enter at least one resume detail before confirming."); }
+    } except ValueError as e { return _error(str(e)); }
+    with _write_lock {
+        _agent_fresh();r=_owned_resume(id);
+        if r is None { return _error("Resume not found."); }
+        if revision!=r.review_revision or not r.review { return _error("Resume details changed. Close and reopen the review before saving."); }
+        try { facts=validate_facts([{**f,"verified":confirm} for f in confirmed_facts(id,r.name,clean)]); }
+        except ValueError as e { return _error(str(e)); }
+        memory=_agent_memory();memory.facts=[f for f in memory.facts if f.get("resume_id")!=id]+facts;memory.revision+=1;
+        r.review={**r.review,"values":clean};r.review_confirmed=confirm;r.review_revision+=1;commit();
+        return _resume_review(r);
+    }
 }
 def:priv agent_browser(id: str, event: dict[str, any]) -> dict[str, any] {
     _agent_access();r=_owned_run(id);
-    if r is None or r.kind!="application" or r.status not in ["needs_input","blocked","uncertain"] { return {"error":"This application is not awaiting browser handoff."}; }
-    try { return importlib.import_module("agents.worker").browser_call("handoff",{"owner":jid(root),"id":id,"event":event}); }
-    except Exception { return {"error":"The browser worker is unavailable or this session expired."}; }
+    if r is None or r.kind not in ["application","linkedin"] { return {"error":"This task has no browser session."}; }
+    if r.kind=="linkedin" and r.index!=0 { return {"error":"Profile capture has finished. Start a new review to open LinkedIn again."}; }
+    watching=r.kind=="linkedin" and event.get("type","snapshot")=="snapshot" and r.status in ["queued","waiting","running","needs_input","blocked"];
+    if not watching and r.status not in ["needs_input","blocked","uncertain","review"] { return {"error":"The agent is working. Browser controls become available when it pauses for you."}; }
+    try {
+        identity={"owner":jid(root),"id":id};
+        if r.kind=="linkedin" and event.get("type")=="reopen" {
+            browser_worker.browser_call("close",identity);
+            browser_worker.browser_call("linkedin_scan",{**identity,"context":{"linkedin_url":r.context["linkedin_url"]}});
+            return browser_worker.browser_call("frame",identity);
+        }
+        result=browser_worker.browser_call("frame" if watching else "handoff",{**identity,"event":event});
+        if watching and result.get("pending") and r.status in ["needs_input","blocked"] { return {"expired":True}; }
+        return result;
+    }
+    except Exception {
+        logging.getLogger("stack.browser").exception("Browser request failed");
+        return {"error":"Stack could not connect to the agent browser. Try Refresh browser."};
+    }
 }
 def:pub agent_finish(token: str, id: str, owner: str, lease: str, result: dict[str, any]) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
@@ -315,7 +400,7 @@ def:pub agent_finish(token: str, id: str, owner: str, lease: str, result: dict[s
     }
 }
 def _notify_agent(r: AgentRun) -> None {
-    if r.status not in ["needs_input","failed","uncertain"] and not (r.kind=="calendar" and r.status=="completed") { return; }
+    if r.status not in ["needs_input","failed","uncertain","review","blocked"] and not (r.kind=="calendar" and r.status=="completed") { return; }
     if not _profile().notifications { return; }
     key=digest([jid(r),r.status,r.index]);
     if not [n for n in [root -->][?:AgentNotification] if n.key==key] { root ++> AgentNotification(key=key,run_id=jid(r)); }
@@ -431,6 +516,28 @@ def:pub agent_schedule(token: str, wake_key: str = "") -> dict[str, any] {
 }
 
 
+def _features() -> list[dict[str, any]] {
+    m=_agent_memory();c=config();scopes=[];
+    for connection in [root -->][?:AgentConnection] {
+        if connection.provider=="google" and connection.state=="connected" { scopes=[k for (k,v) in SCOPES.items() if v in connection.scopes]; }
+    }
+    try { voice_settings();voice_error=""; } except ValueError as e { voice_error=str(e); }
+    if not voice_error and not (c["monthly_cents"]>0 and c["user_monthly_cents"]>0) { voice_error="Live interviews need an API budget; subscription providers cannot run them."; }
+    facts=m.facts;real=[a for a in [root -->][?:Application] if not a.demo];
+    return feature_status({
+        "now":time.time(),"policy":m.policy,"model":model_status(jid(root)),"google_scopes":scopes,
+        "google_client":bool(os.environ.get("GOOGLE_CLIENT_ID","")) and os.environ.get("GOOGLE_REDIRECT_URI","").startswith("https://"),
+        "browser":bool(os.environ.get("STACK_BROWSER_URL","")) and bool(os.environ.get("STACK_BROWSER_TOKEN","")),
+        "sandbox":bool(os.environ.get("STACK_SANDBOX_URL","")) or c["sandbox_available"],"voice_error":voice_error,"web_url":c["web_url"],
+        "certified_adapters":c["certified_adapters"],"operator_limits":c["action_daily_limits"],
+        "resumes":len([root -->][?:Resume]),"applications":len(real),
+        "resume_facts":len([f for f in facts if f.get("verified") and str(f["key"]).startswith("resume.")]),
+        "verified_facts":len([f for f in facts if f.get("verified")]),
+        "contacts_selected":len([x for x in [root -->][?:AgentContact] if x.data.get("selected") and not x.data.get("stopped")])
+    });
+}
+def:priv agent_features() -> dict[str, any] { _agent_access();return {"features":_features()}; }
+
 def:priv account_export() -> dict[str, any] {
     _agent_access();return {"account":bootstrap(),"agents":agent_export(),"resumes":[read_resume(jid(r)) for r in [root -->][?:Resume]]};
 }
@@ -449,7 +556,7 @@ def:priv account_delete(username: str, password: str) -> dict[str, any] {
                 try { __import__("agents.google",fromlist=["revoke"]).revoke(__import__("agents.security",fromlist=["unseal"]).unseal(c.sealed)); } except Exception { cleanup_failed=True; }
             }
         }
-        try { importlib.import_module("agents.worker").browser_call("purge",{"owner":owner}); } except Exception { cleanup_failed=True; }
+        try { browser_worker.browser_call("purge",{"owner":owner}); } except Exception { cleanup_failed=True; }
         for r in [root -->][?:Resume] { _file_path(r.file_key).unlink(missing_ok=True); }
         for n in [root -->] { if jid(n)!=jid(m) { del n; } }
         commit();manager.delete_user(user["user_id"]);return {"deleted":True};

@@ -1,0 +1,6 @@
+#!/bin/sh
+set -eu
+STACK_PREVIEW_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$STACK_PREVIEW_ROOT"
+python3 scripts/browser-preview.py prepare
+./scripts/jac build --as client workspace

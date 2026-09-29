@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import time
+import threading
 from pathlib import Path
 from urllib.parse import urlsplit
 from agents.contracts import adapter_for, answers, digest
@@ -30,6 +31,25 @@ def field_key(field):
     return common.get(label, 'answer:' + hashlib.sha256(label.encode()).hexdigest()[:24])
 
 
+class BrowserFrames:
+    """Latest live frame only, in memory, scoped to the account and task."""
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.values = {}
+
+    def put(self, key, frame):
+        with self.lock:
+            self.values[key] = frame
+
+    def get(self, key):
+        with self.lock:
+            return self.values.get(key, {'pending': True})
+
+    def remove(self, key):
+        with self.lock:
+            self.values.pop(key, None)
+
+
 class BrowserPool:
     def __init__(self):
         from playwright.sync_api import sync_playwright
@@ -37,6 +57,20 @@ class BrowserPool:
         # Browser host is a dedicated container with no API/database/model credentials.
         self.browser = self.driver.chromium.launch(headless=True, chromium_sandbox=True)
         self.sessions = {}
+        self.frames = BrowserFrames()
+
+    def publish(self, owner, run):
+        value = self.sessions[(owner, run)]
+        page = value['page']
+        viewport = page.viewport_size or {'width': 1100, 'height': 800}
+        # URL query parameters and fragments can contain sign-in state.
+        url = urlsplit(page.url)
+        frame = {'image': base64.b64encode(page.screenshot(type='jpeg', quality=65)).decode(),
+                 **viewport, 'url': url._replace(query='', fragment='').geturl(),
+                 'private_login': value.get('adapter') == 'linkedin', 'captured_at': time.time(),
+                 'progress': value.get('progress', '')}
+        self.frames.put((owner, run), frame)
+        return frame
 
     def session(self, owner, run, url, create=True):
         key = (owner, run)
@@ -101,8 +135,10 @@ class BrowserPool:
             path.unlink(missing_ok=True);return {}
 
     def checkpoint(self, owner, run):
-        from cryptography.fernet import Fernet
         value = self.sessions[(owner, run)]
+        if value.get('adapter') == 'linkedin':
+            return  # LinkedIn credentials and page input values are never checkpointed.
+        from cryptography.fernet import Fernet
         fields = [f for f in value['page'].evaluate(FIELDS_JS) if f['type'] != 'password']
         payload = {'storage': value['context'].storage_state(), 'fields': fields}
         path = self.path(owner, run);path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -110,10 +146,21 @@ class BrowserPool:
         temporary.write_bytes(Fernet(os.environ['STACK_BROWSER_SESSION_KEY'].encode()).encrypt(json.dumps(payload).encode()))
         temporary.chmod(0o600);temporary.replace(path)
 
+    def close(self, owner, run):
+        self.frames.remove((owner, run))
+        value = self.sessions.pop((owner, run), None)
+        if value:
+            value['context'].close()
+        return {'closed': True}
+
+    def linkedin_scan(self, owner, run, context):
+        from agents.linkedin import scan
+        return scan(self, owner, run, context)
+
     def purge(self, owner):
         for key in list(self.sessions):
             if key[0] == owner:
-                self.sessions.pop(key)['context'].close()
+                self.close(*key)
         directory = self.path(owner, '').parent
         if directory.exists():
             for path in directory.glob('*.enc'): path.unlink()
@@ -224,12 +271,19 @@ class BrowserPool:
         kind = event.get('type', 'snapshot')
         if kind == 'click':
             x, y = event.get('x', -1), event.get('y', -1)
-            if not 0 <= x <= 1100 or not 0 <= y <= 800:
+            viewport = page.viewport_size or {'width': 1100, 'height': 800}
+            if not 0 <= x < viewport['width'] or not 0 <= y < viewport['height']:
                 raise ValueError('Click is outside the browser viewport.')
             page.mouse.click(x, y)
+        elif kind == 'reload' and value.get('adapter') == 'linkedin':
+            page.goto(value['url'], wait_until='domcontentloaded', timeout=30000)
+        elif kind == 'login' and value.get('adapter') == 'linkedin':
+            page.goto('https://www.linkedin.com/login', wait_until='domcontentloaded', timeout=30000)
         elif kind == 'text':
             page.keyboard.insert_text(str(event.get('text', ''))[:8000])
         elif kind == 'file':
+            if value.get('adapter') == 'linkedin':
+                raise ValueError('Profile review does not upload files.')
             chooser = value.pop('chooser', None)
             if not chooser:
                 raise ValueError('Select the upload control in your browser first.')
@@ -245,9 +299,10 @@ class BrowserPool:
             raise ValueError('Unknown browser input.')
         value['touched'] = time.time()
         self.checkpoint(owner, run)
-        return {'image': base64.b64encode(page.screenshot(type='jpeg', quality=70)).decode(), 'width': 1100, 'height': 800, 'url': page.url}
+        return self.publish(owner, run)
 
     def expire(self):
         for key, value in list(self.sessions.items()):
             if value['touched'] < time.time() - 3600:
                 value['context'].close(); del self.sessions[key]
+                self.frames.remove(key)

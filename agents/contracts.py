@@ -8,6 +8,7 @@ import time
 from typing import Any
 from pathlib import Path
 from urllib.parse import urlsplit
+from uuid import UUID
 
 VERSION = 1
 CLI_PROVIDERS = {'codex-cli', 'claude-cli'}
@@ -15,9 +16,10 @@ PROVIDERS = CLI_PROVIDERS | {'openai', 'meta'}
 STEPS = {
     'live': ['interview'], 'jobs': ['fit'], 'resume': ['tailor'],
     'application': ['inspect', 'fit', 'tailor', 'fill', 'submit'],
+    'linkedin': ['linkedin_scan', 'linkedin_review'],
     'network': ['research', 'draft', 'send'], 'profile': ['profile'], 'prep': ['coach'], 'sync': ['sync'], 'code': ['execute'], 'calendar': ['calendar'],
 }
-PAID = {'fit', 'tailor', 'draft', 'coach', 'profile'}
+PAID = {'fit', 'tailor', 'draft', 'coach', 'profile', 'linkedin_review'}
 EXTERNAL = {'fill': 'browser_fill', 'submit': 'submit_application',
             'send': 'send_email', 'calendar': 'calendar_write'}
 TERMINAL = {'completed', 'cancelled', 'failed'}
@@ -47,14 +49,24 @@ def config() -> dict[str, Any]:
         'action_daily_limits': raw.get('action_daily_limits', {}),
         'invite_only': bool(raw.get('invite_only', False)),
         'web_url': str(raw.get('web_url', '')),
+        # The sandbox runs on a separate host the API cannot probe; the operator declares it.
+        'sandbox_available': raw.get('sandbox_available') is True,
     }
+
+
+def account_key(value: str) -> str:
+    # Jac jid() uses UUID hex; operator tools may save the hyphenated form.
+    try:
+        return UUID(value).hex
+    except ValueError:
+        return value
 
 
 def model_access(c: dict[str, Any], owner: str) -> None:
     if c['provider'] not in PROVIDERS:
         raise ValueError('Choose a supported model provider.')
     if c['provider'] in CLI_PROVIDERS:
-        if not owner or c['local_cli_owner'] != owner:
+        if not owner or account_key(c['local_cli_owner']) != account_key(owner):
             raise ValueError('The operator must connect this Stack account to the local CLI subscription.')
         if not 1 <= c['local_cli_daily_limit'] <= 100:
             raise ValueError('Set a local CLI daily request limit between 1 and 100.')

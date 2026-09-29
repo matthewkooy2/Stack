@@ -3,9 +3,11 @@ import from "./device.js" { Icon, authenticate, restoreSession, rpc, signOut, er
 import from .theme { s }
 import from .components.UI { Button, Field, Chip, Empty, Logo }
 import from .components.Prep { Prep }
-import from .components.Agents { AgentHub, AgentLaunch }
+import from .components.Agents { AgentHub, AgentLaunch, AgentBadge, ResumeAgents, runsFor, statusLabel }
+import from .components.Network { NetworkAgent }
 import from .components.Discovery { Discovery }
 import from .components.MatchInputs { MatchInputs }
+import from .components.ResumeReview { ResumeReview }
 
 def _find(items: list[dict[str, any]], id: str) -> dict[str, any] {
     for item in items { if item["id"]==id { return item; } }
@@ -29,7 +31,8 @@ def:pub app -> JsxElement {
         pendingSwipes: int = 0, revision: int = 0, signup: bool = True, username: str = "", password: str = "", invite: str = "", error: str = "", notice: str = "",
         state: dict[str, any] = {}, tab: str = "Jobs", modal: str = "", selected: str = "", applicationFilter: str = "All", networkFilter: str = "Discover",
         name: str = "", role: str = "", location: str = "United States", mode: str = "Any", notifications: bool = True, graduation: str = "", availableFrom: str = "", prefs: dict[str, any] = {}, profileRevision: int = 0,
-        notes: str = "", draft: str = "", rename: str = "", pdfUri: str = "", reminderId: str = "", reminderTitle: str = "", reminderDue: float = 0.0, targetType: str = "", targetId: str = "", returnModal: str = "", pendingOpen: dict[str, any] = {};
+        notes: str = "", draft: str = "", rename: str = "", pdfUri: str = "", reminderId: str = "", reminderTitle: str = "", reminderDue: float = 0.0, targetType: str = "", targetId: str = "", returnModal: str = "", pendingOpen: dict[str, any] = {},
+        hubPage: str = "Needs you", hubTask: str = "", hubOpenings: int = 0, savedJob: str = "";
 
     def profileFields -> None {
         p=state["profile"]; name=p["name"]; role=p["role"]; location=p["location"]; mode=p["mode"]; notifications=p["notifications"];graduation=p.get("graduation_month","");availableFrom=p.get("available_from","");prefs=_preferenceForm(p);
@@ -51,8 +54,21 @@ def:pub app -> JsxElement {
             notes=c["notes"]; draft=c["draft"]; tab="Network"; modal="Contact";
         }
     }
+    def openAgents(page: str, task: str = "") -> None {
+        hubPage=page;hubTask=task;hubOpenings+=1;returnModal="";modal="Agents";error="";notice="";
+    }
+    def openTask(id: str) -> None { openAgents("Activity",id); }
+    """Route a setup or result action to the tab or Agents page that handles it."""
+    def navigate(action: str) -> None {
+        if action=="resume-details" and len(state["resumes"])>0 { selected=state["selected_resume"] or state["resumes"][0]["id"];modal="Resume details";return; }
+        destinations={"resume":"Resume","jobs":"Jobs","applications":"Applications","contacts":"Network","prep":"Prep"};
+        if destinations.get(action,"") { modal="";tab=destinations[action];return; }
+        if action=="facts" { openAgents("Facts");return; }
+        if action=="features" { openAgents("Features");return; }
+        openAgents("Rules");
+    }
     def notificationOpen(data: dict[str, any]) -> None {
-        if logged and data.get("user_id")==state.get("user_id") and data.get("target_type")=="agent" { modal="Agents";return; }
+        if logged and data.get("user_id")==state.get("user_id") and data.get("target_type")=="agent" { openAgents("Needs you",data.get("target_id","") or "");return; }
         if not logged or len(state)==0 { pendingOpen=data; return; }
         if data["user_id"]==state["user_id"] { openRecord(data["target_type"],data["target_id"]); }
         pendingOpen={};
@@ -105,15 +121,15 @@ def:pub app -> JsxElement {
     }
     async def trackJob(job_id: str, action: str) -> None {
         revision+=1;pendingSwipes+=1;
-        try { state=await persistSwipe(job_id,action,state.get("agents",{}).get("enabled",False)); }
+        # A right swipe only saves. Agent help is offered on the confirmation card and starts on request.
+        try { state=await persistSwipe(job_id,action,False);if action=="apply" { savedJob=job_id; } }
         finally { pendingSwipes-=1; }
     }
     async def openApplication(url: str) -> None {
         try { await openJobLink(url); } except Exception as e { error=errorText(e); }
     }
     async def extractFacts(id: str) -> None {
-        try { result=await rpc("agent_extract_resume",{"id":id});notice="Resume text extracted. Review and confirm it in Agent activity → Facts."; }
-        except Exception as e { error=errorText(e); }
+        selected=id;modal="Resume details";error="";notice="";
     }
     async def upload -> None {
         if busy { return; } revision=revision+1; busy=True; error="";
@@ -170,9 +186,15 @@ def:pub app -> JsxElement {
                 <Button label="Find my next chapter" onPress={saveProfile} disabled={busy} icon="next"/>
             </ScrollView> if not state["profile"]["onboarded"] else (
             <View style={{flex:1}}>
-                <View style={[s.between,{paddingHorizontal:24,paddingTop:13,paddingBottom:12}]}><View style={s.row}><Icon name="layers" size={26} color="#3765E8"/><Text style={s.brand}>stack</Text></View><Pressable accessibilityLabel="Open profile" style={[s.avatar,{width:38,height:38,borderRadius:13,backgroundColor:"#E9EFFC"}]} onPress={lambda { modal="Profile"; error=""; }}><Text style={[s.avatarText,{fontSize:14}]}>{state["profile"]["name"][0:1].upper()}</Text></Pressable></View>
+                <View style={[s.between,{paddingHorizontal:24,paddingTop:13,paddingBottom:12}]}><View style={s.row}><Icon name="layers" size={26} color="#3765E8"/><Text style={s.brand}>stack</Text></View><View style={s.row}><AgentBadge summary={state.get("agents",{})} onPress={lambda { openAgents("Needs you" if state.get("agents",{}).get("attention",0)>0 else "Activity"); }}/><Pressable accessibilityLabel="Open profile" style={[s.avatar,{width:38,height:38,borderRadius:13,backgroundColor:"#E9EFFC"}]} onPress={lambda { modal="Profile"; error=""; }}><Text style={[s.avatarText,{fontSize:14}]}>{state["profile"]["name"][0:1].upper()}</Text></Pressable></View></View>
                 <ScrollView style={s.grow} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-                    <Button label={"Agent activity"+(" · "+str(state.get("agents",{}).get("needs_input",0))+" need you" if state.get("agents",{}).get("needs_input",0)>0 else "")} icon="sparkles" secondary={True} onPress={lambda { modal="Agents"; }}/>
+                    {[<View key={"saved-"+a["id"]} style={s.savedCard} accessibilityLiveRegion="polite">
+                        <View style={s.row}><Icon name="done" color="#167867"/><Text style={[s.heading,{flex:1}]}>Saved to Applications</Text></View>
+                        <Text style={s.body}>{a["job"]["title"]+" · "+a["job"]["company"]}</Text>
+                        <Text style={s.small}>{"Sample job. Agents work on real saved jobs." if a["demo"] else "Nothing was sent to the employer. Want agent help? It is optional, and anything outbound waits for your approval."}</Text>
+                        {<AgentLaunch application={a} runs={state.get("agents",{}).get("runs",[])} features={state.get("agents",{}).get("features",[])} onOpenTask={openTask} onNavigate={navigate} compact={True}/> if not a["demo"] else <View/>}
+                        <View style={s.wrap}><Chip label="View application" onPress={lambda { openRecord("application",a["id"]); }}/><Chip label="Done" onPress={lambda { savedJob=""; }}/></View>
+                    </View> for a in state["applications"] if tab=="Jobs" and a["job_id"]==savedJob]}
                     {<View key={"jobs-"+str(profileRevision)}><Discovery decisions={state["decisions"]} saved={state.get("saved_search",{})} profile={state["profile"]} onSwipe={trackJob} disabled={busy}/></View> if tab=="Jobs" else <View/>}
                     {(
                         <View style={{gap:20}}><View style={{gap:7}}><Text style={s.eyebrow}>ONE STEP CLOSER</Text><Text style={s.title}>Your momentum.</Text><Text style={s.body}>Every opportunity, in one place.</Text></View>
@@ -181,6 +203,7 @@ def:pub app -> JsxElement {
                             {[<Pressable key={a["id"]} onPress={lambda { openRecord("application",a["id"]); }} style={s.card} accessibilityRole="button">
                                 <View style={s.between}><View style={s.row}><Logo job={a["job"]}/><View style={s.grow}><Text style={s.strong}>{a["job"]["company"]}</Text><Text style={s.small}>{shortDate(a["created_at"])}</Text></View></View><Icon name="chevron" size={18}/></View>
                                 <Text style={s.heading}>{a["job"]["title"]}</Text><View style={s.between}><Chip label={a["status"]+(" · Demo" if a["demo"] else "")} active={True}/><Text style={s.small}>View activity</Text></View>
+                                {[<Text key={t["id"]} style={[s.small,{color:"#A4540F" if t["attention"] else "#3765E8",fontWeight:"700"}]}>{"✦ "+t["title"]+" · "+statusLabel(t["status"])}</Text> for t in runsFor(state.get("agents",{}).get("runs",[]),a["id"],["application","jobs","resume"])[0:1]]}
                             </Pressable> for a in state["applications"] if applicationFilter=="All" or a["status"]==applicationFilter]}
                             {<Empty title="Room for your next move." text="Swipe right on a job to save it here." icon="applications"/> if len([a for a in state["applications"] if applicationFilter=="All" or a["status"]==applicationFilter])==0 else <View/>}
                         </View>
@@ -188,7 +211,7 @@ def:pub app -> JsxElement {
                     {(
                         <View style={{gap:20}}><View style={{gap:7}}><Text style={s.eyebrow}>PEOPLE OPEN DOORS</Text><Text style={s.title}>Start a conversation.</Text><Text style={s.body}>A few thoughtful connections can go a long way.</Text></View>
                             <View style={s.row}>{[<Chip key={f} label={f} active={networkFilter==f} onPress={lambda { networkFilter=f; }}/> for f in ["Discover","Saved"]]}</View>
-                            <AgentHub initial="Contacts"/><View style={s.mutedBox}><Text style={s.small}>Sample people below are separate from your real contacts.</Text></View>
+                            <NetworkAgent runs={state.get("agents",{}).get("runs",[])} features={state.get("agents",{}).get("features",[])} onOpenTask={openTask} onNavigate={navigate}/><View style={s.mutedBox}><Text style={s.small}>Sample people below are fictional examples, separate from your real contacts. Stack never messages them.</Text></View>
                             {[<Pressable key={c["id"]} style={s.card} accessibilityRole="button" onPress={lambda { openRecord("contact",c["id"]); }}>
                                 <View style={s.row}><View style={[s.avatar,{backgroundColor:_find(state["people"],c["person_id"])["color"]}]}><Text style={s.avatarText}>{_find(state["people"],c["person_id"])["initials"]}</Text></View><View style={s.grow}><Text style={s.heading}>{_find(state["people"],c["person_id"])["name"]}</Text><Text style={s.small}>{_find(state["people"],c["person_id"])["role"]}</Text><Text style={s.small}>{_find(state["people"],c["person_id"])["company"]}</Text></View><Icon name={"bookmark" if c["saved"] else "arrow"} color="#3765E8" size={20}/></View>
                                 <Text style={s.body}>{_find(state["people"],c["person_id"])["reason"]}</Text><Chip label={_find(state["people"],c["person_id"])["signal"]} active={True}/>
@@ -199,11 +222,12 @@ def:pub app -> JsxElement {
                     {(
                         <View style={{gap:20}}><View style={{gap:7}}><Text style={s.eyebrow}>PUT YOUR BEST SELF FORWARD</Text><Text style={s.title}>Your story, on paper.</Text><Text style={s.body}>One home for your experience and potential.</Text></View>
                             <Pressable style={[s.card,{borderStyle:"dashed",borderColor:"#B9CAEE",alignItems:"center",paddingVertical:27}]} onPress={upload} disabled={busy} accessibilityRole="button" accessibilityLabel="Upload PDF resume"><View style={[s.avatar,{backgroundColor:"#EDF2FF"}]}><Icon name="upload" color="#3765E8"/></View><Text style={s.heading}>Add your resume</Text><Text style={s.small}>Choose a PDF from Files · up to 10 MB</Text></Pressable>
-                            {[<View key={r["id"]} style={s.card}><View style={s.row}><Icon name="resume" size={29} color="#3765E8"/><View style={s.grow}><Text style={s.strong}>{r["name"]}</Text><Text style={s.small}>{shortDate(r["created_at"])} · Private PDF</Text></View><Pressable accessibilityLabel="Manage resume" style={s.iconButton} onPress={lambda { selected=r["id"]; rename=r["name"]; modal="Manage resume"; }}><Icon name="more"/></Pressable></View>{<Chip label="Default resume" active={True}/> if state["selected_resume"]==r["id"] else <View/>}<Button label="Preview resume" onPress={lambda { preview(r["id"]); }} secondary={True} disabled={busy}/><Button label="Extract resume facts" secondary={True} onPress={lambda { extractFacts(r["id"]); }}/></View> for r in state["resumes"]]}
+                            {[<View key={r["id"]} style={s.card}><View style={s.row}><Icon name="resume" size={29} color="#3765E8"/><View style={s.grow}><Text style={s.strong}>{r["name"]}</Text><Text style={s.small}>{shortDate(r["created_at"])} · Private PDF</Text></View><Pressable accessibilityLabel="Manage resume" style={s.iconButton} onPress={lambda { selected=r["id"]; rename=r["name"]; modal="Manage resume"; }}><Icon name="more"/></Pressable></View>{<Chip label="Default resume" active={True}/> if state["selected_resume"]==r["id"] else <View/>}<Button label="Preview resume" onPress={lambda { preview(r["id"]); }} secondary={True} disabled={busy}/><Button label="Review details" secondary={True} onPress={lambda { extractFacts(r["id"]); }}/></View> for r in state["resumes"]]}
+                            <ResumeAgents applications={state["applications"]} runs={state.get("agents",{}).get("runs",[])} features={state.get("agents",{}).get("features",[])} onOpenTask={openTask} onNavigate={navigate}/>
                             <View style={s.hero}><View style={s.row}><Icon name="sparkles" color="#3765E8"/><Text style={s.heading}>A resume for the role.</Text></View><Text style={s.body}>See how a tailored version could highlight the right experience.</Text><Button label="Explore a sample" secondary={True} onPress={lambda { modal="Tailoring preview"; }}/><Text style={s.small}>Demo preview. Your uploaded PDF is never modified.</Text></View>
                         </View>
                     ) if tab=="Resume" else <View/>}
-                    {<Prep/> if tab=="Prep" else <View/>}
+                    {<Prep runs={state.get("agents",{}).get("runs",[])} features={state.get("agents",{}).get("features",[])} onOpenTask={openTask} onNavigate={navigate}/> if tab=="Prep" else <View/>}
                 </ScrollView>
                 <View style={s.tabBar}>{[<Pressable key={t} accessibilityRole="tab" accessibilityLabel={t} accessibilityState={{"selected":tab==t}} style={s.tab} onPress={lambda { tab=t; notice=""; }}><Icon name={t.lower()} size={23} color={"#3765E8" if tab==t else "#8E9BB0"}/><Text style={[s.tabText,s.tabActive if tab==t else {}]}>{t}</Text></Pressable> for t in ["Network","Applications","Jobs","Resume","Prep"]]}</View>
             </View>
@@ -217,10 +241,11 @@ def:pub app -> JsxElement {
                 {<View style={s.notice}><Text style={s.noticeText}>{notice}</Text></View> if notice else <View/>}
                 {<PDFView uri={pdfUri}/> if modal=="PDF preview" else (
                 <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-                    {<AgentHub/> if modal=="Agents" else <View/>}
+                    {<AgentHub key={"hub-"+str(hubOpenings)} summary={state.get("agents",{})} features={state.get("agents",{}).get("features",[])} applications={state.get("applications",[])} initialPage={hubPage} initialTask={hubTask} onNavigate={navigate}/> if modal=="Agents" and len(state)>0 else <View/>}
+                    {<ResumeReview key={selected} resumeId={selected}/> if modal=="Resume details" else <View/>}
                     {(
                         <View style={{gap:20}}><View style={s.card}><View style={s.row}><View style={[s.avatar,{backgroundColor:"#E8EFFE",width:65,height:65}]}><Text style={[s.avatarText,{fontSize:25}]}>{state["profile"]["name"][0:1].upper()}</Text></View><View style={s.grow}><Text style={s.heading}>{state["profile"]["name"]}</Text><Text style={s.body}>{state["profile"]["role"]}</Text></View></View><Text style={s.body}>{state["profile"]["location"]} · {state["profile"]["mode"]}</Text><Button label="Edit profile & preferences" onPress={editProfile} secondary={True}/></View>
-                            <Text style={s.heading}>Your agent connection.</Text><Text style={s.strong}>{state.get("agents",{}).get("model_provider",{}).get("provider","Not configured")}</Text><Text style={s.small}>{state.get("agents",{}).get("model_provider",{}).get("message","")}</Text><Button label="Agent activity and rules" secondary={True} onPress={lambda { modal="Agents"; }}/>
+                            <Text style={s.heading}>Your agent connection.</Text><Text style={s.strong}>{state.get("agents",{}).get("model_provider",{}).get("provider","Not configured")}</Text><Text style={s.small}>{state.get("agents",{}).get("model_provider",{}).get("message","")}</Text><Button label="Agents: features, rules and activity" secondary={True} onPress={lambda { openAgents("Features"); }}/>
                             <View style={s.mutedBox}><View style={s.row}><Icon name="shield" size={19}/><Text style={s.strong}>Your space stays yours.</Text></View><Text style={s.small}>Account data and PDFs are stored on your Mac during development. Model requests share the selected task context with your configured provider.</Text></View>
                             <Button label="iPhone notification settings" onPress={openSettings} secondary={True} icon="bell"/><Button label="Sign out" onPress={logout} secondary={True} disabled={busy} icon="logout"/><Text style={[s.small,{textAlign:"center"}]}>Stack 0.1 · Built for your next chapter</Text>
                         </View>
@@ -231,8 +256,9 @@ def:pub app -> JsxElement {
                     {<View style={{gap:18}}><Chip label="Sample tailoring · No AI run" active={True}/><Text style={s.title}>Same story. A sharper focus.</Text><View style={s.card}><Text style={s.eyebrow}>BASE RESUME · FICTIONAL EXAMPLE</Text><Text style={s.heading}>Jamie Chen</Text><Text style={s.body}>Computer Science Graduate{"\n\n"}Built a full-stack class project using React, Node.js, and PostgreSQL. Collaborated with three classmates.</Text></View><View style={[s.card,{borderColor:"#BACCF9"}]}><Text style={s.eyebrow}>TAILORED FOR SOFTWARE ENGINEER I</Text><Text style={s.heading}>Jamie Chen</Text><Text style={s.body}>Early-career engineer with hands-on React and TypeScript experience. Built accessible interfaces and REST APIs for a collaborative four-person project.</Text><View style={s.line}/><Text style={s.status}>Emphasizes relevant skills. Preserves the facts.</Text></View><Text style={s.small}>This illustrates the future workflow using fictional content. It is not derived from your uploaded resume.</Text></View> if modal=="Tailoring preview" else <View/>}
                     {[(
                         <View key={a["id"]} style={{gap:18}}><Logo job={a["job"]}/><Text style={s.title}>{a["job"]["title"]}</Text><Text style={s.body}>{a["job"]["company"]}</Text><Chip label={a["status"]+(" · Demo" if a["demo"] else "")} active={True}/>
-                            {<View style={s.hero}><Text style={s.strong}>Your application activity</Text><Text style={s.body}>✓ Added to your Stack</Text><Text style={s.body}>{"◷ Preparing a sample application" if a["status"] in ["Queued","Preparing"] else "✓ Prepared a sample application"}</Text><Text style={s.body}>{"Submission pending · Demo" if a["status"] in ["Queued","Preparing"] else "✓ Simulated submission complete"}</Text><Text style={s.small}>No employer was contacted. This is a demonstration.</Text></View> if a["demo"] else <View style={s.hero}><Text style={s.strong}>Your next step</Text><Text style={s.body}>Complete your application at the source. Stack does not submit it automatically.</Text><Button label="Open application page" disabled={not a["job"].get("url","")} onPress={lambda { openApplication(a["job"]["url"]); }}/><Button label="Mark as submitted" secondary={True} disabled={busy} onPress={lambda { mutate("mark_application_submitted",{"id":a["id"]},False); }}/></View>}
-                            {<AgentLaunch target={a["id"]}/> if not a["demo"] else <View/>}
+                            {<View style={s.hero}><Text style={s.strong}>Your application activity</Text><Text style={s.body}>✓ Added to your Stack</Text><Text style={s.body}>{"◷ Preparing a sample application" if a["status"] in ["Queued","Preparing"] else "✓ Prepared a sample application"}</Text><Text style={s.body}>{"Submission pending · Demo" if a["status"] in ["Queued","Preparing"] else "✓ Simulated submission complete"}</Text><Text style={s.small}>No employer was contacted. This is a demonstration.</Text></View> if a["demo"] else <View style={s.hero}><Text style={s.strong}>Your next step</Text><Text style={s.body}>Apply at the source yourself, or use Prepare & apply below. Stack never submits without your approval.</Text><Button label="Open application page" disabled={not a["job"].get("url","")} onPress={lambda { openApplication(a["job"]["url"]); }}/><Button label="Mark as submitted" secondary={True} disabled={busy} onPress={lambda { mutate("mark_application_submitted",{"id":a["id"]},False); }}/></View>}
+                            {<AgentLaunch application={a} runs={state.get("agents",{}).get("runs",[])} features={state.get("agents",{}).get("features",[])} onOpenTask={openTask} onNavigate={navigate}/> if not a["demo"] else <View/>}
+                            {<View style={{gap:6}}><Text style={s.label}>STATUS HISTORY</Text>{[<Text key={str(h["at"])} style={s.small}>{h["status"]+" · "+dateTime(h["at"])+" · "+h["source"]}</Text> for h in a["history"]]}</View> if len(a["history"])>0 else <View/>}
                             <Text style={s.small}>{"Resume: "+_find(state["resumes"],a["resume_id"])["name"] if len(_find(state["resumes"],a["resume_id"]))>0 else "Resume: no personal PDF attached"}</Text>
                             <View style={s.wrap}><Chip label="No resume selected" active={a["resume_id"]==""} onPress={lambda { mutate("select_application_resume",{"id":selected,"resume_id":""},False); }}/>{[<Chip key={r["id"]} label={r["name"]} active={a["resume_id"]==r["id"]} onPress={lambda { mutate("select_application_resume",{"id":selected,"resume_id":r["id"]},False); }}/> for r in state["resumes"]]}</View>
                             <Field label="Your notes" value={notes} onChange={lambda (v: str) { notes=v; }} multiline={True}/><Button label="Save notes" onPress={lambda { mutate("save_application",{"id":selected,"notes":notes},False); }} disabled={busy}/><Button label="Add follow-up reminder" onPress={lambda { beginReminder("application",selected); }} secondary={True} icon="bell"/>

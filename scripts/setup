@@ -5,6 +5,11 @@ cd "$STACK_ROOT"
 STACK_VERSION=$(./scripts/jac --version)
 case "$STACK_VERSION" in *"jac 0.37.21 "*) ;; *) echo "Install Jac 0.37.21 before setup (found: $STACK_VERSION)." >&2; exit 1;; esac
 ./scripts/jac install --no-npm
+npm --prefix integrations/resume-parser ci --no-audit --no-fund
+npm --prefix integrations/resume-parser run build
+# LaTeX resumes compile locally with Tectonic; the first compile downloads and caches its packages.
+command -v tectonic >/dev/null 2>&1 || brew install tectonic
+.jac/venv/bin/python -c "from agents import latex, resume_templates as t; [latex.compile(t.fill(n, {'profile.name': 'Stack'})) for n in t.TEMPLATES]; latex.compile(latex.load('resume.tex', open('tests/fixtures/jake-resume.tex', 'rb').read()))"
 ./scripts/jac setup mobile
 cp native/package.json native/package-lock.json native/app.config.js .jac/mobile-rn/
 cd .jac/mobile-rn

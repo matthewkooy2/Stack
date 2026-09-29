@@ -1,18 +1,43 @@
-import from "./transport.js" { rpc, login, logout, errorText, oauthResult, downloadJSON, downloadPDF, Timer, Diagram, BrowserView, Recorder, LiveInterview, confirmAccountDelete }
+import from "./transport.js" { rpc, login, logout, errorText, oauthResult, downloadJSON, downloadPDF, Timer, Diagram, BrowserView, Recorder, LiveInterview, confirmAccountDelete, Poll, isoTime }
 import "./style.css";
 
 def:pub app -> JsxElement {
     has logged: bool = False, username: str = "", password: str = "", invite: str = "", error: str = "", notice: str = "",
         signup: bool = False, busy: bool = False, page: str = "Practice", problems: list[dict[str, any]] = [], sessions: list[dict[str, any]] = [],
         current: dict[str, any] = {}, data: dict[str, any] = {}, activity: dict[str, any] = {}, selected: dict[str, any] = {}, browser: dict[str, any] = {},
-        values: dict[str, str] = {}, oauth: dict[str, any] = {}, settings: dict[str, any] = {}, mail: list[dict[str, any]] = [], interviews: list[dict[str, any]] = [], applications: list[dict[str, any]] = [], mailSelected: dict[str, any] = {}, eventApplication: str = "", eventStatus: str = "", deletePassword: str = "";
+        values: dict[str, str] = {}, oauth: dict[str, any] = {}, settings: dict[str, any] = {}, mail: list[dict[str, any]] = [], interviews: list[dict[str, any]] = [], applications: list[dict[str, any]] = [], mailSelected: dict[str, any] = {}, eventApplication: str = "", eventStatus: str = "", deletePassword: str = "",
+        features: list[dict[str, any]] = [], subject: str = "", body: str = "", editsFor: str = "";
     can with entry { oauth=oauthResult(); }
     async def refresh -> None {
         settings=await rpc("agent_settings",{});activity=settings["activity"];
         result=await rpc("prep_catalog",{});problems=result["problems"];
         result=await rpc("prep_sessions",{});sessions=result["sessions"];
         result=await rpc("agent_events",{});mail=result["events"];interviews=result["interviews"];
-        result=await rpc("bootstrap",{});applications=[a for a in result["applications"] if not a["demo"]];
+        result=await rpc("bootstrap",{});applications=[a for a in result["applications"] if not a["demo"]];features=result["agents"].get("features",[]);
+    }
+    """Keep progress current without replacing answers or email edits being typed."""
+    async def poll -> None {
+        if not logged or busy { return; }
+        try {
+            if page=="Activity" { settings=await rpc("agent_settings",{});activity=settings["activity"]; }
+            if len(selected)>0 and selected["status"] not in ["completed","cancelled","failed"] { showRun(await rpc("agent_run",{"id":selected["id"]})); }
+        } except Exception as e { error=errorText(e); }
+    }
+    def showRun(run: dict[str, any]) -> None {
+        review=run.get("review",{});
+        if review.get("step")=="send" and review.get("hash")!=editsFor { subject=review.get("subject","");body=review.get("body","");editsFor=review["hash"]; }
+        selected=run;
+    }
+    async def act(endpoint: str, args: dict[str, any], done: str) -> None {
+        busy=True;error="";notice="";
+        try { showRun(await rpc(endpoint,args));notice=done;await refresh(); }
+        except Exception as e { error=errorText(e); }
+        busy=False;
+    }
+    async def approve -> None {
+        review=selected["review"];edits={};
+        if review["step"]=="send" and (subject!=review.get("subject","") or body!=review.get("body","")) { edits={"subject":subject,"body":body}; }
+        await act("agent_approve",{"id":selected["id"],"step":review["step"],"review_hash":review["hash"],"edits":edits},"Approved. Stack continues with exactly what you reviewed.");
     }
     async def signin -> None {
         busy=True;error="";
@@ -43,7 +68,7 @@ def:pub app -> JsxElement {
         busy=False;
     }
     async def openRun(id: str) -> None {
-        try { selected=await rpc("agent_run",{"id":id});values={};browser={}; }
+        try { showRun(await rpc("agent_run",{"id":id}));values={};browser={}; }
         except Exception as e { error=errorText(e); }
     }
     async def handoff(event: dict[str, any]) -> None {
@@ -51,11 +76,11 @@ def:pub app -> JsxElement {
         except Exception as e { error=errorText(e); }
     }
     async def respond -> None {
-        try { selected=await rpc("agent_respond",{"id":selected["id"],"values":[{"key":k,"value":v,"verified":True,"source":"User confirmed"} for (k,v) in values.items() if v.strip()],"reuse":True});await refresh(); }
+        try { showRun(await rpc("agent_respond",{"id":selected["id"],"values":[{"key":k,"value":v,"verified":True,"source":"User confirmed"} for (k,v) in values.items() if v.strip()],"reuse":True}));await refresh(); }
         except Exception as e { error=errorText(e); }
     }
     async def reconcile(outcome: str) -> None {
-        try { selected=await rpc("agent_reconcile",{"id":selected["id"],"outcome":outcome,"evidence":values.get("evidence","")});await refresh(); }
+        try { showRun(await rpc("agent_reconcile",{"id":selected["id"],"outcome":outcome,"evidence":values.get("evidence","")}));await refresh(); }
         except Exception as e { error=errorText(e); }
     }
     async def exportData -> None {
@@ -72,11 +97,12 @@ def:pub app -> JsxElement {
         except Exception as e { error=errorText(e); }
     }
     <main>
+        <Poll onTick={poll}/>
         <header><div><span className="brand">stack</span><h1>Your next chapter, in motion.</h1><p>Practice deeply. Let your agents handle the follow-through.</p></div>{<button onClick={lambda { logout();logged=False;current={};selected={};settings={};data={}; }}>Sign out</button> if logged else <span>Private beta</span>}</header>
         {<p className="error" role="alert">{error}</p> if error else <div/>}{<p className="notice">{notice}</p> if notice else <div/>}
         {<section className="login"><h2>{"Join Stack" if signup else "Welcome back"}</h2><label>Username<input value={username} onChange={lambda (e: any) { username=e.target.value; }}/></label><label>Password<input type="password" value={password} onChange={lambda (e: any) { password=e.target.value; }}/></label><label>Invitation (first visit)<input value={invite} onChange={lambda (e: any) { invite=e.target.value; }}/></label><button className="primary" disabled={busy} onClick={signin}>Continue</button><button onClick={lambda { signup=not signup; }}>{"I already have an account" if signup else "Create an account"}</button></section> if not logged else <div/>}
         {<div>
-            <nav>{[<button key={p} className={"active" if page==p else ""} onClick={lambda { page=p; }}>{p}</button> for p in ["Practice","Activity","Account"]]}<button onClick={refresh}>Refresh</button></nav>
+            <nav>{[<button key={p} className={"active" if page==p else ""} onClick={lambda { page=p; }}>{p}</button> for p in ["Practice","Activity","Features","Account"]]}<button onClick={refresh}>Refresh</button></nav>
             {<div className="workspace"><aside><h2>Practice library</h2>{[<article key={p["id"]}><strong>{p["title"]}</strong><p>{p["topic"]+" · "+str(p["minutes"])+" minutes"}</p>{[<button key={lang} onClick={lambda { create(p["id"],lang); }}>{"C++" if lang=="cpp" else lang.upper()}</button> for lang in p["languages"]]}{<button onClick={lambda { create(p["id"],""); }}>Start</button> if len(p["languages"])==0 else <span/>}</article> for p in problems]}<h2>Continue</h2>{[<button key={p["id"]} onClick={lambda { openSession(p["id"]); }}>{p["data"]["problem_id"]}</button> for p in sessions]}</aside>
                 <section>{<div><div className="toolbar"><Timer key={current["id"]} seconds={data.get("elapsed_seconds",0)} onChange={lambda (v: int) { data={**data,"elapsed_seconds":v}; }}/><button disabled={busy} onClick={lambda { save(); }}>Save</button><button onClick={lambda { openSession(current["id"]); }}>Refresh results</button></div>
                     {[<article key={p["id"]}><h2>{p["title"]}</h2><p>{p["prompt"]}</p><details><summary>Hints</summary>{[<p key={hint}>{hint}</p> for hint in p["hints"]]}</details></article> for p in problems if p["id"]==data["problem_id"]]}
@@ -91,14 +117,32 @@ def:pub app -> JsxElement {
             {<section><h2>Messages needing review</h2>{[<article key={e["id"]}><strong>{e["subject"]}</strong><p>{e["excerpt"]}</p><button onClick={lambda { mailSelected=e;eventApplication=e.get("application_id","");eventStatus=e.get("status",""); }}>Associate this message</button></article> for e in mail if e.get("ambiguous")]}
                 {<article><h3>Confirm the message outcome</h3><label>Application<select value={eventApplication} onChange={lambda (e: any) { eventApplication=e.target.value; }}><option value="">Choose an application</option>{[<option key={a["id"]} value={a["id"]}>{a["job"]["company"]+" · "+a["job"]["title"]}</option> for a in applications]}</select></label><label>Confirmed status<select value={eventStatus} onChange={lambda (e: any) { eventStatus=e.target.value; }}><option value="">Choose a status</option>{[<option key={s} value={s}>{s}</option> for s in ["Submitted","Assessment","Interview","Rejected"]]}</select></label><button onClick={resolveMail}>Save association</button></article> if len(mailSelected)>0 else <span/>}
                 <h2>Upcoming interviews and practice</h2>{[<article key={i["id"]}><h3>{i.get("summary","Interview")}</h3><p>{i.get("start",{}).get("dateTime","")}</p>{[<button key={q["session_id"]} onClick={lambda { openSession(q["session_id"]); }}>{q["problem_id"]+" · "+q["reason"]}</button> for q in i.get("study_plan",[])]}</article> for i in interviews]}
-                <h2>Agent activity</h2>{[<article key={r["id"]}><strong>{r["kind"].title()+" · "+r["status"].replace("_"," ")}</strong><p>{r["message"]}</p><button onClick={lambda { openRun(r["id"]); }}>Open task</button></article> for r in activity.get("runs",[])]}
-                {<article><h2>{selected["message"]}</h2>{[<label key={q["key"]}>{q["label"]}<input value={values.get(q["key"],"")} onChange={lambda (e: any) { updated={**values};updated[q["key"]]=e.target.value;values=updated; }}/></label> for q in selected.get("requests",[]) if q["key"]!="browser"]}
+                <h2>{"Agent activity · "+str(activity.get("active",0))+" in progress · "+str(activity.get("attention",0))+" need you"}</h2><p>Updates every few seconds. Stack never shares application answers, submits, sends email, or changes your calendar without your approval.</p>
+                {[<article key={r["id"]} className={"attention" if r["attention"] else ""}><strong>{r["title"]+" · "+r["status"].replace("_"," ")}</strong><p>{r["context_label"]}</p><p>{("Step "+str(r["step_number"])+" of "+str(r["step_total"])+" · " if r["step_total"]>1 else "")+r["step_label"]+" — "+r["explanation"]}</p><button onClick={lambda { openRun(r["id"]); }}>{"Review" if r["next_action"]=="review" else "Open task"}</button></article> for r in activity.get("runs",[])]}
+                {<article><h2>{selected["title"]+(" · "+selected["context_label"] if selected.get("context_label") else "")}</h2><p>{selected["explanation"]}</p><p>{selected["message"]}</p><ol>{[<li key={label}>{label}</li> for label in selected.get("steps",[])]}</ol>
+                    {<section className="review"><h3>{selected["review"]["title"]}</h3>
+                        {<p>{"Destination: "+selected["review"]["destination"]}</p> if selected["review"].get("destination") else <span/>}
+                        {[<p key={a["label"]}><strong>{a["label"]+": "}</strong>{a["value"]}</p> for a in selected["review"].get("answers",[])]}
+                        {[<p key={d["name"]}><strong>{d["label"]+": "}</strong>{d["name"]}</p> for d in selected["review"].get("documents",[])]}
+                        {<pre>{selected["review"]["diff"]}</pre> if selected["review"].get("diff") else <span/>}
+                        {[<p key={c["id"]}><strong>{{"rewrite":"Reworded","omit":"Removed","reorder":"Reordered"}.get(c["kind"],c["kind"])+" · "+c["where"]+": "}</strong>{(c.get("before","")+" → " if c["kind"]!="omit" and c.get("before") else "")+(c.get("after","") or c.get("before",""))}</p> for c in selected["review"].get("changes",[])]}
+                        {<p>{"Left out to fit one page: "+", ".join([d["text"] for d in selected["review"]["dropped"]])}</p> if selected["review"].get("dropped") else <span/>}
+                        {<div><p>{"To: "+selected["review"].get("to","")}</p><label>Subject<input value={subject} onChange={lambda (e: any) { subject=e.target.value; }}/></label><label>Message<textarea value={body} onChange={lambda (e: any) { body=e.target.value; }}/></label></div> if selected["review"]["step"]=="send" else <span/>}
+                        {<p>{selected["review"]["event"].get("summary","")+" · "+isoTime(selected["review"]["event"].get("start",""))+" – "+isoTime(selected["review"]["event"].get("end",""))}</p> if selected["review"]["step"]=="calendar" else <span/>}
+                        {[<p key={n}>{n}</p> for n in selected["review"].get("notes",[])]}
+                        <p><strong>{selected["review"]["consequence"]}</strong></p>
+                        <button className="primary" disabled={busy or bool(selected["review"].get("blocked"))} onClick={approve}>Approve</button><button disabled={busy} onClick={lambda { act("agent_cancel",{"id":selected["id"]},"Cancelled. Nothing was shared."); }}>Cancel task</button>
+                    </section> if selected["status"]=="review" else <span/>}
+                    {<button disabled={busy} onClick={lambda { act("agent_retry",{"id":selected["id"]},"Retrying."); }}>Retry</button> if selected["status"] in ["blocked","failed"] else <span/>}
+                    {<button disabled={busy} onClick={lambda { act("agent_dismiss",{"id":selected["id"]},"Dismissed."); }}>Dismiss</button> if selected["status"]=="failed" and not selected.get("dismissed") else <span/>}
+                    <p>{"Where results appear: "+selected.get("results_where","")}</p>{[<label key={q["key"]}>{q["label"]}<input value={values.get(q["key"],"")} onChange={lambda (e: any) { updated={**values};updated[q["key"]]=e.target.value;values=updated; }}/></label> for q in selected.get("requests",[]) if q["key"]!="browser"]}
                     {<button onClick={respond}>Save answers and resume</button> if selected["status"] in ["needs_input","blocked"] else <span/>}
                     <button onClick={lambda { handoff({"type":"snapshot"}); }}>Open same browser session</button><BrowserView image={browser} onEvent={handoff}/>
                     {<div><label>Reconciliation evidence<textarea value={values.get("evidence","")} onChange={lambda (e: any) { values={**values,"evidence":e.target.value}; }}/></label><button onClick={lambda { reconcile("confirmed"); }}>I verified it completed</button><button onClick={lambda { reconcile("not_sent"); }}>I verified nothing was sent</button></div> if selected["status"]=="uncertain" else <span/>}
-                    {[<article key={k}><h3>{k.title()}</h3><p>{v.get("summary",v.get("body",v.get("receipt","Artifact saved")))}</p>{[<p key={t}>{t}</p> for t in v.get("strengths",[])+v.get("gaps",[])+v.get("unknowns",[])+v.get("edits",[])]}<p>{v.get("suggested_headline","")}</p><p>{v.get("suggested_about","")}</p>{<button onClick={lambda { downloadPDF(v["pdf"]); }}>Download tailored PDF</button> if v.get("pdf") else <span/>}{<pre>{v["pdf"]["diff"]}</pre> if v.get("pdf") else <span/>}</article> for (k,v) in selected.get("artifacts",{}).items()]}
+                    {[<article key={k}><h3>{k.title()}</h3><p>{v.get("summary",v.get("body",v.get("receipt","Artifact saved")))}</p>{[<p key={"s"+t}>{"✓ "+t}</p> for t in v.get("strengths",[])]}{[<p key={"g"+t}>{"~ "+t}</p> for t in v.get("gaps",[])]}{[<p key={"u"+t}>{"? "+t}</p> for t in v.get("unknowns",[])]}{[<p key={"e"+t}>{"• "+t}</p> for t in v.get("edits",[])]}{[<p key={"x"+t}>{"• "+t}</p> for t in v.get("suggested_edits",[])]}<p>{v.get("suggested_headline","")}</p><p>{v.get("suggested_about","")}</p>{<button onClick={lambda { downloadPDF(v["pdf"]); }}>Download tailored PDF</button> if v.get("pdf") else <span/>}{<pre>{v["pdf"]["diff"]}</pre> if v.get("pdf") else <span/>}</article> for (k,v) in selected.get("artifacts",{}).items()]}
                 </article> if len(selected)>0 else <div/>}
             </section> if page=="Activity" else <div/>}
+            {<section><h2>Agent features</h2>{[<article key={f["key"]}><strong>{f["title"]+" · "+{"ready":"Ready","setup":"Needs setup","unavailable":"Unavailable"}.get(f["state"],f["state"])}</strong><p>{f["summary"]}</p><p>{"Your control: "+f["review"]}</p>{[<p key={c["key"]}>{"✕ "+c["label"]+" — "+c["fix"]}</p> for c in f["checks"] if not c["ok"] and not c["optional"]]}{<p>{"Meanwhile: "+f["alternative"]}</p> if f["state"]!="ready" else <span/>}</article> for f in features]}</section> if page=="Features" else <div/>}
             {<section><h2>Your account</h2><p>Manage standing permissions and confirmed facts in the iPhone app.</p><button onClick={exportData}>Export account data</button><label>Confirm password to delete account<input type="password" value={deletePassword} onChange={lambda (e: any) { deletePassword=e.target.value; }}/></label><button onClick={deleteAccount}>Delete my account and data</button><p>Paid execution remains disabled until the operator configures a shared budget.</p></section> if page=="Account" else <div/>}
         </div> if logged else <div/>}
     </main>

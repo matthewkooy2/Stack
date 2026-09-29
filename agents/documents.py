@@ -18,14 +18,20 @@ def extract(content):
 
 def render_variant(name, original, ordered_facts):
     """Only verified, verbatim facts enter automatic PDFs. Rewrites require review."""
+    import reportlab
+    from pathlib import Path
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
     from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.lib.enums import TA_LEFT
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-    from reportlab.lib import colors
     from xml.sax.saxutils import escape
     from pypdf import PdfReader
     out = BytesIO()
     styles = getSampleStyleSheet()
+    # Embedded Unicode mapping keeps bullets readable and extractable for verification.
+    if 'StackResume' not in pdfmetrics.getRegisteredFontNames():
+        pdfmetrics.registerFont(TTFont('StackResume', str(Path(reportlab.__file__).parent / 'fonts' / 'Vera.ttf')))
+    styles['Title'].fontName = styles['BodyText'].fontName = 'StackResume'
     styles['BodyText'].fontSize = 10
     styles['BodyText'].leading = 14
     doc = SimpleDocTemplate(out, pagesize=(612, 792), leftMargin=48, rightMargin=48, topMargin=42, bottomMargin=42)
@@ -41,6 +47,6 @@ def render_variant(name, original, ordered_facts):
         raise ValueError('The rendered PDF did not preserve every fact. Review the resume before use.')
     text = '\n'.join(f['value'] for f in ordered_facts)
     return {'name': 'Tailored resume.pdf', 'content': base64.b64encode(raw).decode(),
-            'text': text, 'pages': len(reader.pages), 'source_keys': [f['key'] for f in ordered_facts],
+            'text': text, 'original_text': original, 'pages': len(reader.pages), 'source_keys': [f['key'] for f in ordered_facts],
             'diff': '\n'.join(unified_diff(original.splitlines(), text.splitlines(), fromfile='Original', tofile='Tailored', lineterm='')),
             'checks': {'text_preserved': True, 'single_column': True, 'pages': len(reader.pages)}}

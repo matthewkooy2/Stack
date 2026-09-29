@@ -96,4 +96,11 @@ export function LiveInterview({sessionId,onTranscript}){
   active?React.createElement('div',{},React.createElement('button',{onClick:interrupt},'Interrupt'),React.createElement('button',{onClick:answer,disabled:!listening},'Finish answer'),React.createElement('button',{onClick:()=>{resources.current?.socket.send(JSON.stringify({type:'end'}));stop();}},'End interview')):React.createElement('button',{onClick:start},'Start live interviewer'),React.createElement('p',{role:'status'},status));
 }
 
+// Refreshes agent progress while the tab is visible; the callback decides what is safe to replace.
+export function Poll({onTick,seconds=5}){
+ const callback=useRef(onTick);callback.current=onTick;
+ useEffect(()=>{const t=setInterval(()=>{if(document.visibilityState==='visible')callback.current();},seconds*1000);return()=>clearInterval(t);},[seconds]);
+ return null;
+}
+export function isoTime(value){const d=new Date(value);return value&&!isNaN(d)?d.toLocaleString():'Time not stated';}
 export function confirmAccountDelete(){return window.confirm('Delete your Stack account, applications, PDFs, and practice data? This cannot be undone. External submissions and messages cannot be recalled.');}

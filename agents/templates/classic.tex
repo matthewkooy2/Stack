@@ -1,0 +1,47 @@
+%-------------------------
+% Stack classic resume template (single column, serif).
+% Uses the same macro names as Jake's Resume so Stack can edit either one.
+%-------------------------
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage[margin=0.6in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{charter}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{tabularx}
+\usepackage[usenames,dvipsnames]{color}
+
+\pagestyle{empty}
+\raggedright
+\raggedbottom
+\setlength{\tabcolsep}{0in}
+\setlength{\parindent}{0pt}
+\urlstyle{same}
+
+\titleformat{\section}{\vspace{-2pt}\bfseries\normalsize\MakeUppercase}{}{0em}{}[\vspace{-6pt}\rule{\textwidth}{0.6pt}\vspace{-4pt}]
+\titlespacing*{\section}{0pt}{8pt}{4pt}
+
+\newcommand{\resumeItem}[1]{\item\small{#1}}
+\newcommand{\resumeSubheading}[4]{
+  \item
+  \begin{tabular*}{\textwidth}[t]{l@{\extracolsep{\fill}}r}
+    \textbf{#1} & \small #2 \\
+    \textit{\small #3} & \textit{\small #4} \\
+  \end{tabular*}\vspace{-6pt}
+}
+\newcommand{\resumeProjectHeading}[2]{
+  \item
+  \begin{tabular*}{\textwidth}{l@{\extracolsep{\fill}}r}
+    \small #1 & \small #2 \\
+  \end{tabular*}\vspace{-6pt}
+}
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0in, label={}, itemsep=2pt]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+\newcommand{\resumeItemListStart}{\begin{itemize}[leftmargin=0.18in, itemsep=0pt, topsep=2pt, label={\textbullet}]}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-2pt}}
+
+\begin{document}
+%%STACK_BODY%%
+\end{document}

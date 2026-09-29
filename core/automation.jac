@@ -12,6 +12,7 @@ import from agents.voice { voice_settings, voice_reservation, SECONDS }
 import from agents.prep { catalog, problem, validate_session }
 import from agents.security { seal, unseal }
 import from agents.contacts { parse_contacts }
+import from agents.experience { REVIEWED, ATTENTION, ACTIVE, review_payload, review_summary, present }
 import from agents.google { authorization_url, exchange, refreshed, SCOPES }
 import from agents.tracing { capture_enabled, trace_data }
 import from jaclang.server.identity.app_tokens { token_create, token_peek, token_consume }
@@ -24,7 +25,8 @@ node AgentRun {
         cost_cents: int = 0, lease: str = "", lease_until: float = 0.0, attempts: int = 0,
         policy_revision: int = 0, next_at: float = 0.0, projected: bool = False, ticket_hash: str = "",
         provider: str = "", subscription_calls: int = 0,
-        trace_attempt: str = "", requested_model: str = "", stage_started_at: float = 0.0;
+        trace_attempt: str = "", requested_model: str = "", stage_started_at: float = 0.0,
+        approvals: dict[str, any] = {}, review: dict[str, any] = {}, dismissed: bool = False;
 }
 node AgentTrace { has run_id: str, attempt: str, step: str, event: str, at: float, data: dict[str, any]; }
 node AgentFeedback { has run_id: str, output_version: str, rating: str, note: str, at: float, snapshot: dict[str, any]; }
@@ -70,16 +72,33 @@ def _owned_run(id: str) -> AgentRun | None {
     for r in [root -->][?:AgentRun] { if jid(r)==id { return r; } }
     return None;
 }
+def _needs_attention(r: AgentRun) -> bool {
+    return r.status in ATTENTION or (r.status=="failed" and not r.dismissed);
+}
+"""Tailoring edits LaTeX: the user's upload or a built-in template they chose (resume_format is set by the app)."""
+def _tailor_ready(context: dict[str, any]) -> bool {
+    return context.get("resume_format","") in ["latex","builtin"];
+}
 def _run_view(r: AgentRun, detail: bool = False) -> dict[str, any] {
     steps=STEPS[r.kind];
-    out={"id":jid(r),"kind":r.kind,"target_id":r.target_id,"status":r.status,"step":steps[min(r.index,len(steps)-1)],"message":r.message,"created_at":r.created_at,"updated_at":r.updated_at,"cost_cents":r.cost_cents,"provider":r.provider,"subscription_calls":r.subscription_calls};
-    if detail { out.update({"requests":r.requests,"artifacts":r.artifacts,"output_version":digest(r.artifacts),"feedback":[{"id":jid(f),"rating":f.rating,"note":f.note,"at":f.at,"output_version":f.output_version} for f in [root --> [?:AgentFeedback, run_id==jid(r), -at]][:50]]}); }
+    out={"id":jid(r),"kind":r.kind,"target_id":r.target_id,"status":r.status,"step":steps[min(r.index,len(steps)-1)],"message":r.message,"created_at":r.created_at,"updated_at":r.updated_at,"cost_cents":r.cost_cents,"provider":r.provider,"subscription_calls":r.subscription_calls,"dismissed":r.dismissed,
+        **present(r.kind,r.status,r.index,steps,r.context,r.next_at)};
+    out["attention"]=_needs_attention(r);
+    out["needs_resume_review"]=r.status=="needs_input" and out["step"]=="tailor" and not _tailor_ready(r.context);
+    out["has_requests"]=len(r.requests)>0;
+    if r.status=="review" { out["review"]=r.review; }
+    if detail { out.update({"requests":r.requests,"artifacts":r.artifacts,"resume_id":r.context.get("resume_id",""),"resume_name":r.context.get("resume_name","")}); }
+    if detail { out.update({"output_version":digest(r.artifacts),"feedback":[{"id":jid(f),"rating":f.rating,"note":f.note,"at":f.at,"output_version":f.output_version} for f in [root --> [?:AgentFeedback, run_id==jid(r), -at]][:50]]}); }
     return out;
 }
 def _agent_summary() -> dict[str, any] {
     m=_agent_memory();
-    runs=[_run_view(r) for r in [root --> [?:AgentRun, -created_at]][:30]];
-    return {"enabled":m.policy.get("enabled",False),"needs_input":len([r for r in runs if r["status"] in ["needs_input","uncertain"]]),"runs":runs,"paid_configured":config()["monthly_cents"]>0,"model_provider":model_status(jid(root)),"admitted":m.admitted or not config()["invite_only"]};
+    ordered=[root --> [?:AgentRun, -created_at]];
+    # Runs needing the user stay listed even when newer tasks push them past the recent window.
+    shown=[r for r in ordered if _needs_attention(r)]+[r for r in ordered[:30] if not _needs_attention(r)];
+    runs=[_run_view(r) for r in shown];
+    attention=len([r for r in ordered if _needs_attention(r)]);
+    return {"enabled":m.policy.get("enabled",False),"needs_input":attention,"attention":attention,"active":len([r for r in ordered if r.status in ACTIVE]),"runs":runs,"paid_configured":config()["monthly_cents"]>0,"model_provider":model_status(jid(root)),"admitted":m.admitted or not config()["invite_only"],"expires_at":m.policy.get("expires_at",0)};
 }
 def:priv agent_admission() -> dict[str, any] {
     try { _agent_access();return {"admitted":True}; } except ValueError { return {"admitted":False}; }
@@ -198,7 +217,7 @@ def:pub agent_claim(token: str) -> dict[str, any] {
         for t in tickets {
             commit();_agent_owner(t.owner);r=_owned_run(t.run_id);
             if r is None { t.state="cancelled";continue; }
-            if r.status in TERMINAL or r.status in ["needs_input","blocked","uncertain"] { t.state=r.status;continue; }
+            if r.status in TERMINAL or r.status in ["needs_input","blocked","uncertain","review"] { t.state=r.status;continue; }
             if r.lease_until>now { continue; }
             step=STEPS[r.kind][r.index];
             if r.status=="running" {
@@ -214,8 +233,24 @@ def:pub agent_claim(token: str) -> dict[str, any] {
             }
             r.context["facts"]=current_facts;
             reservation=0;c=config();
+            if step=="tailor" and not _tailor_ready(r.context) {
+                r.status="needs_input";r.requests=[];r.updated_at=now;t.state="needs_input";
+                r.message="Upload a resume before tailoring." if not r.context.get("resume_id") else "Upload this resume's LaTeX to tailor it. No new PDF has been generated.";
+                continue;
+            }
             try {
                 _agent_access();
+                if step in REVIEWED {
+                    # Surface missing permissions before asking for review; agent_authorize rechecks at dispatch.
+                    if step in EXTERNAL { authorize(m.policy,EXTERNAL[step],r.context.get("contact",{}).get("email","") if step=="send" else ("" if step=="calendar" else r.context.get("job",{}).get("url",""))); }
+                    reviewed=digest(review_payload(step,r.context,r.artifacts));
+                    if r.approvals.get(step)!=reviewed {
+                        r.status="review";r.review={**review_summary(step,r.context,r.artifacts),"hash":reviewed};
+                        missing=_google_missing(step);
+                        if missing { r.review["notes"]=r.review["notes"]+[missing];r.review["blocked"]=missing; }
+                        r.message="Review before Stack continues: "+r.review["title"];r.updated_at=now;t.state="review";continue;
+                    }
+                }
                 if step in PAID {
                     authorize(m.policy,"model");model_access(c,t.owner);
                     if c["provider"] in CLI_PROVIDERS {
@@ -254,6 +289,7 @@ def:pub agent_authorize(token: str, id: str, owner: str, lease: str, payload_has
         try {
             r=_agent_leased(id,owner,lease);step=STEPS[r.kind][r.index];m=_agent_memory();
             if step not in EXTERNAL { return {"error":"This step has no external action."}; }
+            if step in REVIEWED and (not r.approvals.get(step) or r.approvals.get(step)!=payload_hash) { raise ValueError("This action does not match what you approved. Review it again."); }
             action=EXTERNAL[step];destination=r.context.get("contact",{}).get("email","") if step=="send" else r.context.get("job",{}).get("url","");
             authorize(m.policy,action,destination);
             if step in ["send","calendar"] and not [c for c in [root -->][?:AgentConnection] if c.provider=="google" and c.state=="connected"] { raise ValueError("Google authorization was revoked or is unavailable."); }
@@ -296,6 +332,11 @@ def _agent_complete(token: str, id: str, owner: str, lease: str, result: dict[st
             if step in ["submit","send","calendar"] and not artifact.get("receipt") {
                 r.status="uncertain";r.message="No confirmation receipt was returned.";
             } else {
+                if step=="approve_resume" {
+                    # The approved, rebuilt resume replaces the proposal wherever the tailored PDF is used.
+                    r.artifacts["tailor"]={**r.artifacts.get("tailor",{}),**artifact.get("tailor",{})};
+                    artifact={k:v for (k,v) in artifact.items() if k!="tailor"};
+                }
                 r.artifacts[step]=artifact;
                 for a in intents { a.status="confirmed";a.receipt=artifact; }
                 r.index+=1;r.attempts=0;r.status="completed" if r.index>=len(STEPS[r.kind]) else "queued";r.message="Completed" if r.status=="completed" else "Ready for next step";
@@ -325,13 +366,71 @@ def:priv agent_reconcile(id: str, outcome: str, evidence: str) -> dict[str, any]
             }
         }
         if outcome=="not_sent" and step=="submit" {
-            r.index=3;
+            r.index=STEPS[r.kind].index("fill");
             for a in [root -->][?:AgentAction] { if a.run_id==id and a.step=="fill" and a.status=="confirmed" { a.key=a.key+":"+jid(a); } }
         }
         if outcome=="confirmed" { r.artifacts[step]={"receipt":evidence,"user_confirmed":True};r.index+=1; }
         r.status="completed" if r.index>=len(STEPS[r.kind]) else "queued";r.message="Reconciled by you";r.attempts=0;
         for t in [root.shared -->][?:AgentTicket] { if t.run_id==id { t.state=r.status;t.due_at=0; } }
         commit();return _run_view(r,True);
+    }
+}
+"""Why a Google step cannot be dispatched right now, or "" when it can."""
+def _google_missing(step: str) -> str {
+    if step not in ["send","calendar"] { return ""; }
+    scope=str(SCOPES["send" if step=="send" else "calendar"]);
+    if [c for c in [root -->][?:AgentConnection] if c.provider=="google" and c.state=="connected" and scope in c.scopes] { return ""; }
+    if step=="send" { return "Gmail sending is not connected. Connect it in Agents → Rules to send from Stack, or copy this draft into your own email and cancel the task."; }
+    return "Google Calendar is not connected. Connect it in Agents → Rules, or add the event yourself and cancel the task.";
+}
+def:priv agent_approve(id: str, step: str, review_hash: str, edits: dict[str, any] | None = None) -> dict[str, any] {
+    _agent_access();
+    with _catalog_lock {
+        _agent_fresh();r=_owned_run(id);
+        if r is None or r.status!="review" { return {"error":"This task is not waiting for your review."}; }
+        # The approval covers exactly the version the user saw; a newer version needs a new look.
+        if r.review.get("step")!=step or r.review.get("hash")!=review_hash or STEPS[r.kind][r.index]!=step { return {"error":"This review changed. Look it over again before approving."}; }
+        # Approving something Stack cannot deliver would only fail later; keep the review and say why.
+        missing=_google_missing(step);
+        if missing { return {"error":missing}; }
+        # Omitted optional arguments can arrive as the text "None"; only a non-empty object is an edit.
+        if isinstance(edits,dict) and len(edits)>0 and step=="approve_resume" {
+            ids=[c["id"] for c in r.artifacts.get("tailor",{}).get("changes",[])];
+            rejected=edits.get("rejected",[]);
+            if not isinstance(rejected,list) or any(str(x) not in ids for x in rejected) { return {"error":"Choose changes from this review."}; }
+            r.artifacts["tailor"]={**r.artifacts.get("tailor",{}),"rejected":sorted({str(x) for x in rejected})};
+        } elif isinstance(edits,dict) and len(edits)>0 {
+            if step!="send" { return {"error":"Only email subject and body can be edited here."}; }
+            subject=str(edits.get("subject","")).strip();body=str(edits.get("body","")).strip();
+            if not subject or not body or len(subject)>200 or len(body)>10000 or "\n" in subject or "\r" in subject { return {"error":"Enter a one-line subject under 200 characters and a message under 10,000 characters."}; }
+            r.artifacts["draft"]={**r.artifacts.get("draft",{}),"subject":subject,"body":body,"edited_by_user":True};
+        }
+        r.approvals[step]=digest(review_payload(step,r.context,r.artifacts));
+        r.review={};r.status="queued";r.message="Approved by you. Continuing.";r.attempts=0;r.next_at=0.0;r.updated_at=time.time();
+        for t in [root.shared -->][?:AgentTicket] { if t.run_id==id { t.state="queued";t.due_at=0; } }
+        commit();return _run_view(r,True);
+    }
+}
+def:priv agent_retry(id: str) -> dict[str, any] {
+    _agent_access();
+    with _catalog_lock {
+        _agent_fresh();r=_owned_run(id);
+        if r is None { return {"error":"Run not found."}; }
+        # Uncertain runs must be reconciled; completed or cancelled work is never replayed.
+        if r.status not in ["failed","blocked"] or r.kind=="live" { return {"error":"Only a failed or paused task can be retried."}; }
+        if [a for a in [root -->][?:AgentAction] if a.run_id==id and a.status=="intent"] { return {"error":"An action may have been dispatched. Reconcile it first."}; }
+        r.status="queued";r.message="Retry requested";r.attempts=0;r.next_at=0.0;r.dismissed=False;r.lease="";r.updated_at=time.time();
+        for t in [root.shared -->][?:AgentTicket] { if t.run_id==id { t.state="queued";t.due_at=0; } }
+        commit();return _run_view(r,True);
+    }
+}
+def:priv agent_dismiss(id: str) -> dict[str, any] {
+    _agent_access();
+    with _catalog_lock {
+        _agent_fresh();r=_owned_run(id);
+        if r is None { return {"error":"Run not found."}; }
+        if r.status not in TERMINAL { return {"error":"Cancel or finish this task before dismissing it."}; }
+        r.dismissed=True;commit();return _run_view(r,True);
     }
 }
 def:priv agent_contacts() -> dict[str, any] { _agent_access();return {"contacts":[{"id":jid(c),**c.data,"followups":c.followups,"next_at":c.next_at} for c in [root -->][?:AgentContact]]}; }
@@ -345,8 +444,7 @@ def:priv agent_save_contact(data: dict[str, any], id: str = "") -> dict[str, any
             if not items { return {"error":"Contact not found."}; }
             validated["stopped"]=items[0].data.get("stopped",False);items[0].data=validated;saved_contact=items[0];
         } else { saved_contact=root ++> AgentContact(data=validated,created_at=time.time()); }
-        m=_agent_memory();
-        if validated.get("selected") and not validated.get("stopped") and m.policy.get("enabled") and "send_email" in m.policy.get("actions",[]) { _agent_start("network",jid(saved_contact),{"contact":validated,"thread_id":saved_contact.thread_id}); }
+        # Saving or selecting a contact never contacts them; outreach starts only from an explicit request.
         commit();return agent_contacts();
     }
 }

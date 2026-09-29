@@ -11,7 +11,7 @@ application browser, send email, or execute practice code.
 1. Sign in through `codex login` (ChatGPT) or `claude auth login` (Claude plan).
    Stack uses the CLI's own authentication, not copied OAuth tokens. Recent CLI
    versions are required for the isolation and structured-output flags.
-2. In Stack, open **Agent activity > Rules** and note your **Account ID**.
+2. In Stack, open **Agents > Rules** (header entry) and note your **Account ID**.
 3. Select one local provider from the project directory:
 
    ```sh
@@ -27,7 +27,7 @@ application browser, send email, or execute practice code.
 4. Enable standing permissions with **Model** selected. Save them. Keep the Mac
    awake and connected to the iPhone hotspot while `scripts/dev` runs.
 5. For the smallest test, open **Prep**, start a behavioral practice session,
-   enter an answer, and tap **Get coaching**. Refresh Agent activity to see the
+   enter an answer, and tap **Save and get coaching**. The Agents header entry and the session show the
    result. This requires neither Google nor a code sandbox. For a job-fit test,
    select a saved, real application and its resume, confirm extracted resume
    facts, then tap **Explain my fit**.

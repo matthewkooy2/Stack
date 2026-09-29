@@ -15,8 +15,8 @@ with entry {
     STEPS = {
         'live': ['interview'],
         'jobs': ['fit'],
-        'resume': ['tailor'],
-        'application': ['inspect', 'fit', 'tailor', 'fill', 'submit'],
+        'resume': ['tailor', 'approve_resume'],
+        'application': ['inspect', 'fit', 'tailor', 'approve_resume', 'fill', 'submit'],
         'network': ['research', 'draft', 'send'],
         'profile': ['profile'],
         'prep': ['coach'],
@@ -74,7 +74,8 @@ def config() -> dict[(str, any)] {
         ],
         'action_daily_limits': raw.get('action_daily_limits', {}),
         'invite_only': bool(raw.get('invite_only', False)),
-        'web_url': str(raw.get('web_url', ''))
+        'web_url': str(raw.get('web_url', '')),
+        'sandbox_available': (raw.get('sandbox_available') is True)
     };
 }
 def account_key(value: str) -> str {

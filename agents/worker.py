@@ -44,30 +44,47 @@ def dispatch(work, token):
         if work.get('provider_config_hash') != digest(c):
             return {'needs_input': True, 'message': 'Model configuration changed. Resume this task to use the current provider.', 'requests': []}
         model_access(c, work['owner'])
-        if step == 'tailor' and not any(f['key'].startswith('resume.') and f.get('verified') for f in context.get('facts', [])):
-            return {'needs_input': True, 'message': 'Confirm the facts extracted from your resume before tailoring.', 'requests': []}
+        model_context = {**context, 'research': artifacts.get('research', {})}
+        if step == 'tailor':
+            from agents.tailoring import prepare
+            # The LaTeX source (uploaded, or a template filled from confirmed details) is the resume Stack edits.
+            try:
+                prepared = prepare(call('agent_worker_resume_source', auth))
+            except ValueError as exc:
+                return {'needs_input': True, 'message': str(exc), 'requests': []}
+            model_context = {**model_context, 'resume_structure': prepared['outline'], 'resume_text': ''}
         try:
-            result = generate(step, {**context, 'research': artifacts.get('research', {})}, c)
+            result = generate(step, model_context, c)
         except ValueError as exc:
             if c['provider'] in CLI_PROVIDERS:
                 return {'needs_input': True, 'message': str(exc), 'requests': []}
             raise
         if step == 'tailor':
+            from agents.tailoring import tailor
             from agents.documents import render_variant
-            facts = {f['key']: f for f in context['facts'] if f.get('verified') and f['key'].startswith('resume.')}
-            keys = result['artifact']['ordered_fact_keys']
-            if len(keys) != len(set(keys)) or set(keys) != set(facts):
-                raise ValueError('Tailoring omitted or introduced facts. Review it before use.')
-            result['artifact']['pdf'] = render_variant(context.get('profile', {}).get('name', 'Resume'), context.get('resume_text', ''), [facts[k] for k in keys])
+            facts = [f for f in context.get('facts', []) if f.get('verified')]
+            try:
+                result['artifact'] = tailor(prepared, result['artifact'], facts)
+            except ValueError as exc:
+                # Compiling and fitting are deterministic; retrying would only repeat the model call.
+                return {'needs_input': True, 'message': str(exc), 'requests': []}
             fields = artifacts.get('inspect', {}).get('fields', [])
             if any('cover' in f['label'].lower() and 'letter' in f['label'].lower() for f in fields):
                 job = context['job']
                 letter = [{'key': 'intro', 'value': 'I am applying for the ' + job['title'] + ' role at ' + job['company'] + '.'}]
-                letter += [facts[k] for k in keys[:3]]
+                letter += [{'key': b['key'], 'value': b['value'].replace('**', '')} for b in result['artifact']['top_bullets']]
                 letter += [{'key': 'closing', 'value': 'Thank you for considering my application.'}]
                 result['artifact']['cover_letter'] = render_variant(context.get('profile', {}).get('name', ''), '', letter)
                 result['artifact']['cover_letter']['name'] = 'Cover letter.pdf'
         return result
+    if step == 'approve_resume':
+        from agents.tailoring import prepare, finalize
+        # Runs only after the user approved this exact proposal (the claim checks the review hash).
+        try:
+            prepared = prepare(call('agent_worker_resume_source', auth))
+            return {'artifact': finalize(prepared, artifacts['tailor'])}
+        except ValueError as exc:
+            return {'needs_input': True, 'message': str(exc), 'requests': []}
     if step in ('inspect', 'fill', 'submit'):
         if step != 'inspect':
             call('agent_authorize', {**auth, 'payload_hash': digest([context, artifacts])})

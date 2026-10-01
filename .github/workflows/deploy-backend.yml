@@ -77,7 +77,7 @@ jobs:
           printf '%s\n' "$KNOWN_HOSTS" > "$hosts"
           [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9.-]+$ ]] && [[ "$DEPLOY_PORT" =~ ^[0-9]+$ ]]
           echo "$RELEASE_DIGEST  $RUNNER_TEMP/backend.tar.gz" | sha256sum --check --status
-          timeout 12m ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$hosts" \
+          timeout 12m ssh -4 -T -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$hosts" \
             -o IdentitiesOnly=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
             -i "$key" -p "$DEPLOY_PORT" "stack-deploy@$DEPLOY_HOST" \
             "stack-release $RELEASE_COMMIT $RELEASE_DIGEST" < "$RUNNER_TEMP/backend.tar.gz"

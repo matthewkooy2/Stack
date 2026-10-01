@@ -6,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+from uuid import uuid4
 
 from agents import contracts, local_cli, provider, worker
 
@@ -47,6 +48,15 @@ class Providers(unittest.TestCase):
         for name in ('openai', 'meta', 'invalid'):
             c = self.configure(provider=name, model='test')
             with self.assertRaises(ValueError): contracts.model_access(c, 'alice')
+
+    def test_subscription_owner_accepts_both_uuid_formats(self):
+        owner, other = uuid4(), uuid4()
+        for stored, requested in ((str(owner), owner.hex), (owner.hex, str(owner))):
+            c = self.configure(provider='codex-cli', local_cli_owner=stored, local_cli_daily_limit=20)
+            contracts.model_access(c, requested)
+            self.assertTrue(contracts.model_status(requested)['configured'])
+            with self.assertRaises(ValueError):
+                contracts.model_access(c, other.hex)
 
     def test_subscription_has_no_http_fallback_or_dollar_estimate(self):
         self.configure(provider='codex-cli')

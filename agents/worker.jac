@@ -5,6 +5,7 @@ import from pathlib { Path }
 import time;
 import urllib.request;
 import from agents.contracts { CLI_PROVIDERS, config, digest, model_access }
+import from agents.tracing { trace_data }
 def call(name: str, args: dict[str, any]) -> dict[str, any] {
     base = os.environ.get('STACK_WORKER_API', 'http://127.0.0.1:8000');
     request = urllib.request.Request(
@@ -20,7 +21,7 @@ def call(name: str, args: dict[str, any]) -> dict[str, any] {
     }
     return value;
 }
-def browser_call(step: str, work: dict[str, any]) -> dict[str, any] {
+def browser_call(step: str, work: dict[str, any], timeout: int = 100) -> dict[str, any] {
     # The private browser origin is operator-owned, never taken from task content.
     base = os.environ.get('STACK_BROWSER_URL', '');
     token = os.environ.get('STACK_BROWSER_TOKEN', '');
@@ -37,7 +38,7 @@ def browser_call(step: str, work: dict[str, any]) -> dict[str, any] {
             'Authorization': ('Bearer ' + token)
         }
     );
-    with urllib.request.urlopen(request, timeout=100) as response {
+    with urllib.request.urlopen(request, timeout=timeout) as response {
         result = json.load(response);
     }
     if result.get('error') {
@@ -45,16 +46,17 @@ def browser_call(step: str, work: dict[str, any]) -> dict[str, any] {
     }
     return result;
 }
-def dispatch(work: dict[str, any], token: str) -> dict[str, any] {
+def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str, any] {
     import from agents.provider { generate }
     (step, context, artifacts) = (work['step'], work['context'], work['artifacts']);
     auth = {k: work[k] for k in ('id', 'owner', 'lease')};
     auth['token'] = token;
+    if step == 'linkedin_scan' { return browser_call(step, work); }
     if (step == 'research') {
         import from agents.research { contact_source }
         return {'artifact': contact_source(context['contact'])};
     }
-    if (step in ('fit', 'tailor', 'draft', 'coach', 'profile')) {
+    if (step in ('fit', 'tailor', 'draft', 'coach', 'profile', 'linkedin_review')) {
         c = config();
         if (work.get('provider_config_hash') != digest(c)) {
             return {
@@ -64,47 +66,60 @@ def dispatch(work: dict[str, any], token: str) -> dict[str, any] {
             };
         }
         model_access(c, work['owner']);
-        if (
-            (step == 'tailor')
-            and not `any(
-                (f['key'].startswith('resume.') and f.get('verified'))
-                for f in context.get('facts', [])
-            )
-        ) {
-            return {
-                'needs_input': True,
-                'message': 'Confirm the facts extracted from your resume before tailoring.',
-                'requests': []
+        model_context = {** context, 'research': artifacts.get('research', {}), 'linkedin_profile':artifacts.get('linkedin_scan', {})};
+        if (step == 'tailor') {
+            import from agents.tailoring { prepare }
+            try {
+                prepared = prepare(call('agent_worker_resume_source', auth));
+            } except ValueError as exc {
+                return {'needs_input': True, 'message': str(exc), 'requests': []};
+            }
+            import from agents.tailoring { baseline_score }
+            import from agents.scoring { guidance }
+            before = baseline_score(
+                prepared,
+                context.get('job', {}),
+                [
+                    f
+                    for f in context.get('facts', [])
+                    if f.get('verified')
+                ]
+            );
+            model_context = {
+                ** model_context,
+                'resume_structure': prepared['outline'],
+                'resume_text': '',
+                'score_guidance': guidance(before)
             };
         }
+        def record(attempt: dict[str, any]) -> None {
+            try { call('agent_model_log', {**auth, 'record':attempt}); }
+            except Exception { raise ValueError('Stack could not retain the model response log. Check the API before retrying.') from None; }
+        }
         try {
-            result = generate(
-                step, {** context, 'research': artifacts.get('research', {})}, c
-            );
+            result = generate(step, model_context, c, observe=observe, record=record);
         } except ValueError as exc {
+            if step == 'linkedin_review' { return {'blocked':True, 'message':str(exc), 'requests':[]}; }
             if (c['provider'] in CLI_PROVIDERS) {
                 return {'needs_input': True, 'message': str(exc), 'requests': []};
             }
             raise;
         }
         if (step == 'tailor') {
+            import from agents.tailoring { tailor }
             import from agents.documents { render_variant }
-            facts = {
-                f['key']: f
-                for f in context['facts']
-                if (f.get('verified') and f['key'].startswith('resume.'))
-            };
-            keys = result['artifact']['ordered_fact_keys'];
-            if ((len(keys) != len(`set(keys))) or (`set(keys) != `set(facts))) {
-                raise ValueError(
-                    'Tailoring omitted or introduced facts. Review it before use.'
+            facts = [
+                f
+                for f in context.get('facts', [])
+                if f.get('verified')
+            ];
+            try {
+                result['artifact'] = tailor(
+                    prepared, result['artifact'], facts, context.get('job')
                 );
+            } except ValueError as exc {
+                return {'needs_input': True, 'message': str(exc), 'requests': []};
             }
-            result['artifact']['pdf'] = render_variant(
-                context.get('profile', {}).get('name', 'Resume'),
-                context.get('resume_text', ''),
-                [facts[k] for k in keys]
-            );
             fields = artifacts.get('inspect', {}).get('fields', []);
             if `any(
                 (('cover' in f['label'].lower()) and ('letter' in f['label'].lower()))
@@ -123,7 +138,10 @@ def dispatch(work: dict[str, any], token: str) -> dict[str, any] {
                         )
                     }
                 ];
-                letter += [facts[k] for k in keys[:3]];
+                letter += [
+                    {'key': b['key'], 'value': b['value'].replace('**', '')}
+                    for b in result['artifact']['top_bullets']
+                ];
                 letter += [
                     {
                         'key': 'closing',
@@ -137,6 +155,26 @@ def dispatch(work: dict[str, any], token: str) -> dict[str, any] {
             }
         }
         return result;
+    }
+    if (step == 'approve_resume') {
+        import from agents.tailoring { prepare, finalize }
+        try {
+            prepared = prepare(call('agent_worker_resume_source', auth));
+            return {
+                'artifact': finalize(
+                    prepared,
+                    artifacts['tailor'],
+                    context.get('job'),
+                    [
+                        f
+                        for f in context.get('facts', [])
+                        if f.get('verified')
+                    ]
+                )
+            };
+        } except ValueError as exc {
+            return {'needs_input': True, 'message': str(exc), 'requests': []};
+        }
     }
     if (step in ('inspect', 'fill', 'submit')) {
         if (step != 'inspect') {
@@ -215,6 +253,9 @@ def main() {
         os.environ.get('STACK_AGENT_WORKER_TOKEN', '')
         or Path('storage/agents/worker-token').read_text().strip()
     );
+    import from threading { Thread }
+    import from agents.resume_processing { main as resume_main }
+    Thread(target=resume_main,args=(token,),daemon=True).start();
     last_tick = 0.0;
     while True {
         try {
@@ -264,7 +305,10 @@ def main() {
                 continue;
             }
             try {
-                result = dispatch(work, token);
+                def observe(event: str, data: dict[str, any]) -> None {
+                    call('agent_trace', {'token':token, **{k:work[k] for k in ('id','owner','lease')}, 'event':event, 'data':trace_data(data)});
+                }
+                result = dispatch(work, token, observe=observe);
             } except Exception as exc {
                 result = {
                     'error': str(exc)

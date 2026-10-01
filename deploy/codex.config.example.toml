@@ -1,0 +1,3 @@
+# Private service-owned CODEX_HOME/config.toml, not the desktop user's config.
+# File credentials must stay writable by the service UID for token refresh.
+cli_auth_credentials_store = "file"

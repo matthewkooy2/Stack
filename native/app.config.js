@@ -1,10 +1,9 @@
-// Local reminders remain available; hosted releases require HTTPS and push provisioning.
+// Local reminders work without APNs. Remote push is explicitly provisioned later.
 const {withEntitlementsPlist, withPodfileProperties} = require('expo/config-plugins');
-const fs = require('fs');
-const path = require('path');
-function notificationCapabilities(config) {
+const {buildSettings} = require('./build-config');
+function notificationCapabilities(config, pushEnabled, pushEnvironment) {
   config = withEntitlementsPlist(config, c => {
-    if(process.env.STACK_BUILD_MODE==='release') c.modResults['aps-environment']='production';
+    if(pushEnabled) c.modResults['aps-environment']=pushEnvironment;
     else delete c.modResults['aps-environment'];
     return c;
   });
@@ -14,17 +13,19 @@ function notificationCapabilities(config) {
   });
 }
 module.exports = () => {
-  const development = process.env.STACK_BUILD_MODE !== 'release';
-  const hostFile = path.join(__dirname, 'stack-host.json');
-  const apiBaseUrl = process.env.STACK_API_URL || (fs.existsSync(hostFile) ? JSON.parse(fs.readFileSync(hostFile)).apiBaseUrl : 'http://localhost:8000');
-  if(!development && !/^https:\/\//.test(apiBaseUrl)) throw new Error('A release build requires STACK_API_URL=https://your-host.');
+  const {release, apiBaseUrl, pushEnabled, pushEnvironment} = buildSettings(process.env, __dirname);
+  const development = !release;
   return {
     name:'Stack', slug:'stack', version:'0.1.0', orientation:'portrait', userInterfaceStyle:'light',
     ios:{supportsTablet:false,bundleIdentifier:'com.matthewkooy.stack',infoPlist:development ? {
       NSLocalNetworkUsageDescription:'Connect to your Mac for Stack development.',
       NSAppTransportSecurity:{NSAllowsArbitraryLoads:true,NSAllowsLocalNetworking:true},
     } : {}},
-    plugins:[notificationCapabilities],
-    extra:{apiBaseUrl,pushEnabled:!development,eas:{projectId:process.env.STACK_EAS_PROJECT_ID||''}},
+    plugins:[
+      config => notificationCapabilities(config, pushEnabled, pushEnvironment),
+      // SDK 57 keeps the legacy lifecycle unless scene support is enabled for iOS 27.
+      ['expo-build-properties',{ios:{enableSceneSupport:true}}],
+    ],
+    extra:{apiBaseUrl,pushEnabled,eas:{projectId:process.env.STACK_EAS_PROJECT_ID||''}},
   };
 };

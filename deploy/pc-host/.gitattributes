@@ -1,0 +1,2 @@
+# Preserve exact captured source bytes across Windows and Linux checkouts.
+* -text

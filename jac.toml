@@ -13,6 +13,23 @@ websockets = "==17.0.1"
 google-auth = "==2.40.3"
 requests = "==2.32.5"
 
+python-dotenv = ">=1.2.1,<2.0.0"
+
+[dependencies.npm]
+react = "19.2.3"
+react-dom = "19.2.3"
+react-router-dom = "^6.22.0"
+react-error-boundary = "^5.0.0"
+"@tanstack/react-form" = "^1.33.0"
+zod = "^4.3.6"
+
+[dependencies.npm.dev]
+vite = "^6.4.1"
+"@vitejs/plugin-react" = "^4.7.0"
+typescript = "^5.3.3"
+"@types/react" = "^19.2.0"
+"@types/react-dom" = "^19.2.0"
+
 [dev-dependencies]
 watchdog = "==6.0.0"
 
@@ -62,4 +79,4 @@ lucide-react-native = "1.48.0"
 enabled = false
 
 [database]
-indexes = { JobAlias = ["key"], CatalogJob = ["key", "canonical_url", "identity", "active", "checked_at"], JobSource = ["key", "next_at"], DiscoveryRequest = ["status", "key"], AgentRun = ["key", "status", "created_at"], AgentTicket = ["state", "due_at"], AgentUsage = ["key"], AgentEvent = ["key"], PrepSession = ["updated_at"] }
+indexes = { JobAlias = ["key"], CatalogJob = ["key", "canonical_url", "identity", "active", "checked_at"], JobSource = ["key", "next_at"], DiscoveryRequest = ["status", "key"], AgentRun = ["key", "status", "created_at"], AgentTicket = ["state", "due_at"], AgentUsage = ["key"], AgentEvent = ["key"], PrepSession = ["updated_at"], ResumeTicket = ["status", "created_at", "lease_until"] }

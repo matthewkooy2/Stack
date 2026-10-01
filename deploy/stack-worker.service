@@ -7,6 +7,11 @@ User=stack
 WorkingDirectory=/opt/stack
 EnvironmentFile=/etc/stack/worker.env
 Environment=STACK_JAC_BIN=/usr/local/bin/jac
+Environment=CODEX_HOME=/var/lib/stack-codex
+Environment=HOME=/var/lib/stack-codex
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+StateDirectory=stack-codex
+StateDirectoryMode=0700
 ExecStart=/opt/stack/scripts/jac run --no-serve scripts/agent-worker.jac
 Restart=on-failure
 RestartSec=5
@@ -15,7 +20,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/stack/.jac
+ReadWritePaths=/opt/stack/.jac /var/lib/stack-codex
 
 [Install]
 WantedBy=multi-user.target

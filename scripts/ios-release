@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+STACK_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+export STACK_BUILD_MODE=release
+exec "$STACK_ROOT/scripts/ios" "$@"

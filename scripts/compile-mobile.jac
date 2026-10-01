@@ -1,12 +1,13 @@
 """Compile Jac screens without Jac's simulator-only build or Bun prebuild."""
 import from pathlib { Path }
 import shutil;
-import json;
+import subprocess;
 import jaclang.client;
 import from jaclang.client.targets.mobile_target { MobileTarget }
 import from jaclang.client.targets.react_native.build { stage_compiled_entry, write_native_entry }
 with entry {
     project = Path.cwd();
+    subprocess.run(["node", "native/build-config.js", "--check", ".jac/mobile-rn"], check=True);
     target = MobileTarget();
     (compiler, compiled) = target._compile_native_jac_modules(project / "mobile/main.jac");
     output = project / ".jac/mobile-rn";
@@ -19,9 +20,5 @@ with entry {
     shutil.copyfile(project / "native/device.js", output / "jac-src/mobile/device.js");
     shutil.copyfile(project / "native/adzuna-logo.png", output / "jac-src/mobile/adzuna-logo.png");
     write_native_entry(output);
-    host_file = output / "stack-host.json";
-    if host_file.exists() {
-        api = json.loads(host_file.read_text())["apiBaseUrl"];
-        (output / "__jacApiBase.js").write_text("globalThis.__JAC_API_BASE_URL__ = " + json.dumps(api) + ";\n");
-    }
+    subprocess.run(["node", "native/build-config.js", "--write", str(output)], check=True);
 }

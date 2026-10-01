@@ -7,15 +7,17 @@ import re;
 import time;
 import from pathlib { Path }
 import from urllib.parse { urlsplit }
+import from uuid { UUID }
 with entry {
     VERSION = 1;
     CLI_PROVIDERS = {'codex-cli', 'claude-cli'};
     PROVIDERS = CLI_PROVIDERS | {'openai', 'meta'};
     STEPS = {
+        'linkedin': ['linkedin_scan', 'linkedin_review'],
         'live': ['interview'],
         'jobs': ['fit'],
-        'resume': ['tailor'],
-        'application': ['inspect', 'fit', 'tailor', 'fill', 'submit'],
+        'resume': ['tailor', 'approve_resume'],
+        'application': ['inspect', 'fit', 'tailor', 'approve_resume', 'fill', 'submit'],
         'network': ['research', 'draft', 'send'],
         'profile': ['profile'],
         'prep': ['coach'],
@@ -23,7 +25,7 @@ with entry {
         'code': ['execute'],
         'calendar': ['calendar']
     };
-    PAID = {'fit', 'tailor', 'draft', 'coach', 'profile'};
+    PAID = {'fit', 'tailor', 'draft', 'coach', 'profile', 'linkedin_review'};
     EXTERNAL = {
         'fill': 'browser_fill',
         'submit': 'submit_application',
@@ -73,15 +75,21 @@ def config() -> dict[(str, any)] {
         ],
         'action_daily_limits': raw.get('action_daily_limits', {}),
         'invite_only': bool(raw.get('invite_only', False)),
-        'web_url': str(raw.get('web_url', ''))
+        'web_url': str(raw.get('web_url', '')),
+        'sandbox_available': (raw.get('sandbox_available') is True)
     };
+}
+def account_key(value: str) -> str {
+    # Jac jid() uses UUID hex; operator tools may save the hyphenated form.
+    try { return UUID(value).hex; }
+    except ValueError { return value; }
 }
 def model_access(c: dict[(str, any)], owner: str) {
     if (c['provider'] not in PROVIDERS) {
         raise ValueError('Choose a supported model provider.');
     }
     if (c['provider'] in CLI_PROVIDERS) {
-        if (not owner or (c['local_cli_owner'] != owner)) {
+        if (not owner or (account_key(c['local_cli_owner']) != account_key(owner))) {
             raise ValueError(
                 'The operator must connect this Stack account to the local CLI subscription.'
             );
@@ -423,4 +431,11 @@ def summarize_run(run: dict[str, any]) -> dict[str, any] {
             'cost_cents'
         )
     };
+}
+
+# Version 1 is the workflow persisted before per-resume review was introduced.
+def workflow_steps(kind: str, version: int = 2) -> list[str] {
+    if version == 1 and kind == "resume" { return ["tailor"]; }
+    if version == 1 and kind == "application" { return ["inspect", "fit", "tailor", "fill", "submit"]; }
+    return STEPS[kind];
 }

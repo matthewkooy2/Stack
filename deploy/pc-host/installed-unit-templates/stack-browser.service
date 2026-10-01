@@ -1,0 +1,30 @@
+[Unit]
+Description=Stack isolated sandboxed browser
+Requires=docker.service
+After=docker.service
+StartLimitIntervalSec=120
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=/etc/stack/browser.env
+Environment=DOCKER_HOST=unix:///var/run/docker.sock
+Environment=HOME=/var/lib/stack-browser-controller
+Environment=PYTHONDONTWRITEBYTECODE=1
+StateDirectory=stack-browser-controller
+StateDirectoryMode=0700
+ExecStart=/usr/bin/python3 /usr/local/libexec/stack-browser/browser_runtime.py
+Restart=on-failure
+RestartSec=8
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/stack-browser-controller /run/xtables.lock
+InaccessiblePaths=/opt/stack /var/lib/stack-codex /etc/stack/api.env /etc/stack/worker.env /etc/stack/db.pgpass /etc/stack/browser.env
+
+[Install]
+WantedBy=multi-user.target

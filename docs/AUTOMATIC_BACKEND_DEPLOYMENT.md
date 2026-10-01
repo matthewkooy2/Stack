@@ -12,10 +12,22 @@ commands exited successfully; it does not certify application readiness.
 
 ## Current activation state
 
-Prepared only. No deployment account, SSH service/key, Tailscale grant,
-GitHub environment variables/secrets, root helper, live restart or live trial
-has been configured by this change. Until approved access is configured, a
-run fails at the first step with a clear setup message. It does not deploy.
+On 2026-10-01, the user approved and configured the deployment account/key,
+restricted SSH endpoint/helper, main-only GitHub environment, and narrow
+Tailscale grant. The user entered the two SSH secrets locally. Both deployment
+flags are enabled, and PR #10 was merged into `main`.
+
+The first workflow run and its second attempt stopped at Tailscale OIDC token
+exchange with HTTP 403 before SSH transfer. Attempt three passed authentication
+and transferred/installed all 68 source files from main commit
+`268d6ef20895d58d8d4a70e1e37956b663cdb571`. Its dependency step failed because
+the helper's restrictive umask removed group read access from installed files.
+An attended correction restored source mode 0640, completed Jac installation,
+and restored the API, worker and gateway. Every installed source hash matched
+the received artifact before the deployed baseline was updated. Browser remained
+running, and data/private configuration were retained. The helper now explicitly
+sets source mode 0640 and new source directory mode 0750 after ownership changes.
+No application health checks or broad migration tests were run.
 
 Only `main` runs can reach deployment steps. There is no `pull_request` or
 `pull_request_target` trigger and no PC self-hosted runner. Actions are pinned
@@ -61,12 +73,26 @@ credentials in this repository, chat, artifacts or command output.
    Ryans-Desktop's designated deployment TCP port. Keep existing HTTPS 8443,
    browser routes and other tailnet grants unchanged. Use OIDC federation;
    there is no need for a reusable Tailscale authentication secret.
+   Use the exact issuer subject reported by Tailscale's token-exchange
+   diagnostic, rather than assuming the older name-only GitHub subject format.
+   For this repository/environment the observed subject was:
+   `repo:matthewkooy2@197636470/Stack@1391512975:environment:stack-production`.
+   It includes immutable account/repository IDs even though GitHub's repository
+   subject customization reports `use_default=true`. Keep the issuer
+   `https://token.actions.githubusercontent.com` and custom claim
+   `ref = refs/heads/main`. Restrict the credential's auth-key write permission
+   to exactly `tag:stack-deploy`; do not replace this restriction with a wildcard.
 2. **WSL SSH endpoint:** install/configure Ubuntu OpenSSH and a non-admin
    `stack-deploy` account. Since Windows owns the existing Tailscale node,
    publish only a new private deployment port (recommended 2222) to WSL SSH,
    bound to Windows' Tailscale address and restricted by tailnet/firewall
    policy. This forwarding/firewall change needs explicit approval. Verify
    current endpoint reachability before enabling the workflow.
+   This PC uses SSH on WSL `127.0.0.1:2223`, forwarded privately with
+   `tailscale serve --bg --tcp=2222 --yes tcp://127.0.0.1:2223` on Windows.
+   Existing Serve routes, including HTTPS 8443, were retained. The workflow
+   uses `ssh -4` to match the IPv4-only destination grant and keeps the pinned
+   `[ryans-desktop.tailfe312e.ts.net]:2222` host-key identity.
 3. **Fixed SSH key:** create a dedicated deployment key. Its authorized-key
    entry must use `restrict,command="/usr/bin/python3 -E -s /usr/local/libexec/stack-release/receive_backend.py"`.
    Disable password login, interactive shell, forwarding and PTY for this
@@ -82,6 +108,11 @@ credentials in this repository, chat, artifacts or command output.
    `stack-api`, `stack-worker`, and `stack-gateway`; it runs package tools as
    `stack`. Approving it authorizes future merged backend code to execute as
    the existing Stack service user, including that user's existing access.
+   The existing `/usr/local/libexec` parent is private; this PC grants only
+   directory traversal to `stack-deploy` with a named ACL. Helper files remain
+   root-owned and unwritable by service/deployment accounts. The launcher uses
+   the existing root-owned `/usr/local/bin` Node/npm tools and explicitly selects
+   `/usr/local/bin/jac`, matching the existing application units.
 5. **Host state:** create `/var/lib/stack-release` root-owned mode 0755;
    `incoming/` owned by `stack-deploy` mode 0700; `build/` root:stack mode 0750.
    Create `/etc/stack-release` root-owned mode 0700 and a root-owned 0600
@@ -98,6 +129,24 @@ credentials in this repository, chat, artifacts or command output.
    Leave branch-protection/test gates for later as requested. Only activate
    after the endpoint/helper/key and an agreed first deployment window are ready.
 
+The saved network grant preserves `autogroup:member` access to all existing
+destinations/protocols. The separate `tag:stack-deploy` grant permits only
+`100.102.193.64` with `ip: ["tcp:2222"]`. Current status listed three personal
+devices and no tagged devices before activation. The existing SSH and
+`nodeAttrs` rules were retained. `tagOwners: {"tag:stack-deploy": []}` is valid;
+tailnet administrators implicitly own tags, so no additional owner grant was
+needed. Future tagged services require their own intended access policy.
+
+## OIDC troubleshooting
+
+Open the Tailscale Trust credentials entry named in the failed action's error
+and inspect its latest token-exchange diagnostic. A `Cannot validate subject`
+error shows the received subject; copy that exact public value into the Subject
+field. Do not weaken the `ref` claim to resolve a subject mismatch. If another
+HTTP 403 follows, inspect the updated diagnostic before retrying: subject,
+issuer, audience and custom claims are independently checked. Neither token
+values nor private keys are needed in chat or logs for this diagnosis.
+
 This is a persistent deployment grant. It is deliberately narrower than an
 interactive administrator login, but anyone authorized to change `main` or
 the workflow can deploy backend code. Revoke by disabling the workflow flag,
@@ -113,6 +162,9 @@ boot task and unattended cold-boot availability are **unverified**. WSL
 systemd enabled units start only once the distro starts. Power/network/boot
 settings were not changed. Confirm an approved startup/forwarding strategy
 before expecting deployments after reboot; avoid advertising always-on uptime.
+After the approved setup, SSH is installed/enabled on WSL loopback and Windows
+Serve forwards private TCP 2222 to it. Unattended cold-boot availability remains
+unverified; no power or boot policy changes were made.
 
 GitHub Actions is enabled; no self-hosted runners exist. Billing summary
 read returned 404 requiring an additional user scope, and the account plan
@@ -120,6 +172,11 @@ was not exposed. No token scopes, budget, billing or paid plan were changed.
 One hosted Ubuntu job is bounded to 15 minutes, with one-day source artifact
 retention and no test matrix/cache. Usage depends on main pushes/retries and
 the existing account allowance. Review allowance/spending before activation.
+The user subsequently confirmed the Actions budget displays $0 budget,
+$0 spent and Stop usage Yes. That paid-usage cap was preserved. Remaining
+included minutes were not shown. The first two attempts ran within the existing
+allowance; the timing API reported zero billable milliseconds. If a future run
+is blocked for exhausted allowance, report it rather than enabling paid usage.
 
 References: [GitHub Actions billing](https://docs.github.com/en/billing/concepts/product-billing/github-actions),
 [Tailscale GitHub Action/federation](https://tailscale.com/docs/integrations/github/github-action).

@@ -12,7 +12,6 @@ reportlab = "==4.4.10"
 websockets = "==17.0.1"
 google-auth = "==2.40.3"
 requests = "==2.32.5"
-
 python-dotenv = ">=1.2.1,<2.0.0"
 
 [dependencies.npm]
@@ -29,7 +28,6 @@ vite = "^6.4.1"
 typescript = "^5.3.3"
 "@types/react" = "^19.2.0"
 "@types/react-dom" = "^19.2.0"
-
 [dev-dependencies]
 watchdog = "==6.0.0"
 
@@ -41,11 +39,6 @@ watchdog = "==6.0.0"
 kind = "service"
 entry-point = "main"
 
-[apps.mobile]
-kind = "mobile"
-entry-point = "mobile.main"
-platform = "ios"
-
 [apps.workspace]
 kind = "web-app"
 entry-point = "web.main"
@@ -54,26 +47,9 @@ entry-point = "web.main"
 react = "19.2.3"
 react-dom = "19.2.3"
 
-[apps.mobile.dependencies.npm]
-react = "19.2.3"
-react-dom = "19.2.3"
-react-native-web = "0.21.0"
-react-native-svg = "15.15.5"
-lucide-react = "1.48.0"
-lucide-react-native = "1.48.0"
-
-[client.react_native]
-project_dir = ".jac/mobile-rn"
-default_platform = "ios"
-release = false
-
 [client.app]
 name = "Stack"
 id = "com.matthewkooy.stack"
-
-[apps.mobile.dependencies.npm.native]
-react-native-svg = "15.15.5"
-lucide-react-native = "1.48.0"
 
 [scale.admin]
 enabled = false

@@ -1,0 +1,126 @@
+{
+  "base": "def5e9d34fa9d399630d088fca667ebe05711215",
+  "intended_live_backend_files": [
+    "main.jac",
+    "agents/gateway.jac",
+    "agents/latex.jac",
+    "agents/resume_parser.jac",
+    "agents/resume_processing.jac",
+    "agents/worker.jac",
+    "jac.toml"
+  ],
+  "source_paths": [
+    {
+      "path": "agents/gateway.jac",
+      "live_sha256": "e65721f7660970128681a66271a180580cdc2b2439688da638445f44e363f82b",
+      "combined_sha256": "27406985fcff3dde560be19582c30093807b52e5392e3b4333b370a4d75811ff"
+    },
+    {
+      "path": "agents/latex.jac",
+      "live_sha256": "96e739cb0752172033d378aba482f1221784f690746bb858f1590f9073ebc0d7",
+      "combined_sha256": "13a82774ac15220b069e2fad6d1b90c21d0c327252238fb5c434c906b1ced67a"
+    },
+    {
+      "path": "agents/resume_parser.jac",
+      "live_sha256": "d2e16a8c3c97bb39c93074ae198d00bd0cb5171bd5e3b621536866ceeafb9ad7",
+      "combined_sha256": "fd7f53760131a1b3880c0b83ff7b961a9fa05b2708a5e50335d7465e4db8f11a"
+    },
+    {
+      "path": "agents/resume_processing.jac",
+      "live_sha256": null,
+      "combined_sha256": "456a5f0bdcc8df4ad3a93eccdd21020c52935939120331b4521a2f0b1e982a75"
+    },
+    {
+      "path": "agents/worker.jac",
+      "live_sha256": "20e718625faaa25da4157b38234f087d2cb26d47f06960110de9d0a89694c05b",
+      "combined_sha256": "97ecf0028703a970105f258ece643851f5ecb0ae39c3d115833a5825fc594003"
+    },
+    {
+      "path": "docs/REMOTE_HOSTING.md",
+      "live_sha256": "fb4cb65078294e97e4307dcdaa18ce2c7fba64538a89bf8df446d3838bef4274",
+      "combined_sha256": "87e5d414cde80a338dfb670a4841e92610405cc490b1e5ac59fb7a443ab57a23"
+    },
+    {
+      "path": "docs/RESUME_PARSER.md",
+      "live_sha256": "2047416bd6a651293554fbbd1108b84af3164dc385379bd278ffa9d16c834420",
+      "combined_sha256": "56f6cc3b6c08b81e116a1fab5f1dec75cab0ebec4557755eb9e81911d88c0e5b"
+    },
+    {
+      "path": "jac.toml",
+      "live_sha256": "90259a37cf88ad151492bbb4fe048e7313fc8af7bbbaa9cfc2954b1e2f95fd67",
+      "combined_sha256": "adc5e9f9b8051cb8667cf3f5f0f7a6e4c90ac192e0104736ab547a11e13fb752"
+    },
+    {
+      "path": "main.jac",
+      "live_sha256": "99a40a0f8f742bda5a4d9bb12167de36db4c2fde7c65eb429b3f8682d98bfc7e",
+      "combined_sha256": "def29517a0f48145843c7b929036506cd7d5aa72b364c63f9436894e22a971e0"
+    },
+    {
+      "path": "mobile/components/ResumeFormat.jac",
+      "live_sha256": "f1aea425a8d4cf246ba871412eb764595458ef7d496e5326398cb9ab07d97b43",
+      "combined_sha256": "23dfe52de819940059659b3d8bb59c57e95b1a0295d468667e4a380cd6c140b3"
+    },
+    {
+      "path": "mobile/components/ResumeReview.jac",
+      "live_sha256": "ea14c9030e2106bf430b363ad3708e73994eb99b7cf84d5b5e5255c651308ac3",
+      "combined_sha256": "625f744e046bf00c15ba21fbe75125d82310e3268891adca3f7dde8599bb2afe"
+    },
+    {
+      "path": "mobile/main.jac",
+      "live_sha256": "8d58ed80ec0a202ef2c1b347fa927a811fcc0217c80884930cd352efb7b88c31",
+      "combined_sha256": "067b373e4d4596fe06f2ed5f67f599cfd7c734a2799ab9c139b911bdcdcb7ff8"
+    },
+    {
+      "path": "native/app.config.js",
+      "live_sha256": "9fe665ce4de04f642501afcba21d3563bdb4345974f13a6885ef7b7638fa82ee",
+      "combined_sha256": "0b14d4e3cc3d1eac316e34f4e6de0f8ddb4c06f721c0d149dfd8df108b393258"
+    },
+    {
+      "path": "native/device.js",
+      "live_sha256": "ef3f33addf910d321d672680fe5c70de8e25e4f387f4c097fd1d2362282953f6",
+      "combined_sha256": "1778680e8ea176ddb9679ebdc924cf13315c1e37b048576fecf0450c9bc13479"
+    },
+    {
+      "path": "native/package-lock.json",
+      "live_sha256": "62ee75ad26ae5722b9876f5ccd8f1465ad918a8de8f21cc22d06b832064101b2",
+      "combined_sha256": "4ef4c2e1d234b0c44e7d2710249228ce7fb19f9af9bd77ec9c485d302257297a"
+    },
+    {
+      "path": "native/package.json",
+      "live_sha256": "6bb1b5db5769dec242206795ba3d5a9c18e4a51051a38aa467ff20f579eef07f",
+      "combined_sha256": "1193c0f15f2f4f2160c9662c95a3ca4a82d1b4020d8dc613cf6f2c8bc7075fc4"
+    },
+    {
+      "path": "tests/agent_experience_tests.jac",
+      "live_sha256": "0b359df0c8507de97fd9f9e785cb14516ac4d28ac19c0e6c76be9960d7dd6f5e",
+      "combined_sha256": "f506ed57ff4480fdd2a3d5fc8266c57b44a14832f0731716b880c4b6e3e45c5e"
+    },
+    {
+      "path": "tests/native.cjs",
+      "live_sha256": "59425d8485466edd2d45dfef2e8324072550d64e9317d3bae2d32eaf314633c8",
+      "combined_sha256": "8446c3bf5375bce2f5ecc7cfe155fa7f611b02cd76f60b1ba08f8c51a60c57ec"
+    },
+    {
+      "path": "tests/resume_parser_tests.jac",
+      "live_sha256": "4701c72328c1d37827ee97d65f3c7d6e881a2f4a74d5af48455dc5f6145764d0",
+      "combined_sha256": "9c89b1c0894ce487768a6ab6f7a246a6e54614ed9352f09b973985f30d906113"
+    },
+    {
+      "path": "tests/test_gateway.py",
+      "live_sha256": "bed1db7ae29dd032213c6405870459d605acfda30a299523e41ce86567b53e39",
+      "combined_sha256": "5e88716a7af3784a371142c66c660545b51453bda2d9fdcd88dbc0ade0ba84d9"
+    },
+    {
+      "path": "tests/test_resume_processing.py",
+      "live_sha256": null,
+      "combined_sha256": "a8b9904e995ce4de36e352cb868cbe4d637e1ef981f758bedfacdd6c7cbb552c"
+    }
+  ],
+  "excluded": [
+    "runtime/configuration/credentials",
+    "database/account/resume data",
+    "generated output",
+    "signing assets"
+  ],
+  "instruction": "Deploy only the seven intended backend files after the service-interruption hold is released. Other paths are merged source for review, not installation instructions."
+}

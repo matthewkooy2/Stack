@@ -1,0 +1,30 @@
+[Unit]
+Description=Stack single-process API
+Wants=postgresql@16-main.service
+After=postgresql@16-main.service
+
+[Service]
+Type=simple
+User=stack
+Group=stack
+WorkingDirectory=/opt/stack
+EnvironmentFile=/etc/stack/api.env
+Environment=STACK_JAC_BIN=/usr/local/bin/jac
+Environment=HOME=/var/lib/stack
+Environment=XDG_CACHE_HOME=/var/lib/stack/.cache
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=JAC_SCHEMA_REPAIR=detect
+ExecStart=/opt/stack/scripts/jac run --no-client --no-fleet --workers 1 --host 127.0.0.1 --port 8000 Stack
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+InaccessiblePaths=/var/lib/stack-codex
+ReadWritePaths=/opt/stack/.jac /opt/stack/storage /var/lib/stack/.cache
+
+[Install]
+WantedBy=multi-user.target

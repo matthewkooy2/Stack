@@ -48,12 +48,17 @@ node Profile {
 node Decision { has job_id: str, action: str; }
 node Application { has job_id: str, created_at: float, status: str = "", notes: str = "", resume_id: str = "", demo: bool = True, snapshot: dict[str, any] = {}, status_at: float = 0.0, history: list[dict[str, any]] = []; }
 node Contact { has person_id: str, saved: bool = False, draft: str = "", notes: str = ""; }
-node Resume { has name: str, file_key: str, size: int, created_at: float, review: dict[str, any] = {}, review_revision: int = 0, review_confirmed: bool = False, template: dict[str, any] = {}; }
+node Resume { has name: str, file_key: str, size: int, created_at: float, review: dict[str, any] = {}, review_revision: int = 0, review_confirmed: bool = False, template: dict[str, any] = {}, processing: dict[str, any] = {}, upload_digest: str = ""; }
 """A final tailored resume: saved once per tailoring task, kept separate from the user's uploads."""
 node TailoredResume {
     has name: str, run_id: str, application_id: str, job_title: str, company: str, source_resume_id: str, source_name: str,
         pdf_key: str, tex: str, created_at: float, outline: list[dict[str, any]] = [], pages: int = 1, format: str = "", parse: dict[str, any] = {},
         score: dict[str, any] = {};
+}
+node ResumeTicket {
+    has owner: str, resume_id: str, kind: str, input_key: str, fingerprint: str,
+        created_at: float, status: str = "queued", lease: str = "", lease_until: float = 0.0,
+        attempts: int = 0, timings: dict[str, any] = {}, stage_at: float = 0.0, message: str = "";
 }
 node Reminder { has target_type: str, target_id: str, title: str, due_at: float, done: bool = False; }
 node Settings { has selected_resume: str = "", tailored_backfilled: bool = False; }
@@ -124,7 +129,7 @@ def:priv bootstrap() -> dict[str, any] {
       "applications":[_app_view(a) for a in [root -->][?:Application]],
       "people":PEOPLE,
       "contacts":[{"id":jid(c),"person_id":c.person_id,"saved":c.saved,"draft":c.draft,"notes":c.notes} for c in [root -->][?:Contact]],
-      "resumes":[{"id":jid(r),"name":r.name,"size":r.size,"created_at":r.created_at,"details_status":"Confirmed" if r.review_confirmed else "Needs review" if r.review else "Not parsed","format":_resume_format(r)} for r in [root -->][?:Resume]],
+      "resumes":[{"id":jid(r),"name":r.name,"size":r.size,"created_at":r.created_at,"details_status":"Confirmed" if r.review_confirmed else "Needs review" if r.review else "Not parsed","processing":r.processing,"format":_resume_format(r)} for r in [root -->][?:Resume]],
       "selected_resume":_settings().selected_resume,
       "tailored_resumes":[_tailored_view(x) for x in [root --> [?:TailoredResume, -created_at]]],
       "agents":{**_agent_summary(),"features":_features()},
@@ -203,7 +208,7 @@ def:priv save_contact(id: str, saved: bool, draft: str, notes: str) -> dict[str,
     for c in [root -->][?:Contact] { if jid(c)==id { c.saved=saved; c.draft=draft; c.notes=notes; return bootstrap(); } }
     return _error("Contact not found.");
 }
-def:priv upload_resume(name: str, content: str) -> dict[str, any] {
+def:priv upload_resume(name: str, content: str, transfer_ms: float = 0.0) -> dict[str, any] {
     _profile();
     if len(content)>13981016 { return _error("PDF must be 10 MB or smaller."); }
     try { raw = base64.b64decode(content,validate=True); } except Exception { return _error("Invalid PDF encoding."); }
@@ -213,10 +218,21 @@ def:priv upload_resume(name: str, content: str) -> dict[str, any] {
         if pdf.is_encrypted or len(pdf.pages)==0 { return _error("Choose an unencrypted PDF with at least one page."); }
     } except Exception { return _error("This PDF could not be opened. Please export a new copy."); }
     if not name.strip() or len(name)>160 { return _error("Use a filename under 160 characters."); }
-    key = str(uuid4()) + ".pdf";
-    path = _file_path(key); path.write_bytes(raw); path.chmod(384);
-    r = root ++> Resume(name=Path(name).name, file_key=key, size=len(raw), created_at=time.time());
-    s = _settings(); if not s.selected_resume { s.selected_resume=jid(r); }
+    fingerprint=hashlib.sha256(raw).hexdigest();
+    with _write_lock {
+        _agent_fresh();
+        for existing in [root -->][?:Resume] {
+            if existing.upload_digest==fingerprint and existing.name==Path(name).name { return bootstrap(); }
+        }
+        key = "upload-"+hashlib.sha256(Path(name).name.encode()+raw).hexdigest()+".pdf";
+        used_keys={existing.file_key for existing in [root -->][?:Resume]};
+        while key in used_keys { key="upload-"+hashlib.sha256(key.encode()).hexdigest()+".pdf"; }
+        _write_private(key,raw);
+        r = root ++> Resume(name=Path(name).name, file_key=key, size=len(raw), created_at=time.time(),upload_digest=fingerprint);
+        settings = _settings(); if not settings.selected_resume { settings.selected_resume=jid(r); }
+        _queue_resume(r,"pdf",key,fingerprint,transfer_ms);
+        commit();
+    }
     return bootstrap();
 }
 """How Stack will format this resume: the user's own LaTeX, a chosen built-in template, or the default template."""
@@ -377,36 +393,42 @@ def _save_template(id: str, template: dict[str, any], files: dict[str, any]) -> 
     }
     return bootstrap();
 }
-def:priv upload_resume_source(id: str, name: str, content: str) -> dict[str, any] {
-    if _owned_resume(id) is None { return _error("Resume not found."); }
+def:priv upload_resume_source(id: str, name: str, content: str, transfer_ms: float = 0.0) -> dict[str, any] {
+    _agent_access();
+    if not name.strip() or len(name)>160 or Path(name).suffix.lower() not in [".tex",".zip"] { return _error("Choose a .tex file or Overleaf source .zip."); }
     if len(content)>2796204 { return _error("Upload a LaTeX source of 2 MB or less."); }
     try { raw=base64.b64decode(content,validate=True); } except Exception { return _error("This file could not be read. Choose it again."); }
-    try {
-        source=latex_load(name,raw);structure=latex_parse(source);
-        if not structure["bullets"] { return _error("Stack could not find bullet points in this resume. Use \\item or \\resumeItem bullets, or choose a built-in template."); }
-        # Compile the unchanged source first: if it fails here, tailoring would fail later.
-        compiled=latex_compile(source);
-    } except ValueError as e { return _error(str(e)); }
-    return _save_template(id,{"kind":"upload","name":Path(name).name[:160],"main":source["main"],"pages":compiled["pages"],"summary":latex_summary(structure),"skipped":source["skipped"][:20]},{".zip":latex_pack(source),".pdf":compiled["pdf"]});
+    if not raw or len(raw)>2097152 { return _error("Upload a LaTeX source of 2 MB or less."); }
+    fingerprint=hashlib.sha256(name.encode()+raw).hexdigest();
+    with _write_lock {
+        _agent_fresh();r=_owned_resume(id);
+        if r is None { return _error("Resume not found."); }
+        current=r.processing.get("source",{});
+        if current.get("fingerprint")==fingerprint { return bootstrap(); }
+        key="source-"+id+"-"+fingerprint+Path(name).suffix.lower();_write_private(key,raw);
+        _queue_resume(r,"source",key,fingerprint,transfer_ms,Path(name).name);
+        commit();
+    }
+    return bootstrap();
 }
 def:priv use_resume_template(id: str, template: str) -> dict[str, any] {
-    if template=="" {
-        with _write_lock {
-            _agent_fresh();current=_owned_resume(id);
-            if current is None { return _error("Resume not found."); }
-            _remove_template_files(current);current.template={};commit();
+    _agent_access();
+    with _write_lock {
+        _agent_fresh();r=_owned_resume(id);
+        if r is None { return _error("Resume not found."); }
+        if template=="" {
+            _cancel_resume_work(r,"source");_remove_template_files(r);r.template={};commit();return bootstrap();
         }
-        return bootstrap();
+        if template not in LATEX_TEMPLATES { return _error("Choose one of the built-in templates."); }
+        if not r.review_confirmed { return _error("Confirm your resume details first, so Stack can fill the template."); }
+        data=__import__("json").dumps({"template":template,"values":r.review.get("values",{})}).encode();
+        fingerprint=hashlib.sha256(data).hexdigest();
+        if r.processing.get("source",{}).get("fingerprint")==fingerprint { return bootstrap(); }
+        key="template-"+id+"-"+fingerprint+".json";_write_private(key,data);
+        _queue_resume(r,"source",key,fingerprint,0.0,template);
+        commit();
     }
-    r=_owned_resume(id);
-    if r is None { return _error("Resume not found."); }
-    if template not in LATEX_TEMPLATES { return _error("Choose one of the built-in templates."); }
-    if not r.review_confirmed { return _error("Confirm your resume details first, so Stack can fill the template."); }
-    values=r.review.get("values",{});
-    try {
-        source=fill_template(template,values);compiled=latex_compile(source);structure=latex_parse(source);
-    } except ValueError as e { return _error(str(e)); }
-    return _save_template(id,{"kind":"builtin","builtin":template,"pages":compiled["pages"],"summary":latex_summary(structure)},{".pdf":compiled["pdf"]});
+    return bootstrap();
 }
 def:priv read_resume_source(id: str) -> dict[str, any] {
     r=_owned_resume(id);
@@ -416,7 +438,17 @@ def:priv read_resume_source(id: str) -> dict[str, any] {
     data: bytes = b"";
     if key and _file_path(key).exists() { data=_file_path(key).read_bytes(); }
     else {
-        try { data=bytes(latex_compile(source)["pdf"]); } except ValueError as e { return _error(str(e)); }
+        with _write_lock {
+            _agent_fresh();current=_owned_resume(id);
+            if current is None { return _error("Resume not found."); }
+            t=_resume_ticket(str(current.processing.get("source",{}).get("id","")));
+            if t is None { return _error("The saved preview is unavailable. Upload your source again to rebuild it."); }
+            if t.status in ["completed","failed"] {
+                t.status="queued";t.lease="";t.lease_until=0.0;t.attempts=0;t.created_at=time.time();t.stage_at=0.0;
+                _resume_progress(t,current);commit();
+            }
+        }
+        return _error("The preview is being rebuilt. Check its processing status, then reopen the preview.");
     }
     return {"id":id,"name":name,"format":view,"preview":{"name":"Resume preview.pdf","content":base64.b64encode(data).decode()},"tex":source["files"][source["main"]].decode("utf-8")[:200000]};
 }
@@ -452,7 +484,7 @@ def:priv change_resume(id: str, action: str, name: str = "") -> dict[str, any] {
         if not name.strip() or len(name)>160 { return _error("Enter a name under 160 characters."); }
         r.name=name.strip();
     } elif action=="delete" {
-        _file_path(r.file_key).unlink(missing_ok=True);_remove_template_files(r);
+        _cancel_resume_work(r);_file_path(r.file_key).unlink(missing_ok=True);_remove_template_files(r);
         if _settings().selected_resume==id { _settings().selected_resume=""; }
         for a in [root -->][?:Application] { if a.resume_id==id { a.resume_id=""; } }
         del r;
@@ -617,21 +649,18 @@ def:priv agent_linkedin_start(url: str = "", target_role: str = "") -> dict[str,
     }
 }
 def:priv agent_extract_resume(id: str) -> dict[str, any] {
-    _agent_access();r=_owned_resume(id);
-    if r is None { return {"error":"Resume not found."}; }
-    if r.review { return _resume_review(r); }
-    try {
-        parsed=parse_pdf(_file_path(r.file_key));
-    } except ValueError as e { return _error(str(e)); }
+    _agent_access();
     with _write_lock {
         _agent_fresh();r=_owned_resume(id);
         if r is None { return _error("Resume not found."); }
-        if not r.review { r.review=parsed;r.review_revision+=1;commit(); }
+        if not r.review and not r.processing.get("pdf") {
+            _queue_resume(r,"pdf",r.file_key,r.upload_digest,0.0);commit();
+        }
         return _resume_review(r);
     }
 }
 def _resume_review(r: Resume) -> dict[str, any] {
-    return {"id":jid(r),"name":r.name,"revision":r.review_revision,"confirmed":r.review_confirmed,"sections":resume_sections(r.review.get("values",{})),"text":r.review.get("text",""),"parser":r.review.get("parser",""),"warnings":["OpenResume works best with single-column English resumes. Missing or misclassified details need review."]};
+    return {"id":jid(r),"name":r.name,"revision":r.review_revision,"confirmed":r.review_confirmed,"processing":r.processing.get("pdf",{}),"sections":resume_sections(r.review.get("values",{})) if r.review else [],"text":r.review.get("text",""),"parser":r.review.get("parser",""),"warnings":["OpenResume works best with single-column English resumes. Missing or misclassified details need review."]};
 }
 def:priv resume_save_details(id: str, revision: int, values: dict[str, any], confirm: bool = False) -> dict[str, any] {
     _agent_access();confirm=confirm is True;
@@ -859,7 +888,7 @@ def:priv account_delete(username: str, password: str) -> dict[str, any] {
             }
         }
         try { importlib.import_module("agents.worker").browser_call("purge",{"owner":owner}); } except Exception { cleanup_failed=True; }
-        for r in [root -->][?:Resume] { _file_path(r.file_key).unlink(missing_ok=True);_remove_template_files(r); }
+        for r in [root -->][?:Resume] { _cancel_resume_work(r);_file_path(r.file_key).unlink(missing_ok=True);_remove_template_files(r); }
         for x in [root -->][?:TailoredResume] { _file_path(x.pdf_key).unlink(missing_ok=True); }
         for n in [root -->] { if jid(n)!=jid(m) { del n; } }
         commit();manager.delete_user(user["user_id"]);return {"deleted":True};
@@ -876,5 +905,135 @@ def:priv agent_resolve_event(id: str, application_id: str, status: str) -> dict[
         if not events or not applications { return {"error":"This event or application was not found."}; }
         e=events[0];e.data={**e.data,"application_id":application_id,"status":status,"ambiguous":False,"resolved":True};
         _apply_confirmed_mail(e.data);commit();return agent_events();
+    }
+}
+
+"""Durable resume work. The shared ticket contains identifiers only; files stay account-owned."""
+def _resume_ticket(id: str) -> ResumeTicket | None {
+    for t in [root.shared -->][?:ResumeTicket] { if jid(t)==id { return t; } }
+    return None;
+}
+def _resume_progress(t: ResumeTicket, r: Resume) -> None {
+    r.processing={**r.processing,t.kind:{"id":jid(t),"status":t.status,"message":t.message,
+        "fingerprint":t.fingerprint,"attempt":t.attempts,"queued_at":t.created_at,"stage_at":t.stage_at,"timings":t.timings}};
+}
+def _resume_log(t: ResumeTicket, stage: str, elapsed_ms: float) -> None {
+    logging.getLogger("stack.resume").info(__import__("json").dumps({"event":"resume_processing","job_id":jid(t),"kind":t.kind,"attempt":t.attempts,"stage":stage,"elapsed_ms":round(elapsed_ms,2)}));
+}
+def _cancel_resume_work(r: Resume, kind: str = "", keep_key: str = "") -> None {
+    for t in [root.shared -->][?:ResumeTicket] {
+        if t.owner==jid(root) and t.resume_id==jid(r) and (not kind or t.kind==kind) {
+            t.status="cancelled";t.lease="";
+            if t.kind=="source" and t.input_key!=keep_key { _file_path(t.input_key).unlink(missing_ok=True); }
+        }
+    }
+    r.processing={k:v for (k,v) in r.processing.items() if kind and k!=kind};
+}
+def _queue_resume(r: Resume, kind: str, key: str, fingerprint: str, transfer_ms: float, name: str = "") -> None {
+    _cancel_resume_work(r,kind,key);
+    elapsed=max(0.0,min(float(transfer_ms),86400000.0));
+    t=root.shared ++> ResumeTicket(owner=jid(root),resume_id=jid(r),kind=kind,input_key=key,fingerprint=fingerprint,created_at=time.time(),timings={"transfer_ms":elapsed if elapsed else None,"queue_ms":0.0,"parse_ms":0.0,"compile_ms":0.0},message=name);
+    JacRuntime.allow_root(t,__import__("uuid").UUID(jid(root.shared)),AccessLevel.WRITE); # jac:ignore[E1053]
+    _resume_progress(t,r);
+    if elapsed { _resume_log(t,"transfer",elapsed); }
+}
+def:priv retry_resume_processing(id: str, kind: str) -> dict[str, any] {
+    _agent_access();
+    with _write_lock {
+        _agent_fresh();r=_owned_resume(id);
+        if r is None or kind not in ["pdf","source"] { return _error("Resume processing not found."); }
+        t=_resume_ticket(str(r.processing.get(kind,{}).get("id","")));
+        if t is None or t.owner!=jid(root) { return _error("Resume processing not found."); }
+        if t.status=="failed" {
+            t.status="queued";t.created_at=time.time();t.attempts=0;t.lease="";t.lease_until=0.0;t.stage_at=0.0;
+            t.timings={**t.timings,"queue_ms":0.0,"parse_ms":0.0,"compile_ms":0.0};
+            _resume_progress(t,r);commit();
+        }
+    }
+    return bootstrap();
+}
+def _resume_leased(id: str, owner: str, lease: str) -> ResumeTicket {
+    t=_resume_ticket(id);
+    if t is None or t.owner!=owner or not lease or t.lease!=lease or t.lease_until<time.time() or t.status not in ["parsing","compiling"] { raise ValueError("Resume processing lease expired or cancelled."); }
+    _agent_owner(owner);r=_owned_resume(t.resume_id);
+    if r is None or r.processing.get(t.kind,{}).get("id")!=id { raise ValueError("Resume processing was replaced or deleted."); }
+    return t;
+}
+def:pub resume_processing_claim(token: str) -> dict[str, any] {
+    if not _agent_system(token) { return _error("Worker authorization required."); }
+    with _write_lock {
+        _agent_fresh();now=time.time();
+        tickets=[t for t in [root.shared --> [?:ResumeTicket, created_at]] if t.status in ["queued","parsing","compiling"] and t.lease_until<=now];
+        for t in tickets {
+            commit();_agent_owner(t.owner);r=_owned_resume(t.resume_id);
+            if r is None or _agent_memory().deleted or r.processing.get(t.kind,{}).get("id")!=jid(t) { t.status="cancelled";commit();continue; }
+            if t.attempts>=3 {
+                t.status="failed";_resume_progress(t,r);r.processing[t.kind]["error"]="Processing was interrupted three times. Retry when the worker is available.";commit();continue;
+            }
+            waiting_since=max(t.created_at,t.lease_until);
+            t.attempts+=1;t.lease=str(uuid4());t.lease_until=now+180;t.status="parsing";t.stage_at=now;
+            t.timings={**t.timings,"queue_ms":max(0.0,now-waiting_since)*1000.0,"parse_ms":0.0,"compile_ms":0.0};
+            _resume_progress(t,r);_resume_log(t,"queue",t.timings["queue_ms"]);commit();
+            try { content=base64.b64encode(_file_path(t.input_key).read_bytes()).decode(); }
+            except OSError {
+                t.status="failed";_resume_progress(t,r);r.processing[t.kind]["error"]="The uploaded file is unavailable. Upload it again.";commit();continue;
+            }
+            return {"id":jid(t),"owner":t.owner,"lease":t.lease,"kind":t.kind,"name":t.message,"input_key":t.input_key,"content":content};
+        }
+        commit();return {"idle":True};
+    }
+}
+def:pub resume_processing_stage(token: str, id: str, owner: str, lease: str, parse_ms: float) -> dict[str, any] {
+    if not _agent_system(token) { return _error("Worker authorization required."); }
+    with _write_lock {
+        _agent_fresh();
+        try { t=_resume_leased(id,owner,lease); } except ValueError as e { return _error(str(e)); }
+        if t.kind!="source" or t.status!="parsing" { return _error("Invalid processing stage."); }
+        t.timings={**t.timings,"parse_ms":max(0.0,parse_ms)};_resume_log(t,"parse",t.timings["parse_ms"]);
+        t.status="compiling";t.stage_at=time.time();r=_owned_resume(t.resume_id);
+        if r is None { return _error("Resume not found."); }
+        _resume_progress(t,r);commit();return {"saved":True};
+    }
+}
+def:pub resume_processing_finish(token: str, id: str, owner: str, lease: str, result: dict[str, any]) -> dict[str, any] {
+    if not _agent_system(token) { return _error("Worker authorization required."); }
+    with _write_lock {
+        _agent_fresh();
+        try { t=_resume_leased(id,owner,lease); } except ValueError as e { return _error(str(e)); }
+        r=_owned_resume(t.resume_id);
+        if r is None { return _error("Resume not found."); }
+        t.timings={**t.timings,**{k:max(0.0,float(str(result.get(k,t.timings.get(k,0.0))))) for k in ["parse_ms","compile_ms"]}};
+        if t.kind=="pdf" or t.status=="parsing" { _resume_log(t,"parse",t.timings["parse_ms"]); }
+        if t.kind=="source" and t.status=="compiling" { _resume_log(t,"compile",t.timings["compile_ms"]); }
+        if result.get("error") {
+            t.status="failed";_resume_progress(t,r);r.processing[t.kind]["error"]=str(result["error"])[:500];
+        } else {
+            if t.kind=="pdf" {
+                parsed=result["parsed"];parsed["values"]=validate_values(parsed["values"]);
+                if not r.review { r.review=parsed;r.review_revision+=1; }
+            } else {
+                files={suffix:base64.b64decode(data,validate=True) for (suffix,data) in result["files"].items()};
+                if set(files)-{".zip",".pdf"} or ".pdf" not in files { return _error("Invalid compiler output."); }
+                key="compiled-"+jid(t);stored={};
+                for (suffix,data) in files.items() { _write_private(key+suffix,data);stored[suffix]=key+suffix; }
+                for old in [r.template.get("files_key",""),r.template.get("preview_key","")] {
+                    if old and old not in stored.values() { _file_path(old).unlink(missing_ok=True); }
+                }
+                r.template={**result["template"],"files_key":stored.get(".zip",""),"preview_key":stored[".pdf"],"checked_at":time.time()};
+            }
+            t.status="completed";_resume_progress(t,r);
+        }
+        t.lease="";t.lease_until=0.0;commit();return {"saved":True};
+    }
+}
+def:priv resume_transfer_complete(id: str, job_id: str, elapsed_ms: float) -> dict[str, any] {
+    _agent_access();
+    with _write_lock {
+        _agent_fresh();r=_owned_resume(id);t=_resume_ticket(job_id);
+        if r is None or t is None or t.owner!=jid(root) or t.resume_id!=id { return _error("Resume processing not found."); }
+        if r.processing.get(t.kind,{}).get("id")!=job_id { return _error("Upload was replaced."); }
+        t.timings={**t.timings,"transfer_ms":max(0.0,min(elapsed_ms,86400000.0))};
+        r.processing={**r.processing,t.kind:{**r.processing[t.kind],"timings":t.timings}};
+        _resume_log(t,"transfer",t.timings["transfer_ms"]);commit();return {"saved":True};
     }
 }

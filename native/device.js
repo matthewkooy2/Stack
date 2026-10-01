@@ -280,3 +280,100 @@ export function SourceAttribution({job}){
       React.createElement(Image,{source:require('./adzuna-logo.png'),style:{width:100,height:28},resizeMode:'contain',accessibilityLabel:'Adzuna'})));
   return React.createElement(Text,{style:{fontSize:12,color:'#64748B'}},'Source: '+job.source_name+' · Checked '+new Date(job.checked_at*1000).toLocaleDateString());
 }
+
+// Upload progress measures bytes handed to the network. Acceptance means the
+// file and processing ticket have been committed; processing belongs to the worker.
+export async function uploadResumeFile(endpoint, file, onProgress=()=>{}) {
+  const epoch=generation, started=Date.now();
+  const body=JSON.stringify(file);
+  onProgress({status:'uploading',loaded:0,total:body.length,percent:null});
+  let json;
+  if(typeof XMLHttpRequest==='undefined') {
+    const result=await rpc(endpoint,file);
+    json={data:{result}};
+  } else {
+    json=await new Promise((resolve,reject)=>{
+      const xhr=new XMLHttpRequest();
+      xhr.open('POST',apiBase()+'/function/'+endpoint);
+      xhr.timeout=20000;
+      xhr.setRequestHeader('Content-Type','application/json');
+      if(token)xhr.setRequestHeader('Authorization','Bearer '+token);
+      xhr.upload.onprogress=event=>{
+        if(epoch!==generation)return;
+        onProgress({status:'uploading',loaded:event.loaded,total:event.total,
+          percent:event.lengthComputable?Math.min(100,Math.round(event.loaded/event.total*100)):null});
+      };
+      xhr.onload=()=>{
+        try {
+          if(epoch!==generation)throw new Error('Session changed. Please try again.');
+          const value=JSON.parse(xhr.responseText);
+          if(xhr.status<200||xhr.status>=300||value.ok===false||value.data?.result?.error){
+            const error=new Error(value.data?.result?.error||value.error?.message||value.detail||'Upload failed. Retry the same file.');
+            error.status=xhr.status;throw error;
+          }
+          resolve(value);
+        }catch(error){reject(error);}
+      };
+      xhr.onerror=xhr.ontimeout=xhr.onabort=()=>reject(new Error('Upload interrupted. Reopen Stack to check whether it was saved, or retry the same file.'));
+      xhr.send(body);
+    });
+  }
+  if(epoch!==generation)throw new Error('Session changed. Please try again.');
+  const result=json.data?.result;
+  if(!result)throw new Error('Upload did not return its saved status. Reopen Stack to check.');
+  const elapsed=Date.now()-started,kind=endpoint==='upload_resume'?'pdf':'source';
+  const resume=file.id?result.resumes?.find(r=>r.id===file.id):result.resumes?.filter(r=>r.name===file.name).sort((a,b)=>b.created_at-a.created_at)[0];
+  const job=resume?.processing?.[kind];
+  if(job){
+    job.timings={...job.timings,transfer_ms:elapsed};
+    // Telemetry is independent of acceptance; losing this response never loses work.
+    rpc('resume_transfer_complete',{id:resume.id,job_id:job.id,elapsed_ms:elapsed}).catch(()=>{});
+  }
+  onProgress({status:'saved',percent:100,elapsed_ms:elapsed});
+  return result;
+}
+export function uploadProgressText(progress){
+  if(progress?.status==='uploading')return progress.percent==null?'Uploading…':`Uploading ${progress.percent}%`;
+  return '';
+}
+export function ResumeProcessing({resumeId,kind='pdf',processing={},onChanged,onCompleted}) {
+  const [error,setError]=useState(''),[retrying,setRetrying]=useState(false);
+  const current=useRef({onChanged,onCompleted});current.current={onChanged,onCompleted};
+  const delivered=useRef('');
+  useEffect(()=>{
+    if(processing.status==='completed'&&onCompleted&&delivered.current!==processing.id){
+      delivered.current=processing.id;current.current.onCompleted();
+    }
+  },[processing.id,processing.status]);
+  const retry=async()=>{
+    if(retrying)return;setRetrying(true);setError('');
+    try{const next=await rpc('retry_resume_processing',{id:resumeId,kind});current.current.onChanged?.(next);}catch(e){setError(errorText(e));}
+    finally{setRetrying(false);}
+  };
+  if(!processing.status||processing.status==='cancelled')return null;
+  const labels={queued:'Saved · Waiting to process',parsing:kind==='pdf'?'Reading PDF…':'Reading LaTeX source…',compiling:'Compiling LaTeX…',completed:kind==='pdf'?'PDF ready to review':'LaTeX compiled',failed:'Processing failed'};
+  const timings=processing.timings||{};
+  const elapsed=Object.entries({transfer_ms:'Upload',queue_ms:'Queue',parse_ms:'Parse',compile_ms:'Compile'})
+    .filter(([key])=>timings[key]>0).map(([key,label])=>`${label} ${(timings[key]/1000).toFixed(2)}s`).join(' · ');
+  return React.createElement(View,{style:{gap:6}},
+    React.createElement(Text,{accessibilityLiveRegion:'polite',style:{fontSize:14,color:processing.status==='failed'?'#B42318':'#3765E8'}},labels[processing.status]||processing.status),
+    ['queued','parsing','compiling'].includes(processing.status)&&React.createElement(Text,{style:{fontSize:12,color:'#64748B'}},'Saved on the server. You can close Stack and reopen later.'),
+    !!elapsed&&React.createElement(Text,{style:{fontSize:12,color:'#64748B'}},elapsed),
+    !!processing.error&&React.createElement(Text,{style:{color:'#B42318'}},processing.error),
+    processing.status==='failed'&&React.createElement(Pressable,{accessibilityRole:'button',accessibilityLabel:'Retry '+(kind==='pdf'?'PDF parsing':'LaTeX processing'),disabled:retrying,onPress:retry,style:{padding:10}},React.createElement(Text,null,retrying?'Retrying…':'Retry processing')),
+    !!error&&React.createElement(Text,{style:{color:'#B42318'}},error));
+}
+// Poll a pending review/setup while it is mounted; unmounting only stops polling.
+export function ProcessingPoll({active,onRefresh}) {
+  const current=useRef(onRefresh);current.current=onRefresh;
+  const pending=useRef(false);
+  useEffect(()=>{
+    if(!active)return;
+    const timer=setInterval(async()=>{
+      if(pending.current||AppState.currentState!=='active')return;
+      pending.current=true;try{await current.current();}finally{pending.current=false;}
+    },1500);
+    return()=>clearInterval(timer);
+  },[active]);
+  return null;
+}

@@ -21,7 +21,7 @@ agent_reconcile agent_contacts agent_save_contact agent_stop_contact agent_impor
 agent_google_start agent_google_finish agent_disconnect agent_export agent_start agent_extract_resume resume_save_details
 agent_browser prep_live prep_progress prep_for_application prep_catalog prep_sessions prep_create prep_get prep_save account_export account_delete
 agent_model_logs agent_linkedin_profile agent_linkedin_start agent_features agent_approve agent_retry agent_dismiss
-upload_resume_source use_resume_template read_resume_source read_tailored_resume check_tailored_resume score_resume delete_tailored_resume agent_continue_tailoring
+resume_transfer_complete retry_resume_processing upload_resume_source use_resume_template read_resume_source read_tailored_resume check_tailored_resume score_resume delete_tailored_resume agent_continue_tailoring
 agent_register_push agent_remove_push agent_admission'''.split()
     );
     IDENTITY = {'/user/register', '/user/login'};

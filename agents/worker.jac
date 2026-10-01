@@ -253,6 +253,9 @@ def main() {
         os.environ.get('STACK_AGENT_WORKER_TOKEN', '')
         or Path('storage/agents/worker-token').read_text().strip()
     );
+    import from threading { Thread }
+    import from agents.resume_processing { main as resume_main }
+    Thread(target=resume_main,args=(token,),daemon=True).start();
     last_tick = 0.0;
     while True {
         try {

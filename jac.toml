@@ -62,4 +62,4 @@ lucide-react-native = "1.48.0"
 enabled = false
 
 [database]
-indexes = { JobAlias = ["key"], CatalogJob = ["key", "canonical_url", "identity", "active", "checked_at"], JobSource = ["key", "next_at"], DiscoveryRequest = ["status", "key"], AgentRun = ["key", "status", "created_at"], AgentTicket = ["state", "due_at"], AgentUsage = ["key"], AgentEvent = ["key"], PrepSession = ["updated_at"] }
+indexes = { JobAlias = ["key"], CatalogJob = ["key", "canonical_url", "identity", "active", "checked_at"], JobSource = ["key", "next_at"], DiscoveryRequest = ["status", "key"], AgentRun = ["key", "status", "created_at"], AgentTicket = ["state", "due_at"], AgentUsage = ["key"], AgentEvent = ["key"], PrepSession = ["updated_at"], ResumeTicket = ["status", "created_at", "lease_until"] }

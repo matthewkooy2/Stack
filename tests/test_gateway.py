@@ -33,7 +33,7 @@ class Gateway(unittest.TestCase):
                 self.assertEqual(request('/function/agent_features'), 403)
                 for endpoint in sorted(gateway.PERSONAL):
                     self.assertEqual(request('/function/' + endpoint, True), 200, endpoint)
-                for endpoint in ['agent_claim', 'agent_finish', 'agent_authorize', 'agent_worker_resume_source', 'agent_model_log', 'agent_upgrade_workflows']:
+                for endpoint in ['agent_claim', 'agent_finish', 'agent_authorize', 'agent_worker_resume_source', 'agent_model_log', 'agent_upgrade_workflows', 'resume_processing_claim', 'resume_processing_stage', 'resume_processing_finish']:
                     self.assertEqual(request('/function/' + endpoint, True), 404, endpoint)
                     self.assertNotIn('/function/' + endpoint, calls)
                 gateway._rates.clear()

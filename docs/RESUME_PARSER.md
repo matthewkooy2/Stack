@@ -4,7 +4,7 @@ Stack uses OpenResume's layout-aware parser locally on the Mac. The iPhone uploa
 the PDF to its existing private account store. Node reads it with PDF.js, applies
 the vendored OpenResume extraction stages, and returns structured JSON. Jac owns
 the review representation, authorization, persistence, and confirmation. No AI
-requests, subscriptions, external parser service, or telemetry are involved.
+requests, subscriptions, external parser service, or external telemetry are involved.
 
 ## Setup
 
@@ -65,3 +65,53 @@ parser on the upstream sample, blank PDFs, validation, cached edits, confirmatio
 legacy-fact replacement, revisions, account isolation, and application reload.
 `node tests/native.cjs` covers the generated Jac review controls. These checks do
 not certify arbitrary resumes or physical-iPhone layout.
+
+## Persistent uploads and latency
+
+PDF uploads now save the original and a durable parsing ticket before returning.
+LaTeX and template uploads save their input and enqueue source parsing/compilation.
+The existing agent-worker process starts an independent resume worker thread, so
+model/browser work does not hold up this queue. The app shows bytes transferred,
+then Queued, Parsing, Compiling, Completed, or Failed. Closing the app stops only
+its polling; reopening reads the saved processing state. A failed job can retry
+its retained input. Duplicate upload responses, lease expiry, source replacement,
+and deletion cannot produce a second result or overwrite newer input. Parsing
+still requires explicit review/confirmation before extracted facts become verified.
+
+`stack.resume` logs job ID, kind, attempt, stage, and elapsed milliseconds without
+resume text, filenames, account IDs, or tokens. Saved `processing` records expose
+`transfer_ms`, `queue_ms`, `parse_ms`, and `compile_ms`. Transfer duration measures
+the client request through the server's save acknowledgement; it is unknown until
+the client reports it. Queue wait excludes an expired worker's execution lease.
+Parsing and compilation use monotonic clocks, including failures. Preview recovery
+also queues rebuilding rather than compiling inside a phone request.
+
+Measured on October 1, 2026 using the repository sample: PDF parsing 0.29 seconds,
+source parsing 0.0013 seconds, first compile into an empty SSD cache 59.21 seconds,
+then repeat compile 0.51 seconds. The phone request timeout remains 20 seconds;
+compilation's existing 120-second bound remains unchanged. Package/format cache
+startup was the measured bottleneck. Timing evidence and local validation logs
+are in `.jac/upload-diagnostics/`.
+
+Compiler scratch/output goes to `.jac/resume-work/`, package/format caching to
+`.jac/tectonic-cache/`, and original/generated files remain in `storage/resumes/`.
+`scripts/jac` sends other temporary output to the short `.jac-tmp/` path beside the
+common Git directory, on the repository's SSD. A deep worktree `TMPDIR` exceeds
+Unix socket limits and can cause 60-second PostgreSQL startup waits. Use
+`STACK_TMP_DIR` for an alternate short SSD directory and `STACK_JAC_CACHE_HOME`
+for isolated test caches. Existing databases are preserved. On this SSD layout,
+the launcher prefers the installed `.tools/jac/0.37.21/jac` over an incompatible
+global development build; an explicit `STACK_JAC_BIN` still wins.
+
+Additional verification:
+
+```sh
+./scripts/jac -m unittest discover -s tests -p test_resume_processing.py
+STACK_TEST_UPLOAD_UI=1 node tests/native.cjs
+JAC_TEST_JOBS=0 ./scripts/jac test tests/resume_parser_tests.jac tests/agent_experience_tests.jac
+```
+
+These tests cover byte progress, retry after a lost response, reopen, worker lease
+recovery, compilation status/failures, input replacement, independent files,
+ownership, and SSD paths. The native checks use mocked OS boundaries; physical
+phone rendering/delivery is not certified. No deployment is performed.

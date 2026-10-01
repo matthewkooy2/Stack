@@ -376,8 +376,8 @@ async function tailoringScreenTests(){
    assert.equal(args.confirm,true);confirmed=true;return {...review,confirmed:true,revision:2};
   }
   if(name==='bootstrap')return {resumes};
-  if(name==='upload_resume_source'){assert.equal(args.id,'resume');assert.equal(args.name,'main.tex');if(failUpload)throw new Error('LaTeX error on line 3: Undefined control sequence');resumes=withFormat('upload');return {resumes};}
-  if(name==='use_resume_template'){assert.ok(confirmed,'Template only after confirmed details');assert.equal(args.template,'jake');resumes=withFormat('builtin');return {resumes};}
+  if(name==='upload_resume_source'){assert.equal(args.id,'resume');assert.equal(args.name,'main.tex');if(failUpload)throw new Error('LaTeX error on line 3: Undefined control sequence');resumes=withFormat('upload').map(r=>r.id==='resume'?{...r,processing:{source:{id:'source-job',status:'completed'}}}:r);return {resumes};}
+  if(name==='use_resume_template'){assert.ok(confirmed,'Template only after confirmed details');assert.equal(args.template,'jake');resumes=withFormat('builtin').map(r=>r.id==='resume'?{...r,processing:{source:{id:'template-job',status:'completed'}}}:r);return {resumes};}
   if(name==='agent_continue_tailoring'){
    assert.equal(args.id,'tailor');assert.ok(['','resume'].includes(args.resume_id));
    // A task started before any resume existed: Stack attaches the default resume, which is only a PDF.
@@ -388,7 +388,7 @@ async function tailoringScreenTests(){
   if(name==='agent_approve'){assert.equal(args.step,'approve_resume');assert.equal(args.review_hash,'h1');assert.deepEqual(args.edits,{rejected:['s1.e0.b0']});const {review:_done,...rest}=run;run={...rest,status:'queued'};return run;}
   throw new Error('Unexpected RPC '+name);
  };
- modules.set(path.join(root,'.jac/mobile-rn/jac-src/mobile/device.js'),{exports:{...device,rpc,Lifecycle:TestLifecycle,PDFView:({uri})=>React.createElement('PDF',{uri}),pickLatexSource:async()=>({name:'main.tex',content:'XA=='}),previewDocument:async pdf=>{assert.ok(pdf.content);return 'cache/tailored.pdf';}}});
+ modules.set(path.join(root,'.jac/mobile-rn/jac-src/mobile/device.js'),{exports:{...device,rpc,uploadResumeFile:async(name,args,onProgress)=>{onProgress({status:'uploading',percent:50});return rpc(name,args);},Lifecycle:TestLifecycle,PDFView:({uri})=>React.createElement('PDF',{uri}),pickLatexSource:async()=>({name:'main.tex',content:'XA=='}),previewDocument:async pdf=>{assert.ok(pdf.content);return 'cache/tailored.pdf';}}});
  const {ResumeAgents,TaskDetail}=load(path.join(root,'.jac/mobile-rn/jac-src/mobile/components/Agents.js'));
  const text=()=>JSON.stringify(ui.toJSON());
  const press=async label=>{const b=ui.root.findAll(n=>n.type==='Pressable'&&n.props.accessibilityLabel===label)[0];assert.ok(b,'Missing '+label);assert.ok(!b.props.disabled,'Disabled '+label);await act(async()=>{await b.props.onPress();await pause();});};
@@ -705,14 +705,58 @@ async function linkedinWebTests(){
  await field('Your LinkedIn profile URL','https://www.linkedin.com/in/candidate/');await field('Target role (optional)','Engineer');await press('Review my LinkedIn profile');
  assert.ok(calls.some(c=>c.name==='agent_linkedin_start'&&c.args.target_role==='Engineer'));
  await press('Open same browser session');assert.match(text(),/linkedin.com\/login/);
- const privateInput=ui.root.findAll(n=>n.type==='input'&&n.props['aria-label']==='Type into selected browser field')[0];assert.equal(privateInput.props.type,'password');
+ assert.equal(ui.root.findAll(n=>n.type==='input'&&n.props['aria-label']==='Type into selected browser field').length,0);
+ const keyboard=ui.root.findAll(n=>n.type==='textarea'&&n.props['aria-label']==='Task browser keyboard')[0];assert.ok(keyboard);assert.equal(keyboard.props.autoComplete,'off');
+ for(const label of ['Tab','Enter','Backspace'])assert.equal(ui.root.findAll(n=>n.type==='button'&&n.children.join('')===label).length,0);
  assert.equal(ui.root.findAll(n=>n.type==='input'&&n.props.type==='file').length,0);
- const inputEvent={key:'Enter',currentTarget:{value:'temporary-login-input'}};
- await act(async()=>{privateInput.props.onKeyDown(inputEvent);await pause();});assert.equal(inputEvent.currentTarget.value,'');assert.deepEqual(events.at(-1),{type:'text',text:'temporary-login-input'});
+ const inputEvent={currentTarget:{value:'temporary-login-input'}};
+ await act(async()=>{keyboard.props.onInput(inputEvent);keyboard.props.onKeyDown({key:'Enter',preventDefault(){}});await pause();});assert.equal(inputEvent.currentTarget.value,'');assert.deepEqual(events.slice(-2),[{type:'text',text:'temporary-login-input'},{type:'key',key:'Enter'}]);
  await press('Analyze my profile');
  for(const expected of ['Generic language','Name your audience.','Software engineer | Building tools','Sections not read: skills'])assert.ok(text().includes(expected),expected);
- assert.equal(ui.root.findAll(n=>n.type==='input'&&n.props['aria-label']==='Type into selected browser field').length,0,'Handoff closes after analysis');
+ assert.equal(ui.root.findAll(n=>n.type==='textarea'&&n.props['aria-label']==='Task browser keyboard').length,0,'Handoff closes after analysis');
  await act(async()=>ui.unmount());
- console.log('PASS LinkedIn web: login, Network entry, task start, masked browser handoff, no uploads, resume, findings/rewrites, closed handoff.');
+ console.log('PASS LinkedIn web: login, Network entry, task start, direct typing with ordered Enter, no uploads, resume, findings/rewrites, closed handoff.');
 }
-(async()=>{if(process.env.STACK_TEST_LINKEDIN_UI==='1'){await browserKeyboardTests();await linkedinScreenTests();return;}if(process.env.STACK_TEST_LINKEDIN_WEB==='1'){await linkedinWebTests();return;}if(process.env.STACK_TEST_TAILOR_E2E==='1'){await tailoringEndToEnd();return;}if(process.env.STACK_TEST_TAILOR_UI==='1'){await tailoringScreenTests();return;}try{await notificationTests();await gestureTests();await feedbackTests();await resumeReviewTests();await resumeFieldSizingTests();await resumeBulletTests();await screenTests();}finally{await worker('discovery_manage',{id:fixtureSource,action:'purge'}).catch(()=>{});}})().catch(e=>{console.error(e);process.exitCode=1;});
+(async()=>{if(process.env.STACK_TEST_UPLOAD_UI==='1'){await uploadLifecycleTests();await tailoringScreenTests();return;}if(process.env.STACK_TEST_LINKEDIN_UI==='1'){await browserKeyboardTests();await linkedinScreenTests();return;}if(process.env.STACK_TEST_LINKEDIN_WEB==='1'){await linkedinWebTests();return;}if(process.env.STACK_TEST_TAILOR_E2E==='1'){await tailoringEndToEnd();return;}if(process.env.STACK_TEST_TAILOR_UI==='1'){await tailoringScreenTests();return;}try{await notificationTests();await gestureTests();await feedbackTests();await resumeReviewTests();await resumeFieldSizingTests();await resumeBulletTests();await screenTests();}finally{await worker('discovery_manage',{id:fixtureSource,action:'purge'}).catch(()=>{});}})().catch(e=>{console.error(e);process.exitCode=1;});
+
+async function uploadLifecycleTests(){
+ const originalXHR=globalThis.XMLHttpRequest,originalFetch=globalThis.fetch;
+ let pending,calls=[],reports=[];
+ const state={resumes:[{id:'resume',name:'Candidate.pdf',created_at:1,processing:{pdf:{id:'pdf-job',status:'queued',timings:{}}}}]};
+ class XHR{
+  constructor(){this.upload={};this.headers={};pending=this;}
+  open(method,url){this.method=method;this.url=url;}
+  setRequestHeader(key,value){this.headers[key]=value;}
+  send(body){this.body=body;calls.push(JSON.parse(body));}
+  respond(value=state){this.status=200;this.responseText=JSON.stringify({data:{result:value}});this.onload();}
+ }
+ globalThis.XMLHttpRequest=XHR;
+ globalThis.fetch=async(url,options)=>{reports.push({url,body:JSON.parse(options.body)});return {ok:true,status:200,json:async()=>({data:{result:{saved:true}}})};};
+ await storage.setItemAsync('stack.session.v1','upload-session');await device.restoreSession();
+ try{
+  const progress=[];
+  let result=device.uploadResumeFile('upload_resume',{name:'Candidate.pdf',content:'JVBERi0='},p=>progress.push(p));
+  assert.equal(pending.timeout,20000,'Do not fix processing by raising request timeouts');
+  assert.equal(pending.headers.Authorization,'Bearer upload-session');
+  pending.upload.onprogress({loaded:50,total:100,lengthComputable:true});assert.equal(progress.at(-1).percent,50);
+  pending.upload.onprogress({loaded:100,total:100,lengthComputable:true});assert.equal(progress.at(-1).status,'uploading','100% transfer does not imply server acceptance');
+  pending.respond();result=await result;assert.equal(result.resumes[0].processing.pdf.status,'queued');
+  assert.equal(progress.at(-1).status,'saved');assert.ok(reports.some(r=>r.body.job_id==='pdf-job'));
+  const failed=device.uploadResumeFile('upload_resume',{name:'Candidate.pdf',content:'JVBERi0='});pending.ontimeout();await assert.rejects(failed,/Reopen Stack/);
+  const retry=device.uploadResumeFile('upload_resume',{name:'Candidate.pdf',content:'JVBERi0='});pending.respond();await retry;
+  assert.deepEqual(calls.at(-1),calls.at(-2),'Retry retains the same uploaded bytes');
+  const stale=device.uploadResumeFile('upload_resume',{name:'Candidate.pdf',content:'JVBERi0='});await device.signOut();pending.respond();await assert.rejects(stale,/Session changed/);
+  let ui,completed=0;
+  const show=processing=>React.createElement(device.ResumeProcessing,{resumeId:'resume',kind:'source',processing,onCompleted:()=>completed++});
+  await act(async()=>{ui=renderer.create(show({id:'source-job',status:'queued',timings:{queue_ms:1234}}));});
+  assert.match(JSON.stringify(ui.toJSON()),/You can close Stack/);assert.match(JSON.stringify(ui.toJSON()),/Queue 1.23s/);
+  await act(async()=>{ui.unmount();});
+  await act(async()=>{ui=renderer.create(show({id:'source-job',status:'compiling'}));});assert.match(JSON.stringify(ui.toJSON()),/Compiling LaTeX/);
+  await act(async()=>{ui.update(show({id:'source-job',status:'failed',error:'Package download failed'}));});assert.match(JSON.stringify(ui.toJSON()),/Package download failed/);
+  assert.ok(ui.root.findAll(n=>n.type==='Pressable'&&n.props.accessibilityLabel==='Retry LaTeX processing').length);
+  await act(async()=>{ui.update(show({id:'source-job',status:'completed'}));});assert.equal(completed,1);
+  await act(async()=>{ui.update(show({id:'source-job',status:'completed'}));});assert.equal(completed,1,'Refresh must not continue tailoring twice');
+  await act(async()=>ui.unmount());
+ }finally{globalThis.XMLHttpRequest=originalXHR;globalThis.fetch=originalFetch;}
+ console.log('PASS uploads: byte progress, unchanged timeout, durable acceptance, lost-response retry, sign-out guard, reopen status, failure/retry UI, completion once.');
+}

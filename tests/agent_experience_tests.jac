@@ -11,6 +11,7 @@ import from unittest.mock { patch }
 import from jaclang.testing.testing { JacTestClient }
 import from agents.contracts { digest }
 import from agents.worker { dispatch }
+import agents.resume_processing as resume_processor;
 import from functools { partial }
 
 glob WORKER: str = "experience-test-token";
@@ -18,7 +19,27 @@ glob WORKER: str = "experience-test-token";
 def rpc(client: any, name: str, args: dict[str, any] = {}) -> dict[str, any] {
     response=client.post("/function/"+name,json=args);
     assert response.status_code==200, response.text;
-    return response.data["result"];
+    result=response.data["result"];
+    # Existing workflow scenarios consume completed files. Explicitly drive the
+    # separate durable resume lane before asserting downstream behavior.
+    if name in ["upload_resume","upload_resume_source","use_resume_template"] and not result.get("error") {
+        saved=client._auth_token;
+        client.clear_auth();claim=client.post("/function/resume_processing_claim",json={"token":WORKER}).data["result"];
+        while not claim.get("idle") {
+            with patch.object(resume_processor,"call",side_effect=partial(worker_call,client)) {
+                processed=resume_processor.process(claim,WORKER);
+            }
+            client.clear_auth();client.post("/function/resume_processing_finish",json={"token":WORKER,**{k:claim[k] for k in ["id","owner","lease"]},"result":processed});
+            client.clear_auth();claim=client.post("/function/resume_processing_claim",json={"token":WORKER}).data["result"];
+        }
+        client.set_auth_token(saved);
+        result=client.post("/function/bootstrap",json={}).data["result"];
+        if name=="upload_resume_source" {
+            status=[r for r in result["resumes"] if r["id"]==args["id"]][0]["processing"]["source"];
+            if status.get("error") { return {"error":status["error"]}; }
+        }
+    }
+    return result;
 }
 def work(client: any, name: str, args: dict[str, any] = {}) -> dict[str, any] {
     client.clear_auth();return rpc(client,name,{"token":WORKER,**args});

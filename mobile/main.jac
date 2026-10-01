@@ -1,5 +1,5 @@
 import from "@jac/mobui" { View, Text, Pressable, ScrollView, Modal, Switch, KeyboardAvoidingView, ActivityIndicator }
-import from "./device.js" { Icon, authenticate, restoreSession, rpc, signOut, errorText, isUnauthorized, shortDate, dateTime, tomorrow, later, pickResume, previewResume, reconcileNotifications, Lifecycle, SwipeSurface, DateField, PDFView, openSettings, confirmDelete, openJobLink, persistSwipe }
+import from "./device.js" { Icon, authenticate, restoreSession, rpc, signOut, errorText, isUnauthorized, shortDate, dateTime, tomorrow, later, pickResume, previewResume, reconcileNotifications, Lifecycle, SwipeSurface, DateField, PDFView, openSettings, confirmDelete, openJobLink, persistSwipe, uploadResumeFile, uploadProgressText, ResumeProcessing }
 import from .theme { s }
 import from .components.UI { Button, Field, Chip, Empty, Logo }
 import from .components.Prep { Prep }
@@ -34,7 +34,7 @@ def:pub app -> JsxElement {
         state: dict[str, any] = {}, tab: str = "Jobs", modal: str = "", selected: str = "", applicationFilter: str = "All", networkFilter: str = "Discover",
         name: str = "", role: str = "", location: str = "United States", mode: str = "Any", notifications: bool = True, graduation: str = "", availableFrom: str = "", prefs: dict[str, any] = {}, profileRevision: int = 0,
         notes: str = "", draft: str = "", rename: str = "", pdfUri: str = "", reminderId: str = "", reminderTitle: str = "", reminderDue: float = 0.0, targetType: str = "", targetId: str = "", returnModal: str = "", pendingOpen: dict[str, any] = {},
-        hubPage: str = "Needs you", hubTask: str = "", hubOpenings: int = 0, savedJob: str = "";
+        uploadProgress: dict[str, any] = {}, hubPage: str = "Needs you", hubTask: str = "", hubOpenings: int = 0, savedJob: str = "";
 
     def profileFields -> None {
         p=state["profile"]; name=p["name"]; role=p["role"]; location=p["location"]; mode=p["mode"]; notifications=p["notifications"];graduation=p.get("graduation_month","");availableFrom=p.get("available_from","");prefs=_preferenceForm(p);
@@ -138,9 +138,9 @@ def:pub app -> JsxElement {
         if busy { return; } revision=revision+1; busy=True; error="";
         try {
             file=await pickResume();
-            if file { state=await rpc("upload_resume",file); notice="Your resume is saved privately."; }
+            if file { state=await uploadResumeFile("upload_resume",file,lambda (value: dict[str, any]) { uploadProgress=value; }); notice="Your resume is saved privately. Processing continues if you close Stack."; }
         } except Exception as e { error=errorText(e); }
-        busy=False;
+        busy=False;uploadProgress={};
     }
     async def preview(id: str) -> None {
         if busy { return; } busy=True; error="";
@@ -225,8 +225,9 @@ def:pub app -> JsxElement {
                     {(
                         <View style={{gap:20}}><View style={{gap:7}}><Text style={s.eyebrow}>PUT YOUR BEST SELF FORWARD</Text><Text style={s.title}>Your story, on paper.</Text><Text style={s.body}>One home for your experience and potential.</Text></View>
                             <View style={{gap:4}}><Text style={s.label}>YOUR UPLOADS</Text><Text style={s.small}>Resumes you uploaded. Stack reads them and never changes them.</Text></View>
+                            {<Text accessibilityLiveRegion="polite" style={s.small}>{uploadProgressText(uploadProgress)}</Text> if uploadProgress else <View/>}
                             <Pressable style={[s.card,{borderStyle:"dashed",borderColor:"#B9CAEE",alignItems:"center",paddingVertical:27}]} onPress={upload} disabled={busy} accessibilityRole="button" accessibilityLabel="Upload PDF resume"><View style={[s.avatar,{backgroundColor:"#EDF2FF"}]}><Icon name="upload" color="#3765E8"/></View><Text style={s.heading}>Add your resume</Text><Text style={s.small}>Choose a PDF from Files · up to 10 MB</Text></Pressable>
-                            {[<View key={r["id"]} style={s.card}><View style={s.row}><Icon name="resume" size={29} color="#3765E8"/><View style={s.grow}><Text style={s.strong}>{r["name"]}</Text><Text style={s.small}>{shortDate(r["created_at"])} · Private PDF</Text></View><Pressable accessibilityLabel="Manage resume" style={s.iconButton} onPress={lambda { selected=r["id"]; rename=r["name"]; modal="Manage resume"; }}><Icon name="more"/></Pressable></View>{<Chip label="Default resume" active={True}/> if state["selected_resume"]==r["id"] else <View/>}<Button label="Preview resume" onPress={lambda { preview(r["id"]); }} secondary={True} disabled={busy}/><Button label="Review details" secondary={True} onPress={lambda { extractFacts(r["id"]); }}/><ResumeFormat resume={r} onChanged={lambda (next: dict[str, any]) { state=next; }}/></View> for r in state["resumes"]]}
+                            {[<View key={r["id"]} style={s.card}><View style={s.row}><Icon name="resume" size={29} color="#3765E8"/><View style={s.grow}><Text style={s.strong}>{r["name"]}</Text><Text style={s.small}>{shortDate(r["created_at"])} · Private PDF</Text></View><Pressable accessibilityLabel="Manage resume" style={s.iconButton} onPress={lambda { selected=r["id"]; rename=r["name"]; modal="Manage resume"; }}><Icon name="more"/></Pressable></View>{<Chip label="Default resume" active={True}/> if state["selected_resume"]==r["id"] else <View/>}<ResumeProcessing resumeId={r["id"]} processing={r.get("processing",{}).get("pdf",{})} onChanged={lambda (next: dict[str, any]) { state=next; }}/><Button label="Preview resume" onPress={lambda { preview(r["id"]); }} secondary={True} disabled={busy}/><Button label="Review details" secondary={True} onPress={lambda { extractFacts(r["id"]); }}/><ResumeFormat resume={r} onChanged={lambda (next: dict[str, any]) { state=next; }}/></View> for r in state["resumes"]]}
                             <TailoredResumes items={state.get("tailored_resumes",[])} onChanged={lambda (next: dict[str, any]) { state=next; }}/>
                             <ResumeAgents applications={state["applications"]} runs={state.get("agents",{}).get("runs",[])} features={state.get("agents",{}).get("features",[])} onOpenTask={openTask} onNavigate={navigate} resumes={state["resumes"]} onChanged={lambda (next: dict[str, any]) { state=next; }}/>
                             <View style={s.hero}><View style={s.row}><Icon name="sparkles" color="#3765E8"/><Text style={s.heading}>A resume for the role.</Text></View><Text style={s.body}>See how a tailored version could highlight the right experience.</Text><Button label="Explore a sample" secondary={True} onPress={lambda { modal="Tailoring preview"; }}/><Text style={s.small}>Demo preview. Your uploaded PDF is never modified.</Text></View>

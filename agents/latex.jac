@@ -7,6 +7,8 @@ import re;
 import shutil;
 import subprocess;
 import tempfile;
+import time;
+import logging;
 import zipfile;
 import from pathlib { Path, PurePosixPath }
 with entry {
@@ -310,7 +312,10 @@ def _log_error(log: any) -> any {
 def compile(source: any, timeout: any = 120) -> any {
     import from pypdf { PdfReader }
     main = source['main'];
-    with tempfile.TemporaryDirectory(prefix='stack-latex-') as directory {
+    started=time.perf_counter();
+    scratch=Path(".jac/resume-work").resolve();scratch.mkdir(parents=True,exist_ok=True,mode=448);
+    cache=Path(".jac/tectonic-cache").resolve();cache.mkdir(parents=True,exist_ok=True,mode=448);
+    with tempfile.TemporaryDirectory(prefix='stack-latex-',dir=scratch) as directory {
         `root = Path(directory);
         for (path, data) in source['files'].items() {
             target = `root / path;
@@ -324,7 +329,7 @@ def compile(source: any, timeout: any = 120) -> any {
                 cwd=`root,
                 capture_output=True,
                 timeout=timeout,
-                env={** os.environ, 'TECTONIC_UNTRUSTED_MODE': '1'}
+                env={** os.environ, 'TECTONIC_UNTRUSTED_MODE': '1', 'TECTONIC_CACHE_DIR':str(cache), 'TMPDIR':directory, 'XDG_CACHE_HOME':str(cache)}
             );
         } except subprocess.TimeoutExpired {
             raise ValueError(
@@ -346,6 +351,7 @@ def compile(source: any, timeout: any = 120) -> any {
         }
         pdf = output.read_bytes();
     }
+    logging.getLogger("stack.resume").info(__import__("json").dumps({"event":"resume_compile","elapsed_ms":round((time.perf_counter()-started)*1000.0,2),"cache":str(cache)}));
     return {'pdf': pdf, 'pages': len(PdfReader(io.BytesIO(pdf)).pages)};
 }
 """Same-length copy with comments blanked, so offsets map back to the source."""

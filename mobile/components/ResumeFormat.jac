@@ -1,5 +1,5 @@
 import from "@jac/mobui" { View, Text }
-import from "../device.js" { rpc, errorText, pickLatexSource, previewDocument, PDFView }
+import from "../device.js" { rpc, errorText, pickLatexSource, previewDocument, PDFView, uploadResumeFile, uploadProgressText, ResumeProcessing, ProcessingPoll }
 import from ..theme { s }
 import from .UI { Button, Chip }
 import from .ResumeReview { ResumeReview }
@@ -8,7 +8,7 @@ glob TEMPLATES: list[dict[str, str]] = [{"key":"jake","label":"Jake's Resume"},{
 
 """How tailored versions of one resume are formatted: the user's own LaTeX, or a built-in template."""
 def:pub ResumeFormat(resume: dict[str, any], onChanged: any) -> JsxElement {
-    has busy: bool = False, error: str = "", notice: str = "", pdfUri: str = "", tex: str = "", showTex: bool = False;
+    has busy: bool = False, error: str = "", notice: str = "", pdfUri: str = "", tex: str = "", showTex: bool = False, progress: dict[str, any] = {};
     format=resume.get("format",{});summary=format.get("summary",{});kind=format.get("kind","");
     async def change(endpoint: str, args: dict[str, any], done: str) -> None {
         if busy { return; } busy=True;error="";notice="";pdfUri="";tex="";showTex=False;
@@ -20,8 +20,13 @@ def:pub ResumeFormat(resume: dict[str, any], onChanged: any) -> JsxElement {
         if busy { return; }
         try {
             file=await pickLatexSource();
-            if file { await change("upload_resume_source",{"id":resume["id"],"name":file["name"],"content":file["content"]},"Your LaTeX compiled. Tailored versions will keep this format."); }
+            if file {
+                busy=True;error="";notice="";
+                onChanged(await uploadResumeFile("upload_resume_source",{"id":resume["id"],"name":file["name"],"content":file["content"]},lambda (value: dict[str, any]) { progress=value; }));
+                notice="Source saved. Compilation continues if you close Stack.";
+            }
         } except Exception as e { error=errorText(e); }
+        busy=False;progress={};
     }
     async def open(showSource: bool) -> None {
         if busy { return; } busy=True;error="";
@@ -34,13 +39,15 @@ def:pub ResumeFormat(resume: dict[str, any], onChanged: any) -> JsxElement {
     }
     <View style={[s.mutedBox,{gap:10}]}>
         <Text style={s.label}>TAILORING FORMAT</Text>
+        <ResumeProcessing resumeId={resume["id"]} kind="source" processing={resume.get("processing",{}).get("source",{})} onChanged={onChanged}/>
+        {<Text style={s.small}>{uploadProgressText(progress)}</Text> if progress else <View/>}
         <Text style={s.strong}>{format.get("label","Not set")+(" · "+format["file"] if format.get("file") else "")}</Text>
         {<Text style={s.small}>{str(format.get("pages",0))+(" page" if format.get("pages",0)==1 else " pages")+" · "+str(summary.get("sections",0))+" sections · "+str(summary.get("entries",0))+" entries · "+str(summary.get("bullets",0))+" bullets"}</Text> if kind else <View/>}
         {<Text style={s.small}>{"Not used from your .zip: "+", ".join(format.get("skipped",[])[0:5])}</Text> if len(format.get("skipped",[]))>0 else <View/>}
         <Text style={s.small}>{"Stack edits only the content of your LaTeX (bullets, their order, skill lists) and keeps your layout. In Overleaf: Menu → Download → Source." if kind!="builtin" else "Built from your confirmed resume details. Upload your own LaTeX to keep your exact layout."}</Text>
         <Button label={"Replace LaTeX source" if kind=="upload" else "Upload LaTeX (.tex or Overleaf .zip)"} icon="upload" secondary={kind=="upload"} disabled={busy} onPress={upload}/>
         <View style={s.wrap}>
-            {[<Chip key={t["key"]} label={t["label"]} active={kind=="builtin" and format.get("template")==t["key"]} onPress={lambda { change("use_resume_template",{"id":resume["id"],"template":t["key"]},t["label"]+" will be used for tailored versions."); }}/> for t in TEMPLATES]}
+            {[<Chip key={t["key"]} label={t["label"]} active={kind=="builtin" and format.get("template")==t["key"]} onPress={lambda { change("use_resume_template",{"id":resume["id"],"template":t["key"]},"Template saved. Compilation continues if you close Stack."); }}/> for t in TEMPLATES]}
             {<Chip label="Remove format" onPress={lambda { change("use_resume_template",{"id":resume["id"],"template":""},"Removed. Upload LaTeX or choose a template to tailor this resume again."); }}/> if kind else <View/>}
         </View>
         {<View style={s.wrap}><Chip label="Preview format" onPress={lambda { open(False); }}/><Chip label={"Hide LaTeX" if showTex else "Show LaTeX"} active={showTex} onPress={lambda { if showTex { showTex=False; } else { open(True); } }}/></View> if kind or resume.get("details_status")=="Confirmed" else <View/>}
@@ -55,27 +62,39 @@ def:pub ResumeFormat(resume: dict[str, any], onChanged: any) -> JsxElement {
 """Tailoring edits LaTeX, so a resume that is only a PDF gets its LaTeX here, then onReady(resume id) continues.
 Offers resumes that already have LaTeX, an upload, or Jake's template filled from confirmed details."""
 def:pub LatexSetup(resume: dict[str, any], others: list[dict[str, any]], onChanged: any, onReady: any) -> JsxElement {
-    has busy: bool = False, working: str = "", error: str = "", reviewing: bool = False;
+    has busy: bool = False, error: str = "", reviewing: bool = False, pending: bool = False, progress: dict[str, any] = {}, processing: dict[str, any] = {};
+    async def check -> None {
+        try {
+            next=await rpc("bootstrap",{});onChanged(next);
+            current=[r for r in next["resumes"] if r["id"]==resume["id"]];
+            if not current { pending=False;error="Resume was deleted.";return; }
+            processing=current[0].get("processing",{}).get("source",{});
+            if processing.get("status")=="completed" { pending=False;await onReady(resume["id"]); }
+            elif processing.get("status")=="failed" { pending=False; }
+        } except Exception as e { error=errorText(e); }
+    }
     async def upload -> None {
-        if busy { return; } error="";
+        if busy or pending { return; } error="";
         try {
             file=await pickLatexSource();
             if not file { return; }
-            busy=True;working="Checking and compiling your LaTeX… the first compile can take a minute.";
-            onChanged(await rpc("upload_resume_source",{"id":resume["id"],"name":file["name"],"content":file["content"]}));
-        } except Exception as e { error=errorText(e);busy=False;working="";return; }
-        busy=False;working="";
-        await onReady(resume["id"]);
+            busy=True;
+            next=await uploadResumeFile("upload_resume_source",{"id":resume["id"],"name":file["name"],"content":file["content"]},lambda (value: dict[str, any]) { progress=value; });
+            onChanged(next);pending=True;await check();
+        } except Exception as e { error=errorText(e); }
+        busy=False;progress={};
     }
     async def useTemplate -> None {
-        busy=True;error="";working="Filling Jake's Resume template from your details…";
-        try { onChanged(await rpc("use_resume_template",{"id":resume["id"],"template":"jake"})); }
-        except Exception as e { error=errorText(e);busy=False;working="";return; }
-        busy=False;working="";reviewing=False;
-        await onReady(resume["id"]);
+        if busy or pending { return; }busy=True;error="";
+        try { onChanged(await rpc("use_resume_template",{"id":resume["id"],"template":"jake"}));pending=True;reviewing=False;await check(); }
+        except Exception as e { error=errorText(e); }
+        busy=False;
     }
     <View style={[s.mutedBox,{gap:10}]}>
         <Text style={s.strong}>{"Add the LaTeX for "+resume["name"]}</Text>
+        <ProcessingPoll active={pending or resume.get("processing",{}).get("source",{}).get("status") in ["queued","parsing","compiling"]} onRefresh={check}/>
+        <ResumeProcessing resumeId={resume["id"]} kind="source" processing={processing or resume.get("processing",{}).get("source",{})} onChanged={lambda (next: dict[str, any]) { onChanged(next);pending=True;check(); }}/>
+        {<Text style={s.small}>{uploadProgressText(progress)}</Text> if progress else <View/>}
         <Text style={s.small}>Tailoring rewrites and trims your LaTeX for this job, so your layout stays exactly the same. A PDF alone can't be tailored.</Text>
         {[<Button key={r["id"]} label={"Use "+r["name"]+" instead · has LaTeX"} icon="check" disabled={busy} onPress={lambda { onReady(r["id"]); }}/> for r in others]}
         <Button label="Upload LaTeX (.tex or Overleaf .zip)" icon="upload" secondary={len(others)>0} disabled={busy} onPress={upload}/>
@@ -85,7 +104,6 @@ def:pub LatexSetup(resume: dict[str, any], others: list[dict[str, any]], onChang
             <Text style={s.small}>Check the details Stack read from your PDF. Confirming fills Jake's Resume template, which Stack then tailors.</Text>
             <ResumeReview resumeId={resume["id"]} onConfirmed={useTemplate}/>
         </View> if reviewing else <Button label="No LaTeX file? Build one from Jake's template" secondary={True} disabled={busy} onPress={lambda { if resume.get("details_status")=="Confirmed" { useTemplate(); } else { reviewing=True; } }}/>}
-        {<Text style={s.small}>{working}</Text> if working else <View/>}
         {<Text style={s.errorText}>{error}</Text> if error else <View/>}
     </View>
 }

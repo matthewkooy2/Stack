@@ -1,5 +1,5 @@
 import from "@jac/mobui" { View, Text, TextInput, Pressable, ActivityIndicator }
-import from "../device.js" { rpc, errorText, Icon, openJobLink }
+import from "../device.js" { rpc, errorText, Icon, openJobLink, ResumeProcessing, ProcessingPoll }
 import from ..theme { s }
 import from .UI { Button }
 
@@ -36,13 +36,17 @@ def:pub ResumeReview(resumeId: str, onConfirmed: any = None) -> JsxElement {
     has document: dict[str, any] = {}, values: dict[str, str] = {}, expanded: list[str] = ["profile"],
         busy: bool = True, error: str = "", message: str = "", dirty: bool = False, showSource: bool = False;
     def populate(result: dict[str, any]) -> None {
+        if document.get("revision")==result.get("revision") and dirty { return; }
         document=result;
         values={field["key"]:field["value"] for section in result["sections"] for field in section["fields"]};
         dirty=False;
     }
-    async def load -> None {
+    async def load(retry: bool = False) -> None {
         busy=True;error="";
-        try { populate(await rpc("agent_extract_resume",{"id":resumeId})); }
+        try {
+            if retry { await rpc("retry_resume_processing",{"id":resumeId,"kind":"pdf"}); }
+            populate(await rpc("agent_extract_resume",{"id":resumeId}));
+        }
         except Exception as e { error=errorText(e); }
         busy=False;
     }
@@ -68,9 +72,11 @@ def:pub ResumeReview(resumeId: str, onConfirmed: any = None) -> JsxElement {
         values={**values,**{field["key"]:"" for field in added["fields"]}};expanded=expanded+[prefix];dirty=True;
     }
     <View style={{gap:16}}>
+        <ProcessingPoll active={document.get("processing",{}).get("status") in ["queued","parsing"]} onRefresh={load}/>
+        <ResumeProcessing resumeId={resumeId} processing={document.get("processing",{})} onChanged={lambda (next: dict[str, any]) { load(); }}/>
         {<ActivityIndicator accessibilityLabel="Reading resume" color="#3765E8"/> if busy else None}
         {<Text style={s.errorText}>{error}</Text> if error else None}
-        {<Button label="Retry parsing" icon="retry" secondary={True} disabled={busy} onPress={load}/> if error and not document else None}
+        {<Button label="Retry parsing" icon="retry" secondary={True} disabled={busy} onPress={lambda { load(True); }}/> if error and not document else None}
         {<View style={{gap:16}}>
             <View style={s.between}><Text style={[s.strong,{flex:1}]}>{document["name"]}</Text><Text style={s.status}>{"Unsaved changes" if dirty else "Confirmed" if document["confirmed"] else "Needs review"}</Text></View>
             {[<Text key={warning} style={s.small}>{warning}</Text> for warning in document.get("warnings",[])]}

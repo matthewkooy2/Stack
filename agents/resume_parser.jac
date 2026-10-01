@@ -16,7 +16,7 @@ glob LABELS = {"profile":"Profile","educations":"Education","workExperiences":"W
 glob REPEATED = ["educations","workExperiences","projects"];
 
 def parse_pdf(path: Path) -> dict[str, any] {
-    executable=shutil.which("node");
+    executable=shutil.which("node") or ("/opt/homebrew/bin/node" if Path("/opt/homebrew/bin/node").exists() else "");
     if not executable or not Path(".jac/resume-parser.cjs").exists() { raise ValueError("The resume parser needs setup on your Mac. Run npm --prefix integrations/resume-parser ci, then npm --prefix integrations/resume-parser run build."); }
     try {
         result=subprocess.run([executable,"--max-old-space-size=256","integrations/resume-parser/run.mjs"],input=path.read_bytes(),capture_output=True,timeout=20);

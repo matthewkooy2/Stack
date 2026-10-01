@@ -1,5 +1,8 @@
 import base64;
 import tempfile;
+import os;
+import from unittest.mock { patch }
+import agents.resume_processing as resume_processor;
 import from pathlib { Path }
 import from jaclang.testing.testing { JacTestClient }
 import from agents.resume_parser { parse_pdf, validate_values, sections, confirmed_facts }
@@ -41,6 +44,12 @@ test "resume review persists without implicit confirmation and enforces ownershi
             token=registered.data["token"];
             uploaded=rpc(client,"upload_resume",{"name":"Candidate.pdf","content":base64.b64encode(Path("tests/fixtures/openresume-laverne.pdf").read_bytes()).decode()});
             resume_id=uploaded["resumes"][0]["id"];
+            with patch.dict(os.environ,{"STACK_AGENT_WORKER_TOKEN":"parser-test-worker"}) {
+                client.clear_auth();work=rpc(client,"resume_processing_claim",{"token":"parser-test-worker"});
+                processed=resume_processor.process(work,"parser-test-worker");
+                assert rpc(client,"resume_processing_finish",{"token":"parser-test-worker",**{k:work[k] for k in ["id","owner","lease"]},"result":processed})["saved"];
+            }
+            client.set_auth_token(token);
             rpc(client,"agent_save_facts",{"facts":[{"key":"resume."+resume_id+".0","resume_id":resume_id,"value":"Legacy extracted line","verified":False},{"key":"name","value":"Separate confirmed profile name","verified":True},{"key":"resume.other.0","resume_id":"other","value":"Different resume","verified":True}]});
             review=rpc(client,"agent_extract_resume",{"id":resume_id});assert not review["confirmed"],review;
             assert len(rpc(client,"agent_settings")["facts"])==3;

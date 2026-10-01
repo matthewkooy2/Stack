@@ -57,6 +57,7 @@ def write_atomic(path, data, group):
     for parent in reversed(missing):
         parent.mkdir(mode=0o750)
         os.chown(parent, 0, group)
+        parent.chmod(0o750)
     temp = path.with_name(path.name + ".release-new")
     fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o640)
     with os.fdopen(fd, "wb") as stream:
@@ -64,6 +65,9 @@ def write_atomic(path, data, group):
         stream.flush()
         os.fsync(stream.fileno())
         os.fchown(stream.fileno(), 0, group)
+        # The privileged entry point uses umask 077. Set the final mode
+        # explicitly so stack can read source installed for its group.
+        os.fchmod(stream.fileno(), 0o640)
     os.replace(temp, path)
 
 

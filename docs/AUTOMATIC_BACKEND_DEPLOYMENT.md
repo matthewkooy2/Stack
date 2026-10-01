@@ -17,11 +17,17 @@ restricted SSH endpoint/helper, main-only GitHub environment, and narrow
 Tailscale grant. The user entered the two SSH secrets locally. Both deployment
 flags are enabled, and PR #10 was merged into `main`.
 
-The first workflow run and its second attempt built the parser and packaged
-the backend successfully, but stopped at Tailscale OIDC token exchange with
-HTTP 403 before SSH transfer. No application install or service restart has
-occurred through this workflow yet. The latest credential diagnostic must be
-resolved before another retry; admission/build success alone is not deployment.
+The first workflow run and its second attempt stopped at Tailscale OIDC token
+exchange with HTTP 403 before SSH transfer. Attempt three passed authentication
+and transferred/installed all 68 source files from main commit
+`268d6ef20895d58d8d4a70e1e37956b663cdb571`. Its dependency step failed because
+the helper's restrictive umask removed group read access from installed files.
+An attended correction restored source mode 0640, completed Jac installation,
+and restored the API, worker and gateway. Every installed source hash matched
+the received artifact before the deployed baseline was updated. Browser remained
+running, and data/private configuration were retained. The helper now explicitly
+sets source mode 0640 and new source directory mode 0750 after ownership changes.
+No application health checks or broad migration tests were run.
 
 Only `main` runs can reach deployment steps. There is no `pull_request` or
 `pull_request_target` trigger and no PC self-hosted runner. Actions are pinned

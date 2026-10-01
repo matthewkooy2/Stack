@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*-result.json
+*-exit.txt
+*-stage.txt
+stack-browser-install-attempts/
+stack-browser-prepared/offline-*.json
+stack-browser-prepared/installer-manifest.json
+stack-browser-prepared/preparation-metadata.json
+stack-browser-prepared/network-plan.json
+stack-browser-prepared/context/
+browser-*metadata.json
+browser-*route*.json
+browser-current-windows-network.json

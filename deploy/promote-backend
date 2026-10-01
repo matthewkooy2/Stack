@@ -1,0 +1,5 @@
+#!/bin/sh
+# Installed root-owned. sudoers grants this exact command with no arguments.
+test "$#" -eq 0 || exit 1
+exec /usr/bin/env -i PATH=/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root \
+  /usr/bin/python3 -E -s /usr/local/libexec/stack-release/promote_backend.py

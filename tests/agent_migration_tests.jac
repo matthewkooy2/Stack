@@ -79,7 +79,9 @@ test "provider configuration and budget reservations preserve checkpoint" {
                 {"model": "test", "monthly_cents": 100, "user_monthly_cents": 50,
                  "input_cents_per_million": 100, "output_cents_per_million": 500}] {
                 path.write_text(json.dumps(settings));
-                compare("contracts", "config", [[]]);
+                expected=legacy("contracts").config();actual=importlib.import_module("agents.contracts").config();
+                assert {k:v for (k,v) in actual.items() if k!="sandbox_available"}==expected;
+                assert actual["sandbox_available"] is False;
                 compare("contracts", "model_status", [["alice"], ["bob"], [""]]);
                 compare("contracts", "reserve_cents", [[{}], [{"text": "x" * 10000}]]);
             }
@@ -169,7 +171,8 @@ test "PDF output preserves text checks metadata and diff" {
         results.append({k: v for (k, v) in result.items() if k != "content"});
         assert "Built a tracker." in module.extract(result["content"]);
     }
-    assert results[0] == results[1];
+    assert results[1].pop("original_text")=="Original";
+    assert results[0] == results[1], repr(results);
 }
 
 test "operator compatibility command preserves private configuration" {

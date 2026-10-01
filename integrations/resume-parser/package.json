@@ -1,0 +1,9 @@
+{
+  "name": "stack-open-resume-adapter",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "scripts": { "build": "node build.mjs" },
+  "dependencies": { "pdfjs-dist": "6.3.289" },
+  "devDependencies": { "esbuild": "0.25.12" }
+}

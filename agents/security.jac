@@ -53,6 +53,7 @@ def http(
             urlsplit(url).hostname
             not in {
                 'api.openai.com',
+                'api.meta.ai',
                 'oauth2.googleapis.com',
                 'www.googleapis.com',
                 'gmail.googleapis.com',

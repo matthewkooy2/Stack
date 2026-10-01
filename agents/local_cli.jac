@@ -100,7 +100,7 @@ def run(
     }
 }
 def generate(
-    provider: str, model: str, system: str, prompt: str, schema: dict[str, any]
+    provider: str, model: str, system: str, prompt: str, schema: dict[str, any], observe: any = None, record_response: any = None
 ) -> dict[str, any] {
     executable = shutil.which('codex' if (provider == 'codex-cli') else 'claude');
     if not executable {
@@ -167,7 +167,15 @@ def generate(
             (status, _) = run(
                 command, tmp, (system + '\nReturn only the requested JSON.\n' + prompt)
             );
+            raw = None;
+            if (result_path.exists() and (result_path.stat().st_size <= 131072)) {
+                raw = result_path.read_text();
+                if (record_response is not None) {
+                    record_response(raw, 'model_json');
+                }
+            }
             if (status or not result_path.exists()) {
+                if observe { observe("model_response", {"exit_code":status,"response":"","reported_models":[]}); }
                 raise ValueError(
                     'Codex could not complete the request. Check ChatGPT sign-in and usage limits; no API fallback was attempted.'
                 );
@@ -175,7 +183,9 @@ def generate(
             if (result_path.stat().st_size > 131072) {
                 raise ValueError('The local CLI result exceeded its output limit.');
             }
-            return json.loads(result_path.read_text());
+            text = raw;
+            if observe { observe("model_response", {"exit_code":status,"text":text,"reported_models":[]}); }
+            return json.loads(text as str);
         }
         (status, login) = run([executable, 'auth', 'status'], tmp, seconds=10);
         auth = json.loads(login) if not status else {};
@@ -214,6 +224,10 @@ def generate(
             command += ['--model', model];
         }
         (status, output) = run(command, tmp, prompt);
+        if (record_response is not None) {
+            record_response(output, 'provider_json');
+        }
+        if observe { observe("model_response", {"exit_code":status,"text":output}); }
         if status {
             raise ValueError(
                 'Claude could not complete the request. Check subscription sign-in and usage limits; no API fallback was attempted.'

@@ -2,11 +2,17 @@
 
 An iPhone-first job-search application with real US job discovery across professions. Screens and application logic are Jac; a small JavaScript adapter provides native iOS capabilities.
 
-Five tabs, in order: sample **Network**, real **Applications** tracking, swipeable **Jobs**, private PDF **Resume** management, and interview **Prep**. Prep includes technical and behavioral practice prompts with revealable guides. Profile settings and sign-out are available through the top-right avatar. Accounts, saved data, PDFs, and local reminders are real. Jobs come from real sources. Right swipe saves a Ready to apply record; users complete the source application and explicitly mark it submitted. Existing demo history, people, and tailoring previews remain labeled. Stack does not automatically submit applications or send messages. Muse, ChatGPT, and Claude are planned integrations.
+Five tabs, in order: sample **Network**, real **Applications** tracking, swipeable **Jobs**, private PDF **Resume** management, and interview **Prep**. Prep includes technical and behavioral practice prompts with revealable guides. Profile settings and sign-out are available through the top-right avatar. Accounts, saved data, PDFs, and local reminders are real. Jobs come from real sources. Right swipe saves a Ready to apply record, confirms it on screen, and offers optional agent help; it never starts an agent. Users can complete the source application and mark it submitted, or ask the application agent to prepare it. The **Agents** header entry shows running and needs-you counts and opens the Agents center (features, tasks, rules, facts, email & calendar). Stack never shares application answers or documents, submits, sends email or follow-ups, or changes a calendar without approval of the exact content; saving a contact never sends anything. See [agent experience](docs/AGENT_EXPERIENCE.md). Existing demo history, people, and tailoring previews remain labeled. Muse, ChatGPT, and Claude are planned integrations.
+
+LinkedIn profile review is available from Network: sign in through the browser handoff, then review recruiter-focused weaknesses and suggested rewrites. See [setup and current verification limits](docs/LINKEDIN_PROFILE_REVIEW.md).
 
 See [job-discovery setup, source coverage, and budget controls](docs/JOB_DISCOVERY.md). Provider credentials are optional for public feeds and required for Adzuna, TheirStack, and USAJOBS.
 
 ## Run on your iPhone
+
+For a bundled iPhone app using a Windows PC backend across networks, see
+[personal remote hosting](docs/REMOTE_HOSTING.md). Use `scripts/ios-release` with
+an explicit HTTPS `STACK_API_URL`; remote push stays off unless opted in.
 
 From this directory:
 
@@ -43,7 +49,11 @@ The existing workspace is already provisioned. For a fresh checkout, install/use
 
 JavaScript dependencies are pinned in `native/package.json` and `native/package-lock.json`; native pods are locked in `native/Podfile.lock`. Expo **57.0.25**, React Native **0.86.3**, and React **19.2.3** are the verified combination. Xcode **27.0** built this workspace successfully. Minimum deployment target is **iOS 16.4**, without model-specific layout assumptions. Setup uses Node for Expo prebuild because Bun produced an invalid Xcode project in this environment.
 
-This is a local Debug project. The Expo config adds development HTTP/local-network access and removes remote push entitlements: reminders use local notifications and work with the existing personal signing team. `STACK_BUILD_MODE=release` removes transport exceptions, but distribution and production hosting are outside this version. Use a trusted Wi-Fi network for development traffic.
+The default launcher builds Debug with development HTTP/local-network access.
+`scripts/ios-release` builds bundled Release with an explicit remote HTTPS origin
+and no transport exceptions. Remote push is separately opt-in; local reminders
+work with the personal signing team. See the hosting guide for provisioning and
+distribution limits. Use a trusted Wi-Fi network for development traffic.
 
 ## Source and storage
 

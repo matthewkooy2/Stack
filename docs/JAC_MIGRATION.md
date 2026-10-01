@@ -58,14 +58,17 @@ remain unverified; a language migration does not certify them.
 ## Remaining work
 
 - Discovery: normalization, matching, ranking, timeline analysis, provider fetches.
-- Process-heavy adapters: browser sessions, sandbox supervision, voice, gateway.
+- Unchanged sandbox supervision and its exercise harnesses.
 - Native and web JavaScript bindings: evaluate one platform API at a time, keeping
   generated React Native/Expo glue where required.
 - Development, catalog, backup tooling and existing Python/JavaScript test suites.
 
-Browser and sandbox Python entry commands still work by launching the pinned Jac
-runtime before importing migrated helpers. Their hosts therefore need Jac 0.37.21
-and the repository launcher. Candidate Python/C++/SQL exercises and their sandbox
+Browser sessions, browser HTTP service, LinkedIn, gateway, voice, tailoring, LaTeX,
+templates, scoring, skills, parser comparison, and shared experience now use Jac.
+Their hosts need the pinned Jac 0.37.21 runtime. Browser images contain only an
+explicit source allowlist, Jac, Playwright, and public-URL validation; they have no
+account database or model credentials. The unchanged sandbox host still uses its
+existing Python boundary. Candidate Python/C++/SQL exercises and their sandbox
 harnesses remain in their target languages; converting them would change the app.
 JSON data, CSS, manifests, and deployment files are not application-logic migration
 targets. Continue in tested batches, without enabling new integrations or changing

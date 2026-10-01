@@ -3,6 +3,7 @@ import os;
 import time;
 import tempfile;
 import from pathlib { Path }
+import from uuid { UUID }
 import from unittest.mock { patch }
 import from jaclang.testing.testing { JacTestClient }
 
@@ -23,7 +24,9 @@ test "subscription claims are account bound capped and separate from API money" 
                 a=first.data["token"];owner=rpc(client,"agent_settings")["account_id"];
                 second=client.register_user("provider-other","Test-provider-password-456");assert second.ok,second.text;
                 b=second.data["token"];
-                path.write_text(json.dumps({"provider":"codex-cli","local_cli_owner":owner,"local_cli_daily_limit":1}));
+                path.write_text(json.dumps({"provider":"codex-cli","local_cli_owner":str(UUID(owner)),"local_cli_daily_limit":1}));
+                client.set_auth_token(a);
+                assert rpc(client,"agent_settings")["activity"]["model_provider"]["configured"];
                 runs=[];
                 for token in [a,b] {
                     client.set_auth_token(token);

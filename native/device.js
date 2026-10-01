@@ -1,6 +1,6 @@
 // Native capabilities only. Product state, workflows and screens live in Jac.
 import React, {useEffect, useRef, useState} from 'react';
-import {Alert, Animated, AppState, Linking, PanResponder, View, Text, Pressable, Image, useWindowDimensions} from 'react-native';
+import {Alert, Animated, AppState, Linking, PanResponder, View, Text, TextInput, Modal, ScrollView, Pressable, Image, useWindowDimensions} from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import * as Documents from 'expo-document-picker';
 import * as Files from 'expo-file-system/legacy';
@@ -8,8 +8,9 @@ import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Pdf from 'react-native-pdf';
-import {Layers, BriefcaseBusiness, Users, FileText, UserRound, MapPin, ArrowUpRight, ArrowRight, X, Check, SlidersHorizontal, ChevronLeft, ChevronRight, Bell, Plus, Upload, MoreHorizontal, Sparkles, Bookmark, Search, LogOut, Clock, Mail, ShieldCheck, CircleCheck, RotateCcw, Settings, GraduationCap, CodeXml, MessagesSquare} from 'lucide-react-native';
-const glyphs = {layers:Layers, jobs:Layers, applications:BriefcaseBusiness, network:Users, resume:FileText, profile:UserRound, prep:GraduationCap, code:CodeXml, conversation:MessagesSquare, pin:MapPin, arrow:ArrowUpRight, next:ArrowRight, x:X, check:Check, filter:SlidersHorizontal, back:ChevronLeft, chevron:ChevronRight, bell:Bell, plus:Plus, upload:Upload, more:MoreHorizontal, sparkles:Sparkles, bookmark:Bookmark, search:Search, logout:LogOut, clock:Clock, mail:Mail, shield:ShieldCheck, done:CircleCheck, retry:RotateCcw, settings:Settings};
+import {Layers, BriefcaseBusiness, Users, FileText, UserRound, MapPin, ArrowUpRight, ArrowRight, X, Check, SlidersHorizontal, ChevronLeft, ChevronRight, Bell, Plus, Upload, MoreHorizontal, Sparkles, Bookmark, Search, LogOut, Clock, Mail, ShieldCheck, CircleCheck, RotateCcw, Settings, GraduationCap, CodeXml, MessagesSquare, CircleAlert, CalendarDays, Pencil} from 'lucide-react-native';
+const glyphs = {layers:Layers, jobs:Layers, applications:BriefcaseBusiness, network:Users, resume:FileText, profile:UserRound, prep:GraduationCap, code:CodeXml, conversation:MessagesSquare, pin:MapPin, arrow:ArrowUpRight, next:ArrowRight, x:X, check:Check, filter:SlidersHorizontal, back:ChevronLeft, chevron:ChevronRight, bell:Bell, plus:Plus, upload:Upload, more:MoreHorizontal, sparkles:Sparkles, bookmark:Bookmark, search:Search, logout:LogOut, clock:Clock, mail:Mail, shield:ShieldCheck, done:CircleCheck, retry:RotateCcw, settings:Settings, alert:CircleAlert, calendar:CalendarDays};
+glyphs.edit = Pencil;
 export function Icon({name,size=22,color='#64748B'}) {return React.createElement(glyphs[name] || Layers,{size,color,strokeWidth:1.8});}
 export const apiBase = () => globalThis.__JAC_API_BASE_URL__ || Constants.expoConfig?.extra?.apiBaseUrl || 'http://127.0.0.1:8000';
 let token='', generation=0;
@@ -66,6 +67,7 @@ export function errorText(error){return error?.message || String(error);}
 export function isUnauthorized(error){return error?.status===401;}
 export function shortDate(seconds){return new Date(seconds*1000).toLocaleDateString(undefined,{month:'short',day:'numeric'});}
 export function dateTime(seconds){return new Date(seconds*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});}
+export function isoTime(value){const d=new Date(value);return value&&!isNaN(d)?d.toLocaleString(undefined,{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'Time not stated';}
 export function tomorrow(){return Date.now()/1000+86400;}
 export function later(minutes){return Date.now()/1000+minutes*60;}
 export function openSettings(){Linking.openSettings();}
@@ -81,6 +83,19 @@ export async function pickResume(){
     return {name:file.name,content};
   } finally {await Files.deleteAsync(file.uri,{idempotent:true}).catch(()=>{});}
 }
+// LaTeX sources: a .tex file or Overleaf's source .zip. iOS has no reliable .tex type, so the name is checked here.
+export async function pickLatexSource(){
+  const result=await Documents.getDocumentAsync({type:'*/*',copyToCacheDirectory:true,multiple:false});
+  if(result.canceled) return null;
+  const file=result.assets[0];
+  try {
+    if(!/\.(tex|zip)$/i.test(file.name||'')) throw new Error('Choose a .tex file, or the source .zip from Overleaf (Menu → Download → Source).');
+    const info=await Files.getInfoAsync(file.uri);
+    if((file.size||info.size||0)>2*1024*1024) throw new Error('LaTeX source must be 2 MB or smaller.');
+    const content=await Files.readAsStringAsync(file.uri,{encoding:Files.EncodingType.Base64});
+    return {name:file.name,content};
+  } finally {await Files.deleteAsync(file.uri,{idempotent:true}).catch(()=>{});}
+}
 export async function previewResume(id){
   const epoch=generation;
   const result=await rpc('read_resume',{id});
@@ -88,6 +103,16 @@ export async function previewResume(id){
   await Files.makeDirectoryAsync(cacheDir(),{intermediates:true});
   const uri=cacheDir()+id.replace(/[^a-zA-Z0-9]/g,'')+'.pdf';
   await Files.writeAsStringAsync(uri,result.content,{encoding:Files.EncodingType.Base64});
+  if(epoch!==generation){await Files.deleteAsync(uri,{idempotent:true});throw new Error('Session changed.');}
+  return uri;
+}
+// Agent-generated PDFs (tailored resume, cover letter) share the signed-out cache cleanup.
+export async function previewDocument(pdf){
+  const epoch=generation;
+  if(!pdf?.content) throw new Error('This document is not available to preview.');
+  await Files.makeDirectoryAsync(cacheDir(),{intermediates:true});
+  const uri=cacheDir()+'agent-'+String(pdf.name||'document').replace(/[^a-zA-Z0-9]/g,'')+'-'+Date.now()+'.pdf';
+  await Files.writeAsStringAsync(uri,pdf.content,{encoding:Files.EncodingType.Base64});
   if(epoch!==generation){await Files.deleteAsync(uri,{idempotent:true});throw new Error('Session changed.');}
   return uri;
 }
@@ -127,6 +152,81 @@ export function Lifecycle({onRefresh,onOpen}){
     const response=Notifications.addNotificationResponseReceivedListener(route);
     return()=>{clearInterval(timer);app.remove();response.remove();};
   },[]); return null;
+}
+
+// Display and control the remote browser; login input never enters task drafts.
+export function AgentBrowser({id,interactive=false,requestBrowser,onAnalyze,canAnalyze=false,statusMessage=''}) {
+  const [frame,setFrame]=useState(null),[input,setInput]=useState(''),[error,setError]=useState('');
+  const [busy,setBusy]=useState(false),[expanded,setExpanded]=useState(false),[width,setWidth]=useState(1),[expired,setExpired]=useState(false);
+  const current=useRef({id,interactive,requestBrowser});current.current={id,interactive,requestBrowser};
+  const locked=useRef(false),alive=useRef(false),active=useRef(AppState.currentState==='active');
+  const session=useRef(generation);
+  const send=async(event={type:'snapshot'})=>{
+    if(locked.current||!active.current||!alive.current||session.current!==generation) return;
+    if(event.type!=='snapshot'&&!current.current.interactive) return;
+    locked.current=true;setBusy(true);
+    const task=current.current.id;
+    try {
+      const result=await current.current.requestBrowser('agent_browser',{id:task,event});
+      if(alive.current&&active.current&&task===current.current.id&&session.current===generation){
+        setExpired(!!result.expired);
+        if(result.expired){setFrame(null);setInput('');}
+        else if(result.image)setFrame(result);
+        setError('');
+      }
+    } catch(e){if(alive.current&&active.current&&task===current.current.id)setError(errorText(e));}
+    finally {locked.current=false;if(alive.current)setBusy(false);}
+  };
+  const typeInput=()=>{
+    if(locked.current)return;
+    const text=input;setInput('');send({type:'text',text});
+  };
+  const latestSend=useRef(send);latestSend.current=send;
+  useEffect(()=>{
+    alive.current=true;session.current=generation;setFrame(null);setInput('');setError('');setExpired(false);
+    latestSend.current();
+    const timer=setInterval(()=>latestSend.current(),1500);
+    const app=AppState.addEventListener('change',state=>{
+      active.current=state==='active';
+      if(!active.current){setInput('');setFrame(null);setExpanded(false);}
+      else latestSend.current();
+    });
+    return()=>{alive.current=false;clearInterval(timer);app.remove();};
+  },[id]);
+  useEffect(()=>{if(!interactive)setInput('');},[interactive]);
+  const button=(label,action,disabled=false)=>React.createElement(Pressable,{accessibilityRole:'button',accessibilityLabel:label,onPress:action,disabled,style:{padding:12,borderRadius:12,backgroundColor:disabled?'#EDF0F5':'#E5EDFF'}},React.createElement(Text,{style:{color:'#17345C',fontWeight:'600'}},label));
+  const controls=()=>React.createElement(View,{style:{gap:10}},
+    React.createElement(Text,{style:{fontWeight:'700',fontSize:18}},'Agent browser'),
+    React.createElement(Text,null,interactive?(statusMessage||'Your turn. Sign in here, then confirm the profile is yours.'):'The agent is working. You can watch; controls return when it needs you.'),
+    frame?.url?React.createElement(Text,{numberOfLines:1},frame.url):null,
+    !interactive&&frame?.progress?React.createElement(Text,{accessibilityLiveRegion:'polite'},frame.progress):null,
+    error?React.createElement(Text,{accessibilityRole:'alert',style:{color:'#B42318'}},error):null,
+    frame?.image?React.createElement(Pressable,{
+      accessibilityLabel:'Agent browser page',disabled:!interactive||busy,
+      onLayout:e=>setWidth(e.nativeEvent.layout.width),
+      onPress:e=>{const {locationX,locationY}=e.nativeEvent;send({type:'click',x:Math.min(frame.width-1,Math.max(0,locationX*frame.width/width)),y:Math.min(frame.height-1,Math.max(0,locationY*frame.width/width))});},
+      style:{width:'100%',aspectRatio:frame.width/frame.height,borderWidth:1,borderColor:'#CBD5E1',borderRadius:8,overflow:'hidden'}
+    },React.createElement(Image,{source:{uri:'data:image/jpeg;base64,'+frame.image},resizeMode:'contain',style:{width:'100%',height:'100%'}})):
+      error?null:expired?React.createElement(Text,null,'This browser session ended. Open it again to sign in.'):React.createElement(Text,null,'Opening the agent’s browser…'),
+    expired&&interactive?button('Open browser again',()=>send({type:'reopen'}),busy):null,
+    React.createElement(View,{style:{flexDirection:'row',flexWrap:'wrap',gap:8}},
+      button(expanded?'Close full screen':'Full screen',()=>setExpanded(!expanded)),
+      button('Refresh browser',()=>send(),busy),
+      ...[[-550,'Scroll up'],[550,'Scroll down']].map(([dy,label])=>React.createElement(React.Fragment,{key:label},button(label,()=>send({type:'scroll',dy}),!interactive||busy)))),
+    interactive&&!expired?React.createElement(View,{style:{gap:8}},
+      React.createElement(Text,null,'Tap a field in the browser, type below, then choose Type in browser. Passwords and verification codes stay out of your saved task.'),
+      React.createElement(TextInput,{accessibilityLabel:'Private browser input',value:input,onChangeText:setInput,secureTextEntry:true,autoCapitalize:'none',autoCorrect:false,autoComplete:'off',textContentType:'none',
+        style:{padding:12,borderWidth:1,borderColor:'#CBD5E1',borderRadius:10},
+        onSubmitEditing:typeInput}),
+      React.createElement(View,{style:{flexDirection:'row',flexWrap:'wrap',gap:8}},
+        button('Type in browser',typeInput,busy||!input),
+        ...['Tab','Enter','Backspace'].map(key=>React.createElement(React.Fragment,{key},button(key,()=>send({type:'key',key}),busy)))),
+      button('Open my profile',()=>send({type:'reload'}),busy),
+      button('Open LinkedIn sign-in',()=>send({type:'login'}),busy),
+      canAnalyze?button('I’m signed in · Analyze my profile',()=>{setInput('');onAnalyze();},busy):null):null);
+  return React.createElement(View,{style:{gap:10}},expanded?null:controls(),
+    React.createElement(Modal,{visible:expanded,animationType:'slide',presentationStyle:'fullScreen',onRequestClose:()=>setExpanded(false)},
+      React.createElement(ScrollView,{contentContainerStyle:{padding:20,paddingTop:60,paddingBottom:40},keyboardShouldPersistTaps:'handled'},controls())));
 }
 export function SwipeSurface({children,onSwipe,disabled,cardId}){
   const x=useRef(new Animated.Value(0)).current;
@@ -179,4 +279,101 @@ export function SourceAttribution({job}){
       React.createElement(Text,{style:{fontSize:14,color:'#3765E8'}},'Jobs by '),
       React.createElement(Image,{source:require('./adzuna-logo.png'),style:{width:100,height:28},resizeMode:'contain',accessibilityLabel:'Adzuna'})));
   return React.createElement(Text,{style:{fontSize:12,color:'#64748B'}},'Source: '+job.source_name+' · Checked '+new Date(job.checked_at*1000).toLocaleDateString());
+}
+
+// Upload progress measures bytes handed to the network. Acceptance means the
+// file and processing ticket have been committed; processing belongs to the worker.
+export async function uploadResumeFile(endpoint, file, onProgress=()=>{}) {
+  const epoch=generation, started=Date.now();
+  const body=JSON.stringify(file);
+  onProgress({status:'uploading',loaded:0,total:body.length,percent:null});
+  let json;
+  if(typeof XMLHttpRequest==='undefined') {
+    const result=await rpc(endpoint,file);
+    json={data:{result}};
+  } else {
+    json=await new Promise((resolve,reject)=>{
+      const xhr=new XMLHttpRequest();
+      xhr.open('POST',apiBase()+'/function/'+endpoint);
+      xhr.timeout=20000;
+      xhr.setRequestHeader('Content-Type','application/json');
+      if(token)xhr.setRequestHeader('Authorization','Bearer '+token);
+      xhr.upload.onprogress=event=>{
+        if(epoch!==generation)return;
+        onProgress({status:'uploading',loaded:event.loaded,total:event.total,
+          percent:event.lengthComputable?Math.min(100,Math.round(event.loaded/event.total*100)):null});
+      };
+      xhr.onload=()=>{
+        try {
+          if(epoch!==generation)throw new Error('Session changed. Please try again.');
+          const value=JSON.parse(xhr.responseText);
+          if(xhr.status<200||xhr.status>=300||value.ok===false||value.data?.result?.error){
+            const error=new Error(value.data?.result?.error||value.error?.message||value.detail||'Upload failed. Retry the same file.');
+            error.status=xhr.status;throw error;
+          }
+          resolve(value);
+        }catch(error){reject(error);}
+      };
+      xhr.onerror=xhr.ontimeout=xhr.onabort=()=>reject(new Error('Upload interrupted. Reopen Stack to check whether it was saved, or retry the same file.'));
+      xhr.send(body);
+    });
+  }
+  if(epoch!==generation)throw new Error('Session changed. Please try again.');
+  const result=json.data?.result;
+  if(!result)throw new Error('Upload did not return its saved status. Reopen Stack to check.');
+  const elapsed=Date.now()-started,kind=endpoint==='upload_resume'?'pdf':'source';
+  const resume=file.id?result.resumes?.find(r=>r.id===file.id):result.resumes?.filter(r=>r.name===file.name).sort((a,b)=>b.created_at-a.created_at)[0];
+  const job=resume?.processing?.[kind];
+  if(job){
+    job.timings={...job.timings,transfer_ms:elapsed};
+    // Telemetry is independent of acceptance; losing this response never loses work.
+    rpc('resume_transfer_complete',{id:resume.id,job_id:job.id,elapsed_ms:elapsed}).catch(()=>{});
+  }
+  onProgress({status:'saved',percent:100,elapsed_ms:elapsed});
+  return result;
+}
+export function uploadProgressText(progress){
+  if(progress?.status==='uploading')return progress.percent==null?'Uploading…':`Uploading ${progress.percent}%`;
+  return '';
+}
+export function ResumeProcessing({resumeId,kind='pdf',processing={},onChanged,onCompleted}) {
+  const [error,setError]=useState(''),[retrying,setRetrying]=useState(false);
+  const current=useRef({onChanged,onCompleted});current.current={onChanged,onCompleted};
+  const delivered=useRef('');
+  useEffect(()=>{
+    if(processing.status==='completed'&&onCompleted&&delivered.current!==processing.id){
+      delivered.current=processing.id;current.current.onCompleted();
+    }
+  },[processing.id,processing.status]);
+  const retry=async()=>{
+    if(retrying)return;setRetrying(true);setError('');
+    try{const next=await rpc('retry_resume_processing',{id:resumeId,kind});current.current.onChanged?.(next);}catch(e){setError(errorText(e));}
+    finally{setRetrying(false);}
+  };
+  if(!processing.status||processing.status==='cancelled')return null;
+  const labels={queued:'Saved · Waiting to process',parsing:kind==='pdf'?'Reading PDF…':'Reading LaTeX source…',compiling:'Compiling LaTeX…',completed:kind==='pdf'?'PDF ready to review':'LaTeX compiled',failed:'Processing failed'};
+  const timings=processing.timings||{};
+  const elapsed=Object.entries({transfer_ms:'Upload',queue_ms:'Queue',parse_ms:'Parse',compile_ms:'Compile'})
+    .filter(([key])=>timings[key]>0).map(([key,label])=>`${label} ${(timings[key]/1000).toFixed(2)}s`).join(' · ');
+  return React.createElement(View,{style:{gap:6}},
+    React.createElement(Text,{accessibilityLiveRegion:'polite',style:{fontSize:14,color:processing.status==='failed'?'#B42318':'#3765E8'}},labels[processing.status]||processing.status),
+    ['queued','parsing','compiling'].includes(processing.status)&&React.createElement(Text,{style:{fontSize:12,color:'#64748B'}},'Saved on the server. You can close Stack and reopen later.'),
+    !!elapsed&&React.createElement(Text,{style:{fontSize:12,color:'#64748B'}},elapsed),
+    !!processing.error&&React.createElement(Text,{style:{color:'#B42318'}},processing.error),
+    processing.status==='failed'&&React.createElement(Pressable,{accessibilityRole:'button',accessibilityLabel:'Retry '+(kind==='pdf'?'PDF parsing':'LaTeX processing'),disabled:retrying,onPress:retry,style:{padding:10}},React.createElement(Text,null,retrying?'Retrying…':'Retry processing')),
+    !!error&&React.createElement(Text,{style:{color:'#B42318'}},error));
+}
+// Poll a pending review/setup while it is mounted; unmounting only stops polling.
+export function ProcessingPoll({active,onRefresh}) {
+  const current=useRef(onRefresh);current.current=onRefresh;
+  const pending=useRef(false);
+  useEffect(()=>{
+    if(!active)return;
+    const timer=setInterval(async()=>{
+      if(pending.current||AppState.currentState!=='active')return;
+      pending.current=true;try{await current.current();}finally{pending.current=false;}
+    },1500);
+    return()=>clearInterval(timer);
+  },[active]);
+  return null;
 }

@@ -126,7 +126,8 @@ def main():
         if nodes.exists():
             os.replace(nodes, backup / "parser-node-modules")
         os.replace(stage / "node_modules", nodes)
-        run(["runuser", "-u", "stack", "--", "/opt/stack/scripts/jac", "install", "--no-npm"], cwd=LIVE)
+        run(["runuser", "-u", "stack", "--", "env", "STACK_JAC_BIN=/usr/local/bin/jac",
+             "/opt/stack/scripts/jac", "install", "--no-npm"], cwd=LIVE)
         write_atomic(policy_path, canonical(manifest["files"]), 0)
         policy_path.chmod(0o600)
         for service in reversed(SERVICES):

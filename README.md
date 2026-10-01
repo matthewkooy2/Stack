@@ -10,6 +10,10 @@ See [job-discovery setup, source coverage, and budget controls](docs/JOB_DISCOVE
 
 ## Run on your iPhone
 
+For a bundled iPhone app using a Windows PC backend across networks, see
+[personal remote hosting](docs/REMOTE_HOSTING.md). Use `scripts/ios-release` with
+an explicit HTTPS `STACK_API_URL`; remote push stays off unless opted in.
+
 From this directory:
 
 ```sh
@@ -45,7 +49,11 @@ The existing workspace is already provisioned. For a fresh checkout, install/use
 
 JavaScript dependencies are pinned in `native/package.json` and `native/package-lock.json`; native pods are locked in `native/Podfile.lock`. Expo **57.0.25**, React Native **0.86.3**, and React **19.2.3** are the verified combination. Xcode **27.0** built this workspace successfully. Minimum deployment target is **iOS 16.4**, without model-specific layout assumptions. Setup uses Node for Expo prebuild because Bun produced an invalid Xcode project in this environment.
 
-This is a local Debug project. The Expo config adds development HTTP/local-network access and removes remote push entitlements: reminders use local notifications and work with the existing personal signing team. `STACK_BUILD_MODE=release` removes transport exceptions, but distribution and production hosting are outside this version. Use a trusted Wi-Fi network for development traffic.
+The default launcher builds Debug with development HTTP/local-network access.
+`scripts/ios-release` builds bundled Release with an explicit remote HTTPS origin
+and no transport exceptions. Remote push is separately opt-in; local reminders
+work with the personal signing team. See the hosting guide for provisioning and
+distribution limits. Use a trusted Wi-Fi network for development traffic.
 
 ## Source and storage
 

@@ -1,0 +1,3 @@
+# Merge into the distro's /etc/wsl.conf only during approved host setup.
+[boot]
+systemd=true

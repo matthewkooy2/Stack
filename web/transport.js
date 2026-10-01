@@ -34,10 +34,39 @@ export function Diagram({value,onChange}){
  ...nodes.map(n=>React.createElement('g',{key:n.id,onClick:e=>{e.stopPropagation();if(selected&&selected!==n.id){onChange({nodes,edges:[...edges,{from:selected,to:n.id}]});setSelected('');}else setSelected(n.id);}},React.createElement('rect',{x:n.x-65,y:n.y-22,width:130,height:44,rx:8,fill:selected===n.id?'#dbe7ff':'white',stroke:'#3765e8'}),React.createElement('text',{x:n.x,y:n.y+5,textAnchor:'middle',fontSize:13},n.label)))),React.createElement('button',{onClick:()=>onChange({nodes:[],edges:[]})},'Clear diagram'));
 }
 export function BrowserView({image,onEvent}){
- return React.createElement('div',{},image?.url?React.createElement('p',{},'Browser: '+image.url):null,image?.image?React.createElement('img',{src:'data:image/jpeg;base64,'+image.image,alt:'Your task browser',style:{width:'100%',border:'1px solid #ccc'},onClick:e=>{const r=e.currentTarget.getBoundingClientRect();onEvent({type:'click',x:(e.clientX-r.left)*image.width/r.width,y:(e.clientY-r.top)*image.height/r.height});}}):null,
+ const keyboard=useRef(null),callback=useRef(onEvent),queue=useRef(Promise.resolve()),text=useRef(''),timer=useRef(null),alive=useRef(true),composing=useRef(false);
+ const [sending,setSending]=useState(false),[inputError,setInputError]=useState('');
+ callback.current=onEvent;
+ useEffect(()=>{alive.current=true;return()=>{alive.current=false;clearTimeout(timer.current);timer.current=null;text.current='';if(keyboard.current)keyboard.current.value='';};},[]);
+ function send(event){
+  if(!alive.current)return;
+  setSending(true);
+  queue.current=queue.current.then(async()=>{if(alive.current)await callback.current(event);}).catch(()=>{if(alive.current)setInputError('Input could not be sent. Refresh the browser and try again.');});
+  const latest=queue.current;latest.then(()=>{if(alive.current&&queue.current===latest)setSending(false);});
+ }
+ function flush(){clearTimeout(timer.current);timer.current=null;const value=text.current;text.current='';if(value)send({type:'text',text:value});}
+ function insert(value){
+  if(!value)return;
+  if(text.current.length+value.length>8000){setInputError('Paste up to 8,000 characters at a time.');return;}
+  text.current+=value;clearTimeout(timer.current);timer.current=setTimeout(flush,35);
+ }
+ function keyDown(e){
+  if(e.isComposing||e.nativeEvent?.isComposing)return;
+  if(['Tab','Enter','Backspace','Escape','ArrowDown','ArrowUp'].includes(e.key)){
+   e.preventDefault();flush();send({type:'key',key:e.key});
+  }
+ }
+ function input(e){if(composing.current||e.nativeEvent?.isComposing)return;const value=e.currentTarget.value;e.currentTarget.value='';insert(value);}
+ function paste(e){e.preventDefault();insert(e.clipboardData.getData('text/plain'));flush();}
+ return React.createElement('div',{},image?.url?React.createElement('p',{},'Browser: '+image.url):null,
+ image?.image?React.createElement('div',{},
+  React.createElement('p',{},'Click inside the browser, then type or paste. Enter and Tab work here.'),
+  React.createElement('div',{style:{position:'relative',maxWidth:image.width||430,width:'100%',margin:'0 auto'}},
+   React.createElement('img',{src:'data:image/jpeg;base64,'+image.image,alt:'Your task browser',draggable:false,style:{display:'block',width:'100%',border:'1px solid #ccc',cursor:'text'},onClick:e=>{const r=e.currentTarget.getBoundingClientRect();keyboard.current?.focus({preventScroll:true});flush();send({type:'click',x:(e.clientX-r.left)*image.width/r.width,y:(e.clientY-r.top)*image.height/r.height});}}),
+   React.createElement('textarea',{ref:keyboard,'aria-label':'Task browser keyboard',autoComplete:'off',autoCorrect:'off',autoCapitalize:'none',spellCheck:false,style:{position:'absolute',width:1,height:1,opacity:0,pointerEvents:'none',top:0,left:0,padding:0,border:0},onKeyDown:keyDown,onInput:input,onPaste:paste,onCompositionStart:()=>{composing.current=true;},onCompositionEnd:e=>{composing.current=false;input(e);}})),
+  React.createElement('p',{'aria-live':'polite',style:{minHeight:'1.4em'}},inputError||(sending?'Sending input…':''))):null,
  !image?.private_login?React.createElement('input',{type:'file',accept:'application/pdf','aria-label':'Upload PDF to selected browser control',onChange:async e=>{const file=e.currentTarget.files?.[0];if(!file)return;if(file.size>10000000){alert('Choose a PDF smaller than 10 MB.');return;}const raw=new Uint8Array(await file.arrayBuffer());let binary='';for(const byte of raw)binary+=String.fromCharCode(byte);onEvent({type:'file',name:file.name,content:btoa(binary)});}}):null,
- React.createElement('input',{type:image?.private_login?'password':'text',autoComplete:'off','aria-label':'Type into selected browser field',placeholder:'Type here, then press Enter to insert',onKeyDown:e=>{if(e.key==='Enter'){onEvent({type:'text',text:e.currentTarget.value});e.currentTarget.value='';}}}),
- ...['Tab','Enter','Backspace'].map(key=>React.createElement('button',{key,onClick:()=>onEvent({type:'key',key})},key)),React.createElement('button',{onClick:()=>onEvent({type:'scroll',dy:500})},'Scroll down'),React.createElement('button',{onClick:()=>onEvent({type:'snapshot'})},'Refresh browser'),image?.private_login?React.createElement('button',{onClick:()=>onEvent({type:'reload'})},'Reload my profile'):null);
+ React.createElement('button',{onClick:()=>{flush();send({type:'scroll',dy:500});}},'Scroll down'),React.createElement('button',{onClick:()=>{flush();send({type:'snapshot'});}},'Refresh browser'),image?.private_login?React.createElement('button',{onClick:()=>{flush();send({type:'reload'});}},'Reload my profile'):null);
 }
 export function Recorder({onTranscript}){
  const [recording,setRecording]=useState(false),[message,setMessage]=useState('');const recognition=useRef();

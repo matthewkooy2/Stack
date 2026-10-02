@@ -27,7 +27,8 @@ def isolation(container):
     host = container["HostConfig"]
     assert container["Config"]["User"] == "pwuser"
     assert host["ReadonlyRootfs"] and not host["Privileged"] and not container["Mounts"]
-    assert host["CapDrop"] == ["ALL"] and host["CapAdd"] == ["SYS_CHROOT"]
+    caps = lambda values: [value.removeprefix("CAP_") for value in values or []]
+    assert caps(host["CapDrop"]) == ["ALL"] and caps(host["CapAdd"]) == ["SYS_CHROOT"]
     assert host["Memory"] == 2 * 1024**3 and host["NanoCpus"] == 2 * 10**9 and host["PidsLimit"] == 256
     assert any(s in ("no-new-privileges", "no-new-privileges=true") for s in host["SecurityOpt"])
     assert any(s.startswith("seccomp=") and "unconfined" not in s for s in host["SecurityOpt"])

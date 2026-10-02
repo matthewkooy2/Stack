@@ -1,5 +1,10 @@
 # Automatic backend deployment
 
+The prepared browser extension is documented in
+[Automatic isolated-browser deployment](AUTOMATIC_BROWSER_DEPLOYMENT.md).
+Its new host authority needs attended approval/bootstrap before activation;
+the historical observations below describe the initial backend-only activation.
+
 `Deploy Stack backend` runs on a push to `main`, including a merged PR. It also
 supports a manual retry on `main`. It checks out the exact triggering SHA,
 builds the existing OpenResume parser with Node 22.22.0 and its npm lockfile,

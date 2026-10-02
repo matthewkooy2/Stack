@@ -61,7 +61,7 @@ class LinkedIn(unittest.TestCase):
         pool, page = self.pool()
         result = linkedin.scan(pool, 'owner', 'run', {'linkedin_url': URL})
         self.assertTrue(result['needs_input']);page.evaluate.assert_not_called()
-        page.goto.assert_called_once_with('https://www.linkedin.com/login', wait_until='domcontentloaded', timeout=30000)
+        page.goto.assert_called_once_with('https://www.linkedin.com/login', wait_until='domcontentloaded', timeout=5000)
         self.assertNotIn('storage_state', pool.browser.new_context.call_args.kwargs)
         result = linkedin.scan(pool, 'owner', 'run', {'linkedin_url': URL})
         self.assertEqual(result['artifact']['sections'], CAPTURE['sections'])

@@ -19,7 +19,7 @@ import agents.worker as browser_worker;
 import from core.fixtures { JOBS, PEOPLE }
 import from core.agents { _demo_status }
 import from core.automation {
-    AgentMemory, AgentNotification, AgentPushDevice, AgentTicket, AgentRun, AgentContact, AgentConnection, AgentEvent, AgentAdmission, AgentInterview, PrepSession,
+    AgentMemory, AgentAction, AgentNotification, AgentPushDevice, AgentTicket, AgentRun, AgentContact, AgentConnection, AgentEvent, AgentAdmission, AgentInterview, PrepSession,
     _agent_access, _agent_memory, _agent_summary, _agent_start, _agent_fresh, _agent_system, _agent_owner, _owned_run, _agent_leased, _run_view, _steps, agent_upgrade_workflows,
     agent_settings, agent_report, agent_admission, agent_register_push, agent_remove_push, agent_notification_claim, agent_notification_finish, agent_save_facts, agent_save_policy, agent_activity, agent_run, agent_cancel, agent_respond, agent_reconcile,
     agent_contacts, agent_save_contact, agent_stop_contact, agent_import_contacts, agent_events, agent_claim, agent_model_log, agent_model_logs, agent_authorize, _agent_complete, agent_worker_connection, agent_approve, agent_retry, agent_dismiss, agent_trace, agent_traces, agent_feedback,
@@ -679,27 +679,82 @@ def:priv resume_save_details(id: str, revision: int, values: dict[str, any], con
         return _resume_review(r);
     }
 }
-def:priv agent_browser(id: str, event: dict[str, any]) -> dict[str, any] {
+def _browser_run(id: str) -> AgentRun | None {
     _agent_access();r=_owned_run(id);
-    if r is None or r.kind not in ["application","linkedin"] { return {"error":"This task has no browser session."}; }
-    if r.kind=="linkedin" and r.index!=0 { return {"error":"Profile capture has finished. Start a new review to open LinkedIn again."}; }
-    watching=r.kind=="linkedin" and event.get("type","snapshot")=="snapshot" and r.status in ["queued","waiting","running","needs_input","blocked"];
-    if not watching and r.status not in ["needs_input","blocked","uncertain","review"] { return {"error":"The agent is working. Browser controls become available when it pauses for you."}; }
+    if r is None or r.kind not in ["application","linkedin"] or r.status in ["completed","cancelled","failed"] { return None; }
+    if r.kind=="linkedin" and r.index!=0 { return None; }
+    return r;
+}
+def:priv agent_browser_subscribe(id: str) -> dict[str, any] {
+    if _browser_run(id) is None { return {"error":"This task has no active browser."}; }
     try {
-        identity={"owner":jid(root),"id":id};
-        if r.kind=="linkedin" and event.get("type")=="reopen" {
-            browser_worker.browser_call("close",identity);
-            browser_worker.browser_call("linkedin_scan",{**identity,"context":{"linkedin_url":r.context["linkedin_url"]}});
-            return browser_worker.browser_call("frame",identity);
-        }
-        result=browser_worker.browser_call("frame" if watching else "handoff",{**identity,"event":event});
-        if watching and result.get("pending") and r.status in ["needs_input","blocked"] { return {"expired":True}; }
+        grant=browser_worker.browser_call("subscribe",{"owner":jid(root),"id":id},5);
+        return {"ticket":grant["ticket"],"url":os.environ["STACK_BROWSER_URL"].rstrip("/")+"/stream"};
+    } except Exception { return {"error":"The browser stream is unavailable. Reconnect to try again."}; }
+}
+def:priv agent_browser_control(id: str, action: str, generation: int = -1, controller: str = "", instance: str = "") -> dict[str, any] {
+    _agent_access();r=_owned_run(id);
+    if r is None or r.kind not in ["application","linkedin"] { return {"error":"This task has no browser."}; }
+    if action=="stop" {
+        result=agent_cancel(id);
+        try { result["control"]=browser_worker.browser_call("control",{"owner":jid(root),"id":id,"action":"status"},2); }
+        except Exception { result["control"]={"mode":"stopping","generation":generation}; }
         return result;
     }
-    except Exception {
-        logging.getLogger("stack.browser").exception("Browser request failed");
-        return {"error":"Stack could not connect to the agent browser. Try Refresh browser."};
+    if _browser_run(id) is None { return {"error":"This browser task has ended."}; }
+    if action not in ["take","resume","status"] { return {"error":"Unknown browser control."}; }
+    if action=="take" and [a for a in [root -->][?:AgentAction] if a.run_id==id and a.status=="intent"] { return {"error":"An approved action is already being sent. Wait for its receipt before taking control."}; }
+    previous=r.context.get("browser_return",r.status);
+    if action=="take" {
+        with _write_lock {
+            _agent_fresh();r=_browser_run(id);
+            if r is None { return {"error":"This browser step has ended."}; }
+            if [a for a in [root -->][?:AgentAction] if a.run_id==id and a.status=="intent"] { return {"error":"Wait for the approved action's receipt before taking control."}; }
+            previous=r.context.get("browser_return",r.status);r.context["browser_return"]=previous;
+            r.status="paused";r.lease="";r.lease_until=0.0;commit();
+        }
     }
+    try { state=browser_worker.browser_call("control",{"owner":jid(root),"id":id,"action":action,"generation":generation,"controller":controller,"instance":instance},5); }
+    except ValueError as e { return {"error":str(e)}; }
+    except Exception { return {"error":"Control could not be confirmed. Reconnect before sending input."}; }
+    with _write_lock {
+        _agent_fresh();r=_owned_run(id);
+        if r is None or r.status in ["completed","cancelled","failed"] or (r.kind=="linkedin" and r.index!=0) { return {"error":"The browser step ended while control was changing."}; }
+        if action in ["take","resume"] and r.context.get("browser_instance","")==state["instance"] and r.context.get("browser_generation",0)>state["generation"] { return {"error":"Browser control changed while this request was finishing. Reconnect before continuing."}; }
+        if action in ["take","resume"] { r.context["browser_generation"]=state["generation"];r.context["browser_instance"]=state["instance"]; }
+        if action=="take" {
+            r.context["browser_return"]=previous;r.status="paused";r.lease="";r.lease_until=0.0;
+            r.message="Pausing browser activity. Your controls unlock when the browser confirms.";
+        } elif action=="resume" {
+            if r.status!="paused" { return {"error":"This task is not paused for browser control."}; }
+            r.status=previous if previous in ["review","uncertain"] else "needs_input" if any(q["key"]!="browser" for q in r.requests) else "queued";
+            if r.status=="queued" { r.requests=[];r.attempts=0;r.next_at=0.0; }
+            if r.kind=="application" and state.get("changed") {
+                r.index=0;r.status="queued";r.review={};r.approvals={};
+                for step in ["inspect","fill"] { r.artifacts.pop(step,None); }
+                for old in [root -->][?:AgentAction] {
+                    if old.run_id==id and old.step=="fill" and old.status=="confirmed" { old.key=old.key+":"+jid(old); }
+                }
+            }
+            r.context.pop("browser_return",None);r.message="Browser returned to the agent.";
+        }
+        for t in [root.shared -->][?:AgentTicket] { if t.run_id==id { t.state=r.status;t.due_at=0.0; } }
+        commit();return {**_run_view(r,True),"control":state};
+    }
+}
+def:priv agent_browser(id: str, event: dict[str, any]) -> dict[str, any] {
+    r=_browser_run(id);
+    if r is None { return {"error":"This task has no active browser session."}; }
+    kind=event.get("type","snapshot");
+    if kind in ["take","resume","stop"] { return agent_browser_control(id,kind,event.get("generation",-1),event.get("controller",""),event.get("instance","")); }
+    if kind!="snapshot" and r.status!="paused" { return {"error":"Take control before using the browser."}; }
+    try {
+        identity={"owner":jid(root),"id":id};
+        result=browser_worker.browser_call("frame" if kind=="snapshot" else "handoff",{**identity,"event":event},10);
+        result["control"]=browser_worker.browser_call("control",{**identity,"action":"status"},2);
+        return result;
+    } except ValueError as e { return {"error":str(e)}; }
+    except Exception { return {"error":"Stack could not confirm browser input. Reconnect before continuing."}; }
 }
 def:pub agent_finish(token: str, id: str, owner: str, lease: str, result: dict[str, any]) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }

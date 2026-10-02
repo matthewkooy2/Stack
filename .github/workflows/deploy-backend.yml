@@ -38,7 +38,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22.22.0'
-      - name: Build parser and package exact backend commit
+      - name: Build parser and package matching backend and browser source
         run: |
           set -euo pipefail
           npm --prefix integrations/resume-parser ci --no-audit --no-fund
@@ -60,7 +60,7 @@ jobs:
           tags: tag:stack-deploy
           version: '1.94.2'
           use-cache: 'false'
-      - name: Send verified artifact to fixed deployment command
+      - name: Deploy backend and build browser image when its source changes
         env:
           DEPLOY_KEY: ${{ secrets.STACK_DEPLOY_SSH_KEY }}
           KNOWN_HOSTS: ${{ secrets.STACK_DEPLOY_KNOWN_HOSTS }}

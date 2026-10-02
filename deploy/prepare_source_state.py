@@ -18,6 +18,6 @@ if __name__ == "__main__":
     args = p.parse_args()
     manifest, payload = validate(Path(args.artifact).read_bytes(), args.commit, args.sha256)
     live = Path(args.live)
-    state = {name: digest((live / name).read_bytes()) if (live / name).is_file() else None for name in payload}
+    state = {name: digest((live / name).read_bytes()) if (live / name).is_file() else None for name in manifest["files"]}
     Path(args.output).write_bytes(canonical(state))
     print(json.dumps({"status": "review_file_created", "files": len(state), "live_changes": False}))

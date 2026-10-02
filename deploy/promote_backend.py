@@ -15,6 +15,7 @@ import stat
 import subprocess
 import sys
 from backend_release import MAX_BYTES, canonical, digest, validate
+import browser_release
 
 LIVE = Path("/opt/stack")
 STATE = Path("/var/lib/stack-release")
@@ -26,6 +27,7 @@ def run(args, cwd=None):
     result = subprocess.run(args, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
     if result.returncode:
         raise RuntimeError("Host command failed: " + Path(args[0]).name)
+    return result.stdout
 
 
 def root_file(path):
@@ -94,10 +96,16 @@ def main():
             assert stat.S_ISREG(st.st_mode) and st.st_size <= MAX_BYTES
             data = stream.read(MAX_BYTES + 1)
         manifest, payload = validate(data, request["commit"], sha)
+        browser = manifest.get("browser")
+        browser_enabled = authorization.get("automatic_browser_deploy") is True
+        assert not browser_enabled or browser is not None, "Browser-enabled host requires a coordinated release"
+        assert browser is None or browser_enabled, "Automatic browser deployment is not approved"
+        backend = {name: value for name, value in payload.items() if not name.startswith("browser/")}
         policy_path = STATE / "source-state.json"
         policy = json.loads(root_file(policy_path))
         assert source_state(policy) == policy, "Intervening local source changes require review"
-        assert set(policy) <= set(payload), "Source deletion requires review"
+        assert set(policy) <= set(backend), "Source deletion requires review"
+        assert not any(target(name).exists() for name in set(backend) - set(policy)), "New source paths already exist locally; review required"
         stack = pwd.getpwnam("stack")
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         backup = Path("/var/backups/stack") / ("source-release-" + stamp)
@@ -113,7 +121,8 @@ def main():
             os.chown(p, stack.pw_uid, stack.pw_gid)
             p.chmod(0o640)
         run(["runuser", "-u", "stack", "--", "npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"], cwd=stage)
-        for name in payload:
+        browser_plan = browser_release.prepare(browser, payload, stage, manifest["commit"], run, root_file) if browser else None
+        for name in backend:
             path = target(name)
             if path.exists():
                 copy = backup / "source" / name
@@ -124,7 +133,9 @@ def main():
         # A private source backup remains available for an attended correction.
         for service in SERVICES:
             run(["systemctl", "stop", service])
-        for name, value in payload.items():
+        if browser_plan and browser_plan["changed"]:
+            run(["systemctl", "stop", "stack-browser.service"])
+        for name, value in backend.items():
             write_atomic(target(name), value, stack.pw_gid)
         nodes = target("integrations/resume-parser/node_modules")
         if nodes.exists():
@@ -134,10 +145,20 @@ def main():
              "/opt/stack/scripts/jac", "install", "--no-npm"], cwd=LIVE)
         write_atomic(policy_path, canonical(manifest["files"]), 0)
         policy_path.chmod(0o600)
+        if browser_plan:
+            browser_release.promote(browser_plan, backup, write_atomic)
+            if browser_plan["changed"]:
+                run(["systemctl", "start", "stack-browser.service"])
         for service in reversed(SERVICES):
             run(["systemctl", "start", service])
-        print(json.dumps({"status": "restart_commands_completed", "commit": manifest["commit"], "sha256": sha,
-                          "source_backup": str(backup), "health_checks_run": False}))
+        result = {"status": "restart_commands_completed", "commit": manifest["commit"], "sha256": sha,
+                  "source_backup": str(backup), "health_checks_run": False}
+        if browser_plan:
+            result.update(browser_image=browser_plan["image"], browser_rebuilt=browser_plan["changed"],
+                          browser_source=browser["fingerprint"])
+        write_atomic(STATE / "last-release.json", canonical(result), 0)
+        (STATE / "last-release.json").chmod(0o600)
+        print(json.dumps(result))
 
 
 if __name__ == "__main__":

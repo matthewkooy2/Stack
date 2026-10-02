@@ -105,6 +105,7 @@ def main():
         policy = json.loads(root_file(policy_path))
         assert source_state(policy) == policy, "Intervening local source changes require review"
         assert set(policy) <= set(backend), "Source deletion requires review"
+        assert not any(target(name).exists() for name in set(backend) - set(policy)), "New source paths already exist locally; review required"
         stack = pwd.getpwnam("stack")
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         backup = Path("/var/backups/stack") / ("source-release-" + stamp)

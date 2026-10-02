@@ -41,7 +41,7 @@ def prepare(artifact, commit, sha, output):
     assert container["Image"] == image and container["Config"]["User"] == "pwuser"
     host = container["HostConfig"]
     assert host["ReadonlyRootfs"] and not host["Privileged"] and not container["Mounts"]
-    assert host["CapDrop"] == ["ALL"] and host["CapAdd"] == ["SYS_CHROOT"]
+    isolation(container)
     assert all(digest(public_file("/app/" + n)) == h for n, h in meta["files"].items()), "Existing browser source differs from reviewed release"
     assert public_file("/app/jac.toml") == payload["browser/contract/deploy/browser.jac.toml"]
     for name in ("deploy/browser-entrypoint", "deploy/install-browser.jac"):

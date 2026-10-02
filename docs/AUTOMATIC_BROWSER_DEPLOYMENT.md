@@ -99,6 +99,20 @@ These are preparation instructions, not an unattended bootstrap installer. An
 operator supplies any required sudo/password locally; warn before opening a prompt.
 Do not rerun historical browser installation scripts or copy old runtime bundles.
 
+## Preparation validation
+
+Local package validation built the parser with pinned Node 22.22.0 from the exact
+extension and Mac feature checkouts, produced deterministic format-2 archives,
+verified 68/70 backend and six/eight browser files, rejected forbidden context
+paths and mismatched commits, and confirmed the viewer runtime contract is unchanged.
+Seven offline transaction scenarios mocked Docker/npm/Jac/service commands: unchanged
+browser source skipped build/restart; viewer source promoted both components in
+order; source/runtime/image/contract conflicts and a candidate build failure stopped
+before service changes; current data stayed intact. Actual image building and Linux
+browser behavior remain to be verified during the approved rollout, not inferred
+from these mocked checks. The read-only baseline tool also compares the live image
+source and pinned runtime inputs; it handles Docker's `CAP_` capability spelling.
+
 ## Coordinated viewer rollout
 
 PR12 `codex/shared-browser-viewer`, feature commit

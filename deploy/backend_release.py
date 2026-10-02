@@ -13,8 +13,9 @@ import re
 import subprocess
 import tarfile
 import tomllib
+from browser_package import SOURCE_FILES, CONTRACT_FILES, allowed_browser, browser_metadata
 
-VERSION = 1
+VERSION = 2
 MAX_BYTES = 64 * 1024 * 1024
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 DIGEST = re.compile(r"[0-9a-f]{64}\Z")
@@ -89,9 +90,17 @@ def build(root, commit, parser, output):
     blobs[GENERATED] = Path(parser).read_bytes()
     assert 0 < len(blobs[GENERATED]) < MAX_BYTES
     held = {name: digest(git(root, "show", commit + ":" + name)) for name in names if name.startswith("web/")}
+    browser = {}
+    for name in sorted((SOURCE_FILES & set(names)) | CONTRACT_FILES):
+        mode = git(root, "ls-tree", commit, "--", name).split()[0]
+        assert mode in (b"100644", b"100755"), "Browser source links are forbidden"
+        role = "source" if name in SOURCE_FILES else "contract"
+        browser["browser/" + role + "/" + name] = git(root, "show", commit + ":" + name)
     manifest = {"format": VERSION, "commit": commit,
                 "runtime_contract": contract(blobs["jac.toml"], blobs["integrations/resume-parser/package-lock.json"]),
                 "web_source": held, "files": {name: digest(data) for name, data in sorted(blobs.items())}}
+    manifest["browser"] = browser_metadata({**blobs, **browser})
+    blobs.update(browser)
     with Path(output).open("wb") as raw, gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0) as zipped:
         with tarfile.open(fileobj=zipped, mode="w", format=tarfile.USTAR_FORMAT) as archive:
             for name, data in [("manifest.json", canonical(manifest))] + [("payload/" + n, b) for n, b in sorted(blobs.items())]:
@@ -101,7 +110,8 @@ def build(root, commit, parser, output):
                 archive.addfile(info, io.BytesIO(data))
     artifact = Path(output).read_bytes()
     assert len(artifact) <= MAX_BYTES, "Artifact too large"
-    return {"commit": commit, "sha256": digest(artifact), "bytes": len(artifact), "files": len(blobs)}
+    return {"commit": commit, "sha256": digest(artifact), "bytes": len(artifact),
+            "files": len(manifest["files"]), "browser_files": len(manifest["browser"]["files"])}
 
 
 def validate(data, commit, expected_digest):
@@ -113,16 +123,22 @@ def validate(data, commit, expected_digest):
         for member in archive:
             assert member.isfile() and member.name not in files, "Links, directories and duplicates are forbidden"
             assert not member.pax_headers, "Extended archive paths are forbidden"
-            assert member.name == "manifest.json" or (member.name.startswith("payload/") and allowed(member.name[8:])), "Forbidden archive path"
+            assert member.name == "manifest.json" or (member.name.startswith("payload/") and
+                (allowed(member.name[8:]) or allowed_browser(member.name[8:]))), "Forbidden archive path"
             assert 0 <= member.size <= MAX_BYTES
             total += member.size
             assert total <= MAX_BYTES, "Expanded artifact too large"
             files[member.name] = archive.extractfile(member).read()
     manifest = json.loads(files.pop("manifest.json"))
-    assert manifest["format"] == VERSION and manifest["commit"] == commit, "Commit mismatch"
+    assert manifest["format"] in (1, VERSION) and manifest["commit"] == commit, "Commit mismatch"
     assert DIGEST.fullmatch(manifest["runtime_contract"])
     payload = {name[8:]: value for name, value in files.items()}
-    assert manifest["files"] == {name: digest(value) for name, value in payload.items()}, "Payload hash mismatch"
+    backend = {name: value for name, value in payload.items() if not name.startswith("browser/")}
+    assert manifest["files"] == {name: digest(value) for name, value in backend.items()}, "Payload hash mismatch"
+    if manifest["format"] == VERSION:
+        assert manifest["browser"] == browser_metadata(payload), "Browser payload hash mismatch"
+    else:
+        assert backend == payload and "browser" not in manifest, "Unexpected browser payload"
     assert {"main.jac", "jac.toml", GENERATED, "integrations/resume-parser/package-lock.json"} <= payload.keys()
     assert manifest["runtime_contract"] == contract(payload["jac.toml"], payload["integrations/resume-parser/package-lock.json"])
     assert isinstance(manifest["web_source"], dict) and manifest["web_source"]

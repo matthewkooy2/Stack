@@ -6,14 +6,23 @@ import os;
 import secrets;
 import threading;
 import from agents.browser { BrowserPool }
+import from agents.browser_control { BrowserControl, BrowserInterrupted }
+import from agents.browser_stream { serve }
 class BrowserHost {
     def init(self: BrowserHost, factory: any = BrowserPool) -> any {
         self.executor = ThreadPoolExecutor(max_workers=1);
         self.pool = self.executor.submit(factory).result();
         self.operation = threading.Lock();
+        self.control = BrowserControl();
+        self.pool.control = self.control;
+        self.pool.operation_guard = None;
     }
     def dispatch(self: BrowserHost, path: any, data: any) -> any {
         (owner, run) = (data['owner'], data.get('id', ''));
+        key=(owner,run);
+        if path == '/purge' { self.control.revoke_owner(owner); }
+        if path == '/control' { return self.control.transition(key,data['action'],data.get('generation',-1),data.get('controller',''),data.get('instance')); }
+        if path == '/subscribe' { return {'ticket':self.control.grant(key)}; }
         if ((path == '/frame') and not self.operation.acquire(blocking=False)) {
             return self.pool.frames.get((owner, run));
         }
@@ -21,9 +30,36 @@ class BrowserHost {
             self.operation.acquire();
         }
         try {
-            return self.executor.submit(self.perform, path, data).result();
+            return self.executor.submit(self.controlled, path, data).result();
         } finally {
             self.operation.release();
+        }
+    }
+    def controlled(self: BrowserHost, path: any, data: any) -> any {
+        key=(data['owner'],data.get('id',''));
+        guarded=path in ['/linkedin_scan','/inspect','/fill','/submit'] or (path=='/handoff' and data.get('event',{}).get('type','snapshot')!='snapshot');
+        began=False;
+        try {
+            if guarded {
+                (generation,mode)=self.control.begin(key,data.get('event',{}) if path=='/handoff' else None,data.get('context',{}).get('browser_generation',0),data.get('context',{}).get('browser_instance',''));began=True;
+                self.pool.operation_guard=lambda { self.control.check(key,generation,mode); };
+            }
+            result=self.perform(path,data);
+            if guarded { self.pool.operation_guard(); }
+            return result;
+        } except BrowserInterrupted as exc {
+            state=self.control.state(key);
+            if state['mode'] in ['stopping','stopped'] { self.pool.close(*key); }
+            return {'interrupted':True,'control':state};
+        } finally {
+            self.pool.operation_guard=None;
+            if began { self.control.end(key); }
+        }
+    }
+    def tick(self: BrowserHost) -> any {
+        if self.operation.acquire(blocking=False) {
+            try { self.executor.submit(self.pool.viewer_tick).result(); }
+            finally { self.operation.release(); }
         }
     }
     def perform(self: BrowserHost, path: any, data: any) -> any {
@@ -101,6 +137,14 @@ def main() -> any {
             );
         }
         def do_POST(self: Handler) -> any {
+            if self.path == '/stream' {
+                try {
+                    size=int(self.headers.get('Content-Length',0));
+                    if not (0<size<=1024) { self.send_error(413);return; }
+                    serve(self,host,json.loads(self.rfile.read(size))['ticket']);
+                } except ValueError { self.send_error(403); }
+                return;
+            }
             if not self.authorized() {
                 self.send_error(403);
                 return;
@@ -109,6 +153,8 @@ def main() -> any {
                 self.path
                 not in (
                     '/frame',
+                    '/control',
+                    '/subscribe',
                     '/handoff',
                     '/close',
                     '/purge',
@@ -141,6 +187,7 @@ def main() -> any {
     }
     class Server(ThreadingHTTPServer) {
         def service_actions(self: Server) -> any {
+            host.tick();
             host.expire();
         }
     }

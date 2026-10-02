@@ -12,7 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 # Only these source files enter the image: no checkout mount, accounts or CLI auth.
 FILES = ('deploy/browser.Dockerfile', 'deploy/browser.jac.toml',
          'deploy/browser-entrypoint', 'deploy/browser-service.jac', 'deploy/install-browser.jac',
-         'agents/browser_service.jac', 'agents/browser.jac', 'agents/linkedin.jac',
+         'agents/browser_service.jac', 'agents/browser.jac',
+         'agents/browser_control.py', 'agents/browser_stream.py', 'agents/linkedin.jac',
          'agents/contracts.jac', 'discovery/transport.py')
 
 

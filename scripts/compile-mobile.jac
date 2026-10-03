@@ -19,6 +19,7 @@ with entry {
     stage_compiled_entry(compiled, output, "mobile/main");
     shutil.copyfile(project / "native/device.js", output / "jac-src/mobile/device.js");
     shutil.copyfile(project / "native/browser-viewer.js", output / "jac-src/mobile/browser-viewer.js");
+    shutil.copyfile(project / "native/audio-recording.js", output / "jac-src/mobile/audio-recording.js");
     shutil.copyfile(project / "native/adzuna-logo.png", output / "jac-src/mobile/adzuna-logo.png");
     write_native_entry(output);
     subprocess.run(["node", "native/build-config.js", "--write", str(output)], check=True);

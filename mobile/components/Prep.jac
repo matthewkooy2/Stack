@@ -3,6 +3,7 @@ import from "../device.js" { Icon }
 import from ..theme { s }
 import from .UI { Button, Chip }
 import from .Practice { Practice }
+import from .Transcription { Transcription }
 
 glob QUESTIONS: list[dict[str, any]] = [
     {"id":"two-sum", "track":"Technical", "title":"Find a pair", "topic":"Arrays & hash maps", "time":"15 min", "prompt":"Given an array of integers and a target, return the indices of two distinct elements whose sum equals the target. What should happen if there is no matching pair?", "steps":["Clarify whether there is exactly one solution and whether values can repeat.","Walk through [2, 7, 11, 15] with target 9 before writing code.","Explain a simple solution, then improve it."], "guide":"Keep a map from previously seen values to their indices. For each value x, look for target − x before adding x to the map. Checking first prevents reusing the same index. Expected time: O(n); extra space: O(n).", "check":"Test duplicate values, negative numbers, and no solution. Explain why two nested loops take O(n²)."},
@@ -13,7 +14,7 @@ glob QUESTIONS: list[dict[str, any]] = [
     {"id":"setback", "track":"Behavioral", "title":"Learn from a setback", "topic":"Growth", "time":"5 min", "prompt":"Describe a mistake or setback. What did you do next, and what changed afterward?", "steps":["Choose a real example and briefly explain your responsibility.","Describe how you communicated and addressed the immediate problem.","Explain the change you made to prevent the same issue."], "guide":"Be specific and take responsibility for your part. Show how you asked for help, recovered, and adjusted your process. Keep the emphasis on learning and subsequent behavior rather than a perfect ending.", "check":"Can you point to a concrete change in how you now test, plan, communicate, or ask for feedback?"}
 ];
 
-def:pub Prep(runs: list[dict[str, any]] = [], features: list[dict[str, any]] = [], onOpenTask: any = None, onNavigate: any = None) -> JsxElement {
+def:pub Prep(owner: str = "", runs: list[dict[str, any]] = [], features: list[dict[str, any]] = [], onOpenTask: any = None, onNavigate: any = None) -> JsxElement {
     has track: str = "Technical", current: int = 0, revealed: bool = False;
 
     def changeTrack(value: str) -> None { track=value; current=0; revealed=False; }
@@ -23,6 +24,7 @@ def:pub Prep(runs: list[dict[str, any]] = [], features: list[dict[str, any]] = [
     }
 
     <View style={{gap:22}}>
+        <Transcription key={owner} owner={owner}/>
         <Practice runs={runs} features={features} onOpenTask={onOpenTask} onNavigate={onNavigate}/>
         <View style={{gap:7}}>
             <Text style={s.eyebrow}>A LITTLE PRACTICE. MORE CONFIDENCE.</Text>
@@ -51,6 +53,6 @@ def:pub Prep(runs: list[dict[str, any]] = [], features: list[dict[str, any]] = [
             </View>
             for q in [q for q in QUESTIONS if q["track"]==track][current:current+1]
         ]}
-        <View style={s.mutedBox}><Text style={s.small}>Self-guided practice for entry-level SWE interviews. Answers are not recorded or scored.</Text></View>
+        <View style={s.mutedBox}><Text style={s.small}>Self-guided practice for entry-level SWE interviews. The guides below are self-guided and are not scored.</Text></View>
     </View>
 }

@@ -233,7 +233,7 @@ def:pub app -> JsxElement {
                             <View style={s.hero}><View style={s.row}><Icon name="sparkles" color="#3765E8"/><Text style={s.heading}>A resume for the role.</Text></View><Text style={s.body}>See how a tailored version could highlight the right experience.</Text><Button label="Explore a sample" secondary={True} onPress={lambda { modal="Tailoring preview"; }}/><Text style={s.small}>Demo preview. Your uploaded PDF is never modified.</Text></View>
                         </View>
                     ) if tab=="Resume" else <View/>}
-                    {<Prep runs={state.get("agents",{}).get("runs",[])} features={state.get("agents",{}).get("features",[])} onOpenTask={openTask} onNavigate={navigate}/> if tab=="Prep" else <View/>}
+                    {<Prep owner={state.get("user_id","")} runs={state.get("agents",{}).get("runs",[])} features={state.get("agents",{}).get("features",[])} onOpenTask={openTask} onNavigate={navigate}/> if tab=="Prep" else <View/>}
                 </ScrollView>
                 <View style={s.tabBar}>{[<Pressable key={t} accessibilityRole="tab" accessibilityLabel={t} accessibilityState={{"selected":tab==t}} style={s.tab} onPress={lambda { tab=t; notice=""; }}><Icon name={t.lower()} size={23} color={"#3765E8" if tab==t else "#8E9BB0"}/><Text style={[s.tabText,s.tabActive if tab==t else {}]}>{t}</Text></Pressable> for t in ["Network","Applications","Jobs","Resume","Prep"]]}</View>
             </View>

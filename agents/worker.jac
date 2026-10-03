@@ -271,6 +271,8 @@ def main() {
     import from threading { Thread }
     import from agents.resume_processing { main as resume_main }
     Thread(target=resume_main,args=(token,),daemon=True).start();
+    import from agents.transcription_worker { main as transcription_main }
+    Thread(target=transcription_main,args=(token,),daemon=True).start();
     last_tick = 0.0;
     while True {
         try {

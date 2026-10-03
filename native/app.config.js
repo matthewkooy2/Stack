@@ -22,6 +22,7 @@ module.exports = () => {
       NSAppTransportSecurity:{NSAllowsArbitraryLoads:true,NSAllowsLocalNetworking:true},
     } : {}},
     plugins:[
+      ['expo-audio',{microphonePermission:'Allow Stack to record your practice answers.',enableBackgroundRecording:false,enableBackgroundPlayback:false}],
       config => notificationCapabilities(config, pushEnabled, pushEnvironment),
       // SDK 57 keeps the legacy lifecycle unless scene support is enabled for iOS 27.
       ['expo-build-properties',{ios:{enableSceneSupport:true}}],

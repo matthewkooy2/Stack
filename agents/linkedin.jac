@@ -190,6 +190,8 @@ def scan(pool: any, owner: any, run: any, context: any) -> any {
             browser_context.route_web_socket('**/*', lambda (ws: any) { ws.close(); });
         }
         page = browser_context.new_page();
+        page.set_default_timeout(2000);
+        page.set_default_navigation_timeout(5000);
         value = {
             'page': page,
             'context': browser_context,
@@ -199,16 +201,18 @@ def scan(pool: any, owner: any, run: any, context: any) -> any {
         };
         pool.sessions[key] = value;
         try {
+            pool.guard();
             page.goto(
                 'https://www.linkedin.com/login',
                 wait_until='domcontentloaded',
-                timeout=30000
+                timeout=5000
             );
         } except Exception {
             return needs_login(
                 'LinkedIn did not finish loading. Open the browser, refresh the profile, and try again.'
             );
         }
+        pool.guard();
         pool.publish(owner, run);
         return needs_login();
     }
@@ -231,7 +235,8 @@ def scan(pool: any, owner: any, run: any, context: any) -> any {
         current = '';
     }
     if (current != url) {
-        page.goto(url, wait_until='domcontentloaded', timeout=30000);
+        pool.guard();
+        page.goto(url, wait_until='domcontentloaded', timeout=5000);
     }
     try {
         current = profile_url(page.url);
@@ -249,16 +254,20 @@ def scan(pool: any, owner: any, run: any, context: any) -> any {
         );
     }
     value['progress'] = 'Opening your profile';
+    pool.guard();
     page.evaluate('window.scrollTo(0, 0)');
+    pool.guard();
     pool.publish(owner, run);
-    try {
-        page.wait_for_function(
-            ('() => Boolean((' + CAPTURE_JS + ')().intro)'), timeout=15000
-        );
-    } except Exception {
-        return needs_login(
-            'LinkedIn has not loaded a readable profile yet. Check the browser below, open your profile, then retry analysis.'
-        );
+    hydrated=False;
+    for attempt in range(15) {
+        pool.guard();
+        try {
+            page.wait_for_function(('() => Boolean((' + CAPTURE_JS + ')().intro)'),timeout=1000);
+            hydrated=True;break;
+        } except Exception { ; }
+    }
+    if not hydrated {
+        return needs_login('LinkedIn has not loaded a readable profile yet. Check the browser below, open your profile, then retry analysis.');
     }
     sections = {};
     for index in range(16) {
@@ -274,14 +283,18 @@ def scan(pool: any, owner: any, run: any, context: any) -> any {
                 'LinkedIn redirected away from your profile. Finish any verification, then retry analysis.'
             );
         }
+        pool.guard();
         page.evaluate(EXPAND_JS);
         for (name, text) in page.evaluate(CAPTURE_JS).items() {
             if (len(text) > len(sections.get(name, ''))) {
                 sections[name] = text;
             }
         }
+        pool.guard();
         page.mouse.wheel(0, 650);
-        page.wait_for_timeout(750);
+        pool.guard();
+        for slice_index in range(3) { pool.guard();page.wait_for_timeout(250); }
+        pool.guard();
         pool.publish(owner, run);
     }
     try {

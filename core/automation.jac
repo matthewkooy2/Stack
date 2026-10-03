@@ -110,7 +110,7 @@ def _continue_legacy(r: AgentRun) -> None {
 }
 
 def _needs_attention(r: AgentRun) -> bool {
-    return r.status in ATTENTION or (r.status=="failed" and not r.dismissed);
+    return r.status in ATTENTION or r.status=="paused" or (r.status=="failed" and not r.dismissed);
 }
 """Tailoring edits LaTeX: the user's upload or a built-in template they chose (resume_format is set by the app)."""
 def _tailor_ready(context: dict[str, any]) -> bool {
@@ -120,7 +120,8 @@ def _run_view(r: AgentRun, detail: bool = False) -> dict[str, any] {
     steps=_steps(r);
     out={"id":jid(r),"kind":r.kind,"target_id":r.target_id,"status":r.status,"step":steps[min(r.index,len(steps)-1)],"message":r.message,"created_at":r.created_at,"updated_at":r.updated_at,"cost_cents":r.cost_cents,"provider":r.provider,"subscription_calls":r.subscription_calls,"dismissed":r.dismissed,"workflow_version":r.workflow_version,"upgrade_pending":r.upgrade_pending,
         **present(r.kind,r.status,r.index,steps,r.context,r.next_at)};
-    out["attention"]=_needs_attention(r);
+    out["attention"]=_needs_attention(r) or r.status=="paused";
+    out["browser"]={"supported":r.kind in ["application","linkedin"],"available":r.status not in TERMINAL and (r.kind=="application" or (r.kind=="linkedin" and r.index==0))};
     out["needs_resume_review"]=r.status=="needs_input" and out["step"]=="tailor" and not _tailor_ready(r.context);
     out["has_requests"]=len(r.requests)>0;
     if r.status=="review" { out["review"]=r.review; }
@@ -222,11 +223,11 @@ def:priv agent_cancel(id: str) -> dict[str, any] {
         r.status="uncertain" if intents else "cancelled";
         r.message="Cancellation requested; reconcile the dispatched action." if intents else "Cancelled";
         r.lease="";r.updated_at=time.time();commit();
-        close_browser=r.kind=="linkedin";owner=jid(root);out=_run_view(r,True);
+        close_browser=r.kind in ["linkedin","application"];owner=jid(root);out=_run_view(r,True);
     }
     # Closing a remote browser must not hold up every account's database writer.
     if close_browser {
-        try { browser_worker.browser_call("close",{"owner":owner,"id":id},5); }
+        try { browser_worker.browser_call("control",{"owner":owner,"id":id,"action":"stop"},2); }
         except Exception { out["message"]="Cancelled. The browser could not be reached; its session expires after one idle hour."; }
     }
     return out;
@@ -265,7 +266,7 @@ def:pub agent_claim(token: str) -> dict[str, any] {
             commit();_agent_owner(t.owner);r=_owned_run(t.run_id);
             if r is None { t.state="cancelled";continue; }
             if _pause_legacy(r) { commit();continue; }
-            if r.status in TERMINAL or r.status in ["needs_input","blocked","uncertain","review"] { t.state=r.status;continue; }
+            if r.status in TERMINAL or r.status in ["needs_input","blocked","uncertain","review","paused"] { t.state=r.status;continue; }
             if r.lease_until>now { continue; }
             step=_steps(r)[r.index];
             if r.status=="running" {
@@ -400,7 +401,10 @@ def _agent_complete(token: str, id: str, owner: str, lease: str, result: dict[st
         _trace(r,"stage_end",{"outcome":"error" if result.get("error") else "needs_input" if result.get("needs_input") else "result_received","duration_ms":max(0,int((time.time()-r.stage_started_at)*1000)) if r.stage_started_at else 0,"result":result if capture_enabled() else {"error":result.get("error",""),"message":result.get("message","")}});
         r.lease="";r.lease_until=0;r.updated_at=time.time();
         intents=[a for a in [root -->][?:AgentAction] if a.run_id==id and a.step==step and a.status=="intent"];
-        if result.get("error") {
+        if result.get("interrupted") {
+            r.status="uncertain" if intents else "cancelled" if result.get("control",{}).get("mode") in ["stopping","stopped"] else "paused";
+            r.message="Browser activity paused." if r.status=="paused" else "Browser task stopped.";
+        } elif result.get("error") {
             r.status="uncertain" if intents else "queued";r.message=str(result["error"])[:1000];r.next_at=time.time()+min(300.0,15.0*(2**r.attempts));
         } elif result.get("blocked") {
             r.status="uncertain" if intents else "blocked";r.requests=[];r.message=str(result.get("message","This step could not complete. Retry when ready."))[:1000];

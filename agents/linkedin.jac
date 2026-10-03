@@ -160,10 +160,12 @@ def needs_login(
     };
 }
 def scan(pool: any, owner: any, run: any, context: any) -> any {
+    pool.operation_stage = 'validate_profile';
     url = profile_url(context['linkedin_url']);
     key = (owner, run);
     value = pool.sessions.get(key);
     if (value is None) {
+        pool.operation_stage = 'create_session';
         browser_context = pool.browser.new_context(
             accept_downloads=False,
             service_workers='block',
@@ -185,6 +187,7 @@ def scan(pool: any, owner: any, run: any, context: any) -> any {
                 route.abort();
             }
         }
+        pool.operation_stage = 'configure_session';
         browser_context.route('**/*', route);
         if hasattr(browser_context, 'route_web_socket') {
             browser_context.route_web_socket('**/*', lambda (ws: any) { ws.close(); });
@@ -201,6 +204,7 @@ def scan(pool: any, owner: any, run: any, context: any) -> any {
         };
         pool.sessions[key] = value;
         try {
+            pool.operation_stage = 'open_login';
             pool.guard();
             page.goto(
                 'https://www.linkedin.com/login',
@@ -213,14 +217,17 @@ def scan(pool: any, owner: any, run: any, context: any) -> any {
             );
         }
         pool.guard();
+        pool.operation_stage = 'capture_frame';
         pool.publish(owner, run);
         return needs_login();
     }
+    pool.operation_stage = 'validate_session';
     if ((value.get('adapter') != 'linkedin') or (value.get('url') != url)) {
         raise ValueError('This browser session does not match the requested profile.');
     }
     page = value['page'];
     value['touched'] = time.time();
+    pool.operation_stage = 'check_login';
     if not `any(
         ((c.get('name') == 'li_at') and c.get('value'))
         for c in value['context'].cookies('https://www.linkedin.com')
@@ -229,15 +236,18 @@ def scan(pool: any, owner: any, run: any, context: any) -> any {
             'Sign in to LinkedIn in the agent browser below, then confirm this is your profile.'
         );
     }
+    pool.operation_stage = 'check_profile_url';
     try {
         current = profile_url(page.url);
     } except ValueError {
         current = '';
     }
     if (current != url) {
+        pool.operation_stage = 'navigate_profile';
         pool.guard();
         page.goto(url, wait_until='domcontentloaded', timeout=5000);
     }
+    pool.operation_stage = 'verify_profile_page';
     try {
         current = profile_url(page.url);
     } except ValueError {
@@ -254,11 +264,14 @@ def scan(pool: any, owner: any, run: any, context: any) -> any {
         );
     }
     value['progress'] = 'Opening your profile';
+    pool.operation_stage = 'prepare_capture';
     pool.guard();
     page.evaluate('window.scrollTo(0, 0)');
     pool.guard();
+    pool.operation_stage = 'capture_frame';
     pool.publish(owner, run);
     hydrated=False;
+    pool.operation_stage = 'wait_profile_header';
     for attempt in range(15) {
         pool.guard();
         try {
@@ -283,25 +296,32 @@ def scan(pool: any, owner: any, run: any, context: any) -> any {
                 'LinkedIn redirected away from your profile. Finish any verification, then retry analysis.'
             );
         }
+        pool.operation_stage = 'expand_profile';
         pool.guard();
         page.evaluate(EXPAND_JS);
+        pool.operation_stage = 'read_sections';
         for (name, text) in page.evaluate(CAPTURE_JS).items() {
             if (len(text) > len(sections.get(name, ''))) {
                 sections[name] = text;
             }
         }
         pool.guard();
+        pool.operation_stage = 'scroll_profile';
         page.mouse.wheel(0, 650);
         pool.guard();
+        pool.operation_stage = 'wait_section';
         for slice_index in range(3) { pool.guard();page.wait_for_timeout(250); }
         pool.guard();
+        pool.operation_stage = 'capture_frame';
         pool.publish(owner, run);
     }
+    pool.operation_stage = 'build_capture';
     try {
         artifact = snapshot(url, sections);
     } except ValueError as exc {
         return needs_login(str(exc));
     }
+    pool.operation_stage = 'close_session';
     pool.close(owner, run);
     return {'artifact': artifact};
 }

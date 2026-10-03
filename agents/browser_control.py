@@ -3,6 +3,47 @@ import secrets
 import threading
 import time
 
+# A small public vocabulary, never exception text, URLs, selectors or inputs.
+BROWSER_ERROR_MESSAGE = 'Browser operation failed. Review the session or resume the task.'
+BROWSER_OPERATIONS = frozenset({'linkedin_scan', 'inspect', 'fill', 'submit'})
+BROWSER_STAGES = frozenset({
+    'operation', 'control_check', 'expire_session', 'validate_profile',
+    'validate_session', 'create_session', 'configure_session', 'open_login',
+    'check_login', 'check_profile_url', 'navigate_profile', 'verify_profile_page',
+    'prepare_capture', 'capture_frame', 'wait_profile_header', 'expand_profile',
+    'read_sections', 'scroll_profile', 'wait_section', 'build_capture', 'close_session',
+    'rpc_transport', 'rpc_result',
+})
+BROWSER_ERROR_TYPES = frozenset({
+    'Exception', 'Error', 'TimeoutError', 'TargetClosedError', 'ValueError',
+    'TypeError', 'RuntimeError', 'OSError', 'PermissionError', 'ConnectionError',
+    'BrokenPipeError', 'JSONDecodeError', 'AttributeError', 'KeyError',
+})
+
+
+def sanitize_browser_diagnostic(value):
+    if not isinstance(value, dict) or value.get('version') != 1:
+        return {}
+    operation = value.get('operation')
+    if not isinstance(operation, str) or operation not in BROWSER_OPERATIONS:
+        return {}
+    error_type = value.get('error_type')
+    if not isinstance(error_type, str) or error_type not in BROWSER_ERROR_TYPES:
+        error_type = 'Exception'
+    stage = value.get('stage')
+    if not isinstance(stage, str) or stage not in BROWSER_STAGES:
+        stage = 'operation'
+    duration = value.get('duration_ms')
+    duration = max(0, min(duration, 3_600_000)) if type(duration) is int else 0
+    return dict(version=1, operation=value['operation'], stage=stage, error_type=error_type,
+                code='browser_timeout' if error_type == 'TimeoutError' else 'browser_operation_failed',
+                duration_ms=duration)
+
+
+def browser_diagnostic(operation, stage, exception, duration_ms):
+    return sanitize_browser_diagnostic(dict(version=1, operation=operation, stage=stage,
+        error_type=type(exception).__name__, duration_ms=duration_ms))
+
 
 class BrowserInterrupted(ValueError):
     def __init__(self, state):

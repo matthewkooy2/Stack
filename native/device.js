@@ -163,8 +163,8 @@ function openBrowserStream(id,onEvent,onState){
   const close=createBrowserStream({id,origin:apiBase(),authorization:'Bearer '+token,isCurrent:()=>observed===generation,onEvent,onState});
   browserStreams.add(close);return()=>{close();browserStreams.delete(close);};
 }
-export function AgentBrowser({id,requestBrowser=rpc,onChanged}) {
-  return React.createElement(BrowserViewer,{id,requestBrowser,openStream:openBrowserStream,onChanged});
+export function AgentBrowser({id,task,requestBrowser=rpc,onChanged}) {
+  return React.createElement(BrowserViewer,{id,task,requestBrowser,openStream:openBrowserStream,onChanged});
 }
 export function SwipeSurface({children,onSwipe,disabled,cardId}){
   const x=useRef(new Animated.Value(0)).current;

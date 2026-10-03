@@ -8,7 +8,7 @@ const primitives=new Map();const primitive=name=>{if(!primitives.has(name))primi
 let listener;const RN=new Proxy({AppState:{addEventListener:(name,fn)=>{listener=fn;return{remove(){}};}},PanResponder:{create:handlers=>({panHandlers:handlers})}},{get:(target,key)=>target[key]||primitive(key)});
 const code=babel.transformSync(fs.readFileSync('native/browser-viewer.js','utf8'),{babelrc:false,configFile:false,plugins:[nativeRequire.resolve('@babel/plugin-transform-modules-commonjs')]}).code;
 const moduleFixture={exports:{}};vm.runInThisContext('(function(require,module,exports){'+code+'\n})')(name=>name==='react'?React:RN,moduleFixture,moduleFixture.exports);
-const {BrowserViewer,createBrowserStream}=moduleFixture.exports;
+const {BrowserViewer,createBrowserStream,browserTaskStatus}=moduleFixture.exports;
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
 async function streamTests(){
@@ -36,11 +36,15 @@ async function viewerTests(){
   if(failInput)throw new Error('Synthetic lost response');
   return {...initialFrame,sequence:requests.length+2};
  };
- let root;
- await act(async()=>{root=renderer.create(React.createElement(BrowserViewer,{id:'application-run',requestBrowser,openStream}));});
+ let root,task={id:'application-run',status:'needs_input',step_label:'Sign in and read your profile',step_number:1,step_total:2,message:'Sign in, then resume.'};
+ const component=()=>React.createElement(BrowserViewer,{id:'application-run',task,requestBrowser,openStream});
+ const poll=async next=>{task={...task,...next};await act(async()=>{root.update(component());});};
+ await act(async()=>{root=renderer.create(component());});
  const press=label=>root.root.findByProps({accessibilityLabel:label}).props.onPress();
  await act(async()=>{press('Open browser');});assert.equal(opened,1);
  await act(async()=>{state('connected');receive({control:{mode:'agent',generation:0,instance:'fixture-worker',controller:'',sequence:0},server_time:now(),observed_at:now(),frame:initialFrame});});
+ const status=()=>root.root.findByProps({accessibilityLabel:'Task status'}).props.children;
+ assert.equal(status(),'Your input is needed','agent ownership does not mean the task is running');
  await act(async()=>{await press('Take control');});
  assert.equal(requests[0].args.instance,'fixture-worker');assert.equal(requests[0].args.generation,0);
  let canvas=root.root.findByProps({accessibilityLabel:'Live remote browser'});
@@ -49,6 +53,18 @@ async function viewerTests(){
  await act(async()=>{root.root.findByProps({accessibilityLabel:'Remote browser keyboard'}).props.onChangeText('abc');await wait(130);});
  assert.equal(requests[2].args.event.type,'text');assert.equal(requests[2].args.event.text,'abc');assert.equal(requests[2].args.event.sequence,2);
  await act(async()=>{await press('Resume agent');});assert.equal(requests[3].args.action,'resume');
+ await poll({status:'queued',message:'Browser returned to the agent.',retry_at:0});
+ assert.equal(status(),'Queued for the agent');
+ await poll({status:'running',message:'Working on linkedin_scan'});
+ assert.equal(status(),'Agent is working');
+ await act(async()=>{receive({control:{mode:'agent',generation:2,instance:'fixture-worker',controller:'',sequence:0},server_time:now(),observed_at:now(),frame:{...initialFrame,sequence:5,progress:'Opening your profile'}});});
+ assert.equal(root.root.findByProps({accessibilityLabel:'Browser progress'}).props.children,'Browser progress: Opening your profile');
+ const retryAt=now()+30;
+ await poll({status:'queued',message:'Browser operation failed. Review the session or resume the task.',retry_at:retryAt});
+ assert.match(status(),/^Retrying in (29|30)s$/);
+ assert.equal(root.root.findByProps({accessibilityLabel:'Browser progress'}).props.children,'Last browser progress: Opening your profile','cached progress must not look like current work');
+ assert.ok(root.root.findAllByType('Text').some(n=>n.props.children===task.message),'polled adapter error is visible in the modal');
+ assert.equal(browserTaskStatus(task,retryAt+1).label,'Retry is due; waiting for the agent');
  await act(async()=>{receive({control:{mode:'user',generation:1,instance:'fixture-worker',controller:requests[0].args.controller,sequence:2},server_time:now(),observed_at:now(),frame:{...initialFrame,sequence:1}});});
  assert.equal(root.root.findByProps({accessibilityLabel:'Remote browser keyboard'}).props.editable,false,'late control event cannot restore an old controller');
  await act(async()=>{await press('Take control');});
@@ -60,6 +76,9 @@ async function viewerTests(){
  assert.equal(root.root.findAllByProps({accessibilityLabel:'Resume agent'}).length,0);
  await act(async()=>{await press('Take control');});failInput=false;
  assert.equal(root.root.findByProps({accessibilityLabel:'Remote browser keyboard'}).props.editable,true,'new generation recovers uncertain input');
+ await poll({status:'cancelled',message:'Cancelled',retry_at:0});
+ assert.equal(status(),'Task cancelled');
+ assert.ok(!status().includes('Retrying'),'cancellation removes retry display');
  await act(async()=>{press('Close');});assert.equal(closed,1);assert.equal(requests.length,7,'closing never stops or resumes a task');
  await act(async()=>{root.unmount();});
 }

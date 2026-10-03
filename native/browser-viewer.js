@@ -40,10 +40,21 @@ export function createBrowserStream({id,origin,authorization,isCurrent,onEvent,o
   return ()=>{closed=true;clearTimeout(timer);xhr?.abort();};
 }
 
-export function BrowserViewer({id,requestBrowser,openStream,onChanged}) {
+export function browserTaskStatus(task={},now=Date.now()/1000) {
+  const labels={running:'Agent is working',queued:'Queued for the agent',needs_input:'Your input is needed',paused:'Task paused',review:'Waiting for approval',uncertain:'Check what happened',blocked:'Task blocked',cancelled:'Task cancelled',failed:'Task failed',completed:'Task completed'};
+  const retry=task.status==='queued'&&Number.isFinite(task.retry_at)&&task.retry_at>0;
+  const remaining=retry?Math.max(0,Math.ceil(task.retry_at-now)):0;
+  return {label:retry?(remaining?`Retrying in ${remaining}s`:'Retry is due; waiting for the agent'):labels[task.status]||'Waiting for task status',
+    stage:task.step_label?(task.step_total>1?`Step ${task.step_number} of ${task.step_total} · ${task.step_label}`:task.step_label):'',
+    message:task.message||'',explanation:task.explanation||''};
+}
+
+export function BrowserViewer({id,task={},requestBrowser,openStream,onChanged}) {
   const [open,setOpen]=useState(false),[frame,setFrame]=useState(null),[control,setControl]=useState({mode:'agent',generation:0}),[connection,setConnection]=useState('connecting'),[error,setError]=useState(''),[busy,setBusy]=useState(false),[age,setAge]=useState(Infinity);
   const keyboard=useRef(null),input=useRef(''),flushTimer=useRef(null),chain=useRef(Promise.resolve()),sequence=useRef(0),epoch=useRef(0),alive=useRef(false),stopStream=useRef(null),receipt=useRef(null),layout=useRef({width:1,height:1}),local=useRef(null),safe=useRef(true);
   const controller=useRef('viewer-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2));
+  const [now,setNow]=useState(()=>Date.now()/1000);
+  const taskStatus=browserTaskStatus(task.id===id?task:{},Math.max(now,Date.now()/1000));
   const owned=control.mode==='user'&&control.controller===controller.current;
   local.current={id,control,owned,open,connection,age,requestBrowser,onChanged};
   const disconnect=()=>{stopStream.current?.();stopStream.current=null;};
@@ -72,7 +83,7 @@ export function BrowserViewer({id,requestBrowser,openStream,onChanged}) {
     const app=AppState.addEventListener('change',state=>{
       if(state==='active')connect();else{disconnect();epoch.current++;input.current='';keyboard.current?.clear();setConnection('background');}
     });
-    const timer=setInterval(()=>setAge(receipt.current?receipt.current.age+Date.now()-receipt.current.at:Infinity),500);
+    const timer=setInterval(()=>{setAge(receipt.current?receipt.current.age+Date.now()-receipt.current.at:Infinity);setNow(Date.now()/1000);},500);
     return()=>{alive.current=false;disconnect();clearInterval(timer);clearTimeout(flushTimer.current);epoch.current++;input.current='';keyboard.current?.clear();};
   },[open,id]);
   const canInput=owned&&connection==='connected'&&age<5000&&safe.current;
@@ -121,13 +132,19 @@ export function BrowserViewer({id,requestBrowser,openStream,onChanged}) {
     },onPanResponderTerminationRequest:()=>false,
   });
   const button=(label,handler,disabled=false,danger=false)=>React.createElement(Pressable,{accessibilityRole:'button',accessibilityLabel:label,onPress:handler,disabled,style:{paddingVertical:13,paddingHorizontal:18,borderRadius:24,backgroundColor:disabled?'#E5E7EB':danger?'#FEE2E2':'#111827'}},React.createElement(Text,{style:{color:disabled?'#6B7280':danger?'#B91C1C':'white',fontWeight:'600'}},label));
-  const status=control.mode==='pausing'?'Pausing agent…':control.mode==='stopping'?'Stopping task…':control.mode==='stopped'?'Task stopped':connection==='unavailable'?'Browser unavailable':connection==='unconfirmed'||!safe.current?'Input unconfirmed':connection!=='connected'?'Reconnecting…':age>=5000?'Waiting for a fresh view…':owned?'You have control':control.mode==='user'?'Another viewer has control':'Agent is working';
+  const status=control.mode==='pausing'?'Pausing agent…':control.mode==='stopping'?'Stopping task…':control.mode==='stopped'?'Task stopped':connection==='unavailable'?'Browser unavailable':connection==='unconfirmed'||!safe.current?'Input unconfirmed':connection!=='connected'?'Reconnecting…':age>=5000?'Waiting for a fresh view…':owned?'You have control':control.mode==='user'?'Another viewer has control':'Agent has browser control';
   return React.createElement(View,{style:{gap:10}},
     button('Open browser',()=>setOpen(true)),
     React.createElement(Modal,{visible:open,animationType:'slide',presentationStyle:'fullScreen',onRequestClose:()=>setOpen(false)},
       React.createElement(View,{style:{flex:1,backgroundColor:'#F9FAFB',paddingTop:54,paddingBottom:28,paddingHorizontal:16,gap:12}},
         React.createElement(View,{style:{flexDirection:'row',alignItems:'center',justifyContent:'space-between'}},React.createElement(Text,{style:{fontSize:18,fontWeight:'700',color:'#111827'}},'Browser'),button('Close',()=>setOpen(false))),
         React.createElement(Text,{accessibilityLiveRegion:'polite',style:{color:'#4B5563'}},status),
+        React.createElement(View,{accessibilityLiveRegion:'polite',style:{gap:4}},
+          React.createElement(Text,{accessibilityLabel:'Task status',style:{color:'#111827',fontWeight:'600'}},taskStatus.label),
+          taskStatus.stage?React.createElement(Text,{style:{color:'#4B5563'}},taskStatus.stage):null,
+          taskStatus.message?React.createElement(Text,{style:{color:'#4B5563'}},taskStatus.message):null,
+          taskStatus.explanation&&taskStatus.explanation!==taskStatus.message?React.createElement(Text,{style:{color:'#6B7280',fontSize:12}},taskStatus.explanation):null,
+          frame?.progress?React.createElement(Text,{accessibilityLabel:'Browser progress',style:{color:'#6B7280',fontSize:12}},(task.status==='running'&&connection==='connected'&&age<5000?'Browser progress: ':'Last browser progress: ')+frame.progress):null),
         frame?.url?React.createElement(Text,{numberOfLines:1,style:{color:'#6B7280',fontSize:12}},frame.url):null,
         React.createElement(View,{...responder.panHandlers,onLayout:e=>{layout.current=e.nativeEvent.layout;},accessibilityLabel:'Live remote browser',style:{flex:1,minHeight:240,backgroundColor:'white',borderRadius:16,overflow:'hidden',borderWidth:1,borderColor:'#E5E7EB'}},
           frame?.image?React.createElement(Image,{source:{uri:'data:image/jpeg;base64,'+frame.image},resizeMode:'contain',style:{width:'100%',height:'100%',opacity:connection==='connected'&&age<5000?1:.55}}):React.createElement(Text,{style:{padding:24,color:'#6B7280'}},'Opening the task’s browser…')),

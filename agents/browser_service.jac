@@ -5,8 +5,9 @@ import json;
 import os;
 import secrets;
 import threading;
+import time;
 import from agents.browser { BrowserPool }
-import from agents.browser_control { BrowserControl, BrowserInterrupted }
+import from agents.browser_control { BrowserControl, BrowserInterrupted, BROWSER_OPERATIONS, BROWSER_ERROR_MESSAGE, browser_diagnostic }
 import from agents.browser_stream { serve }
 class BrowserHost {
     def init(self: BrowserHost, factory: any = BrowserPool) -> any {
@@ -39,6 +40,7 @@ class BrowserHost {
         key=(data['owner'],data.get('id',''));
         guarded=path in ['/linkedin_scan','/inspect','/fill','/submit'] or (path=='/handoff' and data.get('event',{}).get('type','snapshot')!='snapshot');
         began=False;
+        started=time.monotonic();self.pool.operation_stage='control_check';
         try {
             if guarded {
                 (generation,mode)=self.control.begin(key,data.get('event',{}) if path=='/handoff' else None,data.get('context',{}).get('browser_generation',0),data.get('context',{}).get('browser_instance',''));began=True;
@@ -51,8 +53,12 @@ class BrowserHost {
             state=self.control.state(key);
             if state['mode'] in ['stopping','stopped'] { self.pool.close(*key); }
             return {'interrupted':True,'control':state};
+        } except Exception as exc {
+            if path[1:] not in BROWSER_OPERATIONS { raise; }
+            return {'error':BROWSER_ERROR_MESSAGE,'browser_diagnostic':browser_diagnostic(path[1:],self.pool.operation_stage,exc,int((time.monotonic()-started)*1000))};
         } finally {
             self.pool.operation_guard=None;
+            self.pool.operation_stage='operation';
             if began { self.control.end(key); }
         }
     }
@@ -63,7 +69,9 @@ class BrowserHost {
         }
     }
     def perform(self: BrowserHost, path: any, data: any) -> any {
+        self.pool.operation_stage='expire_session';
         self.pool.expire();
+        self.pool.operation_stage='operation';
         (owner, run) = (data['owner'], data.get('id', ''));
         if (path == '/purge') {
             return self.pool.purge(owner);

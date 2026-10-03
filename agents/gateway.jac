@@ -8,6 +8,7 @@ import os;
 import from pathlib { Path }
 import threading;
 import time;
+import from agents.browser_stream { relay }
 import urllib.error;
 import urllib.request;
 import from urllib.parse { urlsplit }
@@ -19,7 +20,7 @@ search_jobs get_job save_search reset_search import_job_url get_import_status so
 agent_settings agent_save_facts agent_save_policy agent_activity agent_run agent_cancel agent_respond agent_traces agent_feedback
 agent_reconcile agent_contacts agent_save_contact agent_stop_contact agent_import_contacts agent_events agent_resolve_event
 agent_google_start agent_google_finish agent_disconnect agent_export agent_start agent_extract_resume resume_save_details
-agent_browser prep_live prep_progress prep_for_application prep_catalog prep_sessions prep_create prep_get prep_save account_export account_delete
+agent_browser agent_browser_control agent_browser_subscribe prep_live prep_progress prep_for_application prep_catalog prep_sessions prep_create prep_get prep_save account_export account_delete
 agent_model_logs agent_linkedin_profile agent_linkedin_start agent_features agent_approve agent_retry agent_dismiss
 resume_transfer_complete retry_resume_processing upload_resume_source use_resume_template read_resume_source read_tailored_resume check_tailored_resume score_resume delete_tailored_resume agent_continue_tailoring
 agent_register_push agent_remove_push agent_admission'''.split()
@@ -92,6 +93,7 @@ class Handler(SimpleHTTPRequestHandler) {
             else '';
         if (
             (path not in IDENTITY)
+            and path != '/browser/stream'
             and (function not in PERSONAL)
             and (function != 'agent_accept_invite')
         ) {
@@ -123,7 +125,7 @@ class Handler(SimpleHTTPRequestHandler) {
             }
             body = self.rfile.read(length);
             authorization = self.headers.get('Authorization', '');
-            if (function in PERSONAL) {
+            if (function in PERSONAL or path == '/browser/stream') {
                 (status, admission) = upstream(
                     '/function/agent_admission', b'{}', authorization
                 );
@@ -141,6 +143,7 @@ class Handler(SimpleHTTPRequestHandler) {
                     return;
                 }
             }
+            if path == '/browser/stream' { relay(self,body,authorization,upstream);return; }
             (status, raw) = upstream(path, body, authorization);
             self.send_response(status);
             self.send_header('Content-Type', 'application/json');

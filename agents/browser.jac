@@ -1,5 +1,6 @@
 """Candidate-facing ATS forms. Browser state is isolated by account and run."""
 import base64;
+import secrets;
 import hashlib;
 import json;
 import os;
@@ -57,12 +58,17 @@ class BrowserFrames {
     }
     def put(self: BrowserFrames, key: any, frame: any) -> any {
         with self.lock {
-            self.values[key] = frame;
+            self.values[key] = {**frame,'sequence':self.values.get(key,{}).get('sequence',0)+1};
         }
     }
     def get(self: BrowserFrames, key: any) -> any {
         with self.lock {
             return self.values.get(key, {'pending': True});
+        }
+    }
+    def observe(self: BrowserFrames, key: any) -> any {
+        with self.lock {
+            if key in self.values { self.values[key]={**self.values[key],'observed_at':time.time()}; }
         }
     }
     def remove(self: BrowserFrames, key: any) -> any {
@@ -80,24 +86,73 @@ class BrowserPool {
         );
         self.sessions = {};
         self.frames = BrowserFrames();
+        self.control = None;
+        self.operation_guard = None;
+    }
+    def guard(self: BrowserPool) -> any {
+        if getattr(self,'operation_guard',None) { self.operation_guard(); }
+    }
+    def stream_setup(self: BrowserPool, owner: any, run: any) -> any {
+        value=self.sessions.get((owner,run));control=getattr(self,'control',None);
+        if not value or not control { return; }
+        watching=control.watching((owner,run));
+        if value.get('cdp') and not watching {
+            cdp=value.pop('cdp');
+            try { cdp.send('Page.stopScreencast'); } except Exception { ; }
+            try { cdp.detach(); } except Exception { ; }
+            return;
+        }
+        if not watching or value.get('cdp') or value.get('capture_fallback') { return; }
+        cdp=None;
+        try {
+            cdp=value['context'].new_cdp_session(value['page']);
+            def captured(event: any) -> None {
+                try {
+                    if self.sessions.get((owner,run)) is value and control.watching((owner,run)) and control.state((owner,run))['mode'] not in ['stopping','stopped'] {
+                        self.frames.put((owner,run),self.frame_data(owner,run,event['data'],'screencast'));
+                    }
+                } except Exception { value['capture_fallback']=True; }
+                finally {
+                    try { cdp.send('Page.screencastFrameAck',{'sessionId':event['sessionId']}); } except Exception { ; }
+                }
+            }
+            cdp.on('Page.screencastFrame',captured);
+            cdp.send('Page.startScreencast',{'format':'jpeg','quality':65,'everyNthFrame':1});
+            value['cdp']=cdp;
+        } except Exception {
+            value['capture_fallback']=True;
+            if cdp { try { cdp.detach(); } except Exception { ; } }
+        }
+    }
+    def frame_data(self: BrowserPool, owner: any, run: any, image: any, transport: str) -> any {
+        value=self.sessions[(owner,run)];page=value['page'];url=urlsplit(page.url);
+        return {'image':image,'capture_id':value.setdefault('capture_id',secrets.token_hex(12)),**(page.viewport_size or {'width':1100,'height':800}),
+            'url':url._replace(query='',fragment='').geturl(),'private_login':value.get('adapter')=='linkedin',
+            'captured_at':time.time(),'observed_at':time.time(),'progress':value.get('progress',''),'capture':transport};
+    }
+    def viewer_tick(self: BrowserPool) -> any {
+        control: any = getattr(self,'control',None);
+        if not control { return; }
+        for key in control.pending_stops() { self.close(*key);control.end(key); }
+        for (owner,run) in `list(self.sessions) {
+            if control.state((owner,run))['mode'] in ['stopping','stopped'] {
+                self.close(owner,run);control.end((owner,run));continue;
+            }
+            self.stream_setup(owner,run);
+            value=self.sessions.get((owner,run));
+            if value and control.watching((owner,run)) {
+                try {
+                    if value.get('capture_fallback') { self.publish(owner,run); }
+                    else { value['page'].wait_for_timeout(1);self.frames.observe((owner,run)); }
+                } except Exception { value['capture_fallback']=True; }
+            }
+        }
     }
     def publish(self: BrowserPool, owner: any, run: any) -> any {
-        value = self.sessions[(owner, run)];
-        page = value['page'];
-        viewport = page.viewport_size or {'width': 1100, 'height': 800};
-        url = urlsplit(page.url);
-        frame = {
-            'image': base64.b64encode(
-                page.screenshot(`type='jpeg', quality=65)
-            ).decode(),
-            ** viewport,
-            'url': url._replace(query='', fragment='').geturl(),
-            'private_login': (value.get('adapter') == 'linkedin'),
-            'captured_at': time.time(),
-            'progress': value.get('progress', '')
-        };
-        self.frames.put((owner, run), frame);
-        return frame;
+        self.guard();self.stream_setup(owner,run);
+        page=self.sessions[(owner,run)]['page'];
+        self.frames.put((owner,run),self.frame_data(owner,run,base64.b64encode(page.screenshot(`type='jpeg',quality=65)).decode(),'snapshot'));
+        return self.frames.get((owner,run));
     }
     def session(
         self: BrowserPool, owner: any, run: any, url: any, create: any = True
@@ -160,13 +215,16 @@ class BrowserPool {
             context.route_web_socket('**/*', lambda (ws: any) { ws.close(); });
         }
         page = context.new_page();
+        page.set_default_timeout(2000);
+        page.set_default_navigation_timeout(5000);
         page.on(
             'filechooser',
             lambda (chooser: any) { self.sessions.get(key, {}).update(
                 {'chooser': chooser}
             ); }
         );
-        page.goto(url, wait_until='domcontentloaded', timeout=30000);
+        self.guard();
+        page.goto(url, wait_until='domcontentloaded', timeout=5000);
         if saved {
             for field in saved.get('fields', []) {
                 if (
@@ -182,8 +240,10 @@ class BrowserPool {
                 if ((element.count() == 1) and element.is_visible()) {
                     try {
                         if (field['tag'] == 'select') {
+                            self.guard();
                             element.select_option(field['value']);
                         } else {
+                            self.guard();
                             element.fill(field['value']);
                         }
                     } except Exception {
@@ -256,6 +316,9 @@ class BrowserPool {
         self.frames.remove((owner, run));
         value = self.sessions.pop((owner, run), None);
         if value {
+            if value.get('cdp') {
+                try { value['cdp'].detach(); } except Exception { ; }
+            }
             value['context'].close();
         }
         return {'closed': True};
@@ -316,6 +379,7 @@ class BrowserPool {
         if not fields {
             link = page.get_by_role('link', name='Apply for this job', exact=True);
             if (link.count() == 1) {
+                self.guard();
                 link.click();
                 fields = page.evaluate(FIELDS_JS);
             }
@@ -428,6 +492,7 @@ class BrowserPool {
         }
         verified = answers(context.get('facts', []));
         for f in fields {
+            self.guard();
             selector = ('[id=' + json.dumps(f['id']) + ']')
                 if f['id']
                 else ('[name=' + json.dumps(f['name']) + ']');
@@ -445,6 +510,7 @@ class BrowserPool {
                     'cover_letter' if ('cover' in f['label'].lower()) else 'pdf', {}
                 );
                 if pdf {
+                    self.guard();
                     element.set_input_files(
                         {
                             'name': pdf['name'],
@@ -469,8 +535,10 @@ class BrowserPool {
                             'A saved answer does not match the form choices.'
                         );
                     }
+                    self.guard();
                     element.select_option(options[0]['value']);
                 } else {
+                    self.guard();
                     element.fill(answer);
                     if (element.input_value() != answer) {
                         raise ValueError('A field did not retain the saved answer.');
@@ -514,9 +582,10 @@ class BrowserPool {
             raise ValueError('The tested submit control was not found.');
         }
         value['submitted'] = True;
-        button.click(timeout=15000);
+        self.guard();
+        button.click(timeout=5000);
         page.wait_for_timeout(1500);
-        text = page.locator('body').inner_text(timeout=10000);
+        text = page.locator('body').inner_text(timeout=2000);
         markers = (
             'application has been submitted',
             'application was submitted',
@@ -550,16 +619,20 @@ class BrowserPool {
             ) {
                 raise ValueError('Click is outside the browser viewport.');
             }
+            self.guard();
             page.mouse.click(x, y);
         } elif ((kind == 'reload') and (value.get('adapter') == 'linkedin')) {
-            page.goto(value['url'], wait_until='domcontentloaded', timeout=30000);
+            self.guard();
+            page.goto(value['url'], wait_until='domcontentloaded', timeout=5000);
         } elif ((kind == 'login') and (value.get('adapter') == 'linkedin')) {
+            self.guard();
             page.goto(
                 'https://www.linkedin.com/login',
                 wait_until='domcontentloaded',
-                timeout=30000
+                timeout=5000
             );
         } elif (kind == 'text') {
+            self.guard();
             page.keyboard.insert_text(str(event.get('text', ''))[:8000]);
         } elif (kind == 'file') {
             if (value.get('adapter') == 'linkedin') {
@@ -573,6 +646,7 @@ class BrowserPool {
             if ((len(content) > 10000000) or not content.startswith(b'%PDF-')) {
                 raise ValueError('Upload a PDF smaller than 10 MB.');
             }
+            self.guard();
             chooser.set_files(
                 {
                     'name': Path(event.get('name', 'Document.pdf')).name,
@@ -587,8 +661,10 @@ class BrowserPool {
                 in ('Tab', 'Enter', 'Backspace', 'Escape', 'ArrowDown', 'ArrowUp')
             )
         ) {
+            self.guard();
             page.keyboard.press(event['key']);
         } elif (kind == 'scroll') {
+            self.guard();
             page.mouse.wheel(0, max(-700, min(700, int(event.get('dy', 0)))));
         } elif (kind != 'snapshot') {
             raise ValueError('Unknown browser input.');
@@ -598,11 +674,10 @@ class BrowserPool {
         return self.publish(owner, run);
     }
     def expire(self: BrowserPool) -> any {
+        control: any = getattr(self,'control',None);
         for (key, value) in `list(self.sessions.items()) {
-            if (value['touched'] < (time.time() - 3600)) {
-                value['context'].close();
-                del self.sessions[key];
-                self.frames.remove(key);
+            if (value['touched'] < (time.time() - 3600)) and not (control and control.watching(key)) {
+                self.close(*key);
             }
         }
     }

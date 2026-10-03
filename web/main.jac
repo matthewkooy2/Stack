@@ -77,9 +77,9 @@ def:pub app -> JsxElement {
         try { downloadJSON(await rpc("agent_traces",{"id":selected["id"]})); }
         except Exception as e { error=errorText(e); }
     }
-    async def handoff(event: dict[str, any]) -> None {
-        try { browser=await rpc("agent_browser",{"id":selected["id"],"event":event}); }
-        except Exception as e { error=errorText(e); }
+    async def handoff(event: dict[str, any]) -> dict[str, any] {
+        try { result=await rpc("agent_browser",{"id":selected["id"],"event":event});browser={**browser,**result};return result; }
+        except Exception as e { error=errorText(e);return {"error":error}; }
     }
     async def startLinkedIn -> None {
         busy=True;error="";
@@ -155,7 +155,7 @@ def:pub app -> JsxElement {
                     {<button disabled={busy} onClick={lambda { act("agent_dismiss",{"id":selected["id"]},"Dismissed."); }}>Dismiss</button> if selected["status"]=="failed" and not selected.get("dismissed") else <span/>}
                     <p>{"Where results appear: "+selected.get("results_where","")}</p>{[<label key={q["key"]}>{q["label"]}<input value={values.get(q["key"],"")} onChange={lambda (e: any) { updated={**values};updated[q["key"]]=e.target.value;values=updated; }}/></label> for q in selected.get("requests",[]) if q["key"]!="browser"]}
                     {<button onClick={respond}>{("Retry analysis" if selected.get("step")=="linkedin_review" else "Analyze my profile") if selected["kind"]=="linkedin" else "Save answers and resume"}</button> if selected["status"] in ["needs_input","blocked"] else <span/>}
-                    {<div><button onClick={lambda { handoff({"type":"snapshot"}); }}>Open same browser session</button><BrowserView image={browser} onEvent={handoff}/></div> if selected["kind"] in ["application","linkedin"] and selected["status"] in ["needs_input","blocked","review","uncertain"] and (selected["kind"]!="linkedin" or selected["step"]=="linkedin_scan") else <span/>}
+                    {<div><button onClick={lambda { handoff({"type":"snapshot"}); }}>Open same browser session</button><BrowserView image={browser} onEvent={handoff} sessionId={selected["id"]} onFrame={lambda (value: any) { browser={**browser,**value}; }}/></div> if selected.get("browser",{}).get("available",False) else <span/>}
                     {<button disabled={busy} onClick={lambda { browser={};act("agent_cancel",{"id":selected["id"]},"Task cancelled."); }}>Cancel profile review</button> if selected["kind"]=="linkedin" and selected["status"] not in ["completed","cancelled","failed"] else <span/>}
                     {<div><label>Reconciliation evidence<textarea value={values.get("evidence","")} onChange={lambda (e: any) { values={**values,"evidence":e.target.value}; }}/></label><button onClick={lambda { reconcile("confirmed"); }}>I verified it completed</button><button onClick={lambda { reconcile("not_sent"); }}>I verified nothing was sent</button></div> if selected["status"]=="uncertain" else <span/>}
                     {[<article key={k}><h3>{k.title()}</h3><p>{v.get("summary",v.get("body",v.get("receipt","Artifact saved")))}</p>{[<p key={"s"+t}>{"✓ "+t}</p> for t in v.get("strengths",[])]}{[<p key={"g"+t}>{"~ "+t}</p> for t in v.get("gaps",[])]}{[<p key={"u"+t}>{"? "+t}</p> for t in v.get("unknowns",[])]}{[<p key={"e"+t}>{"• "+t}</p> for t in v.get("edits",[])]}{[<p key={"x"+t}>{"• "+t}</p> for t in v.get("suggested_edits",[])]}{[<section key={str(i)}><h4>{f["priority"].title()+" priority · "+f["section"].title()+": "+f["weakness"]}</h4><blockquote>{f["quote"]}</blockquote><p>{f["why_it_matters"]}</p><p>{f["recommendation"]}</p></section> for (i,f) in enumerate(v.get("findings",[]))]}

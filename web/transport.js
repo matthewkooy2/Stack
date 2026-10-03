@@ -1,6 +1,7 @@
 // Browser capabilities only. Session tokens stay in memory; reload signs out.
 import React, {useRef, useState, useEffect} from 'react';
 let token = '', epoch = 0;
+const browserStreams=new Set();
 export async function request(path, body, authenticated=true) {
   const observed=epoch;
   const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json',...(authenticated?{Authorization:'Bearer '+token}:{})},body:JSON.stringify(body),signal:AbortSignal.timeout(25000)});
@@ -15,7 +16,7 @@ export async function login(username,password,signup=false){
   const result=await request(signup?'/user/register':'/user/login',signup?{identities:[identity],credential}:{identity,credential},false);
   if(!result.token)throw new Error('No session returned.');token=result.token;epoch++;
 }
-export function logout(){token='';epoch++;}
+export function logout(){token='';epoch++;for(const close of browserStreams)close();browserStreams.clear();}
 export function errorText(e){return e?.message||'Request failed.';}
 export function oauthResult(){const q=new URLSearchParams(location.search);const result={code:q.get('code')||'',state:q.get('state')||''};if(result.code)history.replaceState(null,'',location.pathname);return result;}
 export function downloadJSON(value){const url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='stack-export.json';a.click();URL.revokeObjectURL(url);}
@@ -33,15 +34,39 @@ export function Diagram({value,onChange}){
  ...edges.map((e,i)=>{const a=nodes.find(n=>n.id===e.from),b=nodes.find(n=>n.id===e.to);return a&&b?React.createElement('line',{key:i,x1:a.x,y1:a.y,x2:b.x,y2:b.y,stroke:'#3765e8',strokeWidth:2}):null;}),
  ...nodes.map(n=>React.createElement('g',{key:n.id,onClick:e=>{e.stopPropagation();if(selected&&selected!==n.id){onChange({nodes,edges:[...edges,{from:selected,to:n.id}]});setSelected('');}else setSelected(n.id);}},React.createElement('rect',{x:n.x-65,y:n.y-22,width:130,height:44,rx:8,fill:selected===n.id?'#dbe7ff':'white',stroke:'#3765e8'}),React.createElement('text',{x:n.x,y:n.y+5,textAnchor:'middle',fontSize:13},n.label)))),React.createElement('button',{onClick:()=>onChange({nodes:[],edges:[]})},'Clear diagram'));
 }
-export function BrowserView({image,onEvent}){
+export function BrowserView({image,onEvent,sessionId,onFrame}){
+ const controller=useRef('viewer-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2)),sequence=useRef(0),control=useRef({}),safe=useRef(true),receipt=useRef(null),frameCallback=useRef(onFrame),[connection,setConnection]=useState('connecting'),[age,setAge]=useState(Infinity);
+ if(image?.control&&(image.control.instance!==control.current.instance||image.control.generation>=control.current.generation))control.current=image.control;frameCallback.current=onFrame;
+ const owned=control.current.mode==='user'&&control.current.controller===controller.current;
+ useEffect(()=>{
+  if(!sessionId)return;
+  let closed=false,xhr=null,timer=null;const observed=epoch;
+  const connect=()=>{
+   if(closed||observed!==epoch)return;setConnection('connecting');
+   const r=new XMLHttpRequest();xhr=r;let cursor=0,tail='';r.open('POST','/browser/stream');r.setRequestHeader('Content-Type','application/json');r.setRequestHeader('Authorization','Bearer '+token);r.timeout=35000;
+   const read=()=>{if(closed||observed!==epoch)return;if(r.status!==200)return;tail+=(r.responseText||'').slice(cursor);cursor=(r.responseText||'').length;if(tail.length>1024*1024){r.abort();return;}let end;while((end=tail.indexOf('\n\n'))>=0){const chunk=tail.slice(0,end);tail=tail.slice(end+2);try{if(chunk.startsWith('data: ')){const event=JSON.parse(chunk.slice(6));if(event.control.instance===control.current.instance&&event.control.generation<control.current.generation)continue;if(event.control.instance!==control.current.instance)sequence.current=0;control.current=event.control;sequence.current=Math.max(sequence.current,event.control.sequence||0);receipt.current={at:Date.now(),age:Math.max(0,(event.server_time-(event.observed_at||0))*1000)};setAge(receipt.current.age);setConnection('connected');frameCallback.current?.({...(event.frame||{}),control:event.control});}}catch{setConnection('unavailable');r.abort();}}};
+   const finish=()=>{if(closed)return;if(r.status===401||r.status===403){setConnection('unavailable');return;}setConnection('reconnecting');timer=setTimeout(connect,500);};
+   r.onprogress=read;r.onload=()=>{read();finish();};r.onerror=r.ontimeout=finish;r.send(JSON.stringify({id:sessionId}));
+  };
+  const clock=setInterval(()=>setAge(receipt.current?receipt.current.age+Date.now()-receipt.current.at:Infinity),500);const close=()=>{closed=true;clearTimeout(timer);clearInterval(clock);xhr?.abort();};browserStreams.add(close);connect();return()=>{close();browserStreams.delete(close);};
+ },[sessionId]);
+ async function action(type){
+  try {if(type==='resume'){flush();await queue.current;if(!safe.current)throw new Error('Take control again to confirm your input before resuming.');}else{clearTimeout(timer.current);text.current='';}
+   const result=await callback.current({type,generation:control.current.generation,instance:control.current.instance,controller:controller.current});
+   if(result?.error)throw new Error(result.error);
+   if(result?.control){control.current=result.control;sequence.current=result.control.sequence||0;if(type==='take'){safe.current=true;setInputError('');}}
+  }catch(e){setInputError(e.message||'Control could not be confirmed. Reconnect before continuing.');}
+ }
+
  const keyboard=useRef(null),callback=useRef(onEvent),queue=useRef(Promise.resolve()),text=useRef(''),timer=useRef(null),alive=useRef(true),composing=useRef(false);
  const [sending,setSending]=useState(false),[inputError,setInputError]=useState('');
  callback.current=onEvent;
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;clearTimeout(timer.current);timer.current=null;text.current='';if(keyboard.current)keyboard.current.value='';};},[]);
  function send(event){
-  if(!alive.current)return;
+  if(!alive.current||!safe.current||control.current.mode!=='user'||control.current.controller!==controller.current||connection!=='connected'||age>=5000)return;
+  const authority={generation:control.current.generation,instance:control.current.instance,controller:controller.current};
   setSending(true);
-  queue.current=queue.current.then(async()=>{if(alive.current)await callback.current(event);}).catch(()=>{if(alive.current)setInputError('Input could not be sent. Refresh the browser and try again.');});
+  queue.current=queue.current.then(async()=>{if(alive.current&&safe.current&&authority.generation===control.current.generation&&authority.instance===control.current.instance){const result=await callback.current({...event,...authority,sequence:++sequence.current});if(result?.error)throw new Error(result.error);}}).catch(()=>{if(alive.current){safe.current=false;setInputError('Input was not confirmed. Take control again before continuing.');}});
   const latest=queue.current;latest.then(()=>{if(alive.current&&queue.current===latest)setSending(false);});
  }
  function flush(){clearTimeout(timer.current);timer.current=null;const value=text.current;text.current='';if(value)send({type:'text',text:value});}
@@ -58,14 +83,17 @@ export function BrowserView({image,onEvent}){
  }
  function input(e){if(composing.current||e.nativeEvent?.isComposing)return;const value=e.currentTarget.value;e.currentTarget.value='';insert(value);}
  function paste(e){e.preventDefault();insert(e.clipboardData.getData('text/plain'));flush();}
- return React.createElement('div',{},image?.url?React.createElement('p',{},'Browser: '+image.url):null,
+ return React.createElement('div',{},
+ React.createElement('p',{'aria-live':'polite'},connection==='connected'?(!safe.current?'Input unconfirmed':age>=5000?'Waiting for a fresh view…':owned?'You have control':control.current.mode==='pausing'?'Pausing agent…':control.current.mode==='stopped'?'Task stopped':'Agent is working'):'Reconnecting…'),
+ React.createElement('div',{},React.createElement('button',{onClick:()=>action(owned&&safe.current?'resume':'take'),disabled:sending||connection!=='connected'||!['agent','user'].includes(control.current.mode)},owned&&safe.current?'Resume agent':'Take control'),React.createElement('button',{onClick:()=>action('stop'),disabled:['stopping','stopped'].includes(control.current.mode)},'Stop task')),
+ image?.url?React.createElement('p',{},'Browser: '+image.url):null,
  image?.image?React.createElement('div',{},
   React.createElement('p',{},'Click inside the browser, then type or paste. Enter and Tab work here.'),
   React.createElement('div',{style:{position:'relative',maxWidth:image.width||430,width:'100%',margin:'0 auto'}},
-   React.createElement('img',{src:'data:image/jpeg;base64,'+image.image,alt:'Your task browser',draggable:false,style:{display:'block',width:'100%',border:'1px solid #ccc',cursor:'text'},onClick:e=>{const r=e.currentTarget.getBoundingClientRect();keyboard.current?.focus({preventScroll:true});flush();send({type:'click',x:(e.clientX-r.left)*image.width/r.width,y:(e.clientY-r.top)*image.height/r.height});}}),
-   React.createElement('textarea',{ref:keyboard,'aria-label':'Task browser keyboard',autoComplete:'off',autoCorrect:'off',autoCapitalize:'none',spellCheck:false,style:{position:'absolute',width:1,height:1,opacity:0,pointerEvents:'none',top:0,left:0,padding:0,border:0},onKeyDown:keyDown,onInput:input,onPaste:paste,onCompositionStart:()=>{composing.current=true;},onCompositionEnd:e=>{composing.current=false;input(e);}})),
+   React.createElement('img',{src:'data:image/jpeg;base64,'+image.image,alt:'Your task browser',draggable:false,style:{display:'block',width:'100%',border:'1px solid #ccc',cursor:owned?'text':'default',pointerEvents:owned&&safe.current&&connection==='connected'&&age<5000?'auto':'none'},onClick:e=>{const r=e.currentTarget.getBoundingClientRect();keyboard.current?.focus({preventScroll:true});flush();send({type:'click',x:(e.clientX-r.left)*image.width/r.width,y:(e.clientY-r.top)*image.height/r.height});}}),
+   React.createElement('textarea',{ref:keyboard,disabled:!owned||!safe.current||connection!=='connected'||age>=5000,'aria-label':'Task browser keyboard',autoComplete:'off',autoCorrect:'off',autoCapitalize:'none',spellCheck:false,style:{position:'absolute',width:1,height:1,opacity:0,pointerEvents:'none',top:0,left:0,padding:0,border:0},onKeyDown:keyDown,onInput:input,onPaste:paste,onCompositionStart:()=>{composing.current=true;},onCompositionEnd:e=>{composing.current=false;input(e);}})),
   React.createElement('p',{'aria-live':'polite',style:{minHeight:'1.4em'}},inputError||(sending?'Sending input…':''))):null,
- !image?.private_login?React.createElement('input',{type:'file',accept:'application/pdf','aria-label':'Upload PDF to selected browser control',onChange:async e=>{const file=e.currentTarget.files?.[0];if(!file)return;if(file.size>10000000){alert('Choose a PDF smaller than 10 MB.');return;}const raw=new Uint8Array(await file.arrayBuffer());let binary='';for(const byte of raw)binary+=String.fromCharCode(byte);onEvent({type:'file',name:file.name,content:btoa(binary)});}}):null,
+ !image?.private_login?React.createElement('input',{type:'file',disabled:!owned||!safe.current||connection!=='connected'||age>=5000,accept:'application/pdf','aria-label':'Upload PDF to selected browser control',onChange:async e=>{const file=e.currentTarget.files?.[0];if(!file)return;if(file.size>10000000){alert('Choose a PDF smaller than 10 MB.');return;}const raw=new Uint8Array(await file.arrayBuffer());let binary='';for(const byte of raw)binary+=String.fromCharCode(byte);flush();send({type:'file',name:file.name,content:btoa(binary)});}}):null,
  React.createElement('button',{onClick:()=>{flush();send({type:'scroll',dy:500});}},'Scroll down'),React.createElement('button',{onClick:()=>{flush();send({type:'snapshot'});}},'Refresh browser'),image?.private_login?React.createElement('button',{onClick:()=>{flush();send({type:'reload'});}},'Reload my profile'):null);
 }
 export function Recorder({onTranscript}){

@@ -53,6 +53,7 @@ with entry {
     STATUS_TEXT = {
         'queued': 'Waiting for the agent worker. It starts automatically.',
         'running': 'Working now.',
+        'paused': 'You have browser control. Resume the agent when you are done.',
         'waiting': 'Ready to start.',
         'needs_input': 'Stack needs information from you to continue.',
         'blocked': 'Paused by setup or limits. Fix the item below, then retry.',

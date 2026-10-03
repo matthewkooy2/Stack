@@ -16,6 +16,7 @@ import from agents.contacts { parse_contacts }
 import from agents.experience { REVIEWED, ATTENTION, ACTIVE, review_payload, review_summary, present }
 import from agents.google { authorization_url, exchange, refreshed, SCOPES }
 import from agents.tracing { capture_enabled, trace_data }
+import from agents.browser_control { BROWSER_ERROR_MESSAGE, sanitize_browser_diagnostic }
 import from jaclang.server.identity.app_tokens { token_create, token_peek, token_consume }
 
 node AgentMemory { has facts: list[dict[str, any]] = [], policy: dict[str, any] = {}, revision: int = 0, admitted: bool = False, deleted: bool = False; }
@@ -124,6 +125,7 @@ def _run_view(r: AgentRun, detail: bool = False) -> dict[str, any] {
     out["browser"]={"supported":r.kind in ["application","linkedin"],"available":r.status not in TERMINAL and (r.kind=="application" or (r.kind=="linkedin" and r.index==0))};
     out["needs_resume_review"]=r.status=="needs_input" and out["step"]=="tailor" and not _tailor_ready(r.context);
     out["has_requests"]=len(r.requests)>0;
+    out["retry_at"]=r.next_at if r.status=="queued" and r.attempts>0 else 0.0;
     if r.status=="review" { out["review"]=r.review; }
     if detail { out.update({"requests":r.requests,"artifacts":r.artifacts,"resume_id":r.context.get("resume_id",""),"resume_name":r.context.get("resume_name","")}); }
     if detail { out.update({"output_version":digest(r.artifacts),"feedback":[{"id":jid(f),"rating":f.rating,"note":f.note,"at":f.at,"output_version":f.output_version} for f in [root --> [?:AgentFeedback, run_id==jid(r), -at]][:50]]}); }
@@ -398,7 +400,15 @@ def _agent_complete(token: str, id: str, owner: str, lease: str, result: dict[st
         _agent_fresh();
         try { r=_agent_leased(id,owner,lease); } except ValueError as e { return {"error":str(e)}; }
         step=_steps(r)[r.index];
-        _trace(r,"stage_end",{"outcome":"error" if result.get("error") else "needs_input" if result.get("needs_input") else "result_received","duration_ms":max(0,int((time.time()-r.stage_started_at)*1000)) if r.stage_started_at else 0,"result":result if capture_enabled() else {"error":result.get("error",""),"message":result.get("message","")}});
+        traced_result=result if capture_enabled() else {"error":result.get("error",""),"message":result.get("message","")};
+        diagnostic=sanitize_browser_diagnostic(result.get("browser_diagnostic"));
+        if result.get("error") and "browser_diagnostic" in result {
+            # Retain operational evidence even with content capture disabled.
+            # Never retain raw exception text or extra adapter fields here.
+            traced_result={"error":BROWSER_ERROR_MESSAGE};
+            if diagnostic and diagnostic["operation"]==step { traced_result["browser_diagnostic"]=diagnostic; }
+        }
+        _trace(r,"stage_end",{"outcome":"error" if result.get("error") else "needs_input" if result.get("needs_input") else "result_received","duration_ms":max(0,int((time.time()-r.stage_started_at)*1000)) if r.stage_started_at else 0,"result":traced_result});
         r.lease="";r.lease_until=0;r.updated_at=time.time();
         intents=[a for a in [root -->][?:AgentAction] if a.run_id==id and a.step==step and a.status=="intent"];
         if result.get("interrupted") {

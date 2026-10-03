@@ -79,6 +79,20 @@ class LinkedIn(unittest.TestCase):
         self.assertGreaterEqual(frames.call_count, 16)
         self.assertIn(unittest.mock.call('window.scrollTo(0, 0)'), page.evaluate.call_args_list)
 
+    def test_resumed_navigation_and_capture_failures_identify_the_actual_stage(self):
+        for failure, stage in [('navigation', 'navigate_profile'), ('capture', 'capture_frame')]:
+            with self.subTest(failure=failure):
+                pool, page = self.pool()
+                linkedin.scan(pool, 'owner', 'run', {'linkedin_url': URL})
+                if failure == 'navigation':
+                    page.url = 'https://www.linkedin.com/login'
+                    page.goto.side_effect = TimeoutError('synthetic private text')
+                else: page.screenshot.side_effect = RuntimeError('synthetic private text')
+                with self.assertRaises((TimeoutError, RuntimeError)):
+                    linkedin.scan(pool, 'owner', 'run', {'linkedin_url': URL})
+                self.assertEqual(pool.operation_stage, stage)
+                self.assertIn(('owner', 'run'), pool.sessions)
+
     def test_loading_timeout_pauses_without_fabricated_capture(self):
         pool, page = self.pool()
         linkedin.scan(pool, 'owner', 'run', {'linkedin_url': URL})

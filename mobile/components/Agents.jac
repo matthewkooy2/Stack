@@ -356,7 +356,7 @@ def:pub TaskDetail(id: str, features: list[dict[str, any]], webUrl: str, onBack:
                 {<Button label="Open web workspace for the browser" secondary={True} onPress={lambda { openJobLink(webUrl); }}/> if webUrl and run["kind"]!="linkedin" else <View/>}
             </View> if run["kind"]=="linkedin" and run["status"]=="needs_input" else <View/>}
 
-            {<AgentBrowser key={id} id={id} requestBrowser={rpc} onChanged={load}/> if run.get("browser",{}).get("available",False) else <View/>}
+            {<AgentBrowser key={id} id={id} task={run} requestBrowser={rpc} onChanged={load}/> if run.get("browser",{}).get("available",False) else <View/>}
 
             {<View style={s.reviewBox}>
                 <Text style={s.eyebrow}>CONFIRM WHAT HAPPENED</Text>

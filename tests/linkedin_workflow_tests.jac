@@ -19,6 +19,16 @@ def claim(client: any) -> dict[str, any] { client.clear_auth();return rpc(client
 def finish(client: any, work: dict[str, any], result: dict[str, any]) -> dict[str, any] {
     client.clear_auth();return rpc(client,"agent_finish",{"token":TOKEN,"id":work["id"],"owner":work["owner"],"lease":work["lease"],"result":result});
 }
+def frame_rpc(frame: dict[str, any]) -> any {
+    def response(request: any, **kwargs: any) -> any {
+        if request.full_url.endswith("/control") {
+            assert json.loads(request.data)["action"]=="status";
+            return BytesIO(b'{"mode":"agent","generation":0,"instance":"synthetic-browser"}');
+        }
+        assert request.full_url.endswith("/frame");return BytesIO(json.dumps(frame).encode());
+    }
+    return response;
+}
 test "LinkedIn profile capture waits for sign-in and remains private to its owner" {
     with tempfile.TemporaryDirectory(prefix="stack-linkedin-test-") as directory {
         path=Path(directory)/"agents.json";path.write_text("{}");
@@ -45,11 +55,12 @@ test "LinkedIn profile capture waits for sign-in and remains private to its owne
                 assert rpc(client,"agent_linkedin_start",{"url":URL,"target_role":"Software engineer"})["id"]==run["id"];
                 work=claim(client);assert work["step"]=="linkedin_scan";
                 client.set_auth_token(a);
-                with patch("urllib.request.urlopen",return_value=BytesIO(b'{"image":"live-frame"}')) as watching {
+                with patch("urllib.request.urlopen",side_effect=frame_rpc({"image":"live-frame"})) as watching {
                     assert rpc(client,"agent_browser",{"id":run["id"],"event":{"type":"snapshot"}})["image"]=="live-frame";
-                    assert watching.call_args[0][0].full_url.endswith("/frame");
+                    assert watching.call_args_list[0][0][0].full_url.endswith("/frame");
+                    assert watching.call_args_list[1][0][0].full_url.endswith("/control");
                     assert "error" in rpc(client,"agent_browser",{"id":run["id"],"event":{"type":"text","text":"no-control-while-working"}});
-                    assert watching.call_count==1;
+                    assert watching.call_count==2;
                 }
                 finish(client,work,{"needs_input":True,"message":"Sign in and confirm your profile.","requests":[{"key":"browser","label":"Sign in here"}]});
                 assert claim(client).get("idle");
@@ -58,17 +69,16 @@ test "LinkedIn profile capture waits for sign-in and remains private to its owne
                 assert "error" in rpc(client,"agent_browser",{"id":run["id"],"event":{}});
                 assert "error" in rpc(client,"agent_respond",{"id":run["id"],"values":[]});
                 client.set_auth_token(a);
-                with patch("urllib.request.urlopen",return_value=BytesIO(b'{"image":"fixture","private_login":true}')) as browser {
+                with patch("urllib.request.urlopen",side_effect=frame_rpc({"image":"fixture","private_login":True})) as browser {
                     assert rpc(client,"agent_browser",{"id":run["id"],"event":{"type":"snapshot"}})["private_login"];
                     assert json.loads(browser.call_args[0][0].data)["owner"]==owner;
                 }
-                with patch("urllib.request.urlopen",return_value=BytesIO(b'{"pending":true}')) {
-                    assert rpc(client,"agent_browser",{"id":run["id"],"event":{"type":"snapshot"}}).get("expired");
+                with patch("urllib.request.urlopen",side_effect=frame_rpc({"pending":True})) {
+                    assert rpc(client,"agent_browser",{"id":run["id"],"event":{"type":"snapshot"}}).get("pending");
                 }
-                with patch("urllib.request.urlopen",side_effect=[BytesIO(b'{"closed":true}'),BytesIO(b'{"needs_input":true}'),BytesIO(b'{"image":"reopened"}')]) as reopened {
-                    assert rpc(client,"agent_browser",{"id":run["id"],"event":{"type":"reopen"}}).get("image")=="reopened";
-                    assert [c[0][0].full_url for c in reopened.call_args_list]==["http://browser.invalid/close","http://browser.invalid/linkedin_scan","http://browser.invalid/frame"];
-                    assert json.loads(reopened.call_args_list[1][0][0].data)["context"]=={"linkedin_url":URL};
+                with patch("urllib.request.urlopen") as reopened {
+                    assert "error" in rpc(client,"agent_browser",{"id":run["id"],"event":{"type":"reopen"}});
+                    reopened.assert_not_called();
                 }
                 assert "error" in rpc(client,"agent_respond",{"id":run["id"],"values":[{"key":"password","value":"never-save-this"}]});
                 resumed=rpc(client,"agent_respond",{"id":run["id"],"values":[]});assert resumed.get("status")=="queued",resumed;
@@ -111,7 +121,8 @@ test "LinkedIn profile capture waits for sign-in and remains private to its owne
                 again=rpc(client,"agent_linkedin_start",{"target_role":"Software engineer"});assert again["id"]!=run["id"];
                 with patch("urllib.request.urlopen",return_value=BytesIO(b'{"closed":true}')) as browser {
                     assert rpc(client,"agent_cancel",{"id":again["id"]})["status"]=="cancelled";
-                    assert browser.call_args[0][0].full_url.endswith("/close");
+                    assert browser.call_args[0][0].full_url.endswith("/control");
+                    assert json.loads(browser.call_args[0][0].data)["action"]=="stop";
                 }
                 assert claim(client).get("idle");
                 # Reopen the API against the same isolated store: these are durable records.

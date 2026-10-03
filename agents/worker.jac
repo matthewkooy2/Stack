@@ -6,6 +6,7 @@ import time;
 import urllib.request;
 import from agents.contracts { CLI_PROVIDERS, config, digest, model_access }
 import from agents.tracing { trace_data }
+import from agents.browser_control { BROWSER_OPERATIONS, BROWSER_ERROR_MESSAGE, browser_diagnostic, sanitize_browser_diagnostic }
 def call(name: str, args: dict[str, any]) -> dict[str, any] {
     base = os.environ.get('STACK_WORKER_API', 'http://127.0.0.1:8000');
     request = urllib.request.Request(
@@ -38,10 +39,24 @@ def browser_call(step: str, work: dict[str, any], timeout: int = 100) -> dict[st
             'Authorization': ('Bearer ' + token)
         }
     );
-    with urllib.request.urlopen(request, timeout=timeout) as response {
-        result = json.load(response);
+    started=time.monotonic();phase='rpc_transport';
+    try {
+        with urllib.request.urlopen(request, timeout=timeout) as response {
+            phase='rpc_result';result = json.load(response);
+        }
+        if not isinstance(result,dict) { raise ValueError('Invalid browser response.'); }
+    } except Exception as exc {
+        if step not in BROWSER_OPERATIONS { raise; }
+        return {'error':BROWSER_ERROR_MESSAGE,'browser_diagnostic':browser_diagnostic(step,phase,exc,int((time.monotonic()-started)*1000))};
     }
     if result.get('error') {
+        if step in BROWSER_OPERATIONS {
+            diagnostic=sanitize_browser_diagnostic(result.get('browser_diagnostic'));
+            if not diagnostic or diagnostic['operation']!=step {
+                diagnostic=browser_diagnostic(step,'rpc_result',Exception(),int((time.monotonic()-started)*1000));
+            }
+            return {'error':BROWSER_ERROR_MESSAGE,'browser_diagnostic':diagnostic};
+        }
         raise ValueError(result['error']);
     }
     return result;

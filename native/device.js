@@ -259,7 +259,14 @@ export async function uploadResumeFile(endpoint, file, onProgress=()=>{}) {
   if(epoch!==generation)throw new Error('Session changed. Please try again.');
   const result=json.data?.result;
   if(!result)throw new Error('Upload did not return its saved status. Reopen Stack to check.');
-  const elapsed=Date.now()-started,kind=endpoint==='upload_resume'?'pdf':'source';
+  const elapsed=Date.now()-started;
+  if(endpoint==='transcription_upload'){
+    result.timings={...result.timings,transfer_ms:elapsed};
+    rpc('transcription_transfer_complete',{id:result.id,elapsed_ms:elapsed}).catch(()=>{});
+    onProgress({status:'saved',percent:100,elapsed_ms:elapsed});
+    return result;
+  }
+  const kind=endpoint==='upload_resume'?'pdf':'source';
   const resume=file.id?result.resumes?.find(r=>r.id===file.id):result.resumes?.filter(r=>r.name===file.name).sort((a,b)=>b.created_at-a.created_at)[0];
   const job=resume?.processing?.[kind];
   if(job){

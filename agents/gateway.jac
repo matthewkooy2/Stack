@@ -9,6 +9,7 @@ import from pathlib { Path }
 import threading;
 import time;
 import from agents.browser_stream { relay }
+import from agents.transcription_readiness { public_status }
 import urllib.error;
 import urllib.request;
 import from urllib.parse { urlsplit }
@@ -23,6 +24,7 @@ agent_google_start agent_google_finish agent_disconnect agent_export agent_start
 agent_browser agent_browser_control agent_browser_subscribe prep_live prep_progress prep_for_application prep_catalog prep_sessions prep_create prep_get prep_save account_export account_delete
 agent_model_logs agent_linkedin_profile agent_linkedin_start agent_features agent_approve agent_retry agent_dismiss
 resume_transfer_complete retry_resume_processing upload_resume_source use_resume_template read_resume_source read_tailored_resume check_tailored_resume score_resume delete_tailored_resume agent_continue_tailoring
+transcription_upload transcription_list transcription_get transcription_audio transcription_action transcription_transfer_complete transcription_retry_setup
 agent_register_push agent_remove_push agent_admission'''.split()
     );
     IDENTITY = {'/user/register', '/user/login'};
@@ -58,6 +60,13 @@ class Handler(SimpleHTTPRequestHandler) {
         ;
     }
     def end_headers(self: Handler) -> any {
+        if urlsplit(self.path).path in ['/', '/index.html'] {
+            audio=public_status();
+            self.send_header('X-Stack-Transcription-State',audio['state']);
+            self.send_header('X-Stack-Transcription-Stage',audio['stage']);
+            self.send_header('X-Stack-Transcription-Probe',audio['probe']);
+            if audio['missing'] { self.send_header('X-Stack-Transcription-Missing-Tools',audio['missing']); }
+        }
         self.send_header('Cache-Control', 'no-store');
         self.send_header('X-Content-Type-Options', 'nosniff');
         self.send_header('Referrer-Policy', 'no-referrer');

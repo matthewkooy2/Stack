@@ -39,6 +39,8 @@ import from agents.prep { problem, validate_session }
 import from agents.study { plan as study_plan }
 import from agents.experience { feature_status }
 import from agents.google { SCOPES }
+import from core.transcription { transcription_upload, transcription_list, transcription_get, transcription_audio, transcription_action, transcription_transfer_complete, transcription_processing_claim, transcription_processing_progress, transcription_processing_finish, transcription_retry_setup, transcription_processing_runtime }
+import from agents.transcription_store { Store as TranscriptionStore }
 import os;
 
 node Profile {
@@ -925,7 +927,7 @@ def _export_resume(r: Resume) -> dict[str, any] {
     return out;
 }
 def:priv account_export() -> dict[str, any] {
-    _agent_access();return {"account":bootstrap(),"agents":agent_export(),"resumes":[_export_resume(r) for r in [root -->][?:Resume]],"tailored_resumes":[read_tailored_resume(jid(x)) for x in [root -->][?:TailoredResume]]};
+    _agent_access();return {"account":bootstrap(),"agents":agent_export(),"recordings":TranscriptionStore().list(jid(root)),"resumes":[_export_resume(r) for r in [root -->][?:Resume]],"tailored_resumes":[read_tailored_resume(jid(x)) for x in [root -->][?:TailoredResume]]};
 }
 def:priv account_delete(username: str, password: str) -> dict[str, any] {
     _agent_access();
@@ -946,6 +948,7 @@ def:priv account_delete(username: str, password: str) -> dict[str, any] {
         for r in [root -->][?:Resume] { _cancel_resume_work(r);_file_path(r.file_key).unlink(missing_ok=True);_remove_template_files(r); }
         for x in [root -->][?:TailoredResume] { _file_path(x.pdf_key).unlink(missing_ok=True); }
         for n in [root -->] { if jid(n)!=jid(m) { del n; } }
+        TranscriptionStore().delete_owner(owner);
         commit();manager.delete_user(user["user_id"]);return {"deleted":True};
     }
 }

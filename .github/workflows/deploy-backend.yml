@@ -1,0 +1,82 @@
+name: Deploy Stack backend
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write # Tailscale federation on trusted main runs only.
+concurrency:
+  group: stack-production-backend
+  cancel-in-progress: false
+jobs:
+  deploy:
+    # Enable format 3 only after the attended host migration documented below.
+    if: github.ref == 'refs/heads/main' && vars.STACK_RELEASE_FORMAT == '3'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: stack-production
+    env:
+      RELEASE_COMMIT: ${{ github.sha }}
+    steps:
+      - name: Require approved deployment access
+        env:
+          ENABLED: ${{ vars.STACK_DEPLOY_ENABLED }}
+          HOST: ${{ vars.STACK_DEPLOY_HOST }}
+          PORT: ${{ vars.STACK_DEPLOY_PORT }}
+          CLIENT: ${{ vars.STACK_TS_CLIENT_ID }}
+          AUDIENCE: ${{ vars.STACK_TS_AUDIENCE }}
+        run: |
+          set -euo pipefail
+          if [ "$ENABLED" != true ] || [ -z "$HOST" ] || [ -z "$PORT" ] || [ -z "$CLIENT" ] || [ -z "$AUDIENCE" ]; then
+            echo 'Deployment access is not configured and approved. See docs/AUTOMATIC_BACKEND_DEPLOYMENT.md.' >&2
+            exit 1
+          fi
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.22.0'
+      - name: Package matching backend and browser source
+        run: |
+          set -euo pipefail
+          python3 deploy/backend_release.py --commit "$RELEASE_COMMIT" --output "$RUNNER_TEMP/backend.tar.gz" > "$RUNNER_TEMP/release.json"
+          python3 -c 'import json,os; r=json.load(open(os.environ["RUNNER_TEMP"]+"/release.json")); print("RELEASE_DIGEST="+r["sha256"])' >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backend-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/backend.tar.gz
+            ${{ runner.temp }}/release.json
+          retention-days: 1
+          if-no-files-found: error
+      - uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd # v4
+        with:
+          oauth-client-id: ${{ vars.STACK_TS_CLIENT_ID }}
+          audience: ${{ vars.STACK_TS_AUDIENCE }}
+          tags: tag:stack-deploy
+          version: '1.94.2'
+          use-cache: 'false'
+      - name: Deploy backend and build browser image when its source changes
+        env:
+          DEPLOY_KEY: ${{ secrets.STACK_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.STACK_DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ vars.STACK_DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ vars.STACK_DEPLOY_PORT }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "$DEPLOY_KEY" && test -n "$KNOWN_HOSTS"
+          key="$RUNNER_TEMP/stack-deploy-key"
+          hosts="$RUNNER_TEMP/stack-known-hosts"
+          trap 'rm -f "$key" "$hosts"' EXIT
+          printf '%s\n' "$DEPLOY_KEY" > "$key"
+          printf '%s\n' "$KNOWN_HOSTS" > "$hosts"
+          [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9.-]+$ ]] && [[ "$DEPLOY_PORT" =~ ^[0-9]+$ ]]
+          echo "$RELEASE_DIGEST  $RUNNER_TEMP/backend.tar.gz" | sha256sum --check --status
+          timeout 12m ssh -4 -T -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$hosts" \
+            -o IdentitiesOnly=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+            -i "$key" -p "$DEPLOY_PORT" "stack-deploy@$DEPLOY_HOST" \
+            "stack-release $RELEASE_COMMIT $RELEASE_DIGEST" < "$RUNNER_TEMP/backend.tar.gz"

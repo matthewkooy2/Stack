@@ -1,6 +1,8 @@
 """Differential validation against the frozen feature commits, never live worktree files."""
 import importlib;
 import builtins;
+import json;
+import ast;
 import subprocess;
 import from pathlib { Path }
 import from types { ModuleType }
@@ -15,9 +17,20 @@ def outcome(fn: any,args: list[any]) -> any {
     try { return {"value":fn(*args)}; }
     except Exception as e { return {"error":type(e).__name__,"message":str(e)}; }
 }
-def compare(name: str,fn: str,cases: list[list[any]],revision: str="816f9dd") -> None {
-    before=getattr(legacy(name,revision),fn);after=getattr(importlib.import_module("agents."+name),fn);
-    for args in cases { assert outcome(before,args)==outcome(after,args),name+"."+fn+": "+repr(args); }
+def compare(name: str,fn: str,cases: list[list[any]],revision: str="18b1f4a82f46d7d27e8b3bdd96d95033e1cb182d") -> None {
+    after=getattr(importlib.import_module("agents."+name),fn);
+    if name=="scoring" {
+        # Synthetic outputs captured before the mixed parser baseline was removed.
+        fixtures=json.loads(Path("tests/fixtures/scoring-migration.json").read_text())["cases"];
+        for args in cases {
+            matches=[item for item in fixtures if item["function"]==fn and item["args"]==args];
+            assert len(matches)==1,"Missing or duplicate scoring baseline: "+fn+": "+repr(args);
+            assert ast.literal_eval(matches[0]["expected_literal"])==outcome(after,args),name+"."+fn+": "+repr(args);
+        }
+    } else {
+        before=getattr(legacy(name,revision),fn);
+        for args in cases { assert outcome(before,args)==outcome(after,args),name+"."+fn+": "+repr(args); }
+    }
 }
 test "new production modules resolve to Jac without Python duplicates or inline blocks" {
     for name in ["experience","latex","tailoring","resume_templates","scoring","skills","linkedin","browser","browser_service","gateway","voice"] {
@@ -37,8 +50,8 @@ test "scoring skills and LinkedIn validation retain deterministic output and err
     compare("scoring","bullet_flaws",[[s] for s in ["Built a SQL tool that saved 10 hours.","Responsible for things","I am an excellent team player.",""]]);
     compare("scoring","score",[[[],{"title":"Engineer","description":"Requires Python and SQL"},[]]]);
     compare("skills","find",[[s] for s in ["Python, SQL and C++ on AWS","R and Go","", "communication and leadership"]]);
-    compare("linkedin","profile_url",[[s] for s in ["https://linkedin.com/in/example/","bad","https://linkedin.com.evil.test/in/a/","https://www.linkedin.com/in/a/?trk=x"]],"f477c75");
-    with patch("time.time",return_value=1234.0) { compare("linkedin","snapshot",[["https://www.linkedin.com/in/a/",{"intro":"Name. Engineer","about":"Built tools."}]],"f477c75"); }
+    compare("linkedin","profile_url",[[s] for s in ["https://linkedin.com/in/example/","bad","https://linkedin.com.evil.test/in/a/","https://www.linkedin.com/in/a/?trk=x"]],"9dde1747b29a1201d5efeebd54dd4e5d579f07bd");
+    with patch("time.time",return_value=1234.0) { compare("linkedin","snapshot",[["https://www.linkedin.com/in/a/",{"intro":"Name. Engineer","about":"Built tools."}]],"9dde1747b29a1201d5efeebd54dd4e5d579f07bd"); }
 }
 
 test "conditional expressions preserve branch grouping in headings GPA and brevity" {

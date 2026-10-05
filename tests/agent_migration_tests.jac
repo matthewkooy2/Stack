@@ -10,7 +10,7 @@ import from pathlib { Path }
 import from types { ModuleType }
 import from unittest.mock { patch }
 
-glob BASELINE = "a186068";
+glob BASELINE = "0cc0c4495d8a97e78f7b62d20af4a38278b1ade1";
 glob MODULES = ["contracts", "contacts", "prep", "study", "provider", "research",
                 "documents", "security", "notifications", "pubsub", "google", "local_cli", "worker"];
 

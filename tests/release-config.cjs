@@ -35,7 +35,9 @@ try {
     }};
     vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../native/app.config.js'), 'utf8'), sandbox);
     const config = sandbox.module.exports();
-    return {config, native:config.plugins[0](config)};
+    const inlinePlugins = config.plugins.filter(plugin => typeof plugin === 'function');
+    assert.equal(inlinePlugins.length, 1, 'Expected the notification capabilities plugin');
+    return {config, native:inlinePlugins[0](config)};
   }
   check(() => {
     const {config,native} = expoConfig(release);

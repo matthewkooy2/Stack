@@ -1,0 +1,149 @@
+{
+  "description": "Synthetic migration cases captured from the pre-rewrite Python scoring baseline; no parser source or employer data.",
+  "cases": [
+    {
+      "function": "bullet_flaws",
+      "args": [
+        "Built a SQL tool that saved 10 hours."
+      ],
+      "expected_literal": "{'value': set()}"
+    },
+    {
+      "function": "bullet_flaws",
+      "args": [
+        "Responsible for things"
+      ],
+      "expected_literal": "{'value': {'opens with \"responsible for\"'}}"
+    },
+    {
+      "function": "bullet_flaws",
+      "args": [
+        "I am an excellent team player."
+      ],
+      "expected_literal": "{'value': {'a personal pronoun', '\"team player\"'}}"
+    },
+    {
+      "function": "bullet_flaws",
+      "args": [
+        ""
+      ],
+      "expected_literal": "{'value': set()}"
+    },
+    {
+      "function": "score",
+      "args": [
+        [],
+        {
+          "title": "Engineer",
+          "description": "Requires Python and SQL"
+        },
+        []
+      ],
+      "expected_literal": "{'value': {'version': 1, 'match': {'score': 0, 'components': [{'key': 'skills', 'label': 'Hard skills', 'score': 0, 'weight': 55}, {'key': 'title', 'label': 'Job title', 'score': 0, 'weight': 10}], 'matched': [], 'missing': [{'term': 'Python', 'required': True, 'supported': False}, {'term': 'SQL', 'required': True, 'supported': False}], 'stuffed': [], 'keywords': [], 'soft': [], 'requirements': {'years': None, 'education': None, 'title': 'Engineer', 'resume_years': None}}, 'quality': {'score': None, 'components': [], 'issues': [], 'bullets': 0}}}"
+    },
+    {
+      "function": "resume_items",
+      "args": [
+        [
+          {
+            "id": "s0",
+            "title": "Experience",
+            "entries": [
+              {
+                "id": "s0.e0",
+                "heading": "",
+                "bullets": [
+                  {
+                    "id": "s0.e0.b0",
+                    "text": "Did work"
+                  }
+                ],
+                "lines": []
+              }
+            ]
+          }
+        ]
+      ],
+      "expected_literal": "{'value': ([{'id': 's0.e0.b0', 'entry': 's0.e0', 'section': 'Experience', 'where': 'Experience', 'text': 'Did work', 'current': False}], [], [])}"
+    },
+    {
+      "function": "quality",
+      "args": [
+        [
+          {
+            "id": "s0",
+            "title": "Experience",
+            "entries": [
+              {
+                "id": "s0.e0",
+                "heading": "",
+                "bullets": [
+                  {
+                    "id": "s0.e0.b0",
+                    "text": "Did work"
+                  }
+                ],
+                "lines": []
+              }
+            ]
+          }
+        ]
+      ],
+      "expected_literal": "{'value': {'score': 44, 'components': [{'key': 'metrics', 'label': 'Quantified results', 'score': 0, 'weight': 25}, {'key': 'verbs', 'label': 'Action verbs', 'score': 50, 'weight': 20}, {'key': 'repetition', 'label': 'Repetition', 'score': 100, 'weight': 15}, {'key': 'brevity', 'label': 'Brevity', 'score': 0, 'weight': 15}, {'key': 'clarity', 'label': 'Clarity', 'score': 100, 'weight': 10}, {'key': 'tense', 'label': 'Tense', 'score': 100, 'weight': 5}], 'issues': [{'kind': 'metric', 'id': 's0.e0.b0', 'where': 'Experience', 'text': 'Did work', 'detail': 'No number, %, $ or scale'}, {'kind': 'length', 'id': 's0.e0.b0', 'where': 'Experience', 'text': 'Did work', 'detail': '2 words (aim for 8\u201335)'}], 'bullets': 1}}"
+    },
+    {
+      "function": "quality",
+      "args": [
+        [
+          {
+            "id": "s0",
+            "title": "Experience",
+            "entries": [
+              {
+                "id": "s0.e0",
+                "heading": "",
+                "bullets": [
+                  {
+                    "id": "s0.e0.b0",
+                    "text": "Did work"
+                  }
+                ],
+                "lines": []
+              }
+            ]
+          }
+        ],
+        null,
+        1
+      ],
+      "expected_literal": "{'value': {'score': 44, 'components': [{'key': 'metrics', 'label': 'Quantified results', 'score': 0, 'weight': 25}, {'key': 'verbs', 'label': 'Action verbs', 'score': 50, 'weight': 20}, {'key': 'repetition', 'label': 'Repetition', 'score': 100, 'weight': 15}, {'key': 'brevity', 'label': 'Brevity', 'score': 0, 'weight': 15}, {'key': 'clarity', 'label': 'Clarity', 'score': 100, 'weight': 10}, {'key': 'tense', 'label': 'Tense', 'score': 100, 'weight': 5}], 'issues': [{'kind': 'metric', 'id': 's0.e0.b0', 'where': 'Experience', 'text': 'Did work', 'detail': 'No number, %, $ or scale'}, {'kind': 'length', 'id': 's0.e0.b0', 'where': 'Experience', 'text': 'Did work', 'detail': '2 words (aim for 8\u201335)'}], 'bullets': 1}}"
+    },
+    {
+      "function": "quality",
+      "args": [
+        [
+          {
+            "id": "s0",
+            "title": "Experience",
+            "entries": [
+              {
+                "id": "s0.e0",
+                "heading": "",
+                "bullets": [
+                  {
+                    "id": "s0.e0.b0",
+                    "text": "Did work"
+                  }
+                ],
+                "lines": []
+              }
+            ]
+          }
+        ],
+        null,
+        2
+      ],
+      "expected_literal": "{'value': {'score': 44, 'components': [{'key': 'metrics', 'label': 'Quantified results', 'score': 0, 'weight': 25}, {'key': 'verbs', 'label': 'Action verbs', 'score': 50, 'weight': 20}, {'key': 'repetition', 'label': 'Repetition', 'score': 100, 'weight': 15}, {'key': 'brevity', 'label': 'Brevity', 'score': 0, 'weight': 15}, {'key': 'clarity', 'label': 'Clarity', 'score': 100, 'weight': 10}, {'key': 'tense', 'label': 'Tense', 'score': 100, 'weight': 5}], 'issues': [{'kind': 'metric', 'id': 's0.e0.b0', 'where': 'Experience', 'text': 'Did work', 'detail': 'No number, %, $ or scale'}, {'kind': 'length', 'id': 's0.e0.b0', 'where': 'Experience', 'text': 'Did work', 'detail': '2 words (aim for 8\u201335)'}], 'bullets': 1}}"
+    }
+  ]
+}

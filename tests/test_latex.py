@@ -181,7 +181,8 @@ class Compile(unittest.TestCase):
 
     def test_errors_name_the_problem_and_line(self):
         broken = FIXTURE.read_text().replace('\\section{Projects}', '\\section{Projects}\\undefinedmacro')
-        with self.assertRaisesRegex(ValueError, r'Undefined control sequence\. \(line 164\)'):
+        line = broken[:broken.index('\\undefinedmacro')].count('\n') + 1
+        with self.assertRaisesRegex(ValueError, rf'Undefined control sequence\. \(line {line}\)'):
             latex.compile(latex.load('resume.tex', broken.encode()))
 
     def test_long_resume_is_fit_to_one_page_and_finalized(self):

@@ -15,12 +15,11 @@ import tarfile
 import tomllib
 from browser_package import SOURCE_FILES, CONTRACT_FILES, allowed_browser, browser_metadata
 
-VERSION = 2
+VERSION = 3
 MAX_BYTES = 64 * 1024 * 1024
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 SCRIPTS = {"scripts/agent-worker.jac", "scripts/discovery-worker.jac", "scripts/gateway-service.jac"}
-GENERATED = ".jac/resume-parser.cjs"
 
 
 def digest(data):
@@ -35,7 +34,7 @@ def allowed(path):
     p = PurePosixPath(path)
     if str(p) != path or p.is_absolute() or any(x in (".", "..") for x in p.parts):
         return False
-    if path in {"main.jac", "jac.toml", GENERATED} | SCRIPTS:
+    if path in {"main.jac", "jac.toml"} | SCRIPTS:
         return True
     if any(x.startswith(".") or x == "node_modules" for x in p.parts):
         return False
@@ -43,8 +42,6 @@ def allowed(path):
         return p.suffix in {".jac", ".py", ".json", ".tex"}
     if p.parts[0] == "discovery":
         return p.suffix in {".py", ".json", ".csv"} and "credentials" not in p.name
-    if path.startswith("integrations/resume-parser/"):
-        return p.suffix in {".mjs", ".ts", ".json"}
     return False
 
 
@@ -62,33 +59,27 @@ def server_config(data):
     return "".join(lines).encode()
 
 
-def contract(config, parser_lock):
+def contract(config):
     parsed = tomllib.loads(config.decode())
     assert parsed["project"]["jac-version"] == "==0.37.21", "Unreviewed Jac version"
     return digest(canonical({"jac": "0.37.21", "dependencies": parsed["dependencies"],
                              "dev-dependencies": parsed.get("dev-dependencies", {}),
-                             "database": parsed.get("database", {}),
-                             "parser-lock": digest(parser_lock)}))
+                             "database": parsed.get("database", {})}))
 
 
 def git(root, *args):
     return subprocess.check_output(["git", "-C", str(root), *args])
 
 
-def build(root, commit, parser, output):
+def build(root, commit, output):
     assert SHA.fullmatch(commit), "Require an exact 40-character commit SHA"
     assert git(root, "rev-parse", commit + "^{commit}").decode().strip() == commit
     names = git(root, "ls-tree", "-r", "--name-only", commit).decode().splitlines()
-    blobs = {name: git(root, "show", commit + ":" + name) for name in names if allowed(name) and name != GENERATED}
+    blobs = {name: git(root, "show", commit + ":" + name) for name in names if allowed(name)}
     for name in blobs:
         mode = git(root, "ls-tree", commit, "--", name).split()[0]
         assert mode in (b"100644", b"100755"), "Source links are forbidden"
-    # Generated parser must be built from a clean checkout of this exact commit.
-    assert git(root, "rev-parse", "HEAD").decode().strip() == commit, "Parser checkout differs"
-    assert not git(root, "status", "--porcelain", "--untracked-files=no"), "Tracked checkout is dirty"
     blobs["jac.toml"] = server_config(blobs["jac.toml"])
-    blobs[GENERATED] = Path(parser).read_bytes()
-    assert 0 < len(blobs[GENERATED]) < MAX_BYTES
     held = {name: digest(git(root, "show", commit + ":" + name)) for name in names if name.startswith("web/")}
     browser = {}
     for name in sorted((SOURCE_FILES & set(names)) | CONTRACT_FILES):
@@ -97,7 +88,7 @@ def build(root, commit, parser, output):
         role = "source" if name in SOURCE_FILES else "contract"
         browser["browser/" + role + "/" + name] = git(root, "show", commit + ":" + name)
     manifest = {"format": VERSION, "commit": commit,
-                "runtime_contract": contract(blobs["jac.toml"], blobs["integrations/resume-parser/package-lock.json"]),
+                "runtime_contract": contract(blobs["jac.toml"]),
                 "web_source": held, "files": {name: digest(data) for name, data in sorted(blobs.items())}}
     manifest["browser"] = browser_metadata({**blobs, **browser})
     blobs.update(browser)
@@ -130,17 +121,14 @@ def validate(data, commit, expected_digest):
             assert total <= MAX_BYTES, "Expanded artifact too large"
             files[member.name] = archive.extractfile(member).read()
     manifest = json.loads(files.pop("manifest.json"))
-    assert manifest["format"] in (1, VERSION) and manifest["commit"] == commit, "Commit mismatch"
+    assert manifest["format"] == VERSION and manifest["commit"] == commit, "Commit mismatch"
     assert DIGEST.fullmatch(manifest["runtime_contract"])
     payload = {name[8:]: value for name, value in files.items()}
     backend = {name: value for name, value in payload.items() if not name.startswith("browser/")}
     assert manifest["files"] == {name: digest(value) for name, value in backend.items()}, "Payload hash mismatch"
-    if manifest["format"] == VERSION:
-        assert manifest["browser"] == browser_metadata(payload), "Browser payload hash mismatch"
-    else:
-        assert backend == payload and "browser" not in manifest, "Unexpected browser payload"
-    assert {"main.jac", "jac.toml", GENERATED, "integrations/resume-parser/package-lock.json"} <= payload.keys()
-    assert manifest["runtime_contract"] == contract(payload["jac.toml"], payload["integrations/resume-parser/package-lock.json"])
+    assert manifest["browser"] == browser_metadata(payload), "Browser payload hash mismatch"
+    assert {"main.jac", "jac.toml"} <= payload.keys()
+    assert manifest["runtime_contract"] == contract(payload["jac.toml"])
     assert isinstance(manifest["web_source"], dict) and manifest["web_source"]
     assert all(name.startswith("web/") and str(PurePosixPath(name)) == name and ".." not in PurePosixPath(name).parts
                and DIGEST.fullmatch(value) for name, value in manifest["web_source"].items())
@@ -150,7 +138,6 @@ def validate(data, commit, expected_digest):
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--commit", required=True)
-    p.add_argument("--parser", default=".jac/resume-parser.cjs")
     p.add_argument("--output", required=True)
     args = p.parse_args()
-    print(json.dumps(build(Path.cwd(), args.commit, args.parser, args.output)))
+    print(json.dumps(build(Path.cwd(), args.commit, args.output)))

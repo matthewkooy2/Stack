@@ -6,7 +6,7 @@ Two separate 0-100 scores, each with components and the items behind them:
 The weights and targets are Stack's own defaults. Commercial tools do not publish theirs. The scores
 guide tailoring and are not a prediction of hiring.
 
-`outline` is agents.latex.outline(...) or outline_from_parser(...): sections of entries (heading, bullets)
+`outline` is agents.latex.outline(...): sections of entries (heading, bullets)
 and skill lines.
 """
 import math;
@@ -291,86 +291,6 @@ def resume_items(outline: any) -> any {
         }
     }
     return (bullets, headings, lines);
-}
-"""The same outline shape from OpenResume fields, for resumes that are only a PDF."""
-def outline_from_parser(values: any) -> any {
-    def records(kind: any) -> any {
-        indexes = sorted(
-            {
-                int(k.split('.')[1])
-                for k in values
-                if k.startswith((kind + '.'))
-            }
-        );
-        return [
-            (
-                i,
-                {
-                    k.split('.', 2)[2]: v
-                    for (k, v) in values.items()
-                    if k.startswith((kind + '.' + str(i) + '.'))
-                }
-            ) for i in indexes
-        ];
-    }
-    out = [];
-    for (n, (kind, title, fields)) in enumerate(
-        [
-            ('educations', 'Education', ('school', 'degree', 'date')),
-            ('workExperiences', 'Experience', ('company', 'jobTitle', 'date')),
-            ('projects', 'Projects', ('project', 'date'))
-        ]
-    ) {
-        entries = [];
-        for (i, record) in records(kind) {
-            bullets = [
-                b.strip(' •-\t')
-                for b in record.get('descriptions', '').split('\n')
-                if b.strip(' •-\t')
-            ];
-            entries.append(
-                {
-                    'id': ('p' + str(n) + '.e' + str(i)),
-                    'heading': ' | '.join(
-                        record.get(f, '')
-                        for f in fields
-                        if record.get(f)
-                    ),
-                    'movable': True,
-                    'bullets': [
-                        {
-                            'id': ('p' + str(n) + '.e' + str(i) + '.b' + str(j)),
-                            'text': b
-                        } for (j, b) in enumerate(bullets)
-                    ]
-                }
-            );
-        }
-        if entries {
-            out.append(
-                {'id': ('p' + str(n)), 'title': title, 'entries': entries, 'lines': []}
-            );
-        }
-    }
-    skill_lines = [
-        s
-        for s in values.get('skills.descriptions', '').split('\n')
-        if s.strip()
-    ];
-    if skill_lines {
-        out.append(
-            {
-                'id': 'p3',
-                'title': 'Skills',
-                'entries': [],
-                'lines': [
-                    {'id': ('p3.l' + str(i)), 'label': '', 'text': s}
-                    for (i, s) in enumerate(skill_lines)
-                ]
-            }
-        );
-    }
-    return out;
 }
 """(sentence, section) for the listing: required, preferred, duties, intro (text before any heading) or other.
     Benefits, company background, pay and EEO text are left out."""

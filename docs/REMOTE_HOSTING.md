@@ -27,8 +27,6 @@ and generated assets separately:
 
 ```sh
 STACK_JAC_BIN=/usr/local/bin/jac ./scripts/jac install --no-npm
-npm --prefix integrations/resume-parser ci --no-audit --no-fund
-npm --prefix integrations/resume-parser run build
 STACK_JAC_BIN=/usr/local/bin/jac ./scripts/jac build --as client workspace
 ```
 

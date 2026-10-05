@@ -2,7 +2,6 @@ import from "@jac/mobui" { View, Text }
 import from "../device.js" { rpc, errorText, pickLatexSource, previewDocument, PDFView, uploadResumeFile, uploadProgressText, ResumeProcessing, ProcessingPoll }
 import from ..theme { s }
 import from .UI { Button, Chip }
-import from .ResumeReview { ResumeReview }
 
 glob TEMPLATES: list[dict[str, str]] = [{"key":"jake","label":"Jake's Resume"},{"key":"classic","label":"Classic"}];
 
@@ -62,7 +61,7 @@ def:pub ResumeFormat(resume: dict[str, any], onChanged: any) -> JsxElement {
 """Tailoring edits LaTeX, so a resume that is only a PDF gets its LaTeX here, then onReady(resume id) continues.
 Offers resumes that already have LaTeX, an upload, or Jake's template filled from confirmed details."""
 def:pub LatexSetup(resume: dict[str, any], others: list[dict[str, any]], onChanged: any, onReady: any) -> JsxElement {
-    has busy: bool = False, error: str = "", reviewing: bool = False, pending: bool = False, progress: dict[str, any] = {}, processing: dict[str, any] = {};
+    has busy: bool = False, error: str = "", pending: bool = False, progress: dict[str, any] = {}, processing: dict[str, any] = {};
     async def check -> None {
         try {
             next=await rpc("bootstrap",{});onChanged(next);
@@ -84,12 +83,6 @@ def:pub LatexSetup(resume: dict[str, any], others: list[dict[str, any]], onChang
         } except Exception as e { error=errorText(e); }
         busy=False;progress={};
     }
-    async def useTemplate -> None {
-        if busy or pending { return; }busy=True;error="";
-        try { onChanged(await rpc("use_resume_template",{"id":resume["id"],"template":"jake"}));pending=True;reviewing=False;await check(); }
-        except Exception as e { error=errorText(e); }
-        busy=False;
-    }
     <View style={[s.mutedBox,{gap:10}]}>
         <Text style={s.strong}>{"Add the LaTeX for "+resume["name"]}</Text>
         <ProcessingPoll active={pending or resume.get("processing",{}).get("source",{}).get("status") in ["queued","parsing","compiling"]} onRefresh={check}/>
@@ -99,11 +92,7 @@ def:pub LatexSetup(resume: dict[str, any], others: list[dict[str, any]], onChang
         {[<Button key={r["id"]} label={"Use "+r["name"]+" instead · has LaTeX"} icon="check" disabled={busy} onPress={lambda { onReady(r["id"]); }}/> for r in others]}
         <Button label="Upload LaTeX (.tex or Overleaf .zip)" icon="upload" secondary={len(others)>0} disabled={busy} onPress={upload}/>
         <Text style={s.small}>In Overleaf: Menu → Download → Source.</Text>
-        {<View style={{gap:8}}>
-            <Text style={s.label}>BUILD LATEX FROM JAKE'S TEMPLATE</Text>
-            <Text style={s.small}>Check the details Stack read from your PDF. Confirming fills Jake's Resume template, which Stack then tailors.</Text>
-            <ResumeReview resumeId={resume["id"]} onConfirmed={useTemplate}/>
-        </View> if reviewing else <Button label="No LaTeX file? Build one from Jake's template" secondary={True} disabled={busy} onPress={lambda { if resume.get("details_status")=="Confirmed" { useTemplate(); } else { reviewing=True; } }}/>}
+        <Text style={s.small}>Building a template from PDF details is temporarily unavailable. Upload your LaTeX source to continue.</Text>
         {<Text style={s.errorText}>{error}</Text> if error else <View/>}
     </View>
 }

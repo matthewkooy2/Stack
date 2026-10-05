@@ -137,18 +137,6 @@ class Quality(unittest.TestCase):
         self.assertEqual({c['key']: c['score'] for c in with_parse['components']}['parsing'], 90)
 
 
-class Parser(unittest.TestCase):
-    def test_outline_from_parser_values(self):
-        values = {'educations.0.school': 'Great Lakes University', 'educations.0.degree': 'BS Computer Science', 'educations.0.date': 'May 2023',
-                  'workExperiences.0.company': 'Harbor', 'workExperiences.0.jobTitle': 'Software Engineer', 'workExperiences.0.date': 'June 2023 - Present',
-                  'workExperiences.0.descriptions': 'Built REST APIs in Python\n• Reduced latency 40%', 'skills.descriptions': 'Python, Docker'}
-        parsed = scoring.outline_from_parser(values)
-        self.assertEqual([s['title'] for s in parsed], ['Education', 'Experience', 'Skills'])
-        self.assertEqual([b['text'] for b in parsed[1]['entries'][0]['bullets']], ['Built REST APIs in Python', 'Reduced latency 40%'])
-        result = scoring.score(parsed, JOB, now=NOW)
-        self.assertTrue(result['match']['score'] and result['quality']['score'])
-        self.assertEqual(scoring.guidance(result)['skills_only_listed'], ['Docker'])
-
 
 if __name__ == '__main__':
     unittest.main()

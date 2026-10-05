@@ -1,3 +1,10 @@
+# Current availability
+
+OpenResume has been removed. PDF detail extraction, PDF-only scoring and parser
+checks are paused; uploaded LaTeX tailoring remains available. The descriptions
+below that mention the retired parser document earlier behavior. See
+[resume parser status](RESUME_PARSER.md).
+
 # Agent feature integration
 
 ## Sources and account authority
@@ -56,7 +63,7 @@ are present in migrated modules.
 
 Retained boundaries:
 
-- Vendored OpenResume TypeScript and its narrow Node PDF bridge.
+- PDF parser and its review UI are removed; replacement work is separate.
 - Browser-executed DOM JavaScript and native/web bindings for platform APIs.
 - LaTeX templates, static data, CSS, manifests, and deployment configuration.
 - Existing Python regression/development/backup tooling; the old agent-admin

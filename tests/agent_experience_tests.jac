@@ -112,7 +112,7 @@ test "agents never launch implicitly and outbound steps wait for review of the e
                 assert len(contacts)==1 and rpc(client,"agent_activity")["runs"]==[];
 
                 # Tailoring needs LaTeX: here Jake's template, filled from confirmed details. The job was saved first and uses the default resume.
-                resume_id=rpc(client,"upload_resume",{"name":"Candidate.pdf","content":base64.b64encode(Path("tests/fixtures/openresume-laverne.pdf").read_bytes()).decode()})["resumes"][0]["id"];
+                resume_id=rpc(client,"upload_resume",{"name":"Candidate.pdf","content":base64.b64encode(Path("tests/fixtures/synthetic-resume.pdf").read_bytes()).decode()})["resumes"][0]["id"];
                 parsed=rpc(client,"agent_extract_resume",{"id":resume_id});
                 assert rpc(client,"resume_save_details",{"id":resume_id,"revision":parsed["revision"],"values":{f["key"]:f["value"] for section in parsed["sections"] for f in section["fields"]},"confirm":True})["confirmed"];
                 assert rpc(client,"use_resume_template",{"id":resume_id,"template":"jake"})["resumes"][0]["format"]["kind"]=="builtin";
@@ -204,80 +204,6 @@ test "agents never launch implicitly and outbound steps wait for review of the e
     }
 }
 
-test "tailoring refuses a PDF-only resume, then tailors a chosen built-in template and persists a preview" {
-    with tempfile.TemporaryDirectory(prefix="stack-tailoring-test-") as directory {
-        path=Path(directory)/"agents.json";path.write_text(json.dumps({}));
-        discovery=Path("storage/discovery/worker-token").read_text().strip();
-        with patch.dict(os.environ,{"STACK_AGENT_CONFIG":str(path),"STACK_AGENT_WORKER_TOKEN":WORKER}) {
-            client=JacTestClient.from_file(str(Path("main.jac").resolve()),base_path=directory);resume_id="";
-            try {
-                signed=client.register_user("tailoring-owner","Tailoring-test-password-1");assert signed.ok,signed.text;
-                token=signed.data["token"];owner=rpc(client,"bootstrap")["user_id"];
-                path.write_text(json.dumps({"provider":"codex-cli","local_cli_owner":owner,"local_cli_daily_limit":20}));
-                rpc(client,"agent_save_policy",{"policy":{"enabled":True,"expires_at":time.time()+3600,"actions":["model"]}});
-                uploaded=rpc(client,"upload_resume",{"name":"Candidate.pdf","content":base64.b64encode(Path("tests/fixtures/openresume-laverne.pdf").read_bytes()).decode()});
-                resume_id=uploaded["resumes"][0]["id"];
-                job=lever_job(client,token,discovery);client.set_auth_token(token);
-                application=rpc(client,"swipe",{"job_id":job,"action":"apply"})["applications"][0];
-                # A PDF alone is never tailored: no task is created and no model request is reserved.
-                assert "Upload the LaTeX for Candidate.pdf" in rpc(client,"agent_start",{"kind":"resume","target_id":application["id"]}).get("error","");
-                assert rpc(client,"agent_activity")["runs"]==[] and not [a for a in rpc(client,"bootstrap")["applications"] if a["id"]==application["id"]][0]["tailor"]["ready"];
-                review=rpc(client,"agent_extract_resume",{"id":resume_id});
-                values={f["key"]:f["value"] for section in review["sections"] for f in section["fields"]};
-                assert not review["confirmed"];
-                confirmed=rpc(client,"resume_save_details",{"id":resume_id,"revision":review["revision"],"values":values,"confirm":True});assert confirmed["confirmed"];
-                # Confirmed details alone are still not LaTeX; choosing Jake's template makes them LaTeX.
-                assert "error" in rpc(client,"agent_start",{"kind":"resume","target_id":application["id"]});
-                rpc(client,"use_resume_template",{"id":resume_id,"template":"jake"});
-                run=rpc(client,"agent_start",{"kind":"resume","target_id":application["id"]});
-                claim=work(client,"agent_claim");assert claim["id"]==run["id"] and claim["step"]=="tailor";
-                # Stack fills the chosen Jake's template from the confirmed details and edits that LaTeX.
-                with patch("agents.provider.generate",side_effect=propose) {
-                    with patch.dict(dispatch.__globals__,{"call":partial(worker_call,client)}) { result=dispatch(claim,WORKER) as dict[str, any]; }
-                }
-                assert "artifact" in result, result;
-                proposal=result["artifact"];pdf=proposal["pdf"];
-                assert base64.b64decode(pdf["content"]).startswith(b"%PDF-") and pdf["pages"]==1 and pdf["checks"]["fits"], pdf["pages"];
-                assert proposal["format"]=="builtin" and not proposal["final"] and "\\resumeItem{Rewritten:" in proposal["tex"];
-                # Scored before and after for this job, without a model.
-                assert proposal["score"]["before"]["match"] is not None and proposal["score"]["after"]["quality"] is not None, proposal["score"];
-                assert [c["kind"] for c in proposal["changes"]]==["rewrite"] and "Rewritten:" in pdf["text"] and "Rewritten:" not in pdf["original_text"];
-                finish(client,claim,result);assert work(client,"agent_claim").get("idle");client.set_auth_token(token);
-                pending=rpc(client,"agent_run",{"id":run["id"]});
-                assert pending["status"]=="review" and pending["review"]["step"]=="approve_resume" and pending["subscription_calls"]==1, pending;
-                change=pending["review"]["changes"][0]["id"];
-                rpc(client,"agent_approve",{"id":run["id"],"step":"approve_resume","review_hash":pending["review"]["hash"],"edits":{"rejected":[change]}});
-                claim=work(client,"agent_claim");assert claim["step"]=="approve_resume", claim;
-                with patch.dict(dispatch.__globals__,{"call":partial(worker_call,client)}) { result=dispatch(claim,WORKER) as dict[str, any]; }
-                assert result["artifact"]["summary"]=="Applied 0 of 1 changes.", result;
-                finish(client,claim,result);client.set_auth_token(token);
-                done=rpc(client,"agent_run",{"id":run["id"]});final=done["artifacts"]["tailor"];
-                assert done["status"]=="completed" and done["subscription_calls"]==1, done;
-                assert final["final"] and final["pdf"]["pages"]==1;
-                assert "Rewritten:" not in final["pdf"]["text"] and "Rewritten:" not in final["tex"] and final["changes"][0]["id"]==change;
-                client.reload();client.set_auth_token(token);
-                assert rpc(client,"agent_run",{"id":run["id"]})["artifacts"]["tailor"]["pdf"]["content"]==final["pdf"]["content"];
-                # The approved resume is saved apart from uploads, labelled with its job, and read back by the parser.
-                state=rpc(client,"bootstrap");saved=state["tailored_resumes"];
-                assert [r["id"] for r in state["resumes"]]==[resume_id] and len(saved)==1, saved;
-                assert saved[0]["run_id"]==run["id"] and saved[0]["company"]=="Review Test Co" and "Analyst" in saved[0]["job_title"] and saved[0]["source_name"]=="Candidate.pdf", saved;
-                assert saved[0]["parse"]["ok"] and saved[0]["parse"]["total"]>=5, saved[0]["parse"];
-                assert saved[0]["score"]["before"]==proposal["score"]["before"] and saved[0]["score"]["after"]["match"] is not None, saved[0]["score"];
-                opened=rpc(client,"read_tailored_resume",{"id":saved[0]["id"]});
-                assert base64.b64decode(opened["pdf"]["content"])==base64.b64decode(final["pdf"]["content"]) and opened["pdf"]["name"].startswith("Resume - Review Test Co") and "\\documentclass" in opened["tex"];
-                assert rpc(client,"check_tailored_resume",{"id":saved[0]["id"]})["tailored_resumes"][0]["parse"]["ok"];
-                other=client.register_user("tailored-other","Tailored-test-password-2");client.set_auth_token(other.data["token"]);
-                assert "error" in rpc(client,"read_tailored_resume",{"id":saved[0]["id"]}) and "error" in rpc(client,"delete_tailored_resume",{"id":saved[0]["id"]});
-                client.set_auth_token(token);
-                assert rpc(client,"delete_tailored_resume",{"id":saved[0]["id"]})["tailored_resumes"]==[] and len(rpc(client,"bootstrap")["resumes"])==1;
-            } finally {
-                if resume_id { client.set_auth_token(token);rpc(client,"change_resume",{"id":resume_id,"action":"delete"}); }
-                client.close();
-            }
-        }
-    }
-}
-
 test "an uploaded LaTeX source is checked, compiled, and tailored without confirmed details" {
     with tempfile.TemporaryDirectory(prefix="stack-latex-test-") as directory {
         path=Path(directory)/"agents.json";path.write_text(json.dumps({}));
@@ -293,15 +219,15 @@ test "an uploaded LaTeX source is checked, compiled, and tailored without confir
                 job=lever_job(client,token,discovery);client.set_auth_token(token);
                 application=rpc(client,"swipe",{"job_id":job,"action":"apply"})["applications"][0];assert application["resume_id"]=="";
                 assert "Upload your resume" in rpc(client,"agent_start",{"kind":"resume","target_id":application["id"]}).get("error","");
-                uploaded=rpc(client,"upload_resume",{"name":"Candidate.pdf","content":base64.b64encode(Path("tests/fixtures/openresume-laverne.pdf").read_bytes()).decode()});
+                uploaded=rpc(client,"upload_resume",{"name":"Candidate.pdf","content":base64.b64encode(Path("tests/fixtures/synthetic-resume.pdf").read_bytes()).decode()});
                 resume_id=uploaded["resumes"][0]["id"];
                 assert uploaded["resumes"][0]["format"]["label"]=="No LaTeX yet";
                 # The job now uses the default resume, but it is only a PDF: tailoring is refused and readiness says why.
                 assert "Upload the LaTeX for Candidate.pdf" in rpc(client,"agent_start",{"kind":"resume","target_id":application["id"]}).get("error","");
                 assert rpc(client,"agent_activity")["runs"]==[];
-                # A PDF-only resume can still be scored for the job, from what the parser reads.
+                # PDF-only scoring is paused while LaTeX scoring remains available.
                 pdf_score=rpc(client,"score_resume",{"application_id":application["id"]});
-                assert pdf_score.get("source")=="pdf" and pdf_score["resume_name"]=="Candidate.pdf" and pdf_score["score"]["quality"] is not None, pdf_score;
+                assert "PDF-only scoring is temporarily unavailable" in pdf_score.get("error",""), pdf_score;
                 readiness=[c for f in rpc(client,"agent_features")["features"] if f["key"]=="tailoring" for c in f["checks"] if c["key"]=="facts"][0];
                 assert not readiness["ok"] and "Candidate.pdf" in readiness["fix"], readiness;
                 # Built-in templates need confirmed details; unsafe or broken sources are refused.

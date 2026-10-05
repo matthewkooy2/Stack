@@ -33,6 +33,9 @@ def document(pages=1, encrypted=False, stream=None):
 
 
 class PdfSafety(unittest.TestCase):
+    def test_resume_fixture_has_valid_cross_reference_offsets(self):
+        self.assertEqual(len(PdfReader(io.BytesIO(PDF), strict=True).pages), 1)
+
     def test_text_and_page_count_preserved(self):
         result = pdf.inspect_pdf(PDF, True)
         self.assertEqual(result["pages"], 1)

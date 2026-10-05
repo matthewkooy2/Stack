@@ -15,6 +15,9 @@ python -m resume_parser /path/to/resume.pdf > review.json
 python -m unittest discover -s tests -v
 ```
 
+CLI output is UTF-8 JSON with LF newlines, including when redirected from a
+legacy Windows console.
+
 Use `--node /absolute/path/to/node` if your default Node is older. For tests, set
 `STACK_PARSER_TEST_NODE` to that path. Python uses only the standard library.
 The optional canvas package must remain installed: PDF.js loads its geometry
@@ -38,6 +41,11 @@ except ParseError as error:
 - `contact` contains name, email, phone, and URL **candidates**. Pattern matches
   include exact values, line character ranges, heuristic confidence, reasons,
   and source span IDs. The first-line name candidate has deliberately low confidence.
+  Pattern/date candidates identify their original `lineId` and half-open
+  `lineRange`, measured in Python Unicode code points, not UTF-16 units. Each
+  original line has `sourceRanges` mapping those offsets back to exact source
+  spans; candidate IDs include only overlapping spans. Display-inserted spaces
+  have no source span. Preserve these original ranges when editing candidate values.
 - `sections` contains education, employment, projects, skills, unclassified, and
   contact blocks. Blocks contain editable text, original lines, literal date tokens,
   confidence, reasoning, and provenance. It does not invent an employer, title,
@@ -59,7 +67,10 @@ text, never trusted HTML. This PR supplies editable data, not a review UI or ada
 
 English headings and a small set of conservative heading-free cues are supported.
 Repeated whitespace supports ordinary two-column layouts; each column has separate
-heading state. Full-width headers are retained. Dates at a right margin should not
+heading state. Whitespace-only gutter spans are preserved but do not prevent
+column detection; staggered columns retain their early section headings.
+Explicit inline labels such as `Skills: Python` start a section.
+Full-width headers are retained. Dates at a right margin should not
 become a separate column. Page changes reset heading state to avoid false carryover.
 
 Complex mixed layouts, three columns, tables, rotated/vertical text, right-to-left
@@ -85,7 +96,7 @@ The Python entry point is mandatory; do not expose `extract.mjs` directly.
 | Pages | 20 |
 | Extracted UTF-16 code units | 250,000 |
 | Text items | 25,000 |
-| Extractor output | 12 MiB |
+| Extractor output and complete review JSON (each) | 12 MiB |
 | Worker memory | 1.5 GiB |
 | JS old-space heap | 192 MiB |
 | Wall time | 20 seconds |
@@ -101,8 +112,10 @@ for the supervisor before importing PDF.js or reading the document.
 
 Windows uses a Job Object with aggregate committed-memory and active-process limits
 and kill-on-close. POSIX uses address-space, CPU, file-size, file-descriptor and
-core-dump limits. A JS heap cap alone is **not** considered a memory limit. Setup
-failure rejects parsing. Timeouts kill and reap the process; no partial result is
+core-dump limits. Each POSIX worker starts a new session; its process group is
+killed on normal exit, error, diagnostic overflow and timeout, including surviving
+children, before closing diagnostic pipes. A JS heap cap alone is **not** considered
+a memory limit. Setup failure rejects parsing. Timeouts kill and reap the worker; no partial result is
 returned. Windows committed memory and POSIX virtual-address limits are different
 metrics. Other POSIX platforms require validation before support is claimed.
 
@@ -114,6 +127,12 @@ process on POSIX: Python `preexec_fn` is unsuitable inside a multithreaded servi
 Ordinary parsing makes no network calls, but this module does not install a network
 firewall. File paths, executable paths and limit overrides are trusted caller
 configuration, not end-user form fields.
+The memory/CPU/wall-time controls apply to the Node worker. Python grouping runs
+in the caller under the item/text caps, with range-based candidate provenance to
+avoid quadratic expansion; the complete UTF-8 pretty-printed review JSON is also
+checked against `output_bytes` (including its final newline). POSIX limits are
+per process, not aggregate; a compromised descendant could create a new session
+to escape process-group cleanup. Use an OS container/cgroup for exploit containment.
 
 Errors include `INPUT_LIMIT`, `INPUT_UNREADABLE`, `NOT_REGULAR_FILE`, `INVALID_PDF`,
 `PASSWORD_REQUIRED`, `PAGE_LIMIT`, `TEXT_LIMIT`, `SPAN_LIMIT`, `OUTPUT_LIMIT`,
@@ -135,6 +154,29 @@ minimal PDF writer. No downloaded resume fixtures or real personal data are used
 Tests verify text coverage/provenance and category isolation, not just snapshots.
 Resource tests exercise actual subprocess timeouts and external-buffer exhaustion.
 Synthetic coverage does not replace a future consented evaluation corpus.
+
+### Independent PR review regressions
+
+The review expanded the original 19 tests to 29, including real synthetic PDF
+extraction and direct geometry fixtures. Confirmed fixes cover:
+
+- Row-interleaved column streams whose PDF.js whitespace spans crossed the gutter,
+  and staggered column content that lost its heading state.
+- Inline section labels being swallowed by the preceding section.
+- Whole-line candidate provenance growing quadratically: 3,000 date spans produced
+  over 100 MB of compact JSON. Candidates now point only to intersecting spans.
+- `/UserUnit` scaling positions but not text sizes, corrupting bounding boxes.
+- The output cap applying only to extracted source, not the editable review JSON.
+- POSIX children surviving worker success and timeout, and retaining stderr pipes.
+- CLI Unicode failures under non-Unicode output encodings.
+
+Checks now reconstruct every line's original span substrings, validate contact/date
+ranges and exact supporting IDs, and verify that editing blocks, lines and contact
+values leaves source evidence unchanged. Accented text and literal HTML are tested
+through real PDFs; arbitrary Unicode/whitespace preservation is also tested at the
+structuring boundary. This does not establish arbitrary-font or CJK extraction accuracy.
+Local review runs use Windows/Python 3.11/Node 24 and Ubuntu 24.04/Python 3.12/Node 22;
+CI covers both operating systems on Node 22 and 24. The FIFO case is POSIX-only.
 
 API references consulted: [PDF.js API](https://mozilla.github.io/pdf.js/api/),
 [document parameters](https://mozilla.github.io/pdf.js/api/draft/module-pdfjsLib.html).

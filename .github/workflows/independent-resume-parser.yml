@@ -17,6 +17,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
+        node: ['22', '24']
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     defaults:
@@ -26,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: ${{ matrix.node }}
           cache: npm
           cache-dependency-path: integrations/independent-resume-parser/package-lock.json
       - uses: actions/setup-python@v5

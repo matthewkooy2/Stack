@@ -35,6 +35,13 @@ the exact binary. [Canvas upstream](https://github.com/Brooooooklyn/canvas) and
 [Skia license](https://skia.googlesource.com/skia/+/main/LICENSE) are the sources
 for that release review.
 
+Independent review checked the locked graph against installed package metadata
+and notices. The inspected Windows x64 native package declares MIT but contains
+no standalone license/third-party notice file; the parent canvas package includes
+its MIT license. That parent notice alone does not verify all embedded native
+components. This remains a release-packaging limitation, not a cleared dependency
+redistribution bundle. No dependency versions or repository license were changed.
+
 ## Additional assets inside the PDF.js distribution
 
 The extractor uses `legacy/build/pdf.mjs` and its worker. It does not configure

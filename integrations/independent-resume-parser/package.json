@@ -1,0 +1,10 @@
+{
+  "name": "@stack/independent-resume-parser",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone offline PDF extraction for Stack's independently implemented resume parser",
+  "engines": { "node": ">=22.13.0" },
+  "scripts": { "test": "python -m unittest discover -s tests -v" },
+  "dependencies": { "pdfjs-dist": "6.4.299" }
+}

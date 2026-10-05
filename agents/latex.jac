@@ -310,7 +310,7 @@ def _log_error(log: any) -> any {
 }
 """Compiles with Tectonic in an isolated temp folder. Returns {'pdf': bytes, 'pages': int}."""
 def compile(source: any, timeout: any = 120) -> any {
-    import from pypdf { PdfReader }
+    import from agents.pdf_safety { inspect_pdf }
     main = source['main'];
     started=time.perf_counter();
     scratch=Path(".jac/resume-work").resolve();scratch.mkdir(parents=True,exist_ok=True,mode=448);
@@ -352,7 +352,7 @@ def compile(source: any, timeout: any = 120) -> any {
         pdf = output.read_bytes();
     }
     logging.getLogger("stack.resume").info(__import__("json").dumps({"event":"resume_compile","elapsed_ms":round((time.perf_counter()-started)*1000.0,2),"cache":str(cache)}));
-    return {'pdf': pdf, 'pages': len(PdfReader(io.BytesIO(pdf)).pages)};
+    return {'pdf': pdf, 'pages': inspect_pdf(pdf)['pages']};
 }
 """Same-length copy with comments blanked, so offsets map back to the source."""
 def mask_comments(text: any) -> any {

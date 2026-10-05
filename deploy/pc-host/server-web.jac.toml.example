@@ -6,7 +6,7 @@ jac-version = "==0.37.21"
 default-app = "Stack"
 
 [dependencies]
-pypdf = "==6.9.2"
+pypdf = "==6.19.0"
 cryptography = "==46.0.5"
 reportlab = "==4.4.10"
 websockets = "==17.0.1"

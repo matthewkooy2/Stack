@@ -1,6 +1,15 @@
 Third-party notices: LaTeX resume templates
 ==========================================
 
+Other data and assets
+---------------------
+O*NET occupation and skills data retain their attribution and CC BY 4.0 terms
+in discovery/NOTICE.md. Adzuna's official attribution logo retains its separate
+brand/API-use terms and verified source in native/ASSET_NOTICES.md. Neither is
+offered as original Stack code under a future project-wide source-code license.
+Job matching fixtures now use original synthetic descriptions; see
+tests/fixtures/README.md for their provenance.
+
 Scope
 -----
 These notices cover the copied upstream templates and adapted resume helpers

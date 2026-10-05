@@ -3,19 +3,9 @@ import base64;
 import from difflib { unified_diff }
 import from io { BytesIO }
 import re;
+import from agents.pdf_safety { inspect_pdf, extract_encoded }
 def extract(content: str) -> str {
-    import from pypdf { PdfReader }
-    reader = PdfReader(BytesIO(base64.b64decode(content, validate=True)));
-    if reader.is_encrypted {
-        raise ValueError('Use an unencrypted PDF.');
-    }
-    text = '\n'.join((page.extract_text() or '') for page in reader.pages);
-    if not text.strip() {
-        raise ValueError(
-            'This PDF has no readable text. Add verified facts or upload a text-based PDF.'
-        );
-    }
-    return text[:50000];
+    return extract_encoded(content,50000);
 }
 """Only verified, verbatim facts enter automatic PDFs. Rewrites require review."""
 def render_variant(name: str, original: str, ordered_facts: list[dict[str, any]]) -> dict[str, any] {
@@ -26,7 +16,6 @@ def render_variant(name: str, original: str, ordered_facts: list[dict[str, any]]
     import from reportlab.lib.styles { getSampleStyleSheet }
     import from reportlab.platypus { SimpleDocTemplate, Paragraph, Spacer }
     import from xml.sax.saxutils { escape }
-    import from pypdf { PdfReader }
     out = BytesIO();
     styles = getSampleStyleSheet();
     if ('StackResume' not in pdfmetrics.getRegisteredFontNames()) {
@@ -61,8 +50,8 @@ def render_variant(name: str, original: str, ordered_facts: list[dict[str, any]]
     }
     doc.build(story);
     raw = out.getvalue();
-    reader = PdfReader(BytesIO(raw));
-    recovered = '\n'.join((p.extract_text() or '') for p in reader.pages);
+    inspected = inspect_pdf(raw,True);
+    recovered = inspected['text'];
     normalize = lambda (s: str) -> str { return re.sub(r'\s+', '', s); };
     if `any(
         (normalize(f['value']) not in normalize(recovered)) for f in ordered_facts
@@ -77,7 +66,7 @@ def render_variant(name: str, original: str, ordered_facts: list[dict[str, any]]
         'content': base64.b64encode(raw).decode(),
         'text': text,
         'original_text': original,
-        'pages': len(reader.pages),
+        'pages': inspected['pages'],
         'source_keys': [f['key'] for f in ordered_facts],
         'diff': '\n'.join(
             unified_diff(
@@ -91,7 +80,7 @@ def render_variant(name: str, original: str, ordered_facts: list[dict[str, any]]
         'checks': {
             'text_preserved': True,
             'single_column': True,
-            'pages': len(reader.pages)
+            'pages': inspected['pages']
         }
     };
 }

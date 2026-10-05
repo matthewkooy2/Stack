@@ -2,9 +2,9 @@
 import zlib
 
 
-def pdf(pages, *, compressed=False):
+def pdf(pages, *, compressed=False, user_unit=1):
     objects = [b'<< /Type /Catalog /Pages 2 0 R >>', b'',
-               b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>']
+               b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>']
     kids = []
     for rows in pages:
         page_id = len(objects) + 1
@@ -16,7 +16,7 @@ def pdf(pages, *, compressed=False):
         stream = '\n'.join(commands).encode('cp1252')
         if compressed:
             stream = zlib.compress(stream)
-        objects.append(f'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents {page_id+1} 0 R >>'.encode())
+        objects.append(f'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /UserUnit {user_unit} /Resources << /Font << /F1 3 0 R >> >> /Contents {page_id+1} 0 R >>'.encode())
         objects.append(f'<< /Length {len(stream)} '.encode() +
                        (b'/Filter /FlateDecode ' if compressed else b'') + b'>>\nstream\n' + stream + b'\nendstream')
     objects[1] = f'<< /Type /Pages /Count {len(pages)} /Kids [{" ".join(kids)}] >>'.encode()

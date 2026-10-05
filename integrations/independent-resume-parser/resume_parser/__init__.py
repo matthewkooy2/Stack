@@ -90,4 +90,13 @@ def parse_pdf(path, *, limits=Limits(), node=None):
             extracted = json.loads(output_path.read_text(encoding='utf-8'))
         except (ValueError, OSError) as error:
             raise ParseError('INVALID_OUTPUT') from error
-    return structure(extracted)
+    result = structure(extracted)
+    # Bound the public review document as well as the worker's source-only JSON.
+    # Match the CLI encoding, including its terminal newline, without allocating
+    # another complete serialized document merely to measure its size.
+    size = 1
+    for chunk in json.JSONEncoder(ensure_ascii=False, indent=2).iterencode(result):
+        size += len(chunk.encode('utf-8'))
+        if size > limits.output_bytes:
+            raise ParseError('OUTPUT_LIMIT')
+    return result

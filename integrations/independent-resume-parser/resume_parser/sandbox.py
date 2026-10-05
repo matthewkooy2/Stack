@@ -1,6 +1,7 @@
 """OS-enforced resource containment; not an exploit-proof security sandbox."""
 import ctypes
 import os
+import signal
 import subprocess
 import threading
 
@@ -74,11 +75,26 @@ def run(command, request, directory, limits):
     environment.update({'TEMP': directory, 'TMP': directory, 'TMPDIR': directory})
     environment.update({'MALLOC_ARENA_MAX': '2', 'RAYON_NUM_THREADS': '1', 'UV_THREADPOOL_SIZE': '1'})
     process = None
+    reader = None
+
+    def stop_worker():
+        if process is None:
+            return
+        try:
+            if os.name == 'posix':
+                # The group may still contain children after its leader exits.
+                os.killpg(process.pid, signal.SIGKILL)
+            elif process.poll() is None:
+                process.kill()
+        except ProcessLookupError:
+            pass
+
     try:
         captured = bytearray()
         process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                                        stderr=subprocess.PIPE, cwd=directory, env=environment,
                                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+                                       start_new_session=os.name == 'posix',
                                        preexec_fn=posix_limits if os.name == 'posix' else None)
         if job:
             job.assign(process)
@@ -90,7 +106,7 @@ def run(command, request, directory, limits):
                     break
                 captured.extend(chunk[:4096 - len(captured)])
                 if len(captured) >= 4096:
-                    process.kill()
+                    stop_worker()
                     break
 
         reader = threading.Thread(target=read_errors, daemon=True)
@@ -101,15 +117,19 @@ def run(command, request, directory, limits):
         except BrokenPipeError:
             pass
         process.wait(timeout=limits.timeout_seconds)
+        stop_worker()
+        if job:
+            job.close()
         reader.join(timeout=1)
         return process.returncode, captured.decode('utf-8', errors='replace')
     finally:
         if job:
             job.close()
         if process is not None:
-            if process.poll() is None:
-                process.kill()
+            stop_worker()
             process.wait()
+            if reader:
+                reader.join(timeout=1)
             if process.stdin and not process.stdin.closed:
                 process.stdin.close()
             if process.stderr:

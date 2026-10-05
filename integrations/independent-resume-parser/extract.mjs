@@ -27,6 +27,9 @@ try {
   for (let number = 1; number <= pdf.numPages; number++) {
     const page = await pdf.getPage(number);
     const viewport = page.getViewport({ scale: 1 });
+    if (![viewport.width, viewport.height].every(value => Number.isFinite(value) && value > 0)) {
+      throw new Error('INVALID_GEOMETRY');
+    }
     const reader = page.streamTextContent({ disableNormalization: true }).getReader();
     const spans = [];
     while (true) {
@@ -38,7 +41,10 @@ try {
         if (characters > limits.characters) throw new Error('TEXT_LIMIT');
         if (++count > limits.spans) throw new Error('SPAN_LIMIT');
         const t = Util.transform(viewport.transform, item.transform);
-        const box = [t[4], t[5], item.width, item.height];
+        // Text item sizes are in PDF user space; translations above are already
+        // in viewport points. Apply UserUnit to sizes as well as positions.
+        const scale = viewport.scale * viewport.userUnit;
+        const box = [t[4], t[5], item.width * scale, item.height * scale];
         if (!box.every(Number.isFinite)) throw new Error('INVALID_GEOMETRY');
         spans.push({ id: `p${number}s${spans.length}`, text: item.str,
           bbox: box, direction: item.dir, endOfLine: item.hasEOL });

@@ -7,6 +7,9 @@ parser = argparse.ArgumentParser(description='Offline PDF resume parser; JSON to
 parser.add_argument('pdf')
 parser.add_argument('--node', help='Trusted Node >=22.13 executable path')
 args = parser.parse_args()
+# The review document is UTF-8 JSON on every OS, including redirected output
+# under legacy Windows console encodings. Keep byte accounting identical too.
+sys.stdout.reconfigure(encoding='utf-8', newline='\n')
 try:
     print(json.dumps(parse_pdf(args.pdf, node=args.node), ensure_ascii=False, indent=2))
 except ParseError as error:

@@ -1,5 +1,6 @@
 """Conservative geometric grouping and auditable, non-generative classification."""
 import re
+from bisect import bisect_right
 
 HEADINGS = {
     'education': ('education', 'academic background', 'qualifications'),
@@ -25,23 +26,45 @@ def candidate(value, lines, confidence, reason):
             'reviewed': False}
 
 
+def matched_candidate(match, line, confidence, reason):
+    # Ranges are ordered and disjoint. Bisect avoids scanning a fragmented line
+    # once per match (and avoids copying every unrelated span into every match).
+    ranges = line['sourceRanges']
+    start = bisect_right(ranges, match.start(), key=lambda item: item['lineRange'][1])
+    ids = []
+    for index in range(start, len(ranges)):
+        item = ranges[index]
+        if item['lineRange'][0] >= match.end():
+            break
+        ids.append(item['sourceSpanId'])
+    return {'value': match.group(), 'confidence': confidence, 'reason': reason,
+            'sourceSpanIds': ids, 'lineId': line['id'],
+            'lineRange': [match.start(), match.end()], 'reviewed': False}
+
+
 def page_lines(page):
     spans = [s for s in page['spans'] if s['text']]
+    # PDF.js can emit a whitespace-only item spanning an entire column gutter.
+    # Preserve it in output, but do not treat it as ink for layout detection.
+    ink = [s for s in spans if s['text'].strip()]
     # Repeated horizontal whitespace near the middle is evidence for two columns.
     # Scan fixed geometric positions, requiring >=3 baselines on each side.
     # Full-width headings are allowed above the start of the columns.
     split, best, top = None, 0, None
     for fraction in (0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.65):
         x = page['width'] * fraction
-        left = [s for s in spans if s['bbox'][0] + s['bbox'][2] < x - 12]
-        right = [s for s in spans if s['bbox'][0] > x + 12]
+        left = [s for s in ink if s['bbox'][0] + s['bbox'][2] < x - 12]
+        right = [s for s in ink if s['bbox'][0] > x + 12]
         # Date-only right margins should not become independent reading columns.
         right = [s for s in right if not re.fullmatch(r'[\s\d/.,–—-]*(?:(?:Present|Current))?', s['text'], re.I)
                  and len(DATE.sub('', s['text']).strip(' -–—')) > 3]
         if len(left) < 3 or len(right) < 3:
             continue
         start = max(min(s['bbox'][1] for s in left), min(s['bbox'][1] for s in right)) - 4
-        crossing = [s for s in spans if s['bbox'][1] >= start and s['bbox'][0] < x + 12
+        headings = [s['bbox'][1] - 4 for s in left + right if heading(s['text'])]
+        if headings:
+            start = min(start, min(headings))
+        crossing = [s for s in ink if s['bbox'][1] >= start and s['bbox'][0] < x + 12
                     and s['bbox'][0] + s['bbox'][2] > x - 12]
         score = min(len({round(s['bbox'][1] / 4) for s in left}),
                     len({round(s['bbox'][1] / 4) for s in right}))
@@ -63,6 +86,7 @@ def page_lines(page):
         for row in rows:
             row.sort(key=lambda s: s['bbox'][0])
             text = ''
+            source_ranges = []
             previous = None
             for span in row:
                 # Never normalize a PDF.js span; spaces inserted between distant
@@ -71,9 +95,12 @@ def page_lines(page):
                     gap = span['bbox'][0] - previous['bbox'][0] - previous['bbox'][2]
                     if gap > 1:
                         text += ' '
+                start = len(text)
                 text += span['text']
+                source_ranges.append({'sourceSpanId': span['id'], 'lineRange': [start, len(text)]})
                 previous = span
-            result.append({'text': text, 'page': page['number'], 'region': region,
+            result.append({'id': f"p{page['number']}l{len(result)}", 'text': text,
+                           'page': page['number'], 'region': region, 'sourceRanges': source_ranges,
                            'y': row[0]['bbox'][1], 'height': max(abs(s['bbox'][3]) for s in row),
                            'sourceSpanIds': [s['id'] for s in row]})
     return result, split is not None
@@ -116,11 +143,13 @@ def structure(extracted):
                 value = match.group()
                 if field == 'phone' and not 7 <= len(re.sub(r'\D', '', value)) <= 15:
                     continue
-                item = candidate(value, [line], score, f'{field} pattern')
-                item['lineRange'] = [match.start(), match.end()]
+                item = matched_candidate(match, line, score, f'{field} pattern')
                 contacts[field].append(item)
                 found_contact = True
         kind = heading(text)
+        if kind is None and ':' in text:
+            # An explicit inline label starts a section even after another heading.
+            kind = heading(text.split(':', 1)[0])
         is_heading = kind is not None
         if is_heading:
             active, block = kind, None
@@ -145,7 +174,7 @@ def structure(extracted):
         block['lines'].append(line)
         block['sourceSpanIds'].extend(line['sourceSpanIds'])
         for match in DATE.finditer(text):
-            block['dates'].append(candidate(match.group(), [line], .8, 'literal date token; no inferred date boundaries'))
+            block['dates'].append(matched_candidate(match, line, .8, 'literal date token; no inferred date boundaries'))
     for blocks in sections.values():
         for item in blocks:
             item['text'] = '\n'.join(line['text'] for line in item['lines'])

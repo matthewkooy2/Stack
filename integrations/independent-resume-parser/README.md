@@ -12,6 +12,7 @@ Requires Python 3.11+ and Node 22.13+ (Node 24 LTS recommended). From this direc
 ```sh
 npm ci --ignore-scripts
 python -m resume_parser /path/to/resume.pdf > review.json
+python -m resume_parser /path/to/resume.pdf --format html > review.html
 python -m unittest discover -s tests -v
 ```
 
@@ -34,6 +35,40 @@ except ParseError as error:
 
 ## Output and review contract
 
+Version 0.2.0 returns `schemaVersion: 2`. Existing `contact`, `sections`, and
+`source` data remain available. The new `resume` object is the editable record
+view intended for application adapters and future comparison benchmarks:
+
+| Property | Fields |
+| --- | --- |
+| `profile` | `name`, `email`, `phone`, `location`, `link`, `links[]`, `summary` |
+| `education[]` | `school`, `degree`, `gpa`, `date`, `location`, `descriptions[]`, `reviewed` |
+| `workExperience[]` | `company`, `jobTitle`, `date`, `location`, `descriptions[]`, `reviewed` |
+| `projects[]` | `project`, `date`, `descriptions[]`, `reviewed` |
+| `skills` | `descriptions[]` |
+| `unclassified[]` | Literal lines that do not have a supported classification |
+
+Missing fields are empty strings, not guesses. `link` is the first extracted URL;
+`links` retains all URL candidates. Project names retain any inline technology
+list. Skills retain their original category labels. Dates are literal strings,
+including abbreviations and punctuation; start/end dates are not normalized.
+Profile location is inferred only from explicit/header text, never borrowed from
+a job or school. Summaries require an explicit Summary/Profile heading.
+
+`recordEvidence` maps original JSON Pointer paths such as
+`/resume/workExperience/0/company` to confidence, reason, source IDs and exact
+line ranges. Joining the referenced text slices with its `separator` reconstructs
+the original field value. These are evidence for the **original** values/order;
+store them with the original parse when editing or reordering records, rather
+than treating the pointers as live mappings to a modified document.
+
+- Records use section context, date anchors, role/degree words, geometric header
+  cells and visible gaps. Company-first and title-first job headers are supported.
+  Bullet continuations join into their original descriptions; bullets containing
+  role/school words do not start new records. Every record still requires review.
+- The `--format html` option renders an offline, read-only table report matching
+  these field groups. Text is escaped; scripts and external resources are blocked.
+  Edit the JSON values or use a future application interface to make corrections.
 - `source.pages[].spans[]` retains every PDF.js text item verbatim (normalization
   disabled), including empty items, direction, end-of-line marker, and coordinates.
   IDs identify page/item positions. `bbox` is `[x, baselineY, width, height]` in
@@ -58,10 +93,11 @@ except ParseError as error:
   calibrated probability**. `reviewed` begins false. Preserve `source` separately
   when saving user edits; it is ordinary JSON, not cryptographically immutable.
 
-A future independent review UI should show the source and candidate blocks side by
+A future independent editing UI should show the source and candidate records side by
 side, allow moving/splitting blocks and editing fields, surface uncertain matches,
 and require explicit user acceptance before writing a profile. Render all text as
-text, never trusted HTML. This PR supplies editable data, not a review UI or adapter.
+text, never trusted HTML. This PR supplies editable JSON and static report tables,
+not an interactive editing UI or an application adapter.
 
 ## Coverage and limitations
 
@@ -76,9 +112,13 @@ become a separate column. Page changes reset heading state to avoid false carryo
 Complex mixed layouts, three columns, tables, rotated/vertical text, right-to-left
 reading order, unusual fonts, broken character maps, localized headings, and
 continuations without headings may be ambiguous. Text is preserved for correction,
-but reading order and category inference are not guaranteed. A section block may
-contain multiple jobs/projects; this first version does not claim record-level
-employer/degree extraction. No real-world accuracy percentage is claimed.
+but reading order and category inference are not guaranteed. Section blocks may
+contain several entries; the new record view attempts to split them using
+conservative English header cues. Unrecognized titles, ambiguous employer/title
+order, promotions under a shared employer, and cross-page continuations can still
+produce incomplete or incorrectly split records. `INCOMPLETE_RECORD` identifies
+records without a school, company/title, or project name. Empty optional fields
+are not errors. No real-world accuracy percentage is claimed.
 
 Image-only/scanned PDFs return `NO_EXTRACTABLE_TEXT`, with no fabricated content.
 No OCR, LLM, external service, URL fetch, annotation/attachment extraction, or PDF
@@ -139,6 +179,7 @@ Errors include `INPUT_LIMIT`, `INPUT_UNREADABLE`, `NOT_REGULAR_FILE`, `INVALID_P
 `INVALID_GEOMETRY`, `TIMEOUT`, `WORKER_FAILED`, `RESOURCE_SETUP_FAILED`,
 `NODE_NOT_FOUND`, `RUNTIME_UNSUPPORTED`, `DEPENDENCY_FAILED`, and `INVALID_OUTPUT`.
 Memory/CPU termination reports `WORKER_FAILED`; the OS may not identify the cause.
+`INCOMPLETE_RECORD` is a review warning in successful output, not a parse error.
 
 ## Independence and validation
 
@@ -177,6 +218,23 @@ through real PDFs; arbitrary Unicode/whitespace preservation is also tested at t
 structuring boundary. This does not establish arbitrary-font or CJK extraction accuracy.
 Local review runs use Windows/Python 3.11/Node 24 and Ubuntu 24.04/Python 3.12/Node 22;
 CI covers both operating systems on Node 22 and 24. The FIFO case is POSIX-only.
+
+### Record output validation
+
+Version 0.2.0 adds 13 synthetic tests (42 total) for separate schools/jobs/projects,
+GPA and literal dates, company-first/title-first and delimited headers, wrapped
+bullets, missing fields, summary boundaries, header locations, multiple links,
+two-column isolation, field-level provenance, independent edits, hostile long
+whitespace/wrapped lines, and inert HTML/UTF-8 output. It also prevents repeated
+right-margin locations from being treated as a separate column.
+
+The user-provided PDF and screenshots were used only for local acceptance and
+output requirements; they are not committed fixtures and no excluded legacy
+implementation was inspected. That local sample yields two education entries,
+three jobs, two projects and all four skill-category lines. This is one acceptance
+case, not a comparison benchmark or evidence of general superiority. A benchmark
+should use separately labeled, consented resumes not used for implementation and
+measure field accuracy, record boundaries, text preservation, failures and latency.
 
 API references consulted: [PDF.js API](https://mozilla.github.io/pdf.js/api/),
 [document parameters](https://mozilla.github.io/pdf.js/api/draft/module-pdfjsLib.html).

@@ -1,6 +1,6 @@
 {
   "name": "@stack/independent-resume-parser",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Standalone offline PDF extraction for Stack's independently implemented resume parser",

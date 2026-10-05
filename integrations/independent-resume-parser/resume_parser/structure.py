@@ -1,6 +1,8 @@
 """Conservative geometric grouping and auditable, non-generative classification."""
 import re
 from bisect import bisect_right
+from .dates import DATE
+from .records import LOCATION, build_records
 
 HEADINGS = {
     'education': ('education', 'academic background', 'qualifications'),
@@ -12,7 +14,6 @@ HEADINGS = {
 EMAIL = re.compile(r"(?<![\w.!#$%&'*+/=?^`{|}~-])[\w.!#$%&'*+/=?^`{|}~-]{1,64}@[\w-]{1,63}(?:\.[\w-]{1,63}){1,4}(?![\w.-])", re.UNICODE)
 URL = re.compile(r'(?:https?://|www\.|(?:linkedin|github)\.com/)[^\s<>]{1,2048}', re.I)
 PHONE = re.compile(r'(?<!\w)(?:\+\d{1,3}[ .-]?)?(?:\(\d{2,4}\)|\d{2,4})[ .-]\d{3,4}[ .-]\d{3,4}(?!\w)')
-DATE = re.compile(r'\b(?:(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+)?(?:19|20)\d{2}\b|\b(?:Present|Current)\b', re.I)
 
 
 def heading(text):
@@ -55,8 +56,11 @@ def page_lines(page):
         x = page['width'] * fraction
         left = [s for s in ink if s['bbox'][0] + s['bbox'][2] < x - 12]
         right = [s for s in ink if s['bbox'][0] > x + 12]
-        # Date-only right margins should not become independent reading columns.
+        # Dates and locations aligned at the right margin belong to their
+        # school/job headers; neither is evidence of an independent column.
         right = [s for s in right if not re.fullmatch(r'[\s\d/.,–—-]*(?:(?:Present|Current))?', s['text'], re.I)
+                 and not LOCATION.fullmatch(s['text'].strip())
+                 and s['text'].strip().casefold() not in ('remote', 'hybrid', 'onsite', 'on-site')
                  and len(DATE.sub('', s['text']).strip(' -–—')) > 3]
         if len(left) < 3 or len(right) < 3:
             continue
@@ -178,7 +182,9 @@ def structure(extracted):
     for blocks in sections.values():
         for item in blocks:
             item['text'] = '\n'.join(line['text'] for line in item['lines'])
-    return {'schemaVersion': 1, 'parserVersion': '0.1.0', 'status': 'needs_review',
+    resume, evidence, record_warnings = build_records(sections, contacts, extracted)
+    return {'schemaVersion': 2, 'parserVersion': '0.2.0', 'status': 'needs_review',
+            'resume': resume, 'recordEvidence': evidence,
             'contact': contacts, 'sections': sections, 'source': extracted,
-            'warnings': warnings,
+            'warnings': warnings + record_warnings,
             'review': {'required': True, 'instructions': 'Confirm contact candidates, move or split blocks, and edit values. Retain source spans for audit. Confidence values are heuristic scores, not probabilities.'}}

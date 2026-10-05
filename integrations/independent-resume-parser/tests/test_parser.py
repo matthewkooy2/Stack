@@ -117,8 +117,11 @@ class ParserTests(unittest.TestCase):
         # Allocate external buffers: a JS heap cap alone cannot contain this.
         script = Path(self.temp.name) / 'allocate.cjs'
         script.write_text("process.stdin.once('data',()=>{process.stderr.write('ALLOCATING\\n');let a=[];while(true)a.push(Buffer.alloc(16*1024*1024,1));});")
-        limits = replace(Limits(), memory_bytes=384*1024*1024, timeout_seconds=10)
-        code, diagnostic = sandbox.run([NODE, '--jitless', '--max-old-space-size=64', str(script)],
+        # Use the production address-space budget: Node 24 reserves more virtual
+        # memory at startup than Node 22. The marker proves allocation was reached.
+        limits = replace(Limits(), timeout_seconds=15)
+        code, diagnostic = sandbox.run([NODE, '--max-old-space-size=64', '--v8-pool-size=1',
+                                        '--disable-wasm-trap-handler', str(script)],
                               b'go\n', self.temp.name, limits)
         self.assertIn('ALLOCATING', diagnostic)
         self.assertNotEqual(code, 0)

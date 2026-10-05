@@ -349,7 +349,7 @@ def compile(source: any, timeout: any = 120) -> any {
             );
             raise ValueError(('LaTeX could not compile this resume: ' + detail[:300]));
         }
-        pdf = output.read_bytes();
+        with output.open('rb') as stream { pdf = stream.read(10485761); }
     }
     logging.getLogger("stack.resume").info(__import__("json").dumps({"event":"resume_compile","elapsed_ms":round((time.perf_counter()-started)*1000.0,2),"cache":str(cache)}));
     return {'pdf': pdf, 'pages': inspect_pdf(pdf)['pages']};

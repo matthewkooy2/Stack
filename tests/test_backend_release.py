@@ -25,6 +25,8 @@ class SourceRelease(unittest.TestCase):
             self.assertEqual(manifest['format'], 3)
             self.assertFalse(any('resume-parser' in name for name in payload))
             self.assertNotIn('agents/resume_parser.jac', payload)
+            self.assertIn('agents/pdf_safety.py', payload)
+            self.assertIn('pypdf = "==6.19.0"', payload['jac.toml'].decode())
             self.assertNotIn('agents/parse_check.jac', payload)
             self.assertNotIn('[client.react_native]', payload['jac.toml'].decode())
             with self.assertRaises(AssertionError):

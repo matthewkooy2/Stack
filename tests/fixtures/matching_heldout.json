@@ -1,0 +1,1758 @@
+{
+  "about": "Original synthetic regression scenarios. All employers, listings and contacts are fictional. Labels are authored independently of matcher output. The historical filename is retained for CLI compatibility; this is not a real-world held-out benchmark.",
+  "today": "2026-09-27",
+  "provenance": "Originally authored for Stack; no employer descriptions were copied or paraphrased.",
+  "personas": {
+    "teacher_texas": {
+      "roles": "Teacher",
+      "stage": "Early career",
+      "years": 2,
+      "education": "Bachelor's",
+      "location": "Texas",
+      "modes": [],
+      "employment_types": [
+        "Full-time"
+      ]
+    },
+    "swe_new_grad_sf": {
+      "roles": "Software engineer",
+      "stage": "Recent graduate",
+      "years": 0,
+      "education": "Bachelor's",
+      "graduation_month": "2026-05",
+      "location": "San Francisco, CA",
+      "modes": [],
+      "employment_types": [
+        "Full-time"
+      ],
+      "salary_min": 120000,
+      "salary_period": "year"
+    },
+    "swe_experienced_sf": {
+      "roles": "Software engineer",
+      "stage": "Experienced",
+      "years": 6,
+      "education": "Bachelor's",
+      "location": "San Francisco, CA",
+      "modes": [],
+      "employment_types": [
+        "Full-time"
+      ],
+      "salary_min": 200000,
+      "salary_period": "year"
+    },
+    "cook_california": {
+      "roles": "Cook",
+      "stage": "Experienced",
+      "years": 4,
+      "education": "High school",
+      "location": "California",
+      "modes": [],
+      "employment_types": [
+        "Full-time",
+        "Part-time"
+      ],
+      "salary_min": 18,
+      "salary_period": "hour"
+    },
+    "pm_remote_denver": {
+      "roles": "Product manager",
+      "stage": "Experienced",
+      "years": 7,
+      "education": "Bachelor's",
+      "location": "Denver, CO",
+      "modes": [
+        "Remote"
+      ],
+      "employment_types": [
+        "Full-time"
+      ],
+      "salary_min": 150000,
+      "salary_period": "year"
+    },
+    "project_manager_changer_va": {
+      "roles": "Project manager",
+      "stage": "Career changer",
+      "years": 2,
+      "education": "Bachelor's",
+      "location": "Virginia",
+      "modes": [],
+      "employment_types": [
+        "Full-time"
+      ]
+    },
+    "account_exec_chicago": {
+      "roles": "Account executive",
+      "stage": "Early career",
+      "years": 3,
+      "education": "Bachelor's",
+      "location": "Chicago, IL",
+      "modes": [
+        "Hybrid",
+        "On-site"
+      ],
+      "employment_types": [
+        "Full-time"
+      ],
+      "salary_min": 60000,
+      "salary_period": "year"
+    }
+  },
+  "listings": {
+    "S00": {
+      "title": "Elementary School Teacher",
+      "company": "Synthetic Harbor Employer S00",
+      "location": "Austin, TX",
+      "locations": [
+        "Austin, TX"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {},
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPlan classroom exercises and explain number patterns using original worksheets.\nRequirements\n1+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S00",
+      "group": "synthetic"
+    },
+    "S01": {
+      "title": "Elementary School Teacher",
+      "company": "Synthetic Harbor Employer S01",
+      "location": "Austin, TX",
+      "locations": [
+        "Austin, TX"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {},
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPlan classroom exercises and explain number patterns using original worksheets.\nRequirements\n1+ years of relevant experience required.\nThe team shares task notes during a short daily meeting.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S01",
+      "group": "synthetic"
+    },
+    "S02": {
+      "title": "Elementary School Teacher",
+      "company": "Synthetic Harbor Employer S02",
+      "location": "",
+      "locations": [],
+      "country": "US",
+      "mode": "",
+      "employment_type": "Full-time",
+      "compensation": {},
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPlan classroom exercises and explain number patterns using original worksheets.\nRequirements\n1+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S02",
+      "group": "synthetic"
+    },
+    "S03": {
+      "title": "Elementary School Teacher",
+      "company": "Synthetic Harbor Employer S03",
+      "location": "Austin, TX",
+      "locations": [
+        "Austin, TX"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Unknown",
+      "compensation": {},
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPlan classroom exercises and explain number patterns using original worksheets.\nRequirements\n1+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S03",
+      "group": "synthetic"
+    },
+    "S04": {
+      "title": "Elementary School Teacher",
+      "company": "Synthetic Harbor Employer S04",
+      "location": "Austin, TX",
+      "locations": [
+        "Austin, TX"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Unknown",
+      "compensation": {},
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPlan classroom exercises and explain number patterns using original worksheets.\nRequirements\n1+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S04",
+      "group": "synthetic"
+    },
+    "S05": {
+      "title": "Elementary School Teacher",
+      "company": "Synthetic Harbor Employer S05",
+      "location": "Boston, MA",
+      "locations": [
+        "Boston, MA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {},
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPlan classroom exercises and explain number patterns using original worksheets.\nRequirements\n1+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S05",
+      "group": "synthetic"
+    },
+    "S06": {
+      "title": "Elementary School Teacher",
+      "company": "Synthetic Harbor Employer S06",
+      "location": "Austin, TX",
+      "locations": [
+        "Austin, TX"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Contract",
+      "compensation": {},
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPlan classroom exercises and explain number patterns using original worksheets.\nRequirements\n1+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S06",
+      "group": "synthetic"
+    },
+    "S07": {
+      "title": "Elementary School Teacher",
+      "company": "Synthetic Harbor Employer S07",
+      "location": "Austin, TX",
+      "locations": [
+        "Austin, TX"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {},
+      "description": "Fictional test vacancy.\nResponsibilities\nPlan classroom exercises and explain number patterns using original worksheets.\nRequirements\n20+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S07",
+      "group": "synthetic"
+    },
+    "S08": {
+      "title": "Warehouse Inventory Clerk",
+      "company": "Synthetic Harbor Employer S08",
+      "location": "Austin, TX",
+      "locations": [
+        "Austin, TX"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {},
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPlan classroom exercises and explain number patterns using original worksheets.\nRequirements\n1+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S08",
+      "group": "synthetic"
+    },
+    "S09": {
+      "title": "Elementary School Teacher",
+      "company": "Synthetic Harbor Employer S09",
+      "location": "Austin, TX",
+      "locations": [
+        "Austin, TX"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {},
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPlan classroom exercises and explain number patterns using original worksheets.\nRequirements\n1+ years of relevant experience required.\nAdditional training is offered after hiring.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S09",
+      "group": "synthetic"
+    },
+    "S10": {
+      "title": "Elementary School Teacher",
+      "company": "Synthetic Harbor Employer S10",
+      "location": "Toronto, ON",
+      "locations": [
+        "Toronto, ON"
+      ],
+      "country": "CA",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {},
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPlan classroom exercises and explain number patterns using original worksheets.\nRequirements\n1+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S10",
+      "group": "synthetic"
+    },
+    "S11": {
+      "title": "Software Engineer",
+      "company": "Synthetic Harbor Employer S11",
+      "location": "San Francisco, CA",
+      "locations": [
+        "San Francisco, CA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 125000,
+        "max": 140000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nBuild a fictional library checkout service, review code, and write automated tests.\nRequirements\nNo experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S11",
+      "group": "synthetic"
+    },
+    "S12": {
+      "title": "Software Engineer",
+      "company": "Synthetic Harbor Employer S12",
+      "location": "San Francisco, CA",
+      "locations": [
+        "San Francisco, CA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 125000,
+        "max": 140000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nBuild a fictional library checkout service, review code, and write automated tests.\nRequirements\nNo experience required.\nThe team shares task notes during a short daily meeting.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S12",
+      "group": "synthetic"
+    },
+    "S13": {
+      "title": "Software Engineer",
+      "company": "Synthetic Harbor Employer S13",
+      "location": "",
+      "locations": [],
+      "country": "US",
+      "mode": "",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 125000,
+        "max": 140000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nBuild a fictional library checkout service, review code, and write automated tests.\nRequirements\nNo experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S13",
+      "group": "synthetic"
+    },
+    "S14": {
+      "title": "Software Engineer",
+      "company": "Synthetic Harbor Employer S14",
+      "location": "San Francisco, CA",
+      "locations": [
+        "San Francisco, CA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Unknown",
+      "compensation": {
+        "min": 125000,
+        "max": 140000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nBuild a fictional library checkout service, review code, and write automated tests.\nRequirements\nNo experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S14",
+      "group": "synthetic"
+    },
+    "S15": {
+      "title": "Software Engineer",
+      "company": "Synthetic Harbor Employer S15",
+      "location": "San Francisco, CA",
+      "locations": [
+        "San Francisco, CA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {},
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nBuild a fictional library checkout service, review code, and write automated tests.\nRequirements\nNo experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S15",
+      "group": "synthetic"
+    },
+    "S16": {
+      "title": "Software Engineer",
+      "company": "Synthetic Harbor Employer S16",
+      "location": "Boston, MA",
+      "locations": [
+        "Boston, MA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 125000,
+        "max": 140000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nBuild a fictional library checkout service, review code, and write automated tests.\nRequirements\nNo experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S16",
+      "group": "synthetic"
+    },
+    "S17": {
+      "title": "Software Engineer",
+      "company": "Synthetic Harbor Employer S17",
+      "location": "San Francisco, CA",
+      "locations": [
+        "San Francisco, CA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Contract",
+      "compensation": {
+        "min": 125000,
+        "max": 140000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nBuild a fictional library checkout service, review code, and write automated tests.\nRequirements\nNo experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S17",
+      "group": "synthetic"
+    },
+    "S18": {
+      "title": "Software Engineer",
+      "company": "Synthetic Harbor Employer S18",
+      "location": "San Francisco, CA",
+      "locations": [
+        "San Francisco, CA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 125000,
+        "max": 140000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy.\nResponsibilities\nBuild a fictional library checkout service, review code, and write automated tests.\nRequirements\n20+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S18",
+      "group": "synthetic"
+    },
+    "S19": {
+      "title": "Warehouse Inventory Clerk",
+      "company": "Synthetic Harbor Employer S19",
+      "location": "San Francisco, CA",
+      "locations": [
+        "San Francisco, CA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 125000,
+        "max": 140000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nBuild a fictional library checkout service, review code, and write automated tests.\nRequirements\nNo experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S19",
+      "group": "synthetic"
+    },
+    "S20": {
+      "title": "Software Engineer",
+      "company": "Synthetic Harbor Employer S20",
+      "location": "San Francisco, CA",
+      "locations": [
+        "San Francisco, CA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 125000,
+        "max": 140000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nBuild a fictional library checkout service, review code, and write automated tests.\nRequirements\nNo experience required.\nAdditional training is offered after hiring.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S20",
+      "group": "synthetic"
+    },
+    "S21": {
+      "title": "Software Engineer",
+      "company": "Synthetic Harbor Employer S21",
+      "location": "Toronto, ON",
+      "locations": [
+        "Toronto, ON"
+      ],
+      "country": "CA",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 125000,
+        "max": 140000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nBuild a fictional library checkout service, review code, and write automated tests.\nRequirements\nNo experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S21",
+      "group": "synthetic"
+    },
+    "S22": {
+      "title": "Line Cook",
+      "company": "Synthetic Harbor Employer S22",
+      "location": "Sacramento, CA",
+      "locations": [
+        "Sacramento, CA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 20,
+        "max": 24,
+        "unit": "hour",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPrepare a small seasonal menu, label ingredients, and clean a shared kitchen station.\nRequirements\n2+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S22",
+      "group": "synthetic"
+    },
+    "S23": {
+      "title": "Line Cook",
+      "company": "Synthetic Harbor Employer S23",
+      "location": "Sacramento, CA",
+      "locations": [
+        "Sacramento, CA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 20,
+        "max": 24,
+        "unit": "hour",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPrepare a small seasonal menu, label ingredients, and clean a shared kitchen station.\nRequirements\n2+ years of relevant experience required.\nThe team shares task notes during a short daily meeting.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S23",
+      "group": "synthetic"
+    },
+    "S24": {
+      "title": "Line Cook",
+      "company": "Synthetic Harbor Employer S24",
+      "location": "",
+      "locations": [],
+      "country": "US",
+      "mode": "",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 20,
+        "max": 24,
+        "unit": "hour",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPrepare a small seasonal menu, label ingredients, and clean a shared kitchen station.\nRequirements\n2+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S24",
+      "group": "synthetic"
+    },
+    "S25": {
+      "title": "Line Cook",
+      "company": "Synthetic Harbor Employer S25",
+      "location": "Sacramento, CA",
+      "locations": [
+        "Sacramento, CA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Unknown",
+      "compensation": {
+        "min": 20,
+        "max": 24,
+        "unit": "hour",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPrepare a small seasonal menu, label ingredients, and clean a shared kitchen station.\nRequirements\n2+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S25",
+      "group": "synthetic"
+    },
+    "S26": {
+      "title": "Line Cook",
+      "company": "Synthetic Harbor Employer S26",
+      "location": "Sacramento, CA",
+      "locations": [
+        "Sacramento, CA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {},
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPrepare a small seasonal menu, label ingredients, and clean a shared kitchen station.\nRequirements\n2+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S26",
+      "group": "synthetic"
+    },
+    "S27": {
+      "title": "Line Cook",
+      "company": "Synthetic Harbor Employer S27",
+      "location": "Boston, MA",
+      "locations": [
+        "Boston, MA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 20,
+        "max": 24,
+        "unit": "hour",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPrepare a small seasonal menu, label ingredients, and clean a shared kitchen station.\nRequirements\n2+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S27",
+      "group": "synthetic"
+    },
+    "S28": {
+      "title": "Line Cook",
+      "company": "Synthetic Harbor Employer S28",
+      "location": "Sacramento, CA",
+      "locations": [
+        "Sacramento, CA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Contract",
+      "compensation": {
+        "min": 20,
+        "max": 24,
+        "unit": "hour",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPrepare a small seasonal menu, label ingredients, and clean a shared kitchen station.\nRequirements\n2+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S28",
+      "group": "synthetic"
+    },
+    "S29": {
+      "title": "Line Cook",
+      "company": "Synthetic Harbor Employer S29",
+      "location": "Sacramento, CA",
+      "locations": [
+        "Sacramento, CA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 20,
+        "max": 24,
+        "unit": "hour",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy.\nResponsibilities\nPrepare a small seasonal menu, label ingredients, and clean a shared kitchen station.\nRequirements\n20+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S29",
+      "group": "synthetic"
+    },
+    "S30": {
+      "title": "Warehouse Inventory Clerk",
+      "company": "Synthetic Harbor Employer S30",
+      "location": "Sacramento, CA",
+      "locations": [
+        "Sacramento, CA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 20,
+        "max": 24,
+        "unit": "hour",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPrepare a small seasonal menu, label ingredients, and clean a shared kitchen station.\nRequirements\n2+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S30",
+      "group": "synthetic"
+    },
+    "S31": {
+      "title": "Line Cook",
+      "company": "Synthetic Harbor Employer S31",
+      "location": "Sacramento, CA",
+      "locations": [
+        "Sacramento, CA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 20,
+        "max": 24,
+        "unit": "hour",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPrepare a small seasonal menu, label ingredients, and clean a shared kitchen station.\nRequirements\n2+ years of relevant experience required.\nAdditional training is offered after hiring.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S31",
+      "group": "synthetic"
+    },
+    "S32": {
+      "title": "Line Cook",
+      "company": "Synthetic Harbor Employer S32",
+      "location": "Toronto, ON",
+      "locations": [
+        "Toronto, ON"
+      ],
+      "country": "CA",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 20,
+        "max": 24,
+        "unit": "hour",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPrepare a small seasonal menu, label ingredients, and clean a shared kitchen station.\nRequirements\n2+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S32",
+      "group": "synthetic"
+    },
+    "S33": {
+      "title": "Product Manager",
+      "company": "Synthetic Harbor Employer S33",
+      "location": "Remote - US",
+      "locations": [
+        "Remote - US"
+      ],
+      "country": "US",
+      "mode": "Remote",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 160000,
+        "max": 180000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPrioritize improvements to a fictional scheduling tool and evaluate usability feedback.\nRequirements\n4+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S33",
+      "group": "synthetic"
+    },
+    "S34": {
+      "title": "Product Manager",
+      "company": "Synthetic Harbor Employer S34",
+      "location": "Remote - US",
+      "locations": [
+        "Remote - US"
+      ],
+      "country": "US",
+      "mode": "Remote",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 160000,
+        "max": 180000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPrioritize improvements to a fictional scheduling tool and evaluate usability feedback.\nRequirements\n4+ years of relevant experience required.\nThe team shares task notes during a short daily meeting.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S34",
+      "group": "synthetic"
+    },
+    "S35": {
+      "title": "Product Manager",
+      "company": "Synthetic Harbor Employer S35",
+      "location": "",
+      "locations": [],
+      "country": "US",
+      "mode": "",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 160000,
+        "max": 180000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPrioritize improvements to a fictional scheduling tool and evaluate usability feedback.\nRequirements\n4+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S35",
+      "group": "synthetic"
+    },
+    "S36": {
+      "title": "Product Manager",
+      "company": "Synthetic Harbor Employer S36",
+      "location": "Remote - US",
+      "locations": [
+        "Remote - US"
+      ],
+      "country": "US",
+      "mode": "Remote",
+      "employment_type": "Unknown",
+      "compensation": {
+        "min": 160000,
+        "max": 180000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPrioritize improvements to a fictional scheduling tool and evaluate usability feedback.\nRequirements\n4+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S36",
+      "group": "synthetic"
+    },
+    "S37": {
+      "title": "Product Manager",
+      "company": "Synthetic Harbor Employer S37",
+      "location": "Remote - US",
+      "locations": [
+        "Remote - US"
+      ],
+      "country": "US",
+      "mode": "Remote",
+      "employment_type": "Full-time",
+      "compensation": {},
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPrioritize improvements to a fictional scheduling tool and evaluate usability feedback.\nRequirements\n4+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S37",
+      "group": "synthetic"
+    },
+    "S38": {
+      "title": "Product Manager",
+      "company": "Synthetic Harbor Employer S38",
+      "location": "Boston, MA",
+      "locations": [
+        "Boston, MA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 160000,
+        "max": 180000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPrioritize improvements to a fictional scheduling tool and evaluate usability feedback.\nRequirements\n4+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S38",
+      "group": "synthetic"
+    },
+    "S39": {
+      "title": "Product Manager",
+      "company": "Synthetic Harbor Employer S39",
+      "location": "Remote - US",
+      "locations": [
+        "Remote - US"
+      ],
+      "country": "US",
+      "mode": "Remote",
+      "employment_type": "Contract",
+      "compensation": {
+        "min": 160000,
+        "max": 180000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPrioritize improvements to a fictional scheduling tool and evaluate usability feedback.\nRequirements\n4+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S39",
+      "group": "synthetic"
+    },
+    "S40": {
+      "title": "Product Manager",
+      "company": "Synthetic Harbor Employer S40",
+      "location": "Remote - US",
+      "locations": [
+        "Remote - US"
+      ],
+      "country": "US",
+      "mode": "Remote",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 160000,
+        "max": 180000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy.\nResponsibilities\nPrioritize improvements to a fictional scheduling tool and evaluate usability feedback.\nRequirements\n20+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S40",
+      "group": "synthetic"
+    },
+    "S41": {
+      "title": "Warehouse Inventory Clerk",
+      "company": "Synthetic Harbor Employer S41",
+      "location": "Remote - US",
+      "locations": [
+        "Remote - US"
+      ],
+      "country": "US",
+      "mode": "Remote",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 160000,
+        "max": 180000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPrioritize improvements to a fictional scheduling tool and evaluate usability feedback.\nRequirements\n4+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S41",
+      "group": "synthetic"
+    },
+    "S42": {
+      "title": "Product Manager",
+      "company": "Synthetic Harbor Employer S42",
+      "location": "Remote - US",
+      "locations": [
+        "Remote - US"
+      ],
+      "country": "US",
+      "mode": "Remote",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 160000,
+        "max": 180000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPrioritize improvements to a fictional scheduling tool and evaluate usability feedback.\nRequirements\n4+ years of relevant experience required.\nAdditional training is offered after hiring.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S42",
+      "group": "synthetic"
+    },
+    "S43": {
+      "title": "Product Manager",
+      "company": "Synthetic Harbor Employer S43",
+      "location": "Toronto, ON",
+      "locations": [
+        "Toronto, ON"
+      ],
+      "country": "CA",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 160000,
+        "max": 180000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nPrioritize improvements to a fictional scheduling tool and evaluate usability feedback.\nRequirements\n4+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S43",
+      "group": "synthetic"
+    },
+    "S44": {
+      "title": "Project Manager",
+      "company": "Synthetic Harbor Employer S44",
+      "location": "Richmond, VA",
+      "locations": [
+        "Richmond, VA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {},
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nCoordinate a fictional equipment refresh, track milestones, and record project decisions.\nRequirements\n1+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S44",
+      "group": "synthetic"
+    },
+    "S45": {
+      "title": "Project Manager",
+      "company": "Synthetic Harbor Employer S45",
+      "location": "Richmond, VA",
+      "locations": [
+        "Richmond, VA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {},
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nCoordinate a fictional equipment refresh, track milestones, and record project decisions.\nRequirements\n1+ years of relevant experience required.\nThe team shares task notes during a short daily meeting.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S45",
+      "group": "synthetic"
+    },
+    "S46": {
+      "title": "Project Manager",
+      "company": "Synthetic Harbor Employer S46",
+      "location": "",
+      "locations": [],
+      "country": "US",
+      "mode": "",
+      "employment_type": "Full-time",
+      "compensation": {},
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nCoordinate a fictional equipment refresh, track milestones, and record project decisions.\nRequirements\n1+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S46",
+      "group": "synthetic"
+    },
+    "S47": {
+      "title": "Project Manager",
+      "company": "Synthetic Harbor Employer S47",
+      "location": "Richmond, VA",
+      "locations": [
+        "Richmond, VA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Unknown",
+      "compensation": {},
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nCoordinate a fictional equipment refresh, track milestones, and record project decisions.\nRequirements\n1+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S47",
+      "group": "synthetic"
+    },
+    "S48": {
+      "title": "Project Manager",
+      "company": "Synthetic Harbor Employer S48",
+      "location": "Richmond, VA",
+      "locations": [
+        "Richmond, VA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Unknown",
+      "compensation": {},
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nCoordinate a fictional equipment refresh, track milestones, and record project decisions.\nRequirements\n1+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S48",
+      "group": "synthetic"
+    },
+    "S49": {
+      "title": "Project Manager",
+      "company": "Synthetic Harbor Employer S49",
+      "location": "Boston, MA",
+      "locations": [
+        "Boston, MA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {},
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nCoordinate a fictional equipment refresh, track milestones, and record project decisions.\nRequirements\n1+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S49",
+      "group": "synthetic"
+    },
+    "S50": {
+      "title": "Project Manager",
+      "company": "Synthetic Harbor Employer S50",
+      "location": "Richmond, VA",
+      "locations": [
+        "Richmond, VA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Contract",
+      "compensation": {},
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nCoordinate a fictional equipment refresh, track milestones, and record project decisions.\nRequirements\n1+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S50",
+      "group": "synthetic"
+    },
+    "S51": {
+      "title": "Project Manager",
+      "company": "Synthetic Harbor Employer S51",
+      "location": "Richmond, VA",
+      "locations": [
+        "Richmond, VA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {},
+      "description": "Fictional test vacancy.\nResponsibilities\nCoordinate a fictional equipment refresh, track milestones, and record project decisions.\nRequirements\n20+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S51",
+      "group": "synthetic"
+    },
+    "S52": {
+      "title": "Warehouse Inventory Clerk",
+      "company": "Synthetic Harbor Employer S52",
+      "location": "Richmond, VA",
+      "locations": [
+        "Richmond, VA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {},
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nCoordinate a fictional equipment refresh, track milestones, and record project decisions.\nRequirements\n1+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S52",
+      "group": "synthetic"
+    },
+    "S53": {
+      "title": "Project Manager",
+      "company": "Synthetic Harbor Employer S53",
+      "location": "Richmond, VA",
+      "locations": [
+        "Richmond, VA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {},
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nCoordinate a fictional equipment refresh, track milestones, and record project decisions.\nRequirements\n1+ years of relevant experience required.\nAdditional training is offered after hiring.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S53",
+      "group": "synthetic"
+    },
+    "S54": {
+      "title": "Project Manager",
+      "company": "Synthetic Harbor Employer S54",
+      "location": "Toronto, ON",
+      "locations": [
+        "Toronto, ON"
+      ],
+      "country": "CA",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {},
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nCoordinate a fictional equipment refresh, track milestones, and record project decisions.\nRequirements\n1+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S54",
+      "group": "synthetic"
+    },
+    "S55": {
+      "title": "Account Executive",
+      "company": "Synthetic Harbor Employer S55",
+      "location": "Chicago, IL",
+      "locations": [
+        "Chicago, IL"
+      ],
+      "country": "US",
+      "mode": "Hybrid",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 70000,
+        "max": 85000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nExplain a fictional inventory product, prepare demonstrations, and record customer questions.\nRequirements\n2+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S55",
+      "group": "synthetic"
+    },
+    "S56": {
+      "title": "Account Executive",
+      "company": "Synthetic Harbor Employer S56",
+      "location": "Chicago, IL",
+      "locations": [
+        "Chicago, IL"
+      ],
+      "country": "US",
+      "mode": "Hybrid",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 70000,
+        "max": 85000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nExplain a fictional inventory product, prepare demonstrations, and record customer questions.\nRequirements\n2+ years of relevant experience required.\nThe team shares task notes during a short daily meeting.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S56",
+      "group": "synthetic"
+    },
+    "S57": {
+      "title": "Account Executive",
+      "company": "Synthetic Harbor Employer S57",
+      "location": "",
+      "locations": [],
+      "country": "US",
+      "mode": "",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 70000,
+        "max": 85000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nExplain a fictional inventory product, prepare demonstrations, and record customer questions.\nRequirements\n2+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S57",
+      "group": "synthetic"
+    },
+    "S58": {
+      "title": "Account Executive",
+      "company": "Synthetic Harbor Employer S58",
+      "location": "Chicago, IL",
+      "locations": [
+        "Chicago, IL"
+      ],
+      "country": "US",
+      "mode": "Hybrid",
+      "employment_type": "Unknown",
+      "compensation": {
+        "min": 70000,
+        "max": 85000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nExplain a fictional inventory product, prepare demonstrations, and record customer questions.\nRequirements\n2+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S58",
+      "group": "synthetic"
+    },
+    "S59": {
+      "title": "Account Executive",
+      "company": "Synthetic Harbor Employer S59",
+      "location": "Chicago, IL",
+      "locations": [
+        "Chicago, IL"
+      ],
+      "country": "US",
+      "mode": "Hybrid",
+      "employment_type": "Full-time",
+      "compensation": {},
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nExplain a fictional inventory product, prepare demonstrations, and record customer questions.\nRequirements\n2+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S59",
+      "group": "synthetic"
+    },
+    "S60": {
+      "title": "Account Executive",
+      "company": "Synthetic Harbor Employer S60",
+      "location": "Boston, MA",
+      "locations": [
+        "Boston, MA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 70000,
+        "max": 85000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nExplain a fictional inventory product, prepare demonstrations, and record customer questions.\nRequirements\n2+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S60",
+      "group": "synthetic"
+    },
+    "S61": {
+      "title": "Account Executive",
+      "company": "Synthetic Harbor Employer S61",
+      "location": "Chicago, IL",
+      "locations": [
+        "Chicago, IL"
+      ],
+      "country": "US",
+      "mode": "Hybrid",
+      "employment_type": "Contract",
+      "compensation": {
+        "min": 70000,
+        "max": 85000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nExplain a fictional inventory product, prepare demonstrations, and record customer questions.\nRequirements\n2+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S61",
+      "group": "synthetic"
+    },
+    "S62": {
+      "title": "Account Executive",
+      "company": "Synthetic Harbor Employer S62",
+      "location": "Chicago, IL",
+      "locations": [
+        "Chicago, IL"
+      ],
+      "country": "US",
+      "mode": "Hybrid",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 70000,
+        "max": 85000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy.\nResponsibilities\nExplain a fictional inventory product, prepare demonstrations, and record customer questions.\nRequirements\n20+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S62",
+      "group": "synthetic"
+    },
+    "S63": {
+      "title": "Warehouse Inventory Clerk",
+      "company": "Synthetic Harbor Employer S63",
+      "location": "Chicago, IL",
+      "locations": [
+        "Chicago, IL"
+      ],
+      "country": "US",
+      "mode": "Hybrid",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 70000,
+        "max": 85000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nExplain a fictional inventory product, prepare demonstrations, and record customer questions.\nRequirements\n2+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S63",
+      "group": "synthetic"
+    },
+    "S64": {
+      "title": "Account Executive",
+      "company": "Synthetic Harbor Employer S64",
+      "location": "Chicago, IL",
+      "locations": [
+        "Chicago, IL"
+      ],
+      "country": "US",
+      "mode": "Hybrid",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 70000,
+        "max": 85000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nExplain a fictional inventory product, prepare demonstrations, and record customer questions.\nRequirements\n2+ years of relevant experience required.\nAdditional training is offered after hiring.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S64",
+      "group": "synthetic"
+    },
+    "S65": {
+      "title": "Account Executive",
+      "company": "Synthetic Harbor Employer S65",
+      "location": "Toronto, ON",
+      "locations": [
+        "Toronto, ON"
+      ],
+      "country": "CA",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 70000,
+        "max": 85000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nExplain a fictional inventory product, prepare demonstrations, and record customer questions.\nRequirements\n2+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S65",
+      "group": "synthetic"
+    },
+    "S66": {
+      "title": "Senior Software Engineer",
+      "company": "Synthetic Harbor Employer S66",
+      "location": "San Francisco, CA",
+      "locations": [
+        "San Francisco, CA"
+      ],
+      "country": "US",
+      "mode": "Hybrid",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 220000,
+        "max": 240000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nReview a fictional queue service and investigate test failures.\nRequirements\n5+ years of relevant experience required.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S66",
+      "group": "synthetic"
+    },
+    "S67": {
+      "title": "Software Engineer",
+      "company": "Synthetic Harbor Employer S67",
+      "location": "San Francisco, CA",
+      "locations": [
+        "San Francisco, CA"
+      ],
+      "country": "US",
+      "mode": "On-site",
+      "employment_type": "Full-time",
+      "compensation": {
+        "min": 125000,
+        "max": 140000,
+        "unit": "year",
+        "currency": "USD"
+      },
+      "description": "Fictional test vacancy; no applications accepted.\nResponsibilities\nBuild a fictional library checkout service, review code, and write automated tests.\nRequirements\nNo experience required.\nPair with a mentor to review the first implementation.",
+      "qualifications": "",
+      "eligibility": "",
+      "remote_eligibility": "",
+      "snippet": "",
+      "posted_at": 1790467200,
+      "url": "https://example.invalid/jobs/S67",
+      "group": "synthetic"
+    }
+  },
+  "labels": {
+    "teacher_texas": {
+      "S00": "suitable",
+      "S01": "suitable",
+      "S02": "unknown",
+      "S03": "unknown",
+      "S04": "unknown",
+      "S05": "unsuitable",
+      "S06": "unsuitable",
+      "S07": "unsuitable",
+      "S08": "unsuitable",
+      "S09": "suitable",
+      "S10": "unsuitable"
+    },
+    "swe_new_grad_sf": {
+      "S11": "suitable",
+      "S12": "suitable",
+      "S13": "unknown",
+      "S14": "unknown",
+      "S15": "unknown",
+      "S16": "unsuitable",
+      "S17": "unsuitable",
+      "S18": "unsuitable",
+      "S19": "unsuitable",
+      "S20": "suitable",
+      "S21": "unsuitable",
+      "S66": "unsuitable",
+      "S67": "suitable"
+    },
+    "swe_experienced_sf": {
+      "S11": "unsuitable",
+      "S12": "unsuitable",
+      "S13": "unsuitable",
+      "S14": "unsuitable",
+      "S15": "unknown",
+      "S16": "unsuitable",
+      "S17": "unsuitable",
+      "S18": "unsuitable",
+      "S19": "unsuitable",
+      "S20": "unsuitable",
+      "S21": "unsuitable",
+      "S66": "suitable",
+      "S67": "unsuitable"
+    },
+    "cook_california": {
+      "S22": "suitable",
+      "S23": "suitable",
+      "S24": "unknown",
+      "S25": "unknown",
+      "S26": "unknown",
+      "S27": "unsuitable",
+      "S28": "unsuitable",
+      "S29": "unsuitable",
+      "S30": "unsuitable",
+      "S31": "suitable",
+      "S32": "unsuitable"
+    },
+    "pm_remote_denver": {
+      "S33": "suitable",
+      "S34": "suitable",
+      "S35": "unknown",
+      "S36": "unknown",
+      "S37": "unknown",
+      "S38": "unsuitable",
+      "S39": "unsuitable",
+      "S40": "unsuitable",
+      "S41": "unsuitable",
+      "S42": "suitable",
+      "S43": "unsuitable"
+    },
+    "project_manager_changer_va": {
+      "S44": "suitable",
+      "S45": "suitable",
+      "S46": "unknown",
+      "S47": "unknown",
+      "S48": "unknown",
+      "S49": "unsuitable",
+      "S50": "unsuitable",
+      "S51": "unsuitable",
+      "S52": "unsuitable",
+      "S53": "suitable",
+      "S54": "unsuitable"
+    },
+    "account_exec_chicago": {
+      "S55": "suitable",
+      "S56": "suitable",
+      "S57": "unknown",
+      "S58": "unknown",
+      "S59": "unknown",
+      "S60": "unsuitable",
+      "S61": "unsuitable",
+      "S62": "unsuitable",
+      "S63": "unsuitable",
+      "S64": "suitable",
+      "S65": "unsuitable"
+    }
+  }
+}

@@ -208,6 +208,19 @@ class ResumeProcessing(unittest.TestCase):
         self.assertEqual(self.rpc('bootstrap')['resumes'][0]['processing']['source']['status'], 'failed')
 
 class SSDCompilation(unittest.TestCase):
+    def test_large_compiler_output_is_read_with_a_bound(self):
+        loaded = latex.load('resume.tex', TEX)
+        def oversized(args, **kwargs):
+            path = Path(kwargs['cwd']) / 'resume.pdf'
+            with path.open('wb') as stream:
+                stream.write(PDF)
+                stream.truncate(32 * 1024 * 1024)
+            return type('Result', (), {'returncode': 0})()
+        with patch.object(latex.subprocess, 'run', side_effect=oversized):
+            with patch.object(Path, 'read_bytes', side_effect=AssertionError('Unbounded file read')):
+                with self.assertRaisesRegex(ValueError, '10 MB'):
+                    latex.compile(loaded)
+
     def test_compiler_scratch_packages_and_subprocess_temp_are_on_ssd(self):
         loaded = latex.load('resume.tex', TEX)
         def compile_fixture(args, **kwargs):

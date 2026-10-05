@@ -1,0 +1,2 @@
+# PDF cross-reference offsets refer to exact bytes; never convert line endings.
+*.pdf binary

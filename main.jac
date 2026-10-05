@@ -12,7 +12,6 @@ import base64;
 import hashlib;
 import from uuid { uuid4 }
 import from pathlib { Path }
-import from io { BytesIO }
 import importlib;
 import logging;
 import agents.worker as browser_worker;
@@ -30,6 +29,7 @@ import from agents.contracts { authorize, config, digest, model_status, model_ac
 import from agents.latex { load as latex_load, pack as latex_pack, unpack as latex_unpack, encode as latex_encode, compile as latex_compile, parse as latex_parse, summary as latex_summary, outline as latex_outline }
 import from agents.scoring { score as resume_score, summary as score_summary }
 import from agents.tailoring { resume_text }
+import from agents.pdf_safety { inspect_pdf, inspect_file }
 import from agents.resume_templates { TEMPLATES as LATEX_TEMPLATES, fill as fill_template }
 import from agents.linkedin { profile_url }
 import from agents.voice { voice_settings }
@@ -214,9 +214,9 @@ def:priv upload_resume(name: str, content: str, transfer_ms: float = 0.0) -> dic
     try { raw = base64.b64decode(content,validate=True); } except Exception { return _error("Invalid PDF encoding."); }
     if len(raw)>10485760 or not raw.startswith(b"%PDF-") { return _error("Choose a valid PDF, 10 MB or smaller."); }
     try {
-        pdf = importlib.import_module("pypdf").PdfReader(BytesIO(raw));
-        if pdf.is_encrypted or len(pdf.pages)==0 { return _error("Choose an unencrypted PDF with at least one page."); }
-    } except Exception { return _error("This PDF could not be opened. Please export a new copy."); }
+        inspect_pdf(raw);
+    } except ValueError as e { return _error(str(e)); }
+    except Exception { return _error("This PDF could not be opened. Please export a new copy."); }
     if not name.strip() or len(name)>160 { return _error("Use a filename under 160 characters."); }
     fingerprint=hashlib.sha256(raw).hexdigest();
     with _write_lock {
@@ -513,8 +513,7 @@ def _application_agent_context(a: Application) -> dict[str, any] {
     if resume is not None {
         context["resume_name"]=resume.name;
         try {
-            reader=importlib.import_module("pypdf").PdfReader(_file_path(resume.file_key));
-            context["resume_text"]="\n".join([page.extract_text() or "" for page in reader.pages])[:200000];
+            context["resume_text"]=inspect_file(_file_path(resume.file_key),True)["text"];
         } except Exception { context["resume_text"]=""; }
     }
     return context;

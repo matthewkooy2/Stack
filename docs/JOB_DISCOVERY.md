@@ -23,14 +23,14 @@ In Jobs, open filters to change role, occupation, city/state, work arrangement, 
 - **Precedence.** Saved searches store only the values that differ from the profile, and the Jobs screen names them ("This search changes your profile's location"). **Use profile** clears them. Editing a profile field removes any older search override of that field.
 - **Pay** compares hourly and yearly pay at 2,080 hours/year. Provider estimates and non-USD pay count as unknown. Pay text such as "the salary range is:" followed by "$150,000—$200,000" is read; funding amounts and 401(k) mentions are not.
 
-Measure matching quality against hand-labeled examples:
+Check matching behavior against independently labeled synthetic examples:
 
 ```sh
 python3 tests/matching_eval.py            # 58 written listings x 10 personas
-python3 tests/matching_eval.py heldout    # 68 real catalog listings x 7 personas
+python3 tests/matching_eval.py heldout    # 68 original synthetic listings x 7 personas
 ```
 
-It reports unsuitable jobs admitted, suitable jobs excluded, incomplete listings hidden, and incomplete listings claimed as confirmed, for both the pre-fix matcher and the current one. Labels must not be edited to fit matcher output.
+It reports unsuitable jobs admitted, suitable jobs excluded, incomplete listings hidden, and incomplete listings claimed as confirmed, for both the pre-fix matcher and the current one. Labels must not be edited to fit matcher output. The `heldout` name is retained for CLI compatibility; these fixtures are regression cases, not a real-world accuracy benchmark. See `tests/fixtures/README.md` for provenance.
 
 ## Graduation timeline
 

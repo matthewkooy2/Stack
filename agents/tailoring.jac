@@ -537,11 +537,8 @@ def _outline_text(structure: any) -> any {
     return out;
 }
 def _pdf_text(pdf: any) -> any {
-    import from io { BytesIO }
-    import from pypdf { PdfReader }
-    return '\n'.join(
-        (page.extract_text() or '') for page in PdfReader(BytesIO(pdf)).pages
-    );
+    import from agents.pdf_safety { inspect_pdf }
+    return inspect_pdf(pdf,True)['text'];
 }
 def _document(prepared: any, tex: any, compiled: any, dropped: any) -> any {
     structure = prepared['structure'];

@@ -4,7 +4,7 @@ Reports unsuitable jobs admitted and suitable jobs excluded for the pre-fix
 matcher (frozen copy below) and the current matcher. No network or server.
 Run: python3 tests/matching_eval.py [cases|heldout] [--json]
   cases   - synthetic listings written for this evaluation (default)
-  heldout - real catalog listings labeled before the matcher was run on them
+  heldout - original synthetic regression scenarios (historical CLI name)
 """
 import json
 import re
@@ -37,7 +37,7 @@ def legacy_fields(title, employment_type):
 def listings(cases=CASES):
     jobs = {}
     if cases is not CASES:
-        # Real catalog records are already normalized by the ingest path.
+        # The separate synthetic regression records use normalized field names.
         for key, record in cases['listings'].items():
             job = {**record, 'id': 'job_' + key.lower().ljust(32, '0')[:32], 'occupation': classify(record['title'])}
             job['timeline_analysis'] = analyze(job)

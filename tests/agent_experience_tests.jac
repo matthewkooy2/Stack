@@ -111,11 +111,13 @@ test "agents never launch implicitly and outbound steps wait for review of the e
                 contacts=rpc(client,"agent_save_contact",{"data":{"name":"Casey","email":"casey@example.com","company":"Example","selected":True}})["contacts"];
                 assert len(contacts)==1 and rpc(client,"agent_activity")["runs"]==[];
 
-                # Tailoring needs LaTeX: here Jake's template, filled from confirmed details. The job was saved first and uses the default resume.
+                # Tailoring uses uploaded LaTeX while PDF extraction is paused. The job uses the default resume.
                 resume_id=rpc(client,"upload_resume",{"name":"Candidate.pdf","content":base64.b64encode(Path("tests/fixtures/synthetic-resume.pdf").read_bytes()).decode()})["resumes"][0]["id"];
-                parsed=rpc(client,"agent_extract_resume",{"id":resume_id});
-                assert rpc(client,"resume_save_details",{"id":resume_id,"revision":parsed["revision"],"values":{f["key"]:f["value"] for section in parsed["sections"] for f in section["fields"]},"confirm":True})["confirmed"];
-                assert rpc(client,"use_resume_template",{"id":resume_id,"template":"jake"})["resumes"][0]["format"]["kind"]=="builtin";
+                assert "temporarily unavailable" in rpc(client,"agent_extract_resume",{"id":resume_id})["error"];
+                source=base64.b64encode(Path("tests/fixtures/jake-resume.tex").read_bytes()).decode();
+                with patch.object(resume_processor.latex,"compile",return_value={"pdf":Path("tests/fixtures/synthetic-resume.pdf").read_bytes(),"pages":1}) {
+                    assert rpc(client,"upload_resume_source",{"id":resume_id,"name":"resume.tex","content":source})["resumes"][0]["format"]["kind"]=="upload";
+                }
 
                 # Application: inspect, fit and tailor run; the fill waits for review.
                 run=rpc(client,"agent_start",{"kind":"application","target_id":application["id"]});

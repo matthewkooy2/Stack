@@ -313,7 +313,7 @@ async function tailoringScreenTests(){
    if(!run.resume_id){run={...run,resume_id:'resume',resume_name:'Candidate.pdf'};throw new Error('Upload the LaTeX for Candidate.pdf to tailor it.');}
    run={...run,status:'queued',needs_resume_review:false};return run;
   }
-  if(name==='score_resume'){assert.equal(args.application_id,'application');return {application_id:'application',resume_name:'Candidate.pdf',source:'pdf',score:scoreAfter};}
+  if(name==='score_resume'){assert.equal(args.application_id,'application');throw new Error('PDF-only scoring is temporarily unavailable. Upload your LaTeX source to score this resume.');}
   if(name==='agent_approve'){assert.equal(args.step,'approve_resume');assert.equal(args.review_hash,'h1');assert.deepEqual(args.edits,{rejected:['s1.e0.b0']});const {review:_done,...rest}=run;run={...rest,status:'queued'};return run;}
   throw new Error('Unexpected RPC '+name);
  };
@@ -326,8 +326,8 @@ async function tailoringScreenTests(){
  const agents=ready=>React.createElement(ResumeAgents,{applications:[job(ready)],runs:[],features,onOpenTask:id=>{opened=id;},onNavigate:()=>{},resumes,onChanged:()=>{}});
  // A PDF-only resume asks for its LaTeX right under the job; no task starts.
  await act(async()=>{ui=renderer.create(agents(false));});assert.match(text(),/needs its LaTeX/);
- // Any saved job can be scored without a model, even before tailoring.
- await press('Score my resume');assert.match(text(),/SCORE FOR THIS JOB · YOUR PDF/);assert.match(text(),/Job match: 55/);assert.match(text(),/Missing required: Kubernetes/);
+ // PDF-only scoring reports its temporary unavailability.
+ await press('Score my resume');assert.match(text(),/PDF-only scoring is temporarily unavailable/);
  await press('Tailor for this job');assert.match(text(),/Add the LaTeX for Candidate.pdf/);assert.ok(!calls.some(c=>c.name==='agent_start'));
  await act(async()=>{ui.update(agents(true));});await act(async()=>{ui.unmount();ui=renderer.create(agents(true));});
  await press('Tailor for this job');assert.equal(opened,'tailor');
@@ -378,7 +378,7 @@ async function tailoringScreenTests(){
  await press('Preview tailored resume');assert.equal(ui.root.findByType('PDF').props.uri,'cache/tailored.pdf');assert.doesNotMatch(text(),/TAILORED END/);
  await press('Close preview');assert.equal(ui.root.findAllByType('PDF').length,0);assert.match(text(),/Your tailored resume/);
  await act(async()=>ui.unmount());
- console.log('PASS tailoring screens: opens task, other LaTeX resume offered, inline LaTeX upload continues only after it compiles, inline structured review, save failure does not resume, explicit confirmation resumes, per-change review with reject kept through refresh, approval sends rejections, final result with LaTeX, comparison text, PDF preview and return.');
+ console.log('PASS tailoring screens: LaTeX upload resumes after compilation; PDF detail building and PDF-only scoring unavailable; per-change review, rejection persistence, approval, final PDF and source preview.');
 }
 
 // End to end against a real API and agent worker (see docs/RESUME_TAILORING.md): the real screens, a real
@@ -637,7 +637,7 @@ async function linkedinWebTests(){
  await act(async()=>ui.unmount());
  console.log('PASS LinkedIn web: login, Network entry, task start, direct typing with ordered Enter, no uploads, resume, findings/rewrites, closed handoff.');
 }
-(async()=>{if(process.env.STACK_TEST_UPLOAD_UI==='1'){await uploadLifecycleTests();await tailoringScreenTests();return;}if(process.env.STACK_TEST_LINKEDIN_UI==='1'){await browserKeyboardTests();await linkedinScreenTests();return;}if(process.env.STACK_TEST_LINKEDIN_WEB==='1'){await linkedinWebTests();return;}if(process.env.STACK_TEST_TAILOR_E2E==='1'){await tailoringEndToEnd();return;}if(process.env.STACK_TEST_TAILOR_UI==='1'){await tailoringScreenTests();return;}try{await notificationTests();await gestureTests();await feedbackTests();await resumeUnavailableTests();await screenTests();}finally{await worker('discovery_manage',{id:fixtureSource,action:'purge'}).catch(()=>{});}})().catch(e=>{console.error(e);process.exitCode=1;});
+(async()=>{if(process.env.STACK_TEST_REMOVAL_UI==='1'){await resumeUnavailableTests();await tailoringScreenTests();await uploadLifecycleTests();return;}if(process.env.STACK_TEST_UPLOAD_UI==='1'){await uploadLifecycleTests();await tailoringScreenTests();return;}if(process.env.STACK_TEST_LINKEDIN_UI==='1'){await browserKeyboardTests();await linkedinScreenTests();return;}if(process.env.STACK_TEST_LINKEDIN_WEB==='1'){await linkedinWebTests();return;}if(process.env.STACK_TEST_TAILOR_E2E==='1'){await tailoringEndToEnd();return;}if(process.env.STACK_TEST_TAILOR_UI==='1'){await tailoringScreenTests();return;}try{await notificationTests();await gestureTests();await feedbackTests();await resumeUnavailableTests();await screenTests();}finally{await worker('discovery_manage',{id:fixtureSource,action:'purge'}).catch(()=>{});}})().catch(e=>{console.error(e);process.exitCode=1;});
 
 async function uploadLifecycleTests(){
  const originalXHR=globalThis.XMLHttpRequest,originalFetch=globalThis.fetch;

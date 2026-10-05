@@ -106,7 +106,7 @@ credentials in this repository, chat, artifacts or command output.
 1. **Hosted runner to private host:** create a Tailscale federated identity
    restricted to this repository, `refs/heads/main`, and environment
    `stack-production`. Grant ephemeral `tag:stack-deploy` nodes access only to
-   Ryans-Desktop's designated deployment TCP port. Keep existing HTTPS 8443,
+   the approved host's designated deployment TCP port. Keep existing HTTPS 8443,
    browser routes and other tailnet grants unchanged. Use OIDC federation;
    there is no need for a reusable Tailscale authentication secret.
    Use the exact issuer subject reported by Tailscale's token-exchange
@@ -128,7 +128,8 @@ credentials in this repository, chat, artifacts or command output.
    `tailscale serve --bg --tcp=2222 --yes tcp://127.0.0.1:2223` on Windows.
    Existing Serve routes, including HTTPS 8443, were retained. The workflow
    uses `ssh -4` to match the IPv4-only destination grant and keeps the pinned
-   `[ryans-desktop.tailfe312e.ts.net]:2222` host-key identity.
+   `[<deployment-hostname>]:2222` host-key identity configured in the encrypted
+   `STACK_DEPLOY_KNOWN_HOSTS` secret. Use the hostname from `STACK_DEPLOY_HOST`.
 3. **Fixed SSH key:** create a dedicated deployment key. Its authorized-key
    entry must use `restrict,command="/usr/bin/python3 -E -s /usr/local/libexec/stack-release/receive_backend.py"`.
    Disable password login, interactive shell, forwarding and PTY for this

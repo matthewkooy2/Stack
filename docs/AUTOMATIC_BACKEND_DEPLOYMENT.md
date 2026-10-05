@@ -158,10 +158,14 @@ credentials in this repository, chat, artifacts or command output.
    --sha256 <digest> --output <review-file>`; install it as root-owned 0600
    `/var/lib/stack-release/source-state.json`. Inspect differences against
    approved source before trusting the baseline. No credentials are included.
-6. **GitHub environment:** configure `stack-production` variables
-   `STACK_DEPLOY_HOST`, `STACK_DEPLOY_PORT`, `STACK_TS_CLIENT_ID`, and
-   `STACK_TS_AUDIENCE`; secrets `STACK_DEPLOY_SSH_KEY` and
-   `STACK_DEPLOY_KNOWN_HOSTS`. Enable with `STACK_DEPLOY_ENABLED=true` last.
+6. **GitHub environment:** configure `stack-production` secrets
+   `STACK_DEPLOY_HOST`, `STACK_TS_CLIENT_ID`, `STACK_TS_AUDIENCE`,
+   `STACK_DEPLOY_SSH_KEY`, and `STACK_DEPLOY_KNOWN_HOSTS`. Keep
+   `STACK_DEPLOY_PORT` as a variable. Secrets mask the private hostname and
+   identity values even in the runner's pre-step environment listing; the
+   approval step also masks the short hostname before Tailscale or SSH runs.
+   Do not duplicate these three private values in plain environment variables.
+   Enable with `STACK_DEPLOY_ENABLED=true` last.
    Leave branch-protection/test gates for later as requested. Only activate
    after the endpoint/helper/key and an agreed first deployment window are ready.
 

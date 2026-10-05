@@ -48,6 +48,12 @@ view intended for application adapters and future comparison benchmarks:
 | `skills` | `descriptions[]` |
 | `unclassified[]` | Literal lines that do not have a supported classification |
 
+Record counts are inferred from each document. Education, work experience and
+projects are variable-length arrays, including empty arrays for absent sections;
+neither extraction nor the HTML report imposes a fixed number of records. The
+global document/resource limits below still apply. Correct cardinality depends
+on boundary detection, whose limitations are described below.
+
 Missing fields are empty strings, not guesses. `link` is the first extracted URL;
 `links` retains all URL candidates. Project names retain any inline technology
 list. Skills retain their original category labels. Dates are literal strings,
@@ -238,3 +244,20 @@ measure field accuracy, record boundaries, text preservation, failures and laten
 
 API references consulted: [PDF.js API](https://mozilla.github.io/pdf.js/api/),
 [document parameters](https://mozilla.github.io/pdf.js/api/draft/module-pdfjsLib.html).
+
+On 2026-10-05, at the user's request, the public
+[OpenResume algorithm explanation](https://www.open-resume.com/resume-parser)
+was consulted for a conceptual comparison. It describes text extraction, line
+and section grouping, subsection detection and feature-based field scoring,
+and states its scope as single-column English resumes. Its implementation source
+was not inspected, and its published scoring weights/regexes were not copied or
+adapted. Our existing record arrays already grew dynamically; this follow-up
+changes tests and documentation, not the extraction algorithm.
+
+The suite now has 43 tests. An additional real-PDF regression exercises eight
+generated documents: education/job/project counts of 0/0/0, 1/1/1, 5/2/4 and 2/9/7,
+each with forward and reversed section order. It checks absent sections, repeated
+titles/degrees, varying bullet counts, company-first/title-first headers and
+multiple pages with repeated headings. Assertions cover every record's name,
+date, descriptions, exact field provenance and inclusion in the HTML report.
+These are targeted generalization checks, not a representative accuracy benchmark.

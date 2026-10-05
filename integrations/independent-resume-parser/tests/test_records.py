@@ -113,6 +113,57 @@ class RecordTests(unittest.TestCase):
         value = 'Aug. 2018 – May 2021'
         self.assertEqual(DATE_RANGE.fullmatch(value).group(), value)
 
+    def test_variable_record_counts_order_and_repeated_titles_through_pdf(self):
+        # Independent combinations, not a fixed sample-shaped 2/3/2 schema.
+        # Repeat titles/degrees intentionally: identical fields must not dedupe
+        # distinct records. Pages repeat headings; continuation without a heading
+        # is a separately documented limitation.
+        for counts in ((0, 0, 0), (1, 1, 1), (5, 2, 4), (2, 9, 7)):
+            for reverse in (False, True):
+                with self.subTest(counts=counts, reverse=reverse):
+                    specs = [('education', 'Education', 'school', counts[0]),
+                             ('workExperience', 'Experience', 'company', counts[1]),
+                             ('projects', 'Projects', 'project', counts[2])]
+                    pages = [[(40, 40, 'Avery Example'),
+                              (40, 60, 'avery@example.invalid')]]
+                    expected = {kind: [] for kind, _, _, _ in specs}
+                    for kind, heading, key, count in (specs[::-1] if reverse else specs):
+                        for index in range(count):
+                            if index % 4 == 0:
+                                pages.append([(40, 40, heading)])
+                            y = 65 + (index % 4) * 160
+                            date = f'{2010 + index} - {2011 + index}'
+                            if kind == 'education':
+                                name = f'Campus {index} University'
+                                header = [name, f'BSc Mathematics | {date}']
+                            elif kind == 'workExperience':
+                                name = f'Employer {index} Labs'
+                                # Alternate company-first and title-first headers.
+                                header = ([name, f'Software Engineer | {date}'] if index % 2
+                                          else [f'Software Engineer | {date}', name])
+                            else:
+                                name = f'Portfolio {index}'
+                                header = [f'{name} | {date}']
+                            descriptions = [f'Record {index} detail {j}.' for j in range(index % 3 + 1)]
+                            pages[-1].extend((40, y + j * 16, text) for j, text in enumerate(header))
+                            pages[-1].extend((45, y + 40 + j * 16, '* ' + text)
+                                             for j, text in enumerate(descriptions))
+                            expected[kind].append((key, name, date, descriptions))
+                    with tempfile.TemporaryDirectory() as directory:
+                        path = Path(directory) / 'variable.pdf'
+                        path.write_bytes(pdf(pages))
+                        result = parse_pdf(path, node=NODE)
+                    report = render_html(result)
+                    for kind, records in expected.items():
+                        actual = result['resume'][kind]
+                        self.assertEqual(len(actual), len(records), kind)
+                        for item, (key, name, date, descriptions) in zip(actual, records):
+                            self.assertEqual(item[key], name)
+                            self.assertEqual(item['date'], date)
+                            self.assertEqual(item['descriptions'], descriptions)
+                            self.assertIn(name, report)
+                    self.assert_evidence(result)
+
     def test_delimited_headers_and_missing_fields(self):
         result = structure(raw_rows([(40, 40, 'Education'),
             (40, 60, 'Fictional University | BSc Computing | 2018 - 2022'),

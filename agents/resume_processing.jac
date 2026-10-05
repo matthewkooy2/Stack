@@ -2,12 +2,8 @@
 import base64;
 import json;
 import logging;
-import os;
-import tempfile;
 import time;
-import from pathlib { Path }
 import from agents.worker { call }
-import from agents.resume_parser { parse_pdf }
 import agents.latex as latex;
 import from agents.resume_templates { fill }
 
@@ -17,12 +13,7 @@ def process(work: dict[str, any], token: str) -> dict[str, any] {
     try {
         raw=base64.b64decode(work["content"],validate=True);
         if work["kind"]=="pdf" {
-            scratch=Path(".jac/resume-work").resolve();scratch.mkdir(parents=True,exist_ok=True,mode=448);
-            with tempfile.TemporaryDirectory(prefix="parse-",dir=scratch) as directory {
-                path=Path(directory)/"resume.pdf";path.write_bytes(raw);path.chmod(384);
-                result["parsed"]=parse_pdf(path);
-            }
-            result["parse_ms"]=(time.perf_counter()-start)*1000.0;
+            raise ValueError("PDF detail extraction is temporarily unavailable.");
         } else {
             if work["input_key"].endswith(".json") {
                 data=json.loads(raw);source=fill(data["template"],data["values"]);

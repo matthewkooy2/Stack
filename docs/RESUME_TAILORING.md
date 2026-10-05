@@ -1,3 +1,10 @@
+# Current availability
+
+OpenResume has been removed. PDF detail extraction, PDF-only scoring and parser
+checks are paused; uploaded LaTeX tailoring remains available. The descriptions
+below that mention the retired parser document earlier behavior. See
+[resume parser status](RESUME_PARSER.md).
+
 # Resume Tailoring
 
 Tailoring edits a LaTeX resume for one saved job. The layout stays yours, the result
@@ -67,23 +74,14 @@ When a tailoring task finishes, Stack saves the final PDF and `.tex` under
 
 - the job and company it was tailored for;
 - the resume it came from;
-- a parser check.
+- a notice that PDF parser checks are temporarily unavailable.
 
 The upload itself is never changed. Deleting a tailored resume removes only that copy.
 
 ## Parser check
 
-Each tailored PDF is read back with the local OpenResume parser (`agents/parse_check.jac`).
-The parser's result is compared with what Stack wrote:
-
-- the header's name, email and phone, which must match exactly;
-- each work, education and project entry, with its bullets;
-- every skill line;
-- the absence of leaked LaTeX such as `[3pt]`.
-
-The same check runs on the original upload's PDF. Issues that the original also has are marked
-**also in your original upload**; tailoring did not cause those. The summary reads
-"No new parser issues" when every issue is pre-existing. **Check again** reruns the check.
+PDF parser checks are temporarily unavailable. LaTeX compilation, layout checks,
+and before/after scoring still run.
 
 ## Layout safety
 

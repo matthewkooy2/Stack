@@ -1,3 +1,10 @@
+# Current availability
+
+OpenResume has been removed. PDF detail extraction, PDF-only scoring and parser
+checks are paused; uploaded LaTeX tailoring remains available. The descriptions
+below that mention the retired parser document earlier behavior. See
+[resume parser status](RESUME_PARSER.md).
+
 # Resume Scoring
 
 Stack scores a resume for a saved job with two separate numbers from 0 to 100. It uses no model:
@@ -12,7 +19,7 @@ The scores guide tailoring and show what it changed. They are **not a prediction
 
 - **Resume → a saved job → Score my resume:**
   - scores the job's resume without a model, and nothing is stored;
-  - uses the resume's LaTeX when it has one, otherwise the fields the OpenResume parser reads from the PDF.
+  - uses the resume's LaTeX; PDF-only scoring is temporarily unavailable.
 - **Tailoring review:** the score before tailoring, and with every proposed change applied.
 - **The final result and Resume → Tailored resumes:** before, and the final score after your choices.
 
@@ -87,7 +94,7 @@ resume. A few soft skills (communication, collaboration…) count at low weight.
 | Brevity | 15 | 8–35 words per bullet, 2–6 bullets per entry, and one page. |
 | Clarity | 10 | Filler and buzzwords, personal pronouns, passive voice. |
 | Tense | 5 | No present-tense openers in roles that have ended. |
-| Parser check | 10 | Passed OpenResume checks, when a parser result is supplied. |
+| Parser check | 10 | Currently unavailable; omitted from the score and weight denominator. |
 
 ## Where the weights come from
 

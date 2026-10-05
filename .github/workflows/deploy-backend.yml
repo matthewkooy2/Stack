@@ -11,7 +11,8 @@ concurrency:
   cancel-in-progress: false
 jobs:
   deploy:
-    if: github.ref == 'refs/heads/main'
+    # Enable format 3 only after the attended host migration documented below.
+    if: github.ref == 'refs/heads/main' && vars.STACK_RELEASE_FORMAT == '3'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: stack-production
@@ -38,11 +39,9 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22.22.0'
-      - name: Build parser and package matching backend and browser source
+      - name: Package matching backend and browser source
         run: |
           set -euo pipefail
-          npm --prefix integrations/resume-parser ci --no-audit --no-fund
-          npm --prefix integrations/resume-parser run build
           python3 deploy/backend_release.py --commit "$RELEASE_COMMIT" --output "$RUNNER_TEMP/backend.tar.gz" > "$RUNNER_TEMP/release.json"
           python3 -c 'import json,os; r=json.load(open(os.environ["RUNNER_TEMP"]+"/release.json")); print("RELEASE_DIGEST="+r["sha256"])' >> "$GITHUB_ENV"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

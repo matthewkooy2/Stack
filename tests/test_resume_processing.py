@@ -12,7 +12,7 @@ from jaclang.testing.testing import JacTestClient
 from agents import resume_processing, latex
 
 ROOT = Path(__file__).resolve().parents[1]
-PDF = (ROOT / 'tests/fixtures/openresume-laverne.pdf').read_bytes()
+PDF = (ROOT / 'tests/fixtures/synthetic-resume.pdf').read_bytes()
 TEX = (ROOT / 'tests/fixtures/jake-resume.tex').read_bytes()
 TOKEN = 'resume-worker-test'
 
@@ -80,38 +80,22 @@ class ResumeProcessing(unittest.TestCase):
         self.assertTrue(self.finish(work, result)['saved'])
         return result
 
-    def test_accept_replay_close_reopen_and_worker_finish_without_app(self):
-        with patch.object(resume_processing, 'parse_pdf', side_effect=AssertionError('Upload must not parse')):
-            resume = self.upload()
-            repeated = self.upload()
+    def test_pdf_saved_without_parser_work_or_details_mutation(self):
+        resume = self.upload()
+        repeated = self.upload()
         self.assertEqual(resume['id'], repeated['id'])
-        self.assertEqual(resume['processing']['pdf']['status'], 'queued')
-        self.assertEqual(resume['processing']['pdf']['id'], repeated['processing']['pdf']['id'])
-        self.assertEqual(self.rpc('agent_extract_resume', {'id': resume['id']})['sections'], [])
-        self.client.reload()
-        self.client.set_auth_token(self.token)
-        restored = self.rpc('bootstrap')['resumes'][0]
-        self.assertEqual(restored['processing']['pdf']['status'], 'queued')
-        work = self.worker('resume_processing_claim')
+        self.assertNotIn('pdf', resume['processing'])
         self.assertEqual(self.worker('resume_processing_claim'), {'idle': True})
-        with self.assertLogs('stack.resume', level=logging.INFO) as logs:
-            parsed = self.run_work(work)
-        self.assertGreater(parsed['parse_ms'], 0)
-        self.assertTrue(any('"stage": "parse"' in line for line in logs.output))
+        self.assertIn('temporarily unavailable', self.rpc('agent_extract_resume', {'id': resume['id']})['error'])
+        self.assertIn('temporarily unavailable', self.rpc('resume_save_details', {'id': resume['id'], 'revision': 0, 'values': {'profile.name': 'Invented'}, 'confirm': True})['error'])
+        self.assertIn('temporarily unavailable', self.rpc('retry_resume_processing', {'id': resume['id'], 'kind': 'pdf'})['error'])
+        self.assertEqual(self.rpc('agent_settings')['facts'], [])
         self.client.reload()
         self.client.set_auth_token(self.token)
-        review = self.rpc('agent_extract_resume', {'id': resume['id']})
-        self.assertEqual(review['processing']['status'], 'completed')
-        self.assertEqual(review['sections'][0]['fields'][0]['value'], 'Leo Leopard')
-        self.assertFalse(review['confirmed'])
-        self.assertEqual(self.rpc('agent_settings')['facts'], [])
-        telemetry = self.rpc('resume_transfer_complete', {'id': resume['id'], 'job_id': work['id'], 'elapsed_ms': 1234})
-        self.assertTrue(telemetry['saved'])
-        self.assertEqual(self.rpc('bootstrap')['resumes'][0]['processing']['pdf']['timings']['transfer_ms'], 1234)
+        self.assertEqual(base64.b64decode(self.rpc('read_resume', {'id': resume['id']})['content']), PDF)
 
     def test_failed_source_retry_reopen_compile_and_original_preserved(self):
         resume = self.upload()
-        self.run_work(self.worker('resume_processing_claim'))
         with patch.object(latex, 'compile', side_effect=AssertionError('Upload must not compile')):
             state = self.source(resume['id'])
         source_id = state['resumes'][0]['processing']['source']['id']
@@ -151,17 +135,17 @@ class ResumeProcessing(unittest.TestCase):
 
     def test_expired_worker_reclaimed_and_stale_result_refused(self):
         resume = self.upload()
+        self.source(resume['id'])
         old = self.worker('resume_processing_claim')
         with patch.object(time, 'time', return_value=time.time() + 181):
             new = self.worker('resume_processing_claim')
         self.assertNotEqual(new['lease'], old['lease'])
         self.assertIn('error', self.finish(old, {'error': 'stale result'}))
-        self.run_work(new)
-        self.assertEqual(self.rpc('bootstrap')['resumes'][0]['processing']['pdf']['attempt'], 2)
+        self.run_work(new, {"pdf": PDF, "pages": 1})
+        self.assertEqual(self.rpc('bootstrap')['resumes'][0]['processing']['source']['attempt'], 2)
 
     def test_replacement_deletion_and_ownership_reject_stale_work(self):
         resume = self.upload()
-        self.run_work(self.worker('resume_processing_claim'))
         self.source(resume['id'])
         old = self.worker('resume_processing_claim')
         self.source(resume['id'], TEX + b'\n% replacement')
@@ -189,7 +173,6 @@ class ResumeProcessing(unittest.TestCase):
         self.source(copied['id'])
         self.rpc('change_resume', {'id': original['id'], 'action': 'delete'})
         self.assertEqual(base64.b64decode(self.rpc('read_resume', {'id': copied['id']})['content']), PDF)
-        self.run_work(self.worker('resume_processing_claim'))
         source_work = self.worker('resume_processing_claim')
         self.assertEqual(base64.b64decode(source_work['content']), TEX)
         self.run_work(source_work, {'pdf': PDF, 'pages': 1})
@@ -201,12 +184,10 @@ class ResumeProcessing(unittest.TestCase):
         self.assertNotEqual(original['id'], replacement['id'])
         self.rpc('change_resume', {'id': original['id'], 'action': 'delete'})
         self.assertEqual(base64.b64decode(self.rpc('read_resume', {'id': replacement['id']})['content']), PDF)
-        self.run_work(self.worker('resume_processing_claim'))
-        self.assertEqual(self.rpc('bootstrap')['resumes'][0]['processing']['pdf']['status'], 'completed')
+        self.assertEqual(self.worker('resume_processing_claim'), {'idle': True})
 
     def test_compile_stage_is_visible_and_failures_measure_elapsed_time(self):
         resume = self.upload()
-        self.run_work(self.worker('resume_processing_claim'))
         self.source(resume['id'])
         work = self.worker('resume_processing_claim')
         def callback(name, args):

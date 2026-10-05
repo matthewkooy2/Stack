@@ -374,7 +374,7 @@ def:pub TaskDetail(id: str, features: list[dict[str, any]], webUrl: str, onBack:
                 {<Text style={s.small}>{"Meanwhile: "+feature["alternative"]}</Text> if len(feature)>0 else <View/>}
             </View> if run["status"] in ["blocked","failed"] else <View/>}
 
-            {<View style={s.noticeBox}><Text style={s.noticeText}>Saved to Resume → Tailored resumes, labelled with this job and checked with the resume parser.</Text><Chip label="Open Tailored resumes" onPress={lambda { onNavigate("resume"); }}/></View> if run.get("artifacts",{}).get("tailor",{}).get("final") else <View/>}
+            {<View style={s.noticeBox}><Text style={s.noticeText}>Saved to Resume → Tailored resumes, labelled with this job.</Text><Chip label="Open Tailored resumes" onPress={lambda { onNavigate("resume"); }}/></View> if run.get("artifacts",{}).get("tailor",{}).get("final") else <View/>}
             {<View style={{gap:10}}><Text style={s.heading}>Results</Text>{[<ArtifactView key={k} name={k} value={v} onPreview={preview}/> for (k,v) in run.get("artifacts",{}).items()]}</View> if len(run.get("artifacts",{}))>0 else <View/>}
             {<AgentFeedback key={run["id"]+run["output_version"]} runId={run["id"]} outputVersion={run["output_version"]}/> if run.get("artifacts") and run.get("output_version") else <View/>}
             {[<View key={f["id"]}><Text style={s.strong}>{"Your feedback · "+f["rating"].title()}</Text><Text style={s.body}>{f["note"]}</Text></View> for f in run.get("feedback",[])]}

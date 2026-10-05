@@ -28,11 +28,9 @@ import from core.automation {
 }
 import from agents.contracts { authorize, config, digest, model_status, model_access, validate_facts, STEPS }
 import from agents.latex { load as latex_load, pack as latex_pack, unpack as latex_unpack, encode as latex_encode, compile as latex_compile, parse as latex_parse, summary as latex_summary, outline as latex_outline }
-import from agents.parse_check { compare as parse_compare, expected_profile }
-import from agents.scoring { score as resume_score, summary as score_summary, outline_from_parser }
+import from agents.scoring { score as resume_score, summary as score_summary }
 import from agents.tailoring { resume_text }
 import from agents.resume_templates { TEMPLATES as LATEX_TEMPLATES, fill as fill_template }
-import from agents.resume_parser { parse_pdf, sections as resume_sections, validate_values, confirmed_facts }
 import from agents.linkedin { profile_url }
 import from agents.voice { voice_settings }
 import from agents.prep { problem, validate_session }
@@ -131,7 +129,7 @@ def:priv bootstrap() -> dict[str, any] {
       "applications":[_app_view(a) for a in [root -->][?:Application]],
       "people":PEOPLE,
       "contacts":[{"id":jid(c),"person_id":c.person_id,"saved":c.saved,"draft":c.draft,"notes":c.notes} for c in [root -->][?:Contact]],
-      "resumes":[{"id":jid(r),"name":r.name,"size":r.size,"created_at":r.created_at,"details_status":"Confirmed" if r.review_confirmed else "Needs review" if r.review else "Not parsed","processing":r.processing,"format":_resume_format(r)} for r in [root -->][?:Resume]],
+      "resumes":[{"id":jid(r),"name":r.name,"size":r.size,"created_at":r.created_at,"details_status":"Confirmed" if r.review_confirmed else "Unavailable","processing":r.processing,"format":_resume_format(r)} for r in [root -->][?:Resume]],
       "selected_resume":_settings().selected_resume,
       "tailored_resumes":[_tailored_view(x) for x in [root --> [?:TailoredResume, -created_at]]],
       "agents":{**_agent_summary(),"features":_features()},
@@ -232,7 +230,6 @@ def:priv upload_resume(name: str, content: str, transfer_ms: float = 0.0) -> dic
         _write_private(key,raw);
         r = root ++> Resume(name=Path(name).name, file_key=key, size=len(raw), created_at=time.time(),upload_digest=fingerprint);
         settings = _settings(); if not settings.selected_resume { settings.selected_resume=jid(r); }
-        _queue_resume(r,"pdf",key,fingerprint,transfer_ms);
         commit();
     }
     return bootstrap();
@@ -297,39 +294,16 @@ def _backfill_tailored() -> None {
         settings.tailored_backfilled=True;commit();
     }
 }
-"""The parser checks that fail on the user's original LaTeX PDF, so tailored results can say which issues are new.
-None when the original cannot be checked."""
-def _baseline_failures(resume_id: str) -> list[str] | None {
-    r=_owned_resume(resume_id);
-    if r is None or not r.template.get("preview_key") or not _file_path(r.template["preview_key"]).exists() { return None; }
-    try {
-        source=_resume_source(r);tex=source["files"][source["main"]].decode("utf-8");
-        parsed=parse_pdf(_file_path(r.template["preview_key"]));
-        original=parse_compare(parsed["values"],parsed["text"],latex_outline(latex_parse(source)),expected_profile(tex));
-        return [c["label"] for c in original["checks"] if not c["ok"]];
-    } except Exception { return None; }
-}
-"""Runs the OpenResume parser on a tailored PDF and compares what it reads with what Stack wrote,
-marking issues the original upload already had."""
+"""Parser checks are unavailable until an independently implemented parser is integrated."""
 def _check_tailored(id: str) -> None {
-    x=_owned_tailored(id);
-    if x is None { return; }
-    path=_file_path(x.pdf_key);outline: any = x.outline;result: dict[str, any] = {};
-    try {
-        parsed=parse_pdf(path);
-        # Older records have no outline; the main file alone describes single-file Overleaf resumes.
-        if not outline { outline=latex_outline(latex_parse({"main":"resume.tex","files":{"resume.tex":x.tex.encode()}})); }
-        result={**parse_compare(parsed["values"],parsed["text"],outline,expected_profile(x.tex)),"parser":parsed["parser"],"checked_at":time.time()};
-        baseline=_baseline_failures(x.source_resume_id);
-        result["compared_to_original"]=baseline is not None;
-        for c in result["checks"] { c["also_original"]=baseline is not None and not c["ok"] and c["label"] in baseline; }
-        result["new_issues"]=len([c for c in result["checks"] if not c["ok"] and not c["also_original"]]);
-    } except Exception as e { result={"ok":False,"error":str(e)[:500],"checks":[],"passed":0,"total":0,"checked_at":time.time()}; }
     with _write_lock {
         _agent_fresh();x=_owned_tailored(id);
-        if x is not None { x.parse=result;commit(); }
+        if x is not None {
+            x.parse={"available":False,"ok":False,"error":"PDF parser checks are temporarily unavailable.","checks":[],"passed":0,"total":0,"checked_at":time.time()};commit();
+        }
     }
 }
+
 def:priv read_tailored_resume(id: str) -> dict[str, any] {
     x=_owned_tailored(id);
     if x is None { return _error("Tailored resume not found."); }
@@ -341,26 +315,22 @@ def:priv check_tailored_resume(id: str) -> dict[str, any] {
     if _owned_tailored(id) is None { return _error("Tailored resume not found."); }
     _check_tailored(id);return bootstrap();
 }
-"""Scores the job's resume for this job without a model: its LaTeX when it has one, otherwise what the parser reads
-from the PDF. Nothing is stored. See docs/RESUME_SCORING.md."""
+"""Score an owned LaTeX resume for a saved job. PDF-only scoring is temporarily unavailable."""
 def:priv score_resume(application_id: str) -> dict[str, any] {
     apps=[a for a in [root -->][?:Application] if jid(a)==application_id and not a.demo];
     if not apps { return _error("Saved job not found."); }
     found=_application_resume(apps[0]);
     if found is None { return _error("Upload your resume on the Resume tab first."); }
     r: Resume = found;
-    facts=[f for f in _agent_memory().facts if f.get("verified")];outline: any = [];text: any = "";kind="pdf";
+    if not _tailor_source(r) { return _error("PDF-only scoring is temporarily unavailable. Upload your LaTeX source to score this resume."); }
     try {
-        if _tailor_source(r) {
-            source=_resume_source(r);structure=latex_parse(source);outline=latex_outline(structure);text=resume_text(structure["tex"]);kind="latex";
-        } else {
-            parsed=r.review if r.review.get("values") else parse_pdf(_file_path(r.file_key));
-            outline=outline_from_parser(parsed["values"]);text=str(parsed.get("text",""));
-        }
-        result=score_summary(resume_score(outline,_application_job(apps[0]),facts,text=text));
+        source=_resume_source(r);structure=latex_parse(source);
+        facts=[f for f in _agent_memory().facts if f.get("verified")];
+        result=score_summary(resume_score(latex_outline(structure),_application_job(apps[0]),facts,text=resume_text(structure["tex"])));
     } except ValueError as e { return _error(str(e)); }
-    return {"application_id":application_id,"resume_name":r.name,"source":kind,"score":result};
+    return {"application_id":application_id,"resume_name":r.name,"source":"latex","score":result};
 }
+
 def:priv delete_tailored_resume(id: str) -> dict[str, any] {
     with _write_lock {
         _agent_fresh();x=_owned_tailored(id);
@@ -477,7 +447,7 @@ def:priv read_resume(id: str) -> dict[str, any] {
     r = _owned_resume(id); if r is None { return _error("Resume not found."); }
     path = _file_path(r.file_key);
     if not path.exists() { return _error("This file is unavailable. Please upload it again."); }
-    return {"name":r.name,"content":base64.b64encode(path.read_bytes()).decode(),"review":_resume_review(r) if r.review else {}};
+    return {"name":r.name,"content":base64.b64encode(path.read_bytes()).decode(),"review":{}};
 }
 def:priv change_resume(id: str, action: str, name: str = "") -> dict[str, any] {
     r = _owned_resume(id); if r is None { return _error("Resume not found."); }
@@ -652,35 +622,16 @@ def:priv agent_linkedin_start(url: str = "", target_role: str = "") -> dict[str,
 }
 def:priv agent_extract_resume(id: str) -> dict[str, any] {
     _agent_access();
-    with _write_lock {
-        _agent_fresh();r=_owned_resume(id);
-        if r is None { return _error("Resume not found."); }
-        if not r.review and not r.processing.get("pdf") {
-            _queue_resume(r,"pdf",r.file_key,r.upload_digest,0.0);commit();
-        }
-        return _resume_review(r);
-    }
+    if _owned_resume(id) is None { return _error("Resume not found."); }
+    return _error("PDF detail extraction is temporarily unavailable. Your uploaded PDF is still saved.");
 }
-def _resume_review(r: Resume) -> dict[str, any] {
-    return {"id":jid(r),"name":r.name,"revision":r.review_revision,"confirmed":r.review_confirmed,"processing":r.processing.get("pdf",{}),"sections":resume_sections(r.review.get("values",{})) if r.review else [],"text":r.review.get("text",""),"parser":r.review.get("parser",""),"warnings":["OpenResume works best with single-column English resumes. Missing or misclassified details need review."]};
-}
+
 def:priv resume_save_details(id: str, revision: int, values: dict[str, any], confirm: bool = False) -> dict[str, any] {
-    _agent_access();confirm=confirm is True;
-    try {
-        clean=validate_values(values);
-        if confirm and not any(v for v in clean.values()) { return _error("Enter at least one resume detail before confirming."); }
-    } except ValueError as e { return _error(str(e)); }
-    with _write_lock {
-        _agent_fresh();r=_owned_resume(id);
-        if r is None { return _error("Resume not found."); }
-        if revision!=r.review_revision or not r.review { return _error("Resume details changed. Close and reopen the review before saving."); }
-        try { facts=validate_facts([{**f,"verified":confirm} for f in confirmed_facts(id,r.name,clean)]); }
-        except ValueError as e { return _error(str(e)); }
-        memory=_agent_memory();memory.facts=[f for f in memory.facts if f.get("resume_id")!=id]+facts;memory.revision+=1;
-        r.review={**r.review,"values":clean};r.review_confirmed=confirm;r.review_revision+=1;commit();
-        return _resume_review(r);
-    }
+    _agent_access();
+    if _owned_resume(id) is None { return _error("Resume not found."); }
+    return _error("PDF detail editing is temporarily unavailable. Existing confirmed facts are preserved.");
 }
+
 def _browser_run(id: str) -> AgentRun | None {
     _agent_access();r=_owned_run(id);
     if r is None or r.kind not in ["application","linkedin"] or r.status in ["completed","cancelled","failed"] { return None; }
@@ -1000,6 +951,7 @@ def:priv retry_resume_processing(id: str, kind: str) -> dict[str, any] {
     with _write_lock {
         _agent_fresh();r=_owned_resume(id);
         if r is None or kind not in ["pdf","source"] { return _error("Resume processing not found."); }
+        if kind=="pdf" { return _error("PDF detail extraction is temporarily unavailable."); }
         t=_resume_ticket(str(r.processing.get(kind,{}).get("id","")));
         if t is None or t.owner!=jid(root) { return _error("Resume processing not found."); }
         if t.status=="failed" {
@@ -1025,6 +977,9 @@ def:pub resume_processing_claim(token: str) -> dict[str, any] {
         for t in tickets {
             commit();_agent_owner(t.owner);r=_owned_resume(t.resume_id);
             if r is None or _agent_memory().deleted or r.processing.get(t.kind,{}).get("id")!=jid(t) { t.status="cancelled";commit();continue; }
+            if t.kind=="pdf" {
+                t.status="cancelled";_resume_progress(t,r);commit();continue;
+            }
             if t.attempts>=3 {
                 t.status="failed";_resume_progress(t,r);r.processing[t.kind]["error"]="Processing was interrupted three times. Retry when the worker is available.";commit();continue;
             }
@@ -1063,22 +1018,20 @@ def:pub resume_processing_finish(token: str, id: str, owner: str, lease: str, re
         t.timings={**t.timings,**{k:max(0.0,float(str(result.get(k,t.timings.get(k,0.0))))) for k in ["parse_ms","compile_ms"]}};
         if t.kind=="pdf" or t.status=="parsing" { _resume_log(t,"parse",t.timings["parse_ms"]); }
         if t.kind=="source" and t.status=="compiling" { _resume_log(t,"compile",t.timings["compile_ms"]); }
+        if t.kind=="pdf" {
+            t.status="cancelled";t.lease="";t.lease_until=0.0;_resume_progress(t,r);commit();return {"saved":True};
+        }
         if result.get("error") {
             t.status="failed";_resume_progress(t,r);r.processing[t.kind]["error"]=str(result["error"])[:500];
         } else {
-            if t.kind=="pdf" {
-                parsed=result["parsed"];parsed["values"]=validate_values(parsed["values"]);
-                if not r.review { r.review=parsed;r.review_revision+=1; }
-            } else {
-                files={suffix:base64.b64decode(data,validate=True) for (suffix,data) in result["files"].items()};
-                if set(files)-{".zip",".pdf"} or ".pdf" not in files { return _error("Invalid compiler output."); }
-                key="compiled-"+jid(t);stored={};
-                for (suffix,data) in files.items() { _write_private(key+suffix,data);stored[suffix]=key+suffix; }
-                for old in [r.template.get("files_key",""),r.template.get("preview_key","")] {
-                    if old and old not in stored.values() { _file_path(old).unlink(missing_ok=True); }
-                }
-                r.template={**result["template"],"files_key":stored.get(".zip",""),"preview_key":stored[".pdf"],"checked_at":time.time()};
+            files={suffix:base64.b64decode(data,validate=True) for (suffix,data) in result["files"].items()};
+            if set(files)-{".zip",".pdf"} or ".pdf" not in files { return _error("Invalid compiler output."); }
+            key="compiled-"+jid(t);stored={};
+            for (suffix,data) in files.items() { _write_private(key+suffix,data);stored[suffix]=key+suffix; }
+            for old in [r.template.get("files_key",""),r.template.get("preview_key","")] {
+                if old and old not in stored.values() { _file_path(old).unlink(missing_ok=True); }
             }
+            r.template={**result["template"],"files_key":stored.get(".zip",""),"preview_key":stored[".pdf"],"checked_at":time.time()};
             t.status="completed";_resume_progress(t,r);
         }
         t.lease="";t.lease_until=0.0;commit();return {"saved":True};

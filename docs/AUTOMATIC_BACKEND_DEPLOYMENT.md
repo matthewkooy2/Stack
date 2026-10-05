@@ -1,3 +1,36 @@
+# Release format 3 migration required
+
+Automatic deployments are paused unless the repository variable
+`STACK_RELEASE_FORMAT` is `3`. Keep it unset until the production host has been
+migrated and validated. Merging this removal does not update the running host.
+
+The old root-owned receiver requires the generated parser and its package lock;
+it also rejects source deletion. Format 3 removes those requirements and the
+parser dependency install. The receiver and promoter must be reviewed and
+installed separately by the operator, never by release-supplied privileged hooks.
+
+An attended migration must:
+
+1. Keep automatic deployment paused and make a private source backup.
+2. Review and install the updated `backend_release.py`, `promote_backend.py` and
+   their existing root-owned wrappers/support modules using the host's established
+   installation procedure. Keep ownership, permissions and access checks intact.
+3. Stop the API/worker/gateway, install the reviewed format 3 payload, and remove
+   the retired `agents/resume_parser.jac`, `agents/parse_check.jac`,
+   `integrations/resume-parser/` and `.jac/resume-parser.cjs` from the live source.
+   Remove any separately staged upstream vendor copies and stale compiled caches.
+   Preserve user data, secrets, browser configuration and service definitions.
+4. Refresh `/var/lib/stack-release/source-state.json` from the installed manifest
+   only after verifying every live source hash and the reviewed removals.
+5. Restart services and verify PDF upload/preview, unavailable detail extraction,
+   LaTeX processing, and browser readiness. Retain backups privately; a source
+   backup or an old deployed copy still contains its original licensed material.
+6. Set `STACK_RELEASE_FORMAT=3` only after the host accepts a format 3 release and
+   the checks pass. Other deployment approval variables remain required.
+
+The guidance below describes the original format 2 deployment and is retained
+for installation context; its parser build requirements are superseded above.
+
 # Automatic backend deployment
 
 The prepared browser extension is documented in
@@ -7,8 +40,7 @@ the historical observations below describe the initial backend-only activation.
 
 `Deploy Stack backend` runs on a push to `main`, including a merged PR. It also
 supports a manual retry on `main`. It checks out the exact triggering SHA,
-builds the existing OpenResume parser with Node 22.22.0 and its npm lockfile,
-packages backend source plus the parser bundle, connects an ephemeral hosted
+packages source-only backend and matching browser source, connects an ephemeral hosted
 Ubuntu runner to Tailscale, and streams the artifact to a fixed SSH command.
 
 There are no PR test workflows, automated test gates, post-deployment health
@@ -42,8 +74,7 @@ permissions are repository read and OIDC issuance for Tailscale federation.
 ## Scope and retained state
 
 The artifact contains `main.jac`, backend `core`, `agents` and `discovery`
-source/data fixtures, the three service entry scripts, parser source and a
-built `.jac/resume-parser.cjs`. It derives the server/web Jac configuration
+source/data fixtures and the three service entry scripts. It derives the server/web Jac configuration
 from the repository manifest while excluding iOS build sections.
 
 The helper preserves `/opt/stack/storage`, Jac graph data/cache, private

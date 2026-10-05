@@ -110,17 +110,10 @@ def main():
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         backup = Path("/var/backups/stack") / ("source-release-" + stamp)
         backup.mkdir(mode=0o700)
-        # Prepare Node dependencies as stack in a new directory before touching
-        # services. Existing node_modules remain intact until preparation succeeds.
+        # Browser preparation still runs as the unprivileged stack account.
         stage = STATE / "build" / stamp
         stage.mkdir(mode=0o750)
         os.chown(stage, stack.pw_uid, stack.pw_gid)
-        for name in ("package.json", "package-lock.json"):
-            p = stage / name
-            p.write_bytes(payload["integrations/resume-parser/" + name])
-            os.chown(p, stack.pw_uid, stack.pw_gid)
-            p.chmod(0o640)
-        run(["runuser", "-u", "stack", "--", "npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"], cwd=stage)
         browser_plan = browser_release.prepare(browser, payload, stage, manifest["commit"], run, root_file) if browser else None
         for name in backend:
             path = target(name)
@@ -137,10 +130,6 @@ def main():
             run(["systemctl", "stop", "stack-browser.service"])
         for name, value in backend.items():
             write_atomic(target(name), value, stack.pw_gid)
-        nodes = target("integrations/resume-parser/node_modules")
-        if nodes.exists():
-            os.replace(nodes, backup / "parser-node-modules")
-        os.replace(stage / "node_modules", nodes)
         run(["runuser", "-u", "stack", "--", "env", "STACK_JAC_BIN=/usr/local/bin/jac",
              "/opt/stack/scripts/jac", "install", "--no-npm"], cwd=LIVE)
         write_atomic(policy_path, canonical(manifest["files"]), 0)

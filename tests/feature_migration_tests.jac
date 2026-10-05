@@ -20,7 +20,7 @@ def compare(name: str,fn: str,cases: list[list[any]],revision: str="816f9dd") ->
     for args in cases { assert outcome(before,args)==outcome(after,args),name+"."+fn+": "+repr(args); }
 }
 test "new production modules resolve to Jac without Python duplicates or inline blocks" {
-    for name in ["experience","latex","tailoring","resume_templates","parse_check","scoring","skills","linkedin","browser","browser_service","gateway","voice"] {
+    for name in ["experience","latex","tailoring","resume_templates","scoring","skills","linkedin","browser","browser_service","gateway","voice"] {
         path=Path(importlib.import_module("agents."+name).__file__ as str);
         assert path.suffix==".jac" and not path.with_suffix(".py").exists() and "::py::" not in path.read_text(),str(path);
     }
@@ -32,10 +32,8 @@ test "LaTeX escaping validation templates and structure retain frozen behavior" 
     tex=Path("tests/fixtures/jake-resume.tex").read_text();source={"main":"resume.tex","files":{"resume.tex":tex}};
     compare("latex","parse",[[source]]);
     compare("resume_templates","body",[["jake",{"profile.name":"A & B","workExperiences.0.company":"ACME","workExperiences.0.descriptions":"Built tools."}],["bad",{}]]);
-    compare("parse_check","expected_profile",[[tex]]);
 }
 test "scoring skills and LinkedIn validation retain deterministic output and errors" {
-    compare("scoring","outline_from_parser",[[{}],[{"profile.name":"A","workExperiences.0.company":"Company","workExperiences.0.descriptions":"Built a SQL tool."}]]);
     compare("scoring","bullet_flaws",[[s] for s in ["Built a SQL tool that saved 10 hours.","Responsible for things","I am an excellent team player.",""]]);
     compare("scoring","score",[[[],{"title":"Engineer","description":"Requires Python and SQL"},[]]]);
     compare("skills","find",[[s] for s in ["Python, SQL and C++ on AWS","R and Go","", "communication and leadership"]]);

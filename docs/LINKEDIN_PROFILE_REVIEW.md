@@ -135,8 +135,10 @@ Analysis failures (including source-quotation validation failures) pause as bloc
 with a Retry analysis action. The captured profile is retained and the retry resumes
 step two without opening a browser or asking for another sign-in. Older tasks saved
 as needs_input with no questions now show Analysis paused and the same recovery.
-The model schema constrains finding section IDs and rewrite types; source checks
-still reject unsupported claims. Failed model output is not presented as a report.
+Each model request gets a fresh schema whose finding section IDs are limited to
+that saved capture. CLI and API providers and retained request traces use the same
+request schema; rewrite types remain constrained. Exact section-quotation and
+source checks still reject unsupported claims. Failed model output is not presented as a report.
 
 ## Retained model responses
 

@@ -12,7 +12,7 @@ def capture_enabled() -> bool {
 def _clean(value: any, secrets: list[str]) -> any {
     if isinstance(value, dict) {
         return {str(k): "[redacted]" if re.search(r"(?i)(password|authorization|credential|secret|api.?key|access.?token|refresh.?token|worker.?token|lease|sealed)", str(k)) else
-            "[binary omitted]" if str(k) in ["base64", "content_base64", "audio", "image"] or (str(k)=="content" and value.get("name","").endswith(".pdf")) else _clean(v, secrets) for (k, v) in value.items()};
+            "[binary omitted]" if str(k) in ["base64", "content_base64", "audio", "image"] or (str(k)=="content" and value.get("name","").lower().endswith((".pdf", ".docx"))) else _clean(v, secrets) for (k, v) in value.items()};
     }
     if isinstance(value, list) { return [_clean(v, secrets) for v in value]; }
     if isinstance(value, str) {

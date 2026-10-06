@@ -40,7 +40,7 @@ with entry {
         'linkedin':'Network → LinkedIn profile review, and this task. Copy suggested edits into LinkedIn yourself.',
         'application': 'Saved results from the retired application assistant.',
         'jobs': 'Applications → this job → Agent help, and this task.',
-        'resume': 'This task: your tailored one-page PDF in your own LaTeX format, each change with its reason, and the .tex source. Your original is never modified.',
+        'resume': 'Review job-specific changes before generating your resume. Reviewed PDF/DOCX content produces a PDF and editable DOCX in a Stack template; uploaded LaTeX keeps its format and source. Your original is preserved.',
         'network': 'Network → your contacts, and this task. Sent emails appear in your Gmail Sent folder.',
         'profile': 'This task. Copy the suggestions you like into your profile yourself.',
         'prep': 'Prep → your practice session → Coaching.',
@@ -243,7 +243,7 @@ with entry {
             'title': 'Resume tailoring',
             'where': 'Resume',
             'summary': 'Edits your LaTeX resume for a specific job (reorders, rewords, and trims to one page) and keeps your format.',
-            'input': 'Your LaTeX source from Overleaf or a built-in template, and a saved job.',
+            'input': 'A reviewed PDF/DOCX or uploaded LaTeX, and a saved job.',
             'review': 'You accept or reject each change before the PDF is final. Download the finished PDF and use it when you apply yourself.',
             'alternative': 'Edit your resume in Overleaf yourself using the job-fit analysis.'
         },
@@ -490,12 +490,12 @@ def feature_status(facts: dict[(str, any)]) -> list[dict[(str, any)]] {
                 ),
                 check(
                     'facts',
-                    'Default resume has its LaTeX',
-                    (facts.get('tailor_source', '') in ('latex', 'builtin')),
+                    'Default resume is ready for tailoring',
+                    (facts.get('tailor_source', '') in ('latex', 'builtin', 'records')),
                     (
-                        'Upload the LaTeX for '
+                        'Review and confirm imported records for '
                         + (facts.get('tailor_resume') or 'your default resume')
-                        + ' on the Resume tab (.tex, or Overleaf\'s source .zip).'
+                        + ', or upload its LaTeX on the Resume tab.'
                     ),
                     'resume'
                 ),

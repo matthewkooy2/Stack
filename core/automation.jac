@@ -122,7 +122,7 @@ def _needs_attention(r: AgentRun) -> bool {
 }
 """Tailoring edits LaTeX: the user's upload or a built-in template they chose (resume_format is set by the app)."""
 def _tailor_ready(context: dict[str, any]) -> bool {
-    return context.get("resume_format","") in ["latex","builtin"];
+    return context.get("resume_format","") in ["latex","builtin","records"];
 }
 def _run_view(r: AgentRun, detail: bool = False) -> dict[str, any] {
     steps=_steps(r);
@@ -293,7 +293,7 @@ def:pub agent_claim(token: str) -> dict[str, any] {
             reservation=0;c=config();
             if step=="tailor" and not _tailor_ready(r.context) {
                 r.status="needs_input";r.requests=[];r.updated_at=now;t.state="needs_input";
-                r.message="Upload a resume before tailoring." if not r.context.get("resume_id") else "Upload this resume's LaTeX to tailor it. No new PDF has been generated.";
+                r.message="Upload a resume before tailoring." if not r.context.get("resume_id") else "Review and confirm this resume's imported records or add its LaTeX before tailoring.";
                 continue;
             }
             try {

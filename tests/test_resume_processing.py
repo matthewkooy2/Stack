@@ -56,6 +56,10 @@ class ResumeProcessing(unittest.TestCase):
         resume = state['resumes'][-1]
         if resume['id'] not in self.resume_ids:
             self.resume_ids.append(resume['id'])
+        work = self.worker('resume_processing_claim')
+        if not work.get('idle'):
+            self.assertEqual(work['kind'], 'import')
+            self.run_work(work)
         return resume
 
     def source(self, resume_id, raw=TEX):
@@ -80,13 +84,15 @@ class ResumeProcessing(unittest.TestCase):
         self.assertTrue(self.finish(work, result)['saved'])
         return result
 
-    def test_pdf_saved_without_parser_work_or_details_mutation(self):
+    def test_pdf_import_is_reviewable_without_confirming_facts_implicitly(self):
         resume = self.upload()
         repeated = self.upload()
         self.assertEqual(resume['id'], repeated['id'])
         self.assertNotIn('pdf', resume['processing'])
         self.assertEqual(self.worker('resume_processing_claim'), {'idle': True})
-        self.assertIn('temporarily unavailable', self.rpc('agent_extract_resume', {'id': resume['id']})['error'])
+        review = self.rpc('agent_extract_resume', {'id': resume['id']})
+        self.assertTrue(review['records'])
+        self.assertFalse(review['confirmed'])
         self.assertIn('temporarily unavailable', self.rpc('resume_save_details', {'id': resume['id'], 'revision': 0, 'values': {'profile.name': 'Invented'}, 'confirm': True})['error'])
         self.assertIn('temporarily unavailable', self.rpc('retry_resume_processing', {'id': resume['id'], 'kind': 'pdf'})['error'])
         self.assertEqual(self.rpc('agent_settings')['facts'], [])
@@ -174,6 +180,9 @@ class ResumeProcessing(unittest.TestCase):
         self.rpc('change_resume', {'id': original['id'], 'action': 'delete'})
         self.assertEqual(base64.b64decode(self.rpc('read_resume', {'id': copied['id']})['content']), PDF)
         source_work = self.worker('resume_processing_claim')
+        if source_work['kind'] == 'import':
+            self.run_work(source_work)
+            source_work = self.worker('resume_processing_claim')
         self.assertEqual(base64.b64decode(source_work['content']), TEX)
         self.run_work(source_work, {'pdf': PDF, 'pages': 1})
 
@@ -208,6 +217,12 @@ class ResumeProcessing(unittest.TestCase):
         self.assertEqual(self.rpc('bootstrap')['resumes'][0]['processing']['source']['status'], 'failed')
 
 class SSDCompilation(unittest.TestCase):
+    def setUp(self):
+        # These tests replace the compiler process and do not need a host installation.
+        compiler = patch.object(latex, 'engine', return_value='controlled-tectonic')
+        compiler.start()
+        self.addCleanup(compiler.stop)
+
     def test_large_compiler_output_is_read_with_a_bound(self):
         loaded = latex.load('resume.tex', TEX)
         def oversized(args, **kwargs):

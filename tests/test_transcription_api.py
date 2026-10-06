@@ -15,7 +15,7 @@ class API(unittest.TestCase):
     def setUp(self):
         scratch=ROOT/'.jac/transcription-api-tests';scratch.mkdir(parents=True,exist_ok=True)
         self.directory=tempfile.TemporaryDirectory(dir=scratch);self.addCleanup(self.directory.cleanup)
-        config=Path(self.directory.name)/'config.json';config.write_text('{}')
+        config=Path(self.directory.name)/'config.json';config.write_text('{"invite_only":false}')
         env=patch.dict(os.environ,{'STACK_AGENT_CONFIG':str(config),'STACK_AGENT_WORKER_TOKEN':TOKEN,'STACK_TRANSCRIPTION_STORAGE':str(Path(self.directory.name)/'audio')})
         env.start();self.addCleanup(env.stop)
         self.client=JacTestClient.from_file(str(ROOT/'main.jac'),base_path=self.directory.name)

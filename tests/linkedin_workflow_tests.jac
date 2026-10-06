@@ -31,7 +31,7 @@ def frame_rpc(frame: dict[str, any]) -> any {
 }
 test "LinkedIn profile capture waits for sign-in and remains private to its owner" {
     with tempfile.TemporaryDirectory(prefix="stack-linkedin-test-") as directory {
-        path=Path(directory)/"agents.json";path.write_text("{}");
+        path=Path(directory)/"agents.json";path.write_text('{"invite_only":false}');
         with patch.dict(os.environ,{"STACK_AGENT_CONFIG":str(path),"STACK_AGENT_WORKER_TOKEN":TOKEN,"STACK_BROWSER_URL":"http://browser.invalid","STACK_BROWSER_TOKEN":"test"}) {
             client=JacTestClient.from_file(str(Path("main.jac").resolve()),base_path=directory);
             try {
@@ -46,7 +46,7 @@ test "LinkedIn profile capture waits for sign-in and remains private to its owne
                 assert rpc(client,"agent_linkedin_profile",{"target_role":"Software engineer"})["target_role"]=="Software engineer";
                 client.reload();client.set_auth_token(a);assert rpc(client,"agent_linkedin_profile")["target_role"]=="Software engineer";
                 assert "error" in rpc(client,"agent_linkedin_start",{"url":URL});
-                path.write_text(json.dumps({"provider":"codex-cli","local_cli_owner":owner,"local_cli_daily_limit":10,"web_url":"https://stack.example.com"}));
+                path.write_text(json.dumps({"invite_only":False,"provider":"codex-cli","local_cli_owner":owner,"local_cli_daily_limit":10,"web_url":"https://stack.example.com"}));
                 rpc(client,"agent_save_policy",{"policy":{"enabled":True,"expires_at":time.time()+3600,"actions":["model"]}});
                 assert "error" in rpc(client,"agent_linkedin_start",{"url":"https://evil.example.com/in/a"});
                 with patch.dict(os.environ,{"STACK_BROWSER_URL":""}) { assert "error" in rpc(client,"agent_linkedin_start",{"url":URL}); }

@@ -54,5 +54,8 @@ class Stories(unittest.TestCase):
         value=validate(value,source)
         self.assertIn('result',[q['field'] for q in missing(value)])
         self.assertEqual(model_source(source),{'key':'fixture','text':source['text']})
+        teammates={'key':'fixture','text':'Teammates reviewed the test and shipped the change.'}
+        value=empty(teammates);value['fields']['team']['quote']=teammates['text']
+        self.assertEqual(validate(value,teammates)['fields']['team']['quote'],teammates['text'])
 
 if __name__=='__main__':unittest.main()

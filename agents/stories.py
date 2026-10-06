@@ -35,7 +35,7 @@ def validate(data: Any, source: Any) -> dict[str, Any]:
         if quote and field == 'personal' and (not re.match(r'I\b', quote, re.I) or
                 re.search(r'\b(?:we|our|(?:my|the) team)\b', quote, re.I)):
             raise ValueError('Personal contribution needs an explicit I statement without team attribution.')
-        if quote and field == 'team' and (not re.match(r'(?:we\b|(?:our|the|my) (?:team|teammates)\b)', quote, re.I) or
+        if quote and field == 'team' and (not re.match(r'(?:we\b|teammates\b|(?:our|the|my) (?:team|teammates)\b)', quote, re.I) or
                 re.search(r'\bI\b', quote, re.I)):
             raise ValueError('Team contribution needs an explicit team statement without personal attribution.')
     topics = data['topics']

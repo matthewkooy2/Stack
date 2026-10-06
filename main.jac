@@ -520,13 +520,13 @@ def _application_agent_context(a: Application) -> dict[str, any] {
 }
 def:priv agent_start(kind: str, target_id: str) -> dict[str, any] {
     _agent_access();
+    if kind=="application" { return _error("The application assistant has been retired. Apply on the employer site yourself."); }
     with _write_lock {
         _agent_fresh();
-        if kind in ["application","jobs","resume"] {
+        if kind in ["jobs","resume"] {
             for a in [root -->][?:Application] {
                 if jid(a)==target_id and not a.demo {
                     job=_application_job(a);
-                    if kind=="application" and (a.status!="Ready to apply" or not job.get("active") or job.get("stale")) { return {"error":"Only an active, unsubmitted application can be started."}; }
                     context=_application_agent_context(a);
                     # Tailoring edits LaTeX. Refuse up front rather than create a task that can only pause.
                     if kind=="resume" and not context["resume_id"] { return _error("Upload your resume on the Resume tab first."); }
@@ -633,7 +633,7 @@ def:priv resume_save_details(id: str, revision: int, values: dict[str, any], con
 
 def _browser_run(id: str) -> AgentRun | None {
     _agent_access();r=_owned_run(id);
-    if r is None or r.kind not in ["application","linkedin"] or r.status in ["completed","cancelled","failed"] { return None; }
+    if r is None or r.kind!="linkedin" or r.status in ["completed","cancelled","failed"] { return None; }
     if r.kind=="linkedin" and r.index!=0 { return None; }
     return r;
 }
@@ -646,7 +646,7 @@ def:priv agent_browser_subscribe(id: str) -> dict[str, any] {
 }
 def:priv agent_browser_control(id: str, action: str, generation: int = -1, controller: str = "", instance: str = "") -> dict[str, any] {
     _agent_access();r=_owned_run(id);
-    if r is None or r.kind not in ["application","linkedin"] { return {"error":"This task has no browser."}; }
+    if r is None or r.kind!="linkedin" { return {"error":"This task has no browser."}; }
     if action=="stop" {
         result=agent_cancel(id);
         try { result["control"]=browser_worker.browser_call("control",{"owner":jid(root),"id":id,"action":"status"},2); }
@@ -681,13 +681,6 @@ def:priv agent_browser_control(id: str, action: str, generation: int = -1, contr
             if r.status!="paused" { return {"error":"This task is not paused for browser control."}; }
             r.status=previous if previous in ["review","uncertain"] else "needs_input" if any(q["key"]!="browser" for q in r.requests) else "queued";
             if r.status=="queued" { r.requests=[];r.attempts=0;r.next_at=0.0; }
-            if r.kind=="application" and state.get("changed") {
-                r.index=0;r.status="queued";r.review={};r.approvals={};
-                for step in ["inspect","fill"] { r.artifacts.pop(step,None); }
-                for old in [root -->][?:AgentAction] {
-                    if old.run_id==id and old.step=="fill" and old.status=="confirmed" { old.key=old.key+":"+jid(old); }
-                }
-            }
             r.context.pop("browser_return",None);r.message="Browser returned to the agent.";
         }
         for t in [root.shared -->][?:AgentTicket] { if t.run_id==id { t.state=r.status;t.due_at=0.0; } }
@@ -772,13 +765,6 @@ def _apply_confirmed_mail(event: dict[str, any]) -> None {
 }
 def _project_agent(r: AgentRun) -> None {
     if r.projected or r.status!="completed" { return; }
-    if r.status=="completed" and r.kind=="application" {
-        for a in [root -->][?:Application] {
-            if jid(a)==r.target_id and not a.demo and a.status=="Ready to apply" {
-                a.status="Submitted";a.status_at=time.time();a.history=a.history+[{"status":"Submitted","at":a.status_at,"source":"Browser receipt","evidence":r.artifacts.get("submit",{})}];
-            }
-        }
-    }
     if r.status=="completed" and r.kind=="network" {
         for c in [root -->][?:AgentContact] {
             if jid(c)==r.target_id {
@@ -858,7 +844,7 @@ def _features() -> list[dict[str, any]] {
         "google_client":bool(os.environ.get("GOOGLE_CLIENT_ID","")) and os.environ.get("GOOGLE_REDIRECT_URI","").startswith("https://"),
         "browser":bool(os.environ.get("STACK_BROWSER_URL","")) and bool(os.environ.get("STACK_BROWSER_TOKEN","")),
         "sandbox":bool(os.environ.get("STACK_SANDBOX_URL","")) or c["sandbox_available"],"voice_error":voice_error,"web_url":c["web_url"],
-        "certified_adapters":c["certified_adapters"],"operator_limits":c["action_daily_limits"],
+        "operator_limits":c["action_daily_limits"],
         "resumes":len([root -->][?:Resume]),"applications":len(real),
         "tailor_source":_tailor_source(default_resume),"tailor_resume":default_resume.name if default_resume is not None else "",
         "resume_facts":len([f for f in facts if f.get("verified") and str(f["key"]).startswith("resume.")]),

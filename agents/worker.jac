@@ -122,7 +122,6 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
         }
         if (step == 'tailor') {
             import from agents.tailoring { tailor }
-            import from agents.documents { render_variant }
             facts = [
                 f
                 for f in context.get('facts', [])
@@ -134,39 +133,6 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
                 );
             } except ValueError as exc {
                 return {'needs_input': True, 'message': str(exc), 'requests': []};
-            }
-            fields = artifacts.get('inspect', {}).get('fields', []);
-            if `any(
-                (('cover' in f['label'].lower()) and ('letter' in f['label'].lower()))
-                for f in fields
-            ) {
-                job = context['job'];
-                letter = [
-                    {
-                        'key': 'intro',
-                        'value': (
-                            'I am applying for the '
-                            + job['title']
-                            + ' role at '
-                            + job['company']
-                            + '.'
-                        )
-                    }
-                ];
-                letter += [
-                    {'key': b['key'], 'value': b['value'].replace('**', '')}
-                    for b in result['artifact']['top_bullets']
-                ];
-                letter += [
-                    {
-                        'key': 'closing',
-                        'value': 'Thank you for considering my application.'
-                    }
-                ];
-                result['artifact']['cover_letter'] = render_variant(
-                    context.get('profile', {}).get('name', ''), '', letter
-                );
-                result['artifact']['cover_letter']['name'] = 'Cover letter.pdf';
             }
         }
         return result;
@@ -190,15 +156,6 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
         } except ValueError as exc {
             return {'needs_input': True, 'message': str(exc), 'requests': []};
         }
-    }
-    if (step in ('inspect', 'fill', 'submit')) {
-        if (step != 'inspect') {
-            call(
-                'agent_authorize',
-                {** auth, 'payload_hash': digest([context, artifacts])}
-            );
-        }
-        return browser_call(step, work);
     }
     if (step in ('send', 'sync', 'calendar')) {
         import from agents { google }

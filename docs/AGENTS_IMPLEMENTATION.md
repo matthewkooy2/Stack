@@ -1,5 +1,7 @@
 # Current availability
 
+> Historical implementation notes. The application assistant was removed from main on 2026-10-06; its full implementation is preserved on `archive/application-assistant-20261006` at `f7bd644`. Form inspection, filling, submission, and cover-letter generation are no longer available. Job-fit analysis, resume tailoring, manual application tracking, and LinkedIn review remain.
+
 OpenResume has been removed. PDF detail extraction, PDF-only scoring and parser
 checks are paused; uploaded LaTeX tailoring remains available. The descriptions
 below that mention the retired parser document earlier behavior. See

@@ -89,13 +89,13 @@ test "agents never launch implicitly and outbound steps wait for review of the e
                 client.set_auth_token(a);state=rpc(client,"bootstrap");owner=state["user_id"];
                 # Before any setup, every feature explains itself and what is missing.
                 features={f["key"]:f for f in state["agents"]["features"]};
-                assert len(features)==11 and features["coaching"]["state"]=="unavailable", features["coaching"];
+                assert len(features)==10 and features["coaching"]["state"]=="unavailable", features["coaching"];
                 assert [c for c in features["networking"]["checks"] if c["key"]=="rules" and c["action"]=="rules" and not c["ok"]];
-                assert features["code"]["alternative"] and features["applications"]["review"];
+                assert features["code"]["alternative"] and "applications" not in features;
                 assert state["agents"]["active"]==0 and state["agents"]["attention"]==0;
-                path.write_text(json.dumps({"provider":"codex-cli","local_cli_owner":owner,"local_cli_daily_limit":20,"certified_adapters":["lever"],"action_daily_limits":{"browser_fill":5,"submit_application":5,"send_email":5}}));
-                limits={"browser_fill":5,"submit_application":5,"send_email":5,"calendar_write":5};
-                policy={"enabled":True,"expires_at":time.time()+3600,"actions":["model","browser_fill","submit_application","send_email","gmail_read","calendar_write"],"domains":["jobs.lever.co","example.com"],"daily_limits":limits,"followup_limit":1};
+                path.write_text(json.dumps({"provider":"codex-cli","local_cli_owner":owner,"local_cli_daily_limit":20,"action_daily_limits":{"send_email":5}}));
+                limits={"send_email":5,"calendar_write":5};
+                policy={"enabled":True,"expires_at":time.time()+3600,"actions":["model","send_email","gmail_read","calendar_write"],"domains":["jobs.lever.co","example.com"],"daily_limits":limits,"followup_limit":1};
                 assert not rpc(client,"agent_save_policy",{"policy":policy}).get("error");
                 rpc(client,"agent_save_facts",{"facts":[{"key":"email","value":"owner@example.com","verified":True},{"key":"resume.project","value":"Built an analysis tool.","verified":True}]});
                 features={f["key"]:f for f in rpc(client,"agent_features")["features"]};
@@ -119,13 +119,10 @@ test "agents never launch implicitly and outbound steps wait for review of the e
                     assert rpc(client,"upload_resume_source",{"id":resume_id,"name":"resume.tex","content":source})["resumes"][0]["format"]["kind"]=="upload";
                 }
 
-                # Application: inspect, fit and tailor run; the fill waits for review.
-                run=rpc(client,"agent_start",{"kind":"application","target_id":application["id"]});
-                assert run["title"]=="Prepare & apply" and "Review Test Co" in run["context_label"] and run["step_total"]==6;
-                claim=work(client,"agent_claim");assert claim["step"]=="inspect", claim;
-                fields=[{"label":"Email","type":"email","tag":"input","key":"email","required":True,"name":"email","id":"email","options":[],"value":""},{"label":"Resume/CV","type":"file","tag":"input","key":"answer:resume","required":True,"name":"resume","id":"resume","options":[],"value":""}];
-                finish(client,claim,{"artifact":{"adapter":"lever","fields":fields,"schema_hash":"schema"}});
-                claim=work(client,"agent_claim");assert claim["step"]=="fit", claim;finish(client,claim,{"artifact":{"summary":"Fit","strengths":[],"gaps":[],"unknowns":[],"evidence":[]}});
+                # Removed workflow is rejected; independent tailoring still reaches review.
+                assert "retired" in rpc(client,"agent_start",{"kind":"application","target_id":application["id"]})["error"];
+                run=rpc(client,"agent_start",{"kind":"resume","target_id":application["id"]});
+                assert run["step_total"]==2;
                 change={"id":"s1.e0.b0","kind":"rewrite","where":"Experience","before":"Built a tool.","after":"Built an analysis tool.","reason":"Role focus"};
                 claim=work(client,"agent_claim");assert claim["step"]=="tailor", claim;finish(client,claim,{"artifact":{"summary":"Tailored","changes":[change],"rejected":[],"dropped":[],"plan":{},"source_digest":"d","evidence":[],"pdf":{"name":"Tailored resume.pdf","content":"JVBERi0=","pages":1,"diff":"+ Analyst"}}});
                 # Resume changes are reviewed before anything uses them; approving shares nothing.
@@ -133,44 +130,20 @@ test "agents never launch implicitly and outbound steps wait for review of the e
                 client.set_auth_token(a);pending=rpc(client,"agent_run",{"id":run["id"]});
                 assert pending["status"]=="review" and pending["review"]["step"]=="approve_resume" and pending["review"]["changes"]==[change], pending;
                 assert "error" in rpc(client,"agent_approve",{"id":run["id"],"step":"approve_resume","review_hash":pending["review"]["hash"],"edits":{"rejected":["unknown"]}});
+                assert "error" in rpc(client,"agent_approve",{"id":run["id"],"step":"approve_resume","review_hash":"stale"});
+                client.set_auth_token(b);assert "error" in rpc(client,"agent_approve",{"id":run["id"],"step":"approve_resume","review_hash":pending["review"]["hash"]});
+                client.set_auth_token(a);
                 approved=rpc(client,"agent_approve",{"id":run["id"],"step":"approve_resume","review_hash":pending["review"]["hash"],"edits":{"rejected":["s1.e0.b0"]}});
                 assert approved["status"]=="queued" and approved["artifacts"]["tailor"]["rejected"]==["s1.e0.b0"], approved;
                 claim=work(client,"agent_claim");assert claim["step"]=="approve_resume", claim;
                 finish(client,claim,{"artifact":{"summary":"Applied 0 of 1 changes.","tailor":{"final":True,"pdf":{"name":"Tailored resume.pdf","content":"JVBERi0x","pages":1,"diff":""}}}});
                 assert work(client,"agent_claim").get("idle");
                 client.set_auth_token(a);pending=rpc(client,"agent_run",{"id":run["id"]});
-                assert pending["status"]=="review" and pending["attention"] and pending["next_action"]=="review", pending;
-                review=pending["review"];
-                assert review["step"]=="fill" and review["answers"]==[{"label":"Email","value":"owner@example.com"}], review;
-                assert review["documents"][0]["name"]=="Tailored resume.pdf" and review["destination"]=="jobs.lever.co";
-                summary=rpc(client,"agent_activity");assert summary["attention"]==1 and summary["runs"][0]["status"]=="review";
-
-                # Approval is owned and bound to the version reviewed.
-                client.set_auth_token(b);assert "error" in rpc(client,"agent_approve",{"id":run["id"],"step":"fill","review_hash":review["hash"]});
-                assert "error" in rpc(client,"agent_retry",{"id":run["id"]}) and "error" in rpc(client,"agent_dismiss",{"id":run["id"]});
+                assert pending["status"]=="completed";
+                state=rpc(client,"bootstrap");
+                assert [x for x in state["applications"] if x["id"]==application["id"]][0]["status"]=="Ready to apply";
+                client.set_auth_token(b);assert "error" in rpc(client,"agent_retry",{"id":run["id"]});
                 client.set_auth_token(a);
-                assert "error" in rpc(client,"agent_approve",{"id":run["id"],"step":"fill","review_hash":"stale"});
-                assert "error" in rpc(client,"agent_approve",{"id":run["id"],"step":"fill","review_hash":review["hash"],"edits":{"subject":"x","body":"y"}});
-                approved=rpc(client,"agent_approve",{"id":run["id"],"step":"fill","review_hash":review["hash"]});assert approved.get("status")=="queued", approved;
-                claim=work(client,"agent_claim");assert claim["step"]=="fill", claim;
-                assert "match what you approved" in authorize(client,claim,"tampered").get("error","");
-                assert authorize(client,claim,digest([claim["context"],claim["artifacts"]])).get("authorized");
-                finish(client,claim,{"artifact":{"verified":True,"form_hash":"filled"}});
-
-                # Submission is reviewed separately, then completes with a receipt.
-                assert work(client,"agent_claim").get("idle");
-                client.set_auth_token(a);pending=rpc(client,"agent_run",{"id":run["id"]});
-                assert pending["status"]=="review" and pending["review"]["step"]=="submit" and pending["step_number"]==6;
-                rpc(client,"agent_approve",{"id":run["id"],"step":"submit","review_hash":pending["review"]["hash"]});
-                claim=work(client,"agent_claim");assert claim["step"]=="submit";
-                assert authorize(client,claim,digest([claim["context"],claim["artifacts"]])).get("authorized");
-                done=finish(client,claim,{"artifact":{"receipt":"Thank you for applying","url":"https://jobs.lever.co/x","at":time.time(),"adapter":"lever"}});
-                assert done["status"]=="completed", done;
-                client.set_auth_token(a);state=rpc(client,"bootstrap");
-                assert [x for x in state["applications"] if x["id"]==application["id"]][0]["status"]=="Submitted";
-                assert "error" in rpc(client,"agent_retry",{"id":run["id"]});
-                assert rpc(client,"agent_dismiss",{"id":run["id"]})["dismissed"];
-
                 # Outreach: the draft is reviewed and may be edited; only the approved text is authorized.
                 outreach=rpc(client,"agent_start",{"kind":"network","target_id":contacts[0]["id"]});
                 claim=work(client,"agent_claim");assert claim["step"]=="research";finish(client,claim,{"artifact":{"summary":"","text":"","url":""}});

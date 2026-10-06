@@ -17,7 +17,6 @@ with entry {
         'live': ['interview'],
         'jobs': ['fit'],
         'resume': ['tailor', 'approve_resume'],
-        'application': ['inspect', 'fit', 'tailor', 'approve_resume', 'fill', 'submit'],
         'network': ['research', 'draft', 'send'],
         'profile': ['profile'],
         'prep': ['coach'],
@@ -27,8 +26,6 @@ with entry {
     };
     PAID = {'fit', 'tailor', 'draft', 'coach', 'profile', 'linkedin_review'};
     EXTERNAL = {
-        'fill': 'browser_fill',
-        'submit': 'submit_application',
         'send': 'send_email',
         'calendar': 'calendar_write'
     };
@@ -68,11 +65,6 @@ def config() -> dict[(str, any)] {
         'max_output_tokens': min(
             12000, max(256, int(raw.get('max_output_tokens', 3000)))
         ),
-        'certified_adapters': [
-            x
-            for x in raw.get('certified_adapters', [])
-            if (x in ('greenhouse', 'lever', 'ashby'))
-        ],
         'action_daily_limits': raw.get('action_daily_limits', {}),
         'invite_only': bool(raw.get('invite_only', False)),
         'web_url': str(raw.get('web_url', '')),
@@ -189,8 +181,6 @@ def default_policy() -> dict[(str, any)] {
 def validate_policy(value: dict[(str, any)]) -> dict[(str, any)] {
     allowed = {
         'model',
-        'browser_fill',
-        'submit_application',
         'send_email',
         'calendar_write',
         'gmail_read'
@@ -334,13 +324,6 @@ def validate_facts(items: list[dict[(str, any)]]) -> list[dict[(str, any)]] {
     }
     return out;
 }
-def answers(facts: list[dict[str, any]]) -> dict[str, any] {
-    return {
-        f['key']: f['value']
-        for f in facts
-        if f.get('verified')
-    };
-}
 def context_facts(
     facts: list[dict[(str, any)]], context: dict[(str, any)]
 ) -> list[dict[(str, any)]] {
@@ -350,31 +333,6 @@ def context_facts(
         for f in facts
         if (not selected or not f.get('resume_id') or (f['resume_id'] == selected))
     ];
-}
-def adapter_for(url: str) -> str {
-    p = urlsplit(url);
-    if ((p.scheme != 'https') or p.username or p.password) {
-        return '';
-    }
-    host = (p.hostname or '').lower();
-    if (
-        host
-        in (
-            'boards.greenhouse.io',
-            'job-boards.greenhouse.io',
-            'boards.eu.greenhouse.io',
-            'job-boards.eu.greenhouse.io'
-        )
-    ) {
-        return 'greenhouse';
-    }
-    if (host in ('jobs.lever.co', 'jobs.eu.lever.co')) {
-        return 'lever';
-    }
-    if (host == 'jobs.ashbyhq.com') {
-        return 'ashby';
-    }
-    return '';
 }
 def validate_contact(data: dict[(str, any)]) -> dict[(str, any)] {
     (name, email) = (
@@ -436,6 +394,7 @@ def summarize_run(run: dict[str, any]) -> dict[str, any] {
 # Version 1 is the workflow persisted before per-resume review was introduced.
 def workflow_steps(kind: str, version: int = 2) -> list[str] {
     if version == 1 and kind == "resume" { return ["tailor"]; }
-    if version == 1 and kind == "application" { return ["inspect", "fit", "tailor", "fill", "submit"]; }
+    # Read-only step names for archived records; application is absent from STEPS.
+    if kind == "application" { return ["inspect", "fit", "tailor"] + ([] if version == 1 else ["approve_resume"]) + ["fill", "submit"]; }
     return STEPS[kind];
 }

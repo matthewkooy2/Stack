@@ -28,7 +28,9 @@ test "legacy step mapping and migration preserve receipts and terminal records a
             assert a._upgrade_legacy_runs()==7;
             assert a._upgrade_legacy_runs()==0;
             for id in ids {
-                r=a._owned_run(id) as a.AgentRun;assert r.workflow_version==1 and r.status=="blocked" and not r.lease and r.upgrade_pending;
+                r=a._owned_run(id) as a.AgentRun;assert r.workflow_version==1 and not r.lease;
+                assert r.status==("blocked" if r.kind=="resume" else "cancelled");
+                assert r.upgrade_pending==(r.kind=="resume");
                 assert a._run_view(r)["step"]==workflow_steps(r.kind,1)[r.index];
                 assert r.artifacts["tailor"]["pdf"]["content"]=="legacy";
             }
@@ -36,12 +38,6 @@ test "legacy step mapping and migration preserve receipts and terminal records a
                 r=a._owned_run(id) as a.AgentRun;assert not r.upgrade_pending and r.artifacts=={"submit":{"receipt":"kept"}};
             }
             assert uncertain.status=="uncertain";
-            rejected=False;
-            try { a._continue_legacy(uncertain); } except ValueError { rejected=True; }
-            assert rejected and uncertain.workflow_version==1 and receipt.status=="intent";
-            # Confirmation never creates another submission; unfinished preparation restarts with review.
-            receipt.status="confirmed";receipt.receipt={"receipt":"existing-confirmation"};a._continue_legacy(uncertain);
-            assert uncertain.status=="completed" and receipt.receipt=={"receipt":"existing-confirmation"};
             resumed=a._owned_run(ids[0]) as a.AgentRun;a._continue_legacy(resumed);
             assert resumed.workflow_version==2 and resumed.index==0 and resumed.artifacts=={} and resumed.context["resume_format"]=="";
             assert a._steps(resumed)==["tailor","approve_resume"];

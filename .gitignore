@@ -15,5 +15,12 @@ node_modules/
 *.key
 *.mobileprovision
 
+# Completed local configuration; keep the adjacent example templates visible.
+/deploy/api.env
+/deploy/worker.env
+/deploy/discovery.env
+/deploy/pc-host/stack-browser-prepared/browser.env
+/discovery/credentials.json
+
 # Third-party UI reference screenshots are private study material.
 /references/

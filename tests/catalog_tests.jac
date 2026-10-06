@@ -21,6 +21,32 @@ def fake_usage(key: str) -> catalog.Usage {
     if key not in counters { counters[key]=catalog.Usage(key=key); }
     return counters[key];
 }
+
+test "municipal absence removal waits for two clean cycles and a day" {
+    now=time.time();sid="smartrecruiters:municipal-lifecycle-test";
+    source=root.shared ++> catalog.JobSource(key=sid,config={"adapter":"smartrecruiters","name":"Municipal lifecycle fixture"},lease="one",cycle="one");
+    listing=root.shared ++> catalog.CatalogJob(key="municipal-lifecycle-job",canonical_url="https://example.com/lifecycle",identity="lifecycle",data={"title":"Municipal fixture"},checked_at=now,discovered_at=now);
+    listing.observations={sid:{"active":True,"last_seen":now-86399,"missing":0}};
+    with patch.object(catalog,"_worker_allowed",return_value=True),patch.object(catalog,"_fresh",return_value=None),patch.object(catalog,"commit",return_value=None) {
+        catalog.discovery_complete("fixture",sid,"one",{"complete":True});
+        assert listing.active and listing.observations[sid]["missing"]==1;
+        source.lease="two";source.cycle="two";
+        catalog.discovery_complete("fixture",sid,"two",{"complete":True});
+        assert listing.active and listing.observations[sid]["missing"]==2;
+        listing.observations[sid]["last_seen"]=now-86401;
+        source.lease="invalid";source.cycle="invalid";
+        catalog.discovery_complete("fixture",sid,"invalid",{"complete":True,"invalid":1});
+        assert listing.active and listing.observations[sid]["missing"]==2;
+        source.lease="three";source.cycle="three";source.cycle_invalid=0;
+        catalog.discovery_complete("fixture",sid,"three",{"complete":True});
+        assert not listing.active and not listing.observations[sid]["active"];
+        listing.observations["independent"]={"active":True,"last_seen":now};
+        source.lease="four";source.cycle="four";
+        catalog.discovery_complete("fixture",sid,"four",{"complete":True});
+        assert listing.active;
+    }
+    del listing;del source;
+}
 test "provider budgets reject requests at every boundary" {
     with patch.object(catalog,"_usage",side_effect=fake_usage) {
         counters.clear();

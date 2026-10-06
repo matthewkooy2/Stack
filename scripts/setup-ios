@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+if [ "$(uname -s)" != Darwin ]; then
+    echo 'The iOS setup path requires macOS, Xcode, and CocoaPods.' >&2
+    exit 1
+fi
+STACK_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$STACK_ROOT"
+STACK_VERSION=$(./scripts/jac --version)
+case "$STACK_VERSION" in *"jac 0.37.21 "*) ;; *) echo "Install Jac 0.37.21 before setup (found: $STACK_VERSION)." >&2; exit 1;; esac
+./scripts/jac install --no-npm
+# LaTeX resumes compile locally with Tectonic; the first compile downloads and caches its packages.
+command -v tectonic >/dev/null 2>&1 || brew install tectonic
+./scripts/jac run --no-serve scripts/warm-resume-templates.jac
+./scripts/jac setup mobile
+cp native/package.json native/package-lock.json native/app.config.js native/build-config.js .jac/mobile-rn/
+cd .jac/mobile-rn
+npm ci --no-audit --no-fund
+# Use Node: Bun's Expo prebuild currently corrupts the generated pbxproj.
+node node_modules/expo/bin/cli prebuild --platform ios --no-install
+cp "$STACK_ROOT/native/Podfile.lock" ios/Podfile.lock
+LANG=en_US.UTF-8 pod install --project-directory=ios --deployment
+cd "$STACK_ROOT"
+./scripts/jac run --no-serve scripts/compile-mobile.jac

@@ -1,0 +1,12 @@
+# Verified historical checksums: eight tracked source files and Docker
+# public apt signing key, all compared to their source bytes. Exact commit
+# fingerprints only; new credentials and new occurrences still fail CI.
+129d9aeb23a7f57c352526f57cb81dfef25d23c1:deploy/pc-host/stack-browser-prepared/docker-package-manifest.json:generic-api-key:5
+129d9aeb23a7f57c352526f57cb81dfef25d23c1:deploy/pc-host/reviewed-backend-reconciliation.json:generic-api-key:31
+129d9aeb23a7f57c352526f57cb81dfef25d23c1:deploy/pc-host/reviewed-backend-reconciliation.json:generic-api-key:45
+129d9aeb23a7f57c352526f57cb81dfef25d23c1:deploy/pc-host/reviewed-backend-reconciliation.json:generic-api-key:56
+129d9aeb23a7f57c352526f57cb81dfef25d23c1:deploy/pc-host/reviewed-backend-reconciliation.json:generic-api-key:60
+129d9aeb23a7f57c352526f57cb81dfef25d23c1:deploy/pc-host/reviewed-backend-reconciliation.json:generic-api-key:68
+129d9aeb23a7f57c352526f57cb81dfef25d23c1:deploy/pc-host/reviewed-backend-reconciliation.json:generic-api-key:73
+129d9aeb23a7f57c352526f57cb81dfef25d23c1:deploy/pc-host/reviewed-backend-reconciliation.json:generic-api-key:177
+129d9aeb23a7f57c352526f57cb81dfef25d23c1:deploy/pc-host/reviewed-backend-reconciliation.json:generic-api-key:184

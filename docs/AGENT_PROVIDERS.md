@@ -6,29 +6,53 @@ permissions, and external-action controls remain the authority for every provide
 Local CLIs generate structured proposals with tools disabled. They do not run the
 application browser, send email, or execute practice code.
 
-## Personal subscription on your Mac
+## Your local subscription on Linux, WSL2, or Mac
 
-1. Sign in through `codex login` (ChatGPT) or `claude auth login` (Claude plan).
-   Stack uses the CLI's own authentication, not copied OAuth tokens. Recent CLI
-   versions are required for the isolation and structured-output flags.
-2. In Stack, open **Agents > Rules** (header entry) and note your **Account ID**.
-3. Select one local provider from the project directory:
+For Linux and Windows/WSL2, prepare the public checkout using
+[local contributor development](LOCAL_DEVELOPMENT.md). Install the selected CLI
+and run its authentication in the **same environment as the worker**. Windows
+credentials are not automatically available inside WSL2. On Mac, use the separate
+`./scripts/setup --ios` / `./scripts/dev` path when developing the native app.
+
+1. Create your own local Stack account. In the browser, **Account** shows its
+   **Account ID**; in the iPhone app, use **Agents > Rules**.
+2. Authenticate the chosen CLI and explicitly bind that one account:
+
+   ```sh
+   make login PROVIDER=codex OWNER=YOUR_ACCOUNT_ID DAILY_LIMIT=10
+   # Or:
+   make login PROVIDER=claude OWNER=YOUR_ACCOUNT_ID DAILY_LIMIT=10
+   ```
+
+   Python equivalents are `python3 scripts/contributor.py login --provider codex
+   --owner YOUR_ACCOUNT_ID --daily-limit 10` or `--provider claude`. The command
+   invokes `codex login` or `claude auth login`; credentials stay in the CLI's
+   private home files. Restart the development launcher after changing the provider.
+   Never copy `~/.codex`, `~/.claude`, their tokens, or their
+   auth output into source files. The owner binding is saved in ignored private
+   local configuration. A local subscription is not pooled service access.
+
+   For an already authenticated Mac CLI, the existing operator commands remain:
 
    ```sh
    python3 scripts/agent-admin.py provider --provider codex-cli --owner YOUR_ACCOUNT_ID --daily-limit 10
-   # Or:
-   python3 scripts/agent-admin.py provider --provider claude-cli --owner YOUR_ACCOUNT_ID --daily-limit 10
+   # Or use --provider claude-cli.
    ```
 
-   Omit `--model` to use the CLI's default; add it to choose an available model.
-   This binds the Mac's subscription to that one Stack account. Other Stack
-   accounts cannot consume it. This is a personal local development feature,
-   not pooled subscription access for a hosted service.
-4. Enable standing permissions with **Model** selected. Save them. Keep the Mac
-   awake and connected to the iPhone hotspot while `scripts/dev` runs.
-5. For the smallest test, open **Prep**, start a behavioral practice session,
-   enter an answer, and tap **Save and get coaching**. The Agents header entry and the session show the
-   result. This requires neither Google nor a code sandbox. For a job-fit test,
+   Omit `--model` to use the CLI's default; add it to the operator command to choose
+   an available model. `make doctor` checks installed CLI versions/required flags
+   without printing credentials or making a model request. For the configured CLI,
+   it also checks subscription authentication status; it cannot certify capacity.
+3. Explicitly enable **Model** under browser **Account** (up to 24 hours), or save
+   standing permissions with **Model** selected in the iPhone's **Agents > Rules**.
+   Browser permission changes preserve other actions and their existing active
+   expiry; disabled, expired, or longer-lived mixed permissions must be managed
+   in the iPhone app first. Login does not grant standing permissions.
+4. Keep the development launcher running. Start a behavioral practice session,
+   enter a synthetic answer, save it, and choose **Get coaching** (browser) or
+   **Save and get coaching** (iPhone). This authorizes a real subscription request.
+   Inspect **Activity**, retrieve the result, and reload the session to verify
+   persistence. It requires neither Google nor a code sandbox. For a job-fit test,
    select a saved, real application and its resume, confirm extracted resume
    facts, then tap **Explain my fit**.
 
@@ -45,7 +69,11 @@ Provider setup is checked separately from authentication: the activity panel's
 configured state does not prove that CLI login, provider capacity, or a live
 model request will succeed. Run a real task to establish that.
 
-## Verification status (September 28, 2026)
+## Historical Mac verification (September 28, 2026)
+
+This historical evidence does not establish clean Linux/WSL2 onboarding or current
+live provider acceptance. Record those checks separately in the implementation
+issue/PR, including unavailable credentials and platforms as gaps.
 
 - After the Jac migration, both Codex and Claude completed a real practice-coaching
   workflow using synthetic answers and isolated account stores: session creation,
@@ -78,8 +106,8 @@ model request will succeed. Run a real task to establish that.
 
 New worker attempts save account-owned execution traces: stage inputs, model
 requests/responses, validation, duration, and returned results/errors. Full content
-requires `"capture_agent_content": true` in `storage/agents/config.json` (enabled
-on this personal testing setup; off by default). The provider and requested model
+requires `"capture_agent_content": true` in `storage/agents/config.json` (off by
+default). The provider and requested model
 are recorded; an unspecified model is labeled `provider default`, not guessed.
 Resolved model metadata is included when the provider reports it.
 
@@ -102,10 +130,15 @@ not this full prompt trace. Old runs cannot be reconstructed retroactively.
 
 ## API providers
 
+The public contributor launcher excludes inherited API/deployment credentials
+and disables `.env` loading. Use the advanced worker/deployment workflow in
+[remote hosting](REMOTE_HOSTING.md) in a separate installation for API-provider
+configuration; exporting keys before `make dev` does not enable them.
+
 Use `--provider openai --model MODEL_ID` or `--provider meta --model MODEL_ID`.
 Configure positive monthly and per-user budgets and input/output prices in cents
 per million tokens in `storage/agents/config.json`. Supply `OPENAI_API_KEY` for
-OpenAI or `MODEL_API_KEY` for Meta to the worker environment and restart development
+OpenAI or `MODEL_API_KEY` for Meta to that worker environment and restart its
 services. API keys and prices are not interchangeable with subscription login.
 
 Meta uses its documented JSON-schema Chat Completions API at

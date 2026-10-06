@@ -71,7 +71,7 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
         import from agents.research { contact_source }
         return {'artifact': contact_source(context['contact'])};
     }
-    if (step in ('fit', 'tailor', 'draft', 'coach', 'profile', 'linkedin_review')) {
+    if (step in ('fit', 'tailor', 'draft', 'coach', 'profile', 'linkedin_review', 'story')) {
         c = config();
         if (work.get('provider_config_hash') != digest(c)) {
             return {
@@ -82,6 +82,11 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
         }
         model_access(c, work['owner']);
         model_context = {** context, 'research': artifacts.get('research', {}), 'linkedin_profile':artifacts.get('linkedin_scan', {})};
+        if (step == 'story') {
+            # Only this reviewed event goes to inference, not other resume facts
+            # or past answers added by the general agent-memory workflow.
+            model_context = {'story_source': context['story_source']};
+        }
         if (step == 'tailor') {
             import from agents.tailoring { prepare }
             try {

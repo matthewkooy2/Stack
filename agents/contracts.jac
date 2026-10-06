@@ -21,11 +21,12 @@ with entry {
         'network': ['research', 'draft', 'send'],
         'profile': ['profile'],
         'prep': ['coach'],
+        'stories': ['story'],
         'sync': ['sync'],
         'code': ['execute'],
         'calendar': ['calendar']
     };
-    PAID = {'fit', 'tailor', 'draft', 'coach', 'profile', 'linkedin_review'};
+    PAID = {'fit', 'tailor', 'draft', 'coach', 'profile', 'linkedin_review', 'story'};
     EXTERNAL = {
         'send': 'send_email',
         'calendar': 'calendar_write'

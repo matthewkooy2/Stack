@@ -11,6 +11,7 @@ import from core.catalog { _catalog_lock }
 import from agents.contracts { VERSION, STEPS, workflow_steps, PAID, EXTERNAL, TERMINAL, CLI_PROVIDERS, LOCAL_PROVIDERS, config, model_access, model_status, digest, default_policy, validate_policy, validate_facts, context_facts, authorize, reserve_cents, validate_contact }
 import from agents.voice { voice_settings, voice_reservation, SECONDS }
 import from agents.prep { catalog, problem, validate_session }
+import from agents.stories { validate as validate_story, corrected as correct_story, missing as story_missing, TOPICS }
 import from agents.security { seal, unseal }
 import agents.notifications as push;
 import from agents.contacts { parse_contacts }
@@ -43,6 +44,7 @@ node AgentConnection { has provider: str, sealed: str, scopes: list[str], state:
 node AgentInterview { has key: str, application_id: str, event: dict[str, any], updated_at: float, calendar_receipt: str = "", study_plan: list[dict[str, any]] = []; }
 node AgentEvent { has key: str, data: dict[str, any], created_at: float; }
 node PrepSession { has data: dict[str, any], created_at: float, updated_at: float, revision: int = 0, results: list[dict[str, any]] = [], feedback: list[dict[str, any]] = [], recordings: list[dict[str, any]] = []; }
+node BehavioralStory { has title: str, source: dict[str, any], content: dict[str, any], created_at: float, updated_at: float, revision: int = 0, history: list[dict[str, any]] = []; }
 node AgentPushDevice { has key: str, sealed: str; }
 node AgentNotification {
     has key: str, run_id: str, state: str = "queued", receipt: str = "";
@@ -408,6 +410,15 @@ def _agent_complete(token: str, id: str, owner: str, lease: str, result: dict[st
         _agent_fresh();
         try { r=_agent_leased(id,owner,lease); } except ValueError as e { return {"error":str(e)}; }
         step=_steps(r)[r.index];
+        if step=="story" and not result.get("error") and not result.get("needs_input") and not result.get("blocked") {
+            stories=[s for s in [root -->][?:BehavioralStory] if jid(s)==r.target_id];
+            if not stories or stories[0].revision!=r.context.get("story_revision") {
+                result={"blocked":True,"message":"The story changed or was deleted. Your corrections are preserved; generate a new draft if needed."};
+            } else {
+                try { result={**result,"artifact":validate_story(result.get("artifact",{}),stories[0].source)}; }
+                except ValueError as e { result={"blocked":True,"message":str(e)}; }
+            }
+        }
         traced_result=result if capture_enabled() else {"error":result.get("error",""),"message":result.get("message","")};
         diagnostic=sanitize_browser_diagnostic(result.get("browser_diagnostic"));
         if result.get("error") and "browser_diagnostic" in result {
@@ -445,6 +456,10 @@ def _agent_complete(token: str, id: str, owner: str, lease: str, result: dict[st
                 r.index+=1;r.attempts=0;r.status="completed" if r.index>=len(_steps(r)) else "queued";r.message="Completed" if r.status=="completed" else "Ready for next step";
                 if step=="coach" {
                     for p in [root -->][?:PrepSession] { if jid(p)==r.target_id { p.feedback=p.feedback+[{"at":time.time(),"revision":r.context.get("session_revision",0),"run_id":jid(r),"output_version":digest(r.artifacts),"data":artifact}]; } }
+                }
+                if step=="story" {
+                    s=stories[0];s.history=s.history+[{"revision":s.revision,"content":s.content,"at":time.time(),"kind":"generation","run_id":jid(r)}];
+                    s.content=artifact;s.revision+=1;s.updated_at=time.time();
                 }
                 if step=="execute" {
                     for p in [root -->][?:PrepSession] { if jid(p)==r.target_id { p.results=p.results+[{"at":time.time(),"revision":r.context.get("session_revision",0),"data":artifact}]; } }

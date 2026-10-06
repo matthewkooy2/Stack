@@ -32,6 +32,11 @@ with entry {
         'items': `obj({'source': TEXT, 'quote': TEXT, 'claim': TEXT})
     };
     SCHEMAS = {
+        'story': `obj({
+            'fields': `obj({k: `obj({'source': TEXT, 'quote': TEXT}) for k in ['situation','task','action','result','personal','team','learning']}),
+            'topics': {'type':'array','maxItems':4,'items':{'type':'string','enum':['ownership','conflict','decisions','learning']}},
+            'evidence': EVIDENCE
+        }),
         'fit': `obj(
             {
                 'summary': TEXT,
@@ -146,6 +151,7 @@ with entry {
     };
 }
 def sources_for(context: dict[str, any]) -> dict[str, str] {
+    if context.get('story_source') { return {context['story_source']['key']:context['story_source']['text']}; }
     sources = {
         'listing': str(context.get('job', {}).get('description', '')),
         'answer': str(context.get('session', {}).get('answer', '')),
@@ -228,6 +234,12 @@ def _generate(step: any, context: any, configuration: any, received: any, observ
     }
     sources = sources_for(context);
     instructions = {
+        'story': 'Organize the single user-selected event in context.story_source into STAR fields. '
+        'Every quote must be an exact contiguous quotation from this source; do not paraphrase, add connecting prose, or invent outcomes. '
+        'Use the supplied source key for every field, including empty fields. '
+        'Use empty quote strings for missing or ambiguous fields. Personal requires an explicit I/my/me quotation; team requires we/our/team evidence. '
+        'Keep personal and team contributions separate. Learning needs an explicit reflection; result needs an explicit known outcome. Use empty result for unknown or pending outcomes. '
+        'Topics are recommendations for ownership, conflict, decisions or learning questions, not facts. Evidence may be empty; Stack derives it from the field quotes.',
         'fit': 'Explain fit and gaps with citations. Preserve the supplied deterministic requirement checks.',
         'tailor': 'Tailor the resume in context.resume_structure for this job. Items have stable ids. '
         'ranking: every bullet id, most to least relevant to this job; Stack removes the least relevant bullets until the resume fits one page. '
@@ -333,6 +345,10 @@ def _generate(step: any, context: any, configuration: any, received: any, observ
     try {
         data = json.loads(text);
         validate_evidence(data['evidence'], sources);
+        if (step == 'story') {
+            import from agents.stories { validate as validate_story }
+            data = validate_story(data, context['story_source']);
+        }
         if (step == 'linkedin_review') {
             import from agents.linkedin { validate_review }
             data = validate_review(data, context['linkedin_profile'], sources);

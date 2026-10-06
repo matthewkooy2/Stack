@@ -373,7 +373,7 @@ def tests(root):
     env = environment(root)
     env.update(PYTHONPATH=str(root), JAC_TEST_JOBS='0')
     # All of these suites use synthetic data and mocked provider/network boundaries.
-    for path in ('test_bootstrap.py', 'test_contributor.py', 'test_gitignore.py', 'test_pdf_safety.py', 'test_fixture_provenance.py',
+    for path in ('test_bootstrap.py', 'test_jac_launcher.py', 'test_contributor.py', 'test_gitignore.py', 'test_pdf_safety.py', 'test_fixture_provenance.py',
                  'test_matching.py', 'test_agent_providers.py', 'test_gateway.py'):
         execute(root, [str(root / 'scripts/jac'), 'run', '--no-serve', 'tests/' + path], env)
     execute(root, [str(root / 'scripts/jac'), 'test', 'tests/provider_workflow_tests.jac'], env)

@@ -8,7 +8,15 @@ if [ -d "$STACK_ROOT/.jac/tools/postgres" ]; then
     export JAC_PG_VERSION="18.6.0"
 fi
 if [ -z "${STACK_TMP_DIR:-}" ]; then
-    STACK_TMP_DIR=$(python3 -c 'import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]+"/scripts"); import bootstrap; print(bootstrap.temporary_directory(Path(sys.argv[1])))' "$STACK_ROOT")
+    if [ "$(uname -s)" = Darwin ]; then
+        # Preserve the native launcher's shared short socket location. macOS
+        # does not use the Linux bootstrap or require its Python 3.12 imports.
+        STACK_COMMON_GIT=$(git -C "$STACK_ROOT" rev-parse --path-format=absolute --git-common-dir)
+        STACK_TEMP_PARENT=$(CDPATH= cd -- "$STACK_COMMON_GIT/.." && pwd)
+        STACK_TMP_DIR="$STACK_TEMP_PARENT/.jac-tmp"
+    else
+        STACK_TMP_DIR=$(python3 -c 'import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]+"/scripts"); import bootstrap; print(bootstrap.temporary_directory(Path(sys.argv[1])))' "$STACK_ROOT")
+    fi
 fi
 export TMPDIR="$STACK_TMP_DIR"
 mkdir -p "$TMPDIR"

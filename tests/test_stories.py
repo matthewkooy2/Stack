@@ -3,7 +3,7 @@ import copy
 import json
 from pathlib import Path
 import unittest
-from agents.stories import validate, corrected, missing, empty
+from agents.stories import validate, corrected, missing, empty, model_source
 
 FIXTURE = json.loads((Path(__file__).parent/'fixtures/behavioral-stories.json').read_text())
 
@@ -40,8 +40,19 @@ class Stories(unittest.TestCase):
         saved=corrected(original,{'result':'Outcome is still unknown.','personal':'I only wrote tests.'},1)
         self.assertEqual(original['fields']['result']['quote'],'')
         self.assertEqual(saved['fields']['result']['source'],'user-confirmed:1:result')
-        self.assertNotIn('result',[q['field'] for q in missing(saved)])
+        self.assertIn('result',[q['field'] for q in missing(saved)])
         for changes in ({'outcome':'x'},{'result':123},{'result':' '*3},{}):
             with self.assertRaises(ValueError):corrected(saved,changes,2)
+
+    def test_team_possessives_unknown_outcomes_and_unselected_text(self):
+        source={'key':'fixture','text':'My team shipped the change. The release has not happened, so I do not know the outcome.',
+                'full_text':'Other unrelated event.', 'original_transcript':'Obsolete uncorrected claim.'}
+        value=empty(source);value['fields']['personal']['quote']='My team shipped the change.'
+        with self.assertRaises(ValueError):validate(value,source)
+        value['fields']['personal']['quote']='';value['fields']['team']['quote']='My team shipped the change.'
+        value['fields']['result']['quote']='The release has not happened, so I do not know the outcome.'
+        value=validate(value,source)
+        self.assertIn('result',[q['field'] for q in missing(value)])
+        self.assertEqual(model_source(source),{'key':'fixture','text':source['text']})
 
 if __name__=='__main__':unittest.main()

@@ -24,8 +24,10 @@ are model suggestions, not factual claims or hiring predictions.
    `stories` workflow / `story` step with existing operator model configuration,
    account model permission, quotas, model-response logs, and worker leases.
    Only the selected event is sent to inference. The provider and API completion
-   path both check every displayed field's quotation. Personal/team fields need
-   explicit first-person/team evidence; ambiguous attribution stays missing.
+   path both check every displayed field's quotation. Personal contribution needs
+   an explicit I statement; team contribution needs an explicit team statement.
+   Mixed or ambiguous attribution stays missing. Explicit unknown/pending outcome
+   quotations also retain the missing-outcome follow-up question.
 4. Read `story_get` or `story_list(topic)` using `ownership`, `conflict`,
    `decisions`, or `learning` to retrieve suggested matches and missing-detail
    questions. The source snapshot remains historical when the underlying fact or

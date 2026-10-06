@@ -85,7 +85,8 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
         if (step == 'story') {
             # Only this reviewed event goes to inference, not other resume facts
             # or past answers added by the general agent-memory workflow.
-            model_context = {'story_source': context['story_source']};
+            import from agents.stories { model_source }
+            model_context = {'story_source': model_source(context['story_source'])};
         }
         if (step == 'tailor') {
             import from agents.tailoring { prepare }

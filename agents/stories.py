@@ -5,6 +5,7 @@ from typing import Any
 
 FIELDS = ('situation', 'task', 'action', 'result', 'personal', 'team', 'learning')
 TOPICS = ('ownership', 'conflict', 'decisions', 'learning')
+UNKNOWN_OUTCOME = re.compile(r"\b(?:unknown|pending|do not know|don't know|not (?:yet )?(?:happened|measured|released)|no (?:known )?outcome)\b", re.I)
 QUESTIONS = {
     'situation': 'What was happening in this event?',
     'task': 'What were you responsible for?',
@@ -31,10 +32,12 @@ def validate(data: Any, source: Any) -> dict[str, Any]:
             raise ValueError('Story claims must copy exact source text.')
         # Preserve first-person/team attribution; ambiguous third-person text stays
         # in Action rather than being promoted to a personal contribution.
-        if quote and field == 'personal' and not re.search(r'\b(I|my|me)\b', quote, re.I):
-            raise ValueError('Personal contribution needs explicit first-person evidence.')
-        if quote and field == 'team' and not re.search(r'\b(we|our|team|teammates)\b', quote, re.I):
-            raise ValueError('Team contribution needs explicit team evidence.')
+        if quote and field == 'personal' and (not re.match(r'I\b', quote, re.I) or
+                re.search(r'\b(?:we|our|(?:my|the) team)\b', quote, re.I)):
+            raise ValueError('Personal contribution needs an explicit I statement without team attribution.')
+        if quote and field == 'team' and (not re.match(r'(?:we\b|(?:our|the|my) (?:team|teammates)\b)', quote, re.I) or
+                re.search(r'\bI\b', quote, re.I)):
+            raise ValueError('Team contribution needs an explicit team statement without personal attribution.')
     topics = data['topics']
     if not isinstance(topics, list) or len(topics) > 4 or any(t not in TOPICS for t in topics):
         raise ValueError('Choose supported behavioral question types.')
@@ -64,4 +67,11 @@ def empty(source: Any) -> dict[str, Any]:
 
 
 def missing(content: Any) -> list[dict[str, Any]]:
-    return [{'field': k, 'question': QUESTIONS[k]} for k in FIELDS if not content['fields'][k]['quote']]
+    return [{'field': k, 'question': QUESTIONS[k]} for k in FIELDS
+            if not content['fields'][k]['quote'] or
+            (k == 'result' and UNKNOWN_OUTCOME.search(content['fields'][k]['quote']))]
+
+
+def model_source(source: Any) -> dict[str, Any]:
+    """Exclude other events and pre-correction transcripts from inference."""
+    return {'key': source['key'], 'text': source['text']}

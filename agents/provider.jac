@@ -237,7 +237,8 @@ def _generate(step: any, context: any, configuration: any, received: any, observ
         'story': 'Organize the single user-selected event in context.story_source into STAR fields. '
         'Every quote must be an exact contiguous quotation from this source; do not paraphrase, add connecting prose, or invent outcomes. '
         'Use the supplied source key for every field, including empty fields. '
-        'Use empty quote strings for missing or ambiguous fields. Personal requires an explicit I/my/me quotation; team requires we/our/team evidence. '
+        'Use empty quote strings for missing or ambiguous fields. Personal must start with I and contain no team attribution. '
+        'Team must start with We, Our team, The team, My team or teammates and contain no I statement. '
         'Keep personal and team contributions separate. Learning needs an explicit reflection; result needs an explicit known outcome. Use empty result for unknown or pending outcomes. '
         'Topics are recommendations for ownership, conflict, decisions or learning questions, not facts. Evidence may be empty; Stack derives it from the field quotes.',
         'fit': 'Explain fit and gaps with citations. Preserve the supplied deterministic requirement checks.',

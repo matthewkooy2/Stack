@@ -1,5 +1,6 @@
 """Model IO only; policies, tools, budgets, and workflow state belong to Jac."""
 import json;
+import from copy { deepcopy }
 import math;
 import os;
 import from uuid { uuid4 }
@@ -226,6 +227,12 @@ def _generate(step: any, context: any, configuration: any, received: any, observ
     if (step not in SCHEMAS) {
         raise ValueError('Unsupported model operation.');
     }
+    # A request owns its schema: captures differ and the shared template is reused.
+    schema = deepcopy(SCHEMAS[step]);
+    if (step == 'linkedin_review') {
+        schema['properties']['findings']['items']['properties']['section']['enum'] =
+            `list(context['linkedin_profile']['sections']);
+    }
     sources = sources_for(context);
     instructions = {
         'fit': 'Explain fit and gaps with citations. Preserve the supplied deterministic requirement checks.',
@@ -262,16 +269,16 @@ def _generate(step: any, context: any, configuration: any, received: any, observ
                 'type': 'json_schema',
                 'name': ('stack_' + step),
                 'strict': True,
-                'schema': SCHEMAS[step]
+                'schema': schema
             }
         }
     };
     result = {};
-    if observe { observe("model_request", {"provider":provider,"requested_model":c["model"] or "provider default","transport":"codex exec" if provider=="codex-cli" else "claude -p" if provider=="claude-cli" else "HTTPS API","system":SYSTEM,"input":json.loads(payload["input"]),"prompt_text":SYSTEM+'\nReturn only the requested JSON.\n'+payload["input"] if provider=="codex-cli" else payload["input"],"schema":SCHEMAS[step],"max_output_tokens":c["max_output_tokens"] if provider not in CLI_PROVIDERS else None}); }
+    if observe { observe("model_request", {"provider":provider,"requested_model":c["model"] or "provider default","transport":"codex exec" if provider=="codex-cli" else "claude -p" if provider=="claude-cli" else "HTTPS API","system":SYSTEM,"input":json.loads(payload["input"]),"prompt_text":SYSTEM+'\nReturn only the requested JSON.\n'+payload["input"] if provider=="codex-cli" else payload["input"],"schema":schema,"max_output_tokens":c["max_output_tokens"] if provider not in CLI_PROVIDERS else None}); }
     if (provider in CLI_PROVIDERS) {
         import from agents.local_cli { generate as cli_generate }
         text = json.dumps(
-            cli_generate(provider, c['model'], SYSTEM, payload['input'], SCHEMAS[step], record_response=received, observe=observe) if observe else cli_generate(provider, c['model'], SYSTEM, payload['input'], SCHEMAS[step], record_response=received)
+            cli_generate(provider, c['model'], SYSTEM, payload['input'], schema, record_response=received, observe=observe) if observe else cli_generate(provider, c['model'], SYSTEM, payload['input'], schema, record_response=received)
         );
     } elif (provider == 'meta') {
         result = http(
@@ -288,7 +295,7 @@ def _generate(step: any, context: any, configuration: any, received: any, observ
                     'json_schema': {
                         'name': ('stack_' + step),
                         'strict': True,
-                        'schema': SCHEMAS[step]
+                        'schema': schema
                     }
                 }
             },

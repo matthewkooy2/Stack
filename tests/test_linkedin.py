@@ -1,5 +1,6 @@
 """Profile capture boundaries, lifecycle and analysis; no LinkedIn or model calls."""
 import copy
+import json
 import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
@@ -193,6 +194,72 @@ class LinkedIn(unittest.TestCase):
         self.assertEqual(result['artifact']['profile_url'], URL)
         self.assertIn('linkedin:about', generate.call_args.args[3])
         self.assertIn('unknown, not missing', generate.call_args.args[3])
+
+    def test_partial_capture_schema_is_fresh_for_every_provider_and_trace(self):
+        template = copy.deepcopy(provider.SCHEMAS)
+        captures = [
+            linkedin.snapshot(URL, {'intro': 'Candidate\nSoftware engineer', 'about': 'I build tools.'}),
+            linkedin.snapshot(URL, {'intro': 'Candidate\nSoftware engineer', 'skills': 'Python'}),
+        ]
+        schemas = []
+        for name in ('codex-cli', 'claude-cli', 'openai', 'meta'):
+            for capture in captures:
+                with self.subTest(provider=name, sections=list(capture['sections'])):
+                    section = next(key for key in capture['sections'] if key != 'intro')
+                    review = copy.deepcopy(REVIEW)
+                    review['findings'][0].update(section=section, quote=capture['sections'][section])
+                    review['evidence'] = [{'source': 'linkedin:' + section,
+                                          'quote': capture['sections'][section], 'claim': 'Captured text'}]
+                    response = ({'status': 'completed', 'output': [{'content': [
+                        {'type': 'output_text', 'text': json.dumps(review)}]}]} if name == 'openai' else
+                        {'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps(review)}}]})
+                    events = []
+                    with patch.dict('os.environ', {'OPENAI_API_KEY': 'fixture', 'MODEL_API_KEY': 'fixture'}), \
+                         patch('agents.local_cli.generate', return_value=review) as cli, \
+                         patch.object(provider, 'http', return_value=response) as http:
+                        result = provider.generate('linkedin_review', {'linkedin_profile': capture, 'facts': []},
+                            {**contracts.config(), 'provider': name, 'model': 'fixture'},
+                            observe=lambda event, data: events.append((event, data)))
+                    if name in ('codex-cli', 'claude-cli'):
+                        schema = cli.call_args.args[4]
+                        http.assert_not_called()
+                    else:
+                        payload = http.call_args.args[1]
+                        schema = (payload['text']['format']['schema'] if name == 'openai' else
+                                  payload['response_format']['json_schema']['schema'])
+                        cli.assert_not_called()
+                    expected = list(capture['sections'])
+                    self.assertEqual(schema['properties']['findings']['items']['properties']['section']['enum'], expected)
+                    trace = next(data for event, data in events if event == 'model_request')
+                    self.assertEqual(trace['schema'], schema)
+                    self.assertEqual(trace['input']['context']['linkedin_profile'], capture)
+                    self.assertEqual(result['artifact']['findings'][0]['section'], section)
+                    self.assertEqual(result['artifact']['rewrites'], REVIEW['rewrites'])
+                    self.assertEqual(provider.SCHEMAS, template)
+                    schemas.append((schema, expected))
+        # Later requests must not alter earlier requests/traces, even within one provider.
+        for schema, expected in schemas:
+            self.assertEqual(schema['properties']['findings']['items']['properties']['section']['enum'], expected)
+        self.assertEqual(len({id(schema) for schema, _ in schemas}), len(schemas))
+
+    def test_rejected_findings_keep_original_output_and_source_checks(self):
+        capture = linkedin.snapshot(URL, {'intro': 'Candidate\nSoftware engineer', 'about': 'I build tools.'})
+        for change in ({'section': 'skills'}, {'section': 'intro'}, {'quote': 'I built tools.'}):
+            with self.subTest(change=change):
+                review = copy.deepcopy(REVIEW)
+                review['findings'][0].update(change)
+                raw = json.dumps(review)
+                attempts = []
+                def respond(*args, **kwargs):
+                    kwargs['record_response'](raw, 'model_json')
+                    return review
+                with patch('agents.local_cli.generate', side_effect=respond):
+                    with self.assertRaisesRegex(ValueError, 'captured evidence.*retry analysis'):
+                        provider.generate('linkedin_review', {'linkedin_profile': capture, 'facts': []},
+                            {**contracts.config(), 'provider': 'codex-cli'}, record=attempts.append)
+                self.assertEqual(attempts[-1]['status'], 'rejected')
+                self.assertEqual(attempts[-1]['raw_response'], raw)
+                self.assertEqual(review['findings'][0], json.loads(raw)['findings'][0])
 
     def test_invalid_analysis_is_blocked_without_requesting_answers(self):
         c = {**contracts.config(), 'provider': 'codex-cli', 'local_cli_owner': 'owner', 'local_cli_daily_limit': 5}

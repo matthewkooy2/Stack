@@ -29,6 +29,8 @@ if importlib.util.find_spec('jaclang') is not None:
 
 ROOT = Path(__file__).resolve().parents[1]
 RECORDS = json.loads((ROOT / 'tests/fixtures/record-resume.json').read_text(encoding='utf-8'))
+# Explicit human selection eligibility; source fixture text stays fixed.
+RECORDS[6]['allow_omit'] = True
 TOKEN = 'mat25-disposable-worker'
 
 
@@ -43,6 +45,11 @@ def fixture(suffix):
         canvas.save()
         return output.getvalue()
     paragraphs = ''.join('<w:p><w:r><w:t>' + escape(('• ' if r['kind'] == 'bullet' else '') + r['text']) + '</w:t></w:r></w:p>' for r in RECORDS)
+    return docx_fixture(paragraphs)
+
+
+def docx_fixture(paragraphs):
+    """Native source package, authored independently of the output generator."""
     output = io.BytesIO()
     with ZipFile(output, 'w', ZIP_DEFLATED) as archive:
         archive.writestr('[Content_Types].xml', '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>')
@@ -107,6 +114,35 @@ class RecordDocuments(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'changed after tailoring'):
             rr.finalize({**source, 'digest': 'changed'}, p)
 
+    def test_docx_visible_hyphen_preserves_negative_metric_in_both_outputs(self):
+        native = docx_fixture('<w:p><w:r><w:t>Revenue changed by </w:t><w:noBreakHyphen/><w:t>10%.</w:t></w:r></w:p>')
+        records = rr.import_records('Negative metric.docx', native)
+        self.assertEqual(records[0]['text'], 'Revenue changed by -10%.')
+        source = prepared(records)
+        output = rr.finalize(source, rr.tailor(source, {}))['tailor']
+        pdf, docx = extracted(output)
+        self.assertIn('Revenue changed by -10%.', pdf)
+        self.assertIn('Revenue changed by -10%.', docx)
+        discretionary = docx_fixture('<w:p><w:r><w:t>co</w:t><w:softHyphen/><w:t>operate</w:t></w:r></w:p>')
+        self.assertEqual(rr.import_records('Soft hyphen.docx', discretionary)[0]['text'], 'co\u00adoperate')
+
+    def test_unfamiliar_credential_stays_unless_human_marks_selection_eligible(self):
+        records = [{'id': 'r0', 'kind': 'heading', 'text': 'Credentials'},
+                   {'id': 'r1', 'kind': 'bullet', 'text': 'Earned GXQ'},
+                   {'id': 'r2', 'kind': 'bullet', 'text': 'Kept training notes.', 'allow_omit': True},
+                   {'id': 'r3', 'kind': 'bullet', 'text': 'Earned CPA', 'allow_omit': True},
+                   {'id': 'r4', 'kind': 'bullet', 'text': 'Increased revenue by 25% in 2024.', 'allow_omit': True}]
+        source = prepared(records)
+        proposed = rr.tailor(source, {'omit': [{'id': r['id']} for r in records[1:]]})
+        self.assertEqual(proposed['plan']['omit'], ['r2'])
+        approved = rr.finalize(source, proposed)['tailor']
+        pdf, docx = extracted(approved)
+        for text in ('Earned GXQ', 'Earned CPA', '25%', '2024'):
+            self.assertIn(text, pdf); self.assertIn(text, docx)
+        self.assertNotIn('Kept training notes.', pdf)
+        self.assertNotIn('Kept training notes.', docx)
+        with self.assertRaises(ValueError): rr.validate_records([{**records[1], 'allow_omit': 'yes'}])
+
     def test_multpage_does_not_drop_content_or_force_one_page(self):
         records = [{'id': 'r' + str(i), 'kind': 'paragraph', 'text': 'Record ' + str(i) + ': retained content with 2024 and 25%.'} for i in range(100)]
         output = rr.documents(records, 'jake')
@@ -116,7 +152,7 @@ class RecordDocuments(unittest.TestCase):
 
     def test_unreadable_or_unsupported_inputs_fail_without_losing_content(self):
         with self.assertRaises(ValueError): rr.validate_upload('broken.docx', b'not zip')
-        for tag in ['drawing', 'ins', 'del', 'altChunk', 'footnoteReference', 'sym']:
+        for tag in ['drawing', 'ins', 'del', 'moveFrom', 'moveTo', 'moveFromRangeStart', 'moveToRangeEnd', 'altChunk', 'footnoteReference', 'sym']:
             output = io.BytesIO()
             with ZipFile(output, 'w') as archive:
                 archive.writestr('word/document.xml', '<w:document xmlns:w="' + rr.W + '"><w:' + tag + '/></w:document>')
@@ -256,6 +292,12 @@ class RecordWorkflow(unittest.TestCase):
             self.assertEqual(self.worker('agent_worker_resume_source', auth)['records'], RECORDS)
             started = time.monotonic()
             result = self.dispatch(claim, real=real)
+            if real:
+                attempts = self.rpc('agent_model_logs', {'id': run['id']})['attempts']
+                evidence = ROOT / '.jac/record-model-evidence'
+                evidence.mkdir(parents=True, exist_ok=True)
+                (evidence / (suffix[1:] + '-attempts.json')).write_text(json.dumps(attempts, indent=2), encoding='utf-8')
+                print(json.dumps({'format': suffix, 'model_attempts': [{'status': a['status'], 'error': a.get('error', '')} for a in attempts]}), flush=True)
             self.assertIn('artifact', result, result)
             proposed = result['artifact']
             extracted(proposed)

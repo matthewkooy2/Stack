@@ -47,13 +47,15 @@ def _docx_lines(raw):
                 raise ValueError('Unsupported DOCX XML declarations.')
             root = ET.fromstring(xml)
             if any(root.find('.//{%s}%s' % (W, tag)) is not None
-                   for tag in ('drawing', 'pict', 'object', 'del', 'ins', 'txbxContent', 'altChunk', 'sym', 'footnoteReference', 'endnoteReference', 'fldSimple', 'instrText')):
+                   for tag in ('drawing', 'pict', 'object', 'del', 'ins', 'moveFrom', 'moveTo', 'moveFromRangeStart', 'moveFromRangeEnd', 'moveToRangeStart', 'moveToRangeEnd', 'txbxContent', 'altChunk', 'sym', 'footnoteReference', 'endnoteReference', 'fldSimple', 'instrText')):
                 raise ValueError('Export a text-only DOCX with tracked changes accepted before importing.')
             lines = []
             for p in root.iter('{%s}p' % W):
                 text = ''.join((node.text or '') if node.tag == '{%s}t' % W else
                                '\n' if node.tag in ('{%s}br' % W, '{%s}cr' % W) else
-                               '\t' if node.tag == '{%s}tab' % W else ''
+                               '\t' if node.tag == '{%s}tab' % W else
+                               '-' if node.tag == '{%s}noBreakHyphen' % W else
+                               '\u00ad' if node.tag == '{%s}softHyphen' % W else ''
                                for node in p.iter())
                 lines.extend(text.splitlines())
             if sum(map(len, lines)) > MAX_TEXT + MAX_RECORDS * 2:
@@ -124,13 +126,14 @@ def validate_records(records):
         if not isinstance(record, dict):
             raise ValueError('Invalid resume record.')
         rid, kind, text = record.get('id'), record.get('kind'), record.get('text')
+        eligible = record.get('allow_omit', False)
         if (not isinstance(rid, str) or not re.fullmatch(r'r\d{1,4}', rid) or rid in ids
-                or kind not in KINDS or not isinstance(text, str) or not text.strip()
+                or kind not in KINDS or not isinstance(eligible, bool) or not isinstance(text, str) or not text.strip()
                     or len(text) > 2000 or any((ord(c) < 32 and c not in '\t\n') or ord(c) == 127 for c in text)):
             raise ValueError('Each record needs a unique id, supported kind and 1–2,000 text characters.')
         text = re.sub(r'\s+', ' ', text).strip()
         size += len(text)
-        result.append({'id': rid, 'kind': kind, 'text': text})
+        result.append({'id': rid, 'kind': kind, 'text': text, **({'allow_omit': True} if eligible else {})})
         ids.add(rid)
     if size > MAX_TEXT:
         raise ValueError('Resume text exceeds the supported limit.')
@@ -196,9 +199,9 @@ def _plan(prepared, data):
     for edit in data.get('omit', []):
         rid = edit.get('id')
         original = by_id.get(rid)
-        # Dated and credential-bearing records always remain. Selection is only
-        # supported for undated bullets, with the entire removed claim recorded.
-        if (not original or original['kind'] != 'bullet' or rid in omitted
+        # Records stay by default. Selection requires the human's explicit
+        # eligibility flag; numeric and known credential guards add protection.
+        if (not original or original['kind'] != 'bullet' or not original.get('allow_omit', False) or rid in omitted
                 or re.search(r'\d|certif|degree|bachelor|master|licens|credential|diploma|accredit|\b(?:CPA|CFA|PMP|RN|MD|PhD|BSc|MSc|MBA)\b', original['text'], re.I)):
             notes.append('Ignored an unsupported omission.')
             continue

@@ -107,6 +107,9 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
                 'resume_text': '',
                 'score_guidance': guidance(before)
             };
+            if prepared['format']=='records' {
+                model_context['resume_selection_eligible']=[r['id'] for r in prepared['records'] if 'allow_omit' in r and r['allow_omit']];
+            }
         }
         def record(attempt: dict[str, any]) -> None {
             try { call('agent_model_log', {**auth, 'record':attempt}); }

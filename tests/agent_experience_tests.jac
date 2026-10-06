@@ -247,7 +247,7 @@ test "an uploaded LaTeX source is checked, compiled, and tailored without confir
                 app2=[a for a in rpc(client,"swipe",{"job_id":job2,"action":"apply"})["applications"] if a["job_id"]==job2][0];
                 second=rpc(client,"agent_start",{"kind":"resume","target_id":app2["id"]});
                 removed=rpc(client,"use_resume_template",{"id":resume_id,"template":""});
-                assert removed["resumes"][0]["format"]["kind"]=="";
+                assert removed["resumes"][0]["format"]["kind"]=="records";
                 claim=work(client,"agent_claim");assert claim["id"]==second["id"] and claim["step"]=="tailor", claim;
                 with patch.dict(dispatch.__globals__,{"call":partial(worker_call,client)}) { result=dispatch(claim,WORKER) as dict[str, any]; }
                 assert result.get("needs_input") and "Review and confirm the imported records for Candidate.pdf" in result["message"], result;

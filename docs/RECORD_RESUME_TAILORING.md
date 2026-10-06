@@ -21,7 +21,9 @@ unchanged original file.
    filename are idempotent; separate names/accounts have independent files.
 3. `resume_save_records(id, revision, records, confirm, template)` requires the
    current revision. Each record has a unique `r<number>` id, `kind` (`title`,
-   `heading`, `paragraph`, `bullet`) and text. Review can correct extraction,
+   `heading`, `paragraph`, `bullet`) and text. Optional `allow_omit: true`
+   explicitly marks a bullet eligible for
+   model selection; records remain by default. Review can correct extraction,
    combine wrapped lines, set semantic roles or select content. Reconfirm after
    editing. Supported templates are `classic` and `jake`; changing template
    increments the source revision. Uploaded LaTeX still takes precedence until
@@ -30,11 +32,15 @@ unchanged original file.
    are refused. The worker retrieves records only under a valid owner/run/lease
    and supplies their stable outline to the configured provider. No provider
    permission or budget gate is bypassed.
-5. Supported proposals reorder contiguous bullet groups, select undated bullets
-   without credential wording, or remove initial `I `, `Successfully ` or
+5. Supported proposals reorder contiguous bullet groups, select explicitly
+   eligible undated bullets
+   without known credential wording, or remove initial `I `, `Successfully ` or
    `Duties included: ` while keeping the remaining claim exactly. General
-   paraphrases are ignored with notes. Dates, metrics, headings and paragraphs
-   cannot be automatically removed. There is no automatic one-page trimming.
+   paraphrases are ignored with notes. Records containing numeric dates/metrics,
+   headings and paragraphs
+   cannot be automatically removed. The eligibility flag must be reviewed carefully
+   for written-out dates/metrics or credentials unfamiliar to the guard; unmarked
+   records cannot be omitted. There is no automatic one-page trimming.
 6. `agent_approve(id, step="approve_resume", review_hash, edits={"rejected":[]})`
    approves the exact change plan. Rejected rewrites, omissions and ordering
    changes revert independently. The final worker rebuild checks the current
@@ -104,8 +110,13 @@ No production deployment or physical-device/UI quality verification is included.
 ## Observed local verification (2026-10-06)
 
 Jac 0.37.21 passed checks for all eight affected server modules. Four document
-checks passed on Windows Python 3.11.15. The deterministic Jac suite passed six
-checks; the live worker suite also passed all six, including both uploaded
+checks initially passed on Windows Python 3.11.15. An additional regression
+preserves native DOCX nonbreaking hyphens in negative metrics through both
+outputs; tracked moves are refused along with insertions and deletions. A further
+regression retains an unfamiliar credential while allowing explicitly reviewed
+selection of a noncredential bullet. The initial deterministic Jac suite passed six
+checks; the expanded suite has eight checks. The corrected live worker suite
+passed all eight, including both uploaded
 formats, actual provider responses, independent file extraction, reload,
 account isolation, template selection, stale leases and deletion of both files.
 Native DOCX package validation opened, edited, saved and reopened the generated
@@ -115,15 +126,16 @@ The live provider was LM Studio (CLI revision `efce996`), model alias
 `mat25-qwen3`, with Qwen3-4B-Instruct Q4_K_M weights. The GGUF SHA-256 was
 `85e4a5b7b8ef0e48af0e8658f5aaab9c2324c76c1641493f4d1e25fce54b18b9`.
 Context was 32,768 tokens with a 2,048-token output limit. The fictional fixture
-was fixed before these calls. Both accepted responses proposed supported filler
-removals and a content omission; rejecting them retained all ten source records.
+was fixed before these calls. Accepted responses proposed supported filler
+removals and an eligible content omission; rejecting them retained all ten source records.
 
 | Measurement | Observed value |
 | --- | --- |
-| PDF worker through approval/export/reload | 30.36 seconds |
-| DOCX worker through approval/export/reload | 23.99 seconds |
-| Whole live Jac command, including compilation and shutdown | 200.49 seconds |
-| Live Jac command maximum resident memory | 1,977,768 KiB |
+| PDF worker through approval/export/reload | 31.17 seconds |
+| DOCX worker through approval/export/reload | 26.16 seconds |
+| Corrected live suite execution | 177.581 seconds |
+| Initial live Jac command, including compilation and shutdown | 200.49 seconds |
+| Initial live Jac command maximum resident memory | 1,977,768 KiB |
 | Loaded GGUF file | 2,497,280,480 bytes |
 | Reported API cost | 0 cents (local inference) |
 
@@ -134,3 +146,13 @@ WSL/Windows HTTP relay; requests still reached the actual provider. Measurements
 are fixture observations, not production throughput estimates. Raw check and
 resource logs are retained with the task evidence; the PR/issue identify the
 reviewed source revision. UI/device quality and deployment remain separate gates.
+
+The existing uploaded-LaTeX/review workflow suite also passed two tests with
+actual Tectonic compilation (256.07 seconds). Legacy durable processing passed
+nine tests (139.478 seconds). Six document regressions passed on Windows after
+the independent review corrections.
+
+One corrected live attempt was refused by source-quotation validation and
+produced no final DOCX files. A diagnostic rerun retained full accepted provider
+responses and completed both formats. The refusal is preserved in the raw
+evidence; source validation was not relaxed.

@@ -1,0 +1,42 @@
+name: Local model worker
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  local-models:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      JAC_DB_SCRATCH: '1'
+      JAC_TEST_JOBS: '0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install the pinned Jac runtime
+        run: |
+          set -euo pipefail
+          runtime=jac-0.37.21-linux-x86_64
+          url=https://github.com/jaseci-labs/jac/releases/download/v0.37.21
+          cd "$RUNNER_TEMP"
+          curl --fail --location --retry 2 "$url/$runtime" --output "$runtime"
+          curl --fail --location --retry 2 "$url/$runtime.sha256" --output "$runtime.sha256"
+          sha256sum --check "$runtime.sha256"
+          chmod +x "$runtime"
+          mkdir -p "$RUNNER_TEMP/jac-bin"
+          mv "$runtime" "$RUNNER_TEMP/jac-bin/jac"
+          echo "$RUNNER_TEMP/jac-bin" >> "$GITHUB_PATH"
+      - name: Install server dependencies
+        run: jac install --no-npm
+      - name: Check provider and worker modules
+        run: jac check agents/local_model.jac agents/contracts.jac agents/provider.jac agents/worker.jac core/automation.jac scripts/agent-admin.jac
+      - name: Exercise local transports and account workflows
+        run: jac run --no-serve tests/test_local_models.py
+      - name: Preserve existing provider behavior and response logs
+        run: |
+          jac run --no-serve tests/test_agent_providers.py
+          jac run --no-serve tests/test_model_logs.py
+          jac test tests/provider_transport_tests.jac tests/provider_workflow_tests.jac

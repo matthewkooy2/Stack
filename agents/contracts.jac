@@ -11,7 +11,8 @@ import from uuid { UUID }
 with entry {
     VERSION = 1;
     CLI_PROVIDERS = {'codex-cli', 'claude-cli'};
-    PROVIDERS = CLI_PROVIDERS | {'openai', 'meta'};
+    LOCAL_PROVIDERS = {'ollama', 'lmstudio'};
+    PROVIDERS = CLI_PROVIDERS | LOCAL_PROVIDERS | {'openai', 'meta'};
     STEPS = {
         'linkedin': ['linkedin_scan', 'linkedin_review'],
         'live': ['interview'],
@@ -60,6 +61,9 @@ def config() -> dict[(str, any)] {
         'monthly_cents': int(raw.get('monthly_cents', 0)),
         'user_monthly_cents': int(raw.get('user_monthly_cents', 0)),
         'model': str(raw.get('model', '')),
+        'local_model_url': str(raw.get('local_model_url', '')),
+        'local_model_timeout': min(90, max(5, int(raw.get('local_model_timeout', 90)))),
+        'local_model_context_tokens': min(32768, max(1024, int(raw.get('local_model_context_tokens', 8192)))),
         'input_cents_per_million': int(raw.get('input_cents_per_million', 0)),
         'output_cents_per_million': int(raw.get('output_cents_per_million', 0)),
         'max_output_tokens': min(
@@ -89,6 +93,10 @@ def model_access(c: dict[(str, any)], owner: str) {
         if not (1 <= c['local_cli_daily_limit'] <= 100) {
             raise ValueError('Set a local CLI daily request limit between 1 and 100.');
         }
+    } elif (c['provider'] in LOCAL_PROVIDERS) {
+        import from agents.local_model { origin }
+        origin(c['provider'], c.get('local_model_url', ''));
+        if not c['model'].strip() { raise ValueError('Choose an installed local model.'); }
     } elif (
         not all(
             (c[k] > 0)
@@ -112,6 +120,8 @@ def model_status(owner: str) -> dict[(str, any)] {
         model_access(c, owner);
         message = 'Local subscription selected; CLI sign-in and provider limits still apply.'
             if (c['provider'] in CLI_PROVIDERS)
+            else 'Local inference configured; the installed model and service are checked when a task runs.'
+            if (c['provider'] in LOCAL_PROVIDERS)
             else 'API billing configured; provider credentials are checked when a task runs.';
         ready = True;
     } except ValueError as exc {
@@ -121,7 +131,7 @@ def model_status(owner: str) -> dict[(str, any)] {
         'provider': c['provider'],
         'model': c['model'],
         'configured': ready,
-        'billing': 'subscription' if (c['provider'] in CLI_PROVIDERS) else 'api',
+        'billing': 'subscription' if (c['provider'] in CLI_PROVIDERS) else 'local' if (c['provider'] in LOCAL_PROVIDERS) else 'api',
         'message': message,
         'daily_limit': c['local_cli_daily_limit']
             if (c['provider'] in CLI_PROVIDERS)
@@ -130,6 +140,7 @@ def model_status(owner: str) -> dict[(str, any)] {
 }
 def reserve_cents(context: dict[(str, any)]) -> int {
     c = config();
+    if (c['provider'] in LOCAL_PROVIDERS) { return 0; }
     if (c['provider'] in CLI_PROVIDERS) {
         raise ValueError(
             'Local subscriptions use request limits, not API spend reservations.'

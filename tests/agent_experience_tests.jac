@@ -113,7 +113,7 @@ test "agents never launch implicitly and outbound steps wait for review of the e
 
                 # Tailoring uses uploaded LaTeX while PDF extraction is paused. The job uses the default resume.
                 resume_id=rpc(client,"upload_resume",{"name":"Candidate.pdf","content":base64.b64encode(Path("tests/fixtures/synthetic-resume.pdf").read_bytes()).decode()})["resumes"][0]["id"];
-                assert "temporarily unavailable" in rpc(client,"agent_extract_resume",{"id":resume_id})["error"];
+                assert not rpc(client,"agent_extract_resume",{"id":resume_id})["confirmed"];
                 source=base64.b64encode(Path("tests/fixtures/jake-resume.tex").read_bytes()).decode();
                 with patch.object(resume_processor.latex,"compile",return_value={"pdf":Path("tests/fixtures/synthetic-resume.pdf").read_bytes(),"pages":1}) {
                     assert rpc(client,"upload_resume_source",{"id":resume_id,"name":"resume.tex","content":source})["resumes"][0]["format"]["kind"]=="upload";
@@ -196,9 +196,9 @@ test "an uploaded LaTeX source is checked, compiled, and tailored without confir
                 assert "Upload your resume" in rpc(client,"agent_start",{"kind":"resume","target_id":application["id"]}).get("error","");
                 uploaded=rpc(client,"upload_resume",{"name":"Candidate.pdf","content":base64.b64encode(Path("tests/fixtures/synthetic-resume.pdf").read_bytes()).decode()});
                 resume_id=uploaded["resumes"][0]["id"];
-                assert uploaded["resumes"][0]["format"]["label"]=="No LaTeX yet";
+                assert uploaded["resumes"][0]["format"]["label"]=="Stack reviewed records";
                 # The job now uses the default resume, but it is only a PDF: tailoring is refused and readiness says why.
-                assert "Upload the LaTeX for Candidate.pdf" in rpc(client,"agent_start",{"kind":"resume","target_id":application["id"]}).get("error","");
+                assert "Review and confirm the imported records for Candidate.pdf" in rpc(client,"agent_start",{"kind":"resume","target_id":application["id"]}).get("error","");
                 assert rpc(client,"agent_activity")["runs"]==[];
                 # PDF-only scoring is paused while LaTeX scoring remains available.
                 pdf_score=rpc(client,"score_resume",{"application_id":application["id"]});
@@ -250,11 +250,11 @@ test "an uploaded LaTeX source is checked, compiled, and tailored without confir
                 assert removed["resumes"][0]["format"]["kind"]=="";
                 claim=work(client,"agent_claim");assert claim["id"]==second["id"] and claim["step"]=="tailor", claim;
                 with patch.dict(dispatch.__globals__,{"call":partial(worker_call,client)}) { result=dispatch(claim,WORKER) as dict[str, any]; }
-                assert result.get("needs_input") and "Upload the LaTeX for Candidate.pdf" in result["message"], result;
+                assert result.get("needs_input") and "Review and confirm the imported records for Candidate.pdf" in result["message"], result;
                 finish(client,claim,result);client.set_auth_token(token);
                 paused=rpc(client,"agent_run",{"id":second["id"]});
                 assert paused["status"]=="needs_input" and paused["needs_resume_review"], paused;
-                assert "Upload the LaTeX" in rpc(client,"agent_continue_tailoring",{"id":second["id"]}).get("error","");
+                assert "Review and confirm" in rpc(client,"agent_continue_tailoring",{"id":second["id"]}).get("error","");
                 rpc(client,"upload_resume_source",{"id":resume_id,"name":"resume.tex","content":base64.b64encode(tex.encode()).decode()});
                 assert rpc(client,"agent_continue_tailoring",{"id":second["id"]})["status"]=="queued";
                 claim=work(client,"agent_claim");assert claim["id"]==second["id"] and claim["step"]=="tailor", claim;

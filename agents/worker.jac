@@ -85,21 +85,22 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
         if (step == 'tailor') {
             import from agents.tailoring { prepare }
             try {
-                prepared = prepare(call('agent_worker_resume_source', auth));
+                source=call('agent_worker_resume_source', auth);
+                if source.get('format')=='records' {
+                    import agents.record_resume as record_resume;
+                    prepared=record_resume.prepare(source);
+                } else { prepared=prepare(source); }
             } except ValueError as exc {
                 return {'needs_input': True, 'message': str(exc), 'requests': []};
             }
             import from agents.tailoring { baseline_score }
             import from agents.scoring { guidance }
-            before = baseline_score(
-                prepared,
-                context.get('job', {}),
-                [
-                    f
-                    for f in context.get('facts', [])
-                    if f.get('verified')
-                ]
-            );
+            if prepared['format']=='records' {
+                import from agents.scoring { score }
+                before=score(prepared['outline'],context.get('job',{}),[],text='\n'.join(r['text'] for r in prepared['records']));
+            } else {
+                before = baseline_score(prepared,context.get('job', {}),[f for f in context.get('facts', []) if f.get('verified')]);
+            }
             model_context = {
                 ** model_context,
                 'resume_structure': prepared['outline'],
@@ -128,9 +129,10 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
                 if f.get('verified')
             ];
             try {
-                result['artifact'] = tailor(
-                    prepared, result['artifact'], facts, context.get('job')
-                );
+                if prepared['format']=='records' {
+                    import agents.record_resume as record_resume;
+                    result['artifact']=record_resume.tailor(prepared,result['artifact'],facts,context.get('job'));
+                } else { result['artifact'] = tailor(prepared,result['artifact'],facts,context.get('job')); }
             } except ValueError as exc {
                 return {'needs_input': True, 'message': str(exc), 'requests': []};
             }
@@ -140,7 +142,13 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
     if (step == 'approve_resume') {
         import from agents.tailoring { prepare, finalize }
         try {
-            prepared = prepare(call('agent_worker_resume_source', auth));
+            source=call('agent_worker_resume_source', auth);
+            if source.get('format')=='records' {
+                import agents.record_resume as record_resume;
+                prepared=record_resume.prepare(source);
+                return {'artifact':record_resume.finalize(prepared,artifacts['tailor'],context.get('job'))};
+            }
+            prepared = prepare(source);
             return {
                 'artifact': finalize(
                     prepared,

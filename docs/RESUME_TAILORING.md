@@ -1,9 +1,10 @@
 # Current availability
 
-OpenResume has been removed. PDF detail extraction, PDF-only scoring and parser
-checks are paused; uploaded LaTeX tailoring remains available. The descriptions
-below that mention the retired parser document earlier behavior. See
-[resume parser status](RESUME_PARSER.md).
+PDF and DOCX uploads now have a backend path through imported text records,
+explicit confirmation, reviewed job-specific changes, and PDF plus editable
+DOCX output. See [reviewed record tailoring](RECORD_RESUME_TAILORING.md) for its
+API contract and limits. Uploaded LaTeX retains the separate workflow below.
+OpenResume remains removed; its semantic field editor remains unavailable.
 
 # Resume Tailoring
 

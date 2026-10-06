@@ -12,7 +12,11 @@ def process(work: dict[str, any], token: str) -> dict[str, any] {
     result: dict[str, any] = {"parse_ms":0.0,"compile_ms":0.0};start=time.perf_counter();
     try {
         raw=base64.b64decode(work["content"],validate=True);
-        if work["kind"]=="pdf" {
+        if work["kind"]=="import" {
+            import from agents.record_resume { import_records }
+            result["records"]=import_records(work["name"],raw);
+            result["parse_ms"]=(time.perf_counter()-start)*1000.0;
+        } elif work["kind"]=="pdf" {
             raise ValueError("PDF detail extraction is temporarily unavailable.");
         } else {
             if work["input_key"].endswith(".json") {

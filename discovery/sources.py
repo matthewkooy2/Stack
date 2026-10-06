@@ -80,23 +80,81 @@ def lever(source, checkpoint):
           'compensation':{'min':salary.get('min'),'max':salary.get('max'),'currency':salary.get('currency'),'unit':salary.get('interval')}})
     return jobs,{'offset':offset+100} if len(payload)==100 else {},len(payload)<100,[]
 
+def smartrecruiters_manifest(source, checkpoint, url):
+    """Freeze a bounded public ID manifest before any detail batches are written."""
+    offset=checkpoint.get('listing_offset',0);ids=checkpoint.get('ids',[])
+    if type(offset) is not int or offset<0 or not isinstance(ids,list):
+        raise ValueError('Invalid SmartRecruiters manifest checkpoint; refresh source.')
+    payload=json_fetch(url+'?'+urlencode({'offset':offset,'limit':100,'country':'us'}))
+    if not isinstance(payload,dict) or not isinstance(payload.get('content'),list):
+        raise ValueError('SmartRecruiters response shape changed.')
+    total=payload.get('totalFound');items=payload['content']
+    if type(total) is not int or not 0<=total<=1000 or len(items)>100:
+        raise ValueError('SmartRecruiters manifest exceeds the 1,000-posting budget or is malformed.')
+    if checkpoint.get('total',total)!=total or (not items and offset<total):
+        raise ValueError('SmartRecruiters manifest changed or is incomplete; refresh source.')
+    page_ids=[str(x['id']) for x in items if isinstance(x,dict) and x.get('id')]
+    if len(page_ids)!=len(items) or len(set(ids+page_ids))!=len(ids)+len(page_ids):
+        raise ValueError('SmartRecruiters manifest has missing or repeated IDs; refresh source.')
+    ids=ids+page_ids;after=offset+len(items)
+    if after>total or len(ids)!=after:
+        raise ValueError('SmartRecruiters manifest count changed; refresh source.')
+    if after==total:
+        return [],({'ids':ids,'detail_offset':0} if ids else {}),not ids,[]
+    return [],{'ids':ids,'listing_offset':after,'total':total},False,[]
+
+def smartrecruiters_expiry(source, j):
+    # This exact employer field states a calendar deadline, inclusive in local time.
+    field=source.get('close_date_field')
+    if not field:return None
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    values=[x.get('valueLabel') for x in j.get('customField',[]) if x.get('fieldLabel')==field]
+    if len(values)!=1 or not values[0]:return None
+    for fmt in ('%m/%d/%y','%m/%d/%Y','%Y-%m-%d'):
+        try:
+            day=datetime.strptime(values[0],fmt)
+            return (day+timedelta(days=1)).replace(tzinfo=ZoneInfo(source['deadline_timezone'])).timestamp()
+        except ValueError:pass
+    return None
+
 def smartrecruiters(source, checkpoint):
     offset=checkpoint.get('offset',0)
     url=f"https://api.smartrecruiters.com/v1/companies/{quote(source['board'],safe='')}/postings"
-    payload=json_fetch(url+'?'+urlencode({'offset':offset,'limit':10,'country':'us'}))
-    if not isinstance(payload.get('content'),list) or 'totalFound' not in payload:raise ValueError('SmartRecruiters response shape changed.')
+    snapshot=source.get('snapshot',False)
+    if snapshot:
+        if 'detail_offset' not in checkpoint:
+            if checkpoint.get('offset'):raise ValueError('Refresh source to start a SmartRecruiters manifest.')
+            return smartrecruiters_manifest(source,checkpoint,url)
+        ids=checkpoint.get('ids');offset=checkpoint['detail_offset']
+        if not isinstance(ids,list) or len(ids)>1000 or type(offset) is not int or not 0<=offset<len(ids):
+            raise ValueError('Invalid SmartRecruiters detail checkpoint; refresh source.')
+        payload={'content':[{'id':x} for x in ids[offset:offset+10]],'totalFound':len(ids)}
+    else:payload=json_fetch(url+'?'+urlencode({'offset':offset,'limit':10,'country':'us'}))
+    if not isinstance(payload,dict) or not isinstance(payload.get('content'),list) or type(payload.get('totalFound')) is not int or len(payload['content'])>10:raise ValueError('SmartRecruiters response shape changed.')
     jobs=[]
     # A small page keeps the entire lease bounded despite detail lookups.
     for item in payload['content']:
-        j=json_fetch(url+'/'+quote(str(item['id']),safe=''))
+        try:j=json_fetch(url+'/'+quote(str(item['id']),safe=''))
+        except ValueError as exc:
+            # A public posting withdrawn after enumeration is absent, not a failed page.
+            if snapshot and str(exc)=='Source returned HTTP 404.':continue
+            raise
+        if not isinstance(j,dict) or str(j.get('id'))!=str(item['id']):raise ValueError('SmartRecruiters detail identity changed.')
+        if j.get('active') is False or j.get('visibility','PUBLIC')!='PUBLIC':continue
         loc=j.get('location') or {};text='\n'.join(x.get('text','') for x in (j.get('jobAd',{}).get('sections') or {}).values())
+        if not text.strip() or not j.get('name'):raise ValueError('SmartRecruiters listing lacks required text.')
+        pay=j.get('compensation') or {};sections=(j.get('jobAd') or {}).get('sections') or {}
         jobs.append({**base(source,j),'company':(j.get('company') or {}).get('name') or source['name'], 'title':j['name'],
           'url':j.get('applyUrl') or f"https://jobs.smartrecruiters.com/{source['board']}/{j['id']}",'location':', '.join(str(loc.get(k,'')) for k in ('city','region','country') if loc.get(k)),
           'country':country('',loc.get('country','')),'description':text,'posted_at':j.get('releasedDate'),'requisition':str(j.get('jobId') or j['id']),
-          'employment_type':(j.get('typeOfEmployment') or {}).get('label'),'mode':'Remote' if loc.get('remote') else 'Unknown'})
+          'qualifications':(sections.get('qualifications') or {}).get('text',''),'expires_at':smartrecruiters_expiry(source,j),
+          'employment_type':(j.get('typeOfEmployment') or {}).get('label'),'mode':'Remote' if loc.get('remote') else ('Hybrid' if loc.get('hybrid') else 'Unknown'),
+          'compensation':{'min':pay.get('min'),'max':pay.get('max'),'currency':pay.get('currency'),'unit':{'YEARLY':'year','MONTHLY':'month','HOURLY':'hour'}.get(pay.get('period'),'unknown')}})
     done=offset+len(payload['content'])>=payload['totalFound']
     if not payload['content'] and not done:raise ValueError('Incomplete SmartRecruiters page.')
-    return jobs,{} if done else {'offset':offset+len(payload['content'])},done,[]
+    after=({'ids':ids,'detail_offset':offset+len(payload['content'])} if snapshot else {'offset':offset+len(payload['content'])}) if not done else {}
+    return jobs,after,done,[]
 
 def adzuna(source, checkpoint):
     cfg=source.get('search',{});f=cfg.get('filters',{});page=checkpoint.get('page',1)

@@ -1,5 +1,19 @@
 [
   {
+    "id": "smartrecruiters:CityAndCountyOfSanFrancisco1",
+    "name": "City and County of San Francisco",
+    "adapter": "smartrecruiters",
+    "board": "CityAndCountyOfSanFrancisco1",
+    "domain": "sf.gov",
+    "sector": "Government",
+    "url": "https://careers.smartrecruiters.com/CityAndCountyOfSanFrancisco1",
+    "approved": true,
+    "snapshot": true,
+    "close_date_field": "Close Date",
+    "deadline_timezone": "America/Los_Angeles",
+    "policy": "Verified unauthenticated public municipal Posting API. At most 1,000 IDs per manifest and ten detail GETs per lease; no internal postings."
+  },
+  {
     "id": "greenhouse:stripe",
     "name": "Stripe",
     "adapter": "greenhouse",

@@ -5,7 +5,7 @@ import time
 
 # A small public vocabulary, never exception text, URLs, selectors or inputs.
 BROWSER_ERROR_MESSAGE = 'Browser operation failed. Review the session or resume the task.'
-BROWSER_OPERATIONS = frozenset({'linkedin_scan', 'inspect', 'fill', 'submit'})
+BROWSER_OPERATIONS = frozenset({'linkedin_scan'})
 BROWSER_STAGES = frozenset({
     'operation', 'control_check', 'expire_session', 'validate_profile',
     'validate_session', 'create_session', 'configure_session', 'open_login',

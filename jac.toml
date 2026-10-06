@@ -8,7 +8,6 @@ default-app = "Stack"
 [dependencies]
 pypdf = "==6.19.0"
 cryptography = "==50.0.2"
-reportlab = "==4.4.10"
 websockets = "==17.0.1"
 google-auth = "==2.40.3"
 requests = "==2.33.1"
@@ -31,6 +30,8 @@ typescript = "^5.3.3"
 "@types/react-dom" = "^19.2.0"
 
 [dev-dependencies]
+# Only the synthetic PDF fixture generator uses ReportLab.
+reportlab = "==4.4.10"
 watchdog = "==6.0.0"
 
 # Preserve the Python-backed execution of migrated backend helpers.

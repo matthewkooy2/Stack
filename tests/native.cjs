@@ -188,7 +188,7 @@ async function screenTests(){
  for(let i=0;i<50&&!/Saved to Applications/.test(text());i++)await act(async()=>{await pause();});
  assert.match(text(),/Saved to Applications/);assert.match(text(),/Nothing was sent to the employer/);
  assert.equal((await device.rpc('bootstrap',{})).agents.runs.length,0);
- assert.ok(labelled(/^Explain my fit/).length&&labelled(/^Prepare & apply/).length&&button('Build interview plan'));
+ assert.ok(labelled(/^Explain my fit/).length&&!labelled(/^Prepare & apply/).length&&button('Build interview plan'));
  assert.equal(labelled(/^Agents: 0 active, 0 need you$/).length,1);
  await press('Build interview plan');await until(/practice sessions to Prep/);
  await press('Applications');assert.match(text(),/UI Test Employer/);
@@ -216,15 +216,15 @@ async function agentScreenTests({ui,text,button,press,field,input,tick,labelled,
  // Uses a dedicated test API config (never a real one) to bind this account to a local provider;
  // the test plays the worker, so no model, browser, or email is contacted.
  const config=process.env.STACK_TEST_AGENT_CONFIG,owner=(await device.rpc('bootstrap',{})).user_id;
- fs.writeFileSync(config,JSON.stringify({provider:'codex-cli',local_cli_owner:owner,local_cli_daily_limit:20,action_daily_limits:{browser_fill:5,send_email:5}}));
+ fs.writeFileSync(config,JSON.stringify({provider:'codex-cli',local_cli_owner:owner,local_cli_daily_limit:20,action_daily_limits:{send_email:5}}));
  const finish=(work,result)=>agentWorker('agent_finish',{id:work.id,owner:work.owner,lease:work.lease,result});
  const openBadge=async()=>{const badge=labelled(/^Agents: /)[0];assert.ok(badge,'Agents header entry');await act(async()=>{await badge.props.onPress();await new Promise(r=>setTimeout(r,60));});};
  try{
   await press('Jobs');await openBadge();assert.match(text(),/Your agents\./);assert.match(text(),/No tasks are running/);await press('Needs you');assert.match(text(),/Nothing needs you right now/);
-  await press('Features');for(const title of ['Application assistant','Networking & follow-ups','Resume tailoring','Job-fit analysis','Profile suggestions','Interview coaching','Code practice runs','Live interviews','Email tracking','Calendar assistant'])assert.ok(text().includes(title),title);
+  await press('Features');for(const title of ['Networking & follow-ups','Resume tailoring','Job-fit analysis','Profile suggestions','Interview coaching','Code practice runs','Live interviews','Email tracking','Calendar assistant'])assert.ok(text().includes(title),title);
   assert.match(text(),/Meanwhile: /);assert.match(text(),/Your control: /);
   await press('Rules');await act(async()=>{ui.root.findAll(n=>n.type==='Switch')[0].props.onValueChange(true);});
-  await press('Model');await press('Browser Fill');await press('Send Email');await field('Allowed destination domains','jobs.smartrecruiters.com, example.com');
+  await press('Model');await press('Send Email');await field('Allowed destination domains','jobs.smartrecruiters.com, example.com');
   await tick();assert.equal(input('Allowed destination domains').props.value,'jobs.smartrecruiters.com, example.com','Refresh must keep unsaved rules');
   await press('Save standing permissions · unsaved changes');assert.match(text(),/Standing permissions saved/);
   await press('Facts');await field('Fact name','email');await field('Your answer','ui-tester@example.com');await press('Save confirmed fact');assert.match(text(),/ui-tester@example.com/);
@@ -248,42 +248,23 @@ async function agentScreenTests({ui,text,button,press,field,input,tick,labelled,
   await press('Don’t do this · cancel task');assert.match(text(),/Cancelled. Nothing was shared/);
   assert.ok((await agentWorker('agent_claim')).idle);await press('Close details');
 
-  // Application: explicit start; answers and documents are reviewed before anything is shared.
+  // Application tracking remains manual; the independent fit workflow still works.
   await press('Applications');
   const card=ui.root.findAll(n=>n.type==='Pressable'&&n.props.accessibilityRole==='button'&&!n.props.accessibilityLabel&&JSON.stringify(n.findAllByType('Text').map(t=>t.props.children)).includes('UI Test Employer'))[0];
-  await act(async()=>{card.props.onPress();});assert.match(text(),/Agent help/);assert.match(text(),/approve submission separately/);
-  await press('Prepare & apply');assert.match(text(),/Prepare & apply started/);
-  work=await agentWorker('agent_claim');assert.equal(work.step,'inspect');
-  await finish(work,{artifact:{adapter:'lever',schema_hash:'s',fields:[{label:'Email',type:'email',tag:'input',key:'email',required:true,name:'email',id:'email',options:[],value:''},{label:'Resume',type:'file',tag:'input',key:'answer:resume',required:true,name:'resume',id:'resume',options:[],value:''}]}});
-  work=await agentWorker('agent_claim');assert.equal(work.step,'fit');await finish(work,{artifact:{summary:'Clear timeline match.',strengths:['Graduation window matches'],gaps:[],unknowns:[],evidence:[]}});
-  const blank=fs.readFileSync(path.join(root,'tests/fixtures/blank.pdf')).toString('base64');
-  const change={id:'s0.e0.b0',kind:'rewrite',where:'Experience · Clinic',before:'Completed rotations.',after:'Completed clinical rotations.',reason:'Listing asks for clinical work.'};
-  work=await agentWorker('agent_claim');assert.equal(work.step,'tailor');await finish(work,{artifact:{summary:'Leads with clinical work',changes:[change],rejected:[],dropped:[],notes:[],plan:{},source_digest:'d',format:'latex',tex:'',final:false,evidence:[],pdf:{name:'Tailored resume.pdf',content:blank,pages:1,diff:'+ Clinical rotations'}}});
-  assert.ok((await agentWorker('agent_claim')).idle,'Resume changes must wait for review');
-  await tick();await press('Open task Prepare & apply · Needs your review');
-  await until(/Review your tailored resume for UI Test Employer/);assert.match(text(),/CHANGES · 1 OF 1 KEPT/);assert.match(text(),/Step 4 of 6/);
-  await press('Apply the changes I kept');assert.match(text(),/Approved/);
-  work=await agentWorker('agent_claim');assert.equal(work.step,'approve_resume');
-  await finish(work,{artifact:{summary:'Applied 1 of 1 changes.',tailor:{final:true,pdf:{name:'Tailored resume.pdf',content:blank,pages:1,diff:'+ Clinical rotations'}}}});
-  assert.ok((await agentWorker('agent_claim')).idle,'Fill must wait for review');
-  await press('Back to tasks');await tick();assert.match(text(),/Prepare & apply · Needs your review/);
-  await press('Open task Prepare & apply · Needs your review');
-  await until(/ANSWERS STACK WILL ENTER/);assert.match(text(),/Email: ui-tester@example.com/);assert.match(text(),/Tailored resume.pdf/);assert.match(text(),/Step 5 of 6/);
-  await press('Preview the resume that will be uploaded');assert.ok(ui.root.findAll(n=>n.type==='PDF').length);await press('Close preview');
-  await press('Approve sharing these answers');assert.match(text(),/Approved/);
-  work=await agentWorker('agent_claim');assert.equal(work.step,'fill');
-  await finish(work,{needs_input:true,message:'Complete these missing application answers.',requests:[{key:'answer:start',label:'Earliest start date'}]});
-  await tick();await until(/STACK NEEDS YOUR ANSWERS/);await field('Earliest start date','June 2027');
-  await tick();assert.equal(input('Earliest start date').props.value,'June 2027');
-  await press('Save answers and resume');assert.match(text(),/resumes automatically/);
-  assert.equal((await device.rpc('agent_activity',{})).attention,0);
-  await press('Back to tasks');await press('Close details');
+  await act(async()=>{card.props.onPress();});assert.match(text(),/Agent help/);
+  assert.ok(!labelled(/^Prepare & apply/).length);
+  assert.ok(button('Open application page')&&button('Mark as submitted'));
+  await press('Explain my fit');
+  work=await agentWorker('agent_claim');assert.equal(work.step,'fit');
+  await finish(work,{artifact:{summary:'Clear timeline match.',strengths:['Graduation window matches'],gaps:[],unknowns:[],evidence:[]}});
+  await tick();assert.ok((await agentWorker('agent_claim')).idle);
+  await press('Close details');
  } finally {
   fs.writeFileSync(config,'{}');
   // Leave the shared worker queue empty for suites that claim the next global task.
   for(const run of (await device.rpc('agent_activity',{})).runs)if(!['completed','cancelled','failed'].includes(run.status))await device.rpc('agent_cancel',{id:run.id}).catch(()=>{});
  }
- console.log('PASS agent screens: header counts, feature guide, rules draft kept on refresh, facts, contact save without outreach, outreach review/edit persistence/cancel, application review of answers and documents, PDF preview, approval, answer requests.');
+ console.log('PASS agent screens: header counts, feature guide, rules draft kept on refresh, facts, contact save without outreach, outreach review/edit persistence/cancel, manual application tracking and standalone job-fit analysis.');
 }
 async function tailoringScreenTests(){
  const calls=[],refreshers=new Set();let opened='',confirmed=false,failSave=true,failUpload=true,ui;

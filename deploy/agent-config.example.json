@@ -10,10 +10,7 @@
   "input_cents_per_million": 0,
   "output_cents_per_million": 0,
   "max_output_tokens": 3000,
-  "certified_adapters": [],
   "action_daily_limits": {
-    "browser_fill": 0,
-    "submit_application": 0,
     "send_email": 0,
     "calendar_write": 0
   },

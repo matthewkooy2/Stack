@@ -1,14 +1,13 @@
 """What each agent does, what it needs, and what the user must review. No state or IO."""
 import time;
-import from urllib.parse { urlsplit }
-import from agents.contracts { EXTERNAL, answers }
+import from agents.contracts { EXTERNAL }
 with entry {
-    REVIEWED = {'approve_resume', 'fill', 'submit', 'send', 'calendar'};
+    REVIEWED = {'approve_resume', 'send', 'calendar'};
     ATTENTION = {'needs_input', 'blocked', 'uncertain', 'review'};
     ACTIVE = {'queued', 'running', 'waiting'};
     KIND_TITLES = {
         'linkedin': 'LinkedIn profile review',
-        'application': 'Prepare & apply',
+        'application': 'Archived application assistant',
         'jobs': 'Job-fit analysis',
         'resume': 'Resume tailoring',
         'network': 'Networking outreach',
@@ -39,7 +38,7 @@ with entry {
     };
     RESULTS = {
         'linkedin':'Network → LinkedIn profile review, and this task. Copy suggested edits into LinkedIn yourself.',
-        'application': 'Applications → this job → Agent help. Submission receipts update the application status.',
+        'application': 'Saved results from the retired application assistant.',
         'jobs': 'Applications → this job → Agent help, and this task.',
         'resume': 'This task: your tailored one-page PDF in your own LaTeX format, each change with its reason, and the .tex source. Your original is never modified.',
         'network': 'Network → your contacts, and this task. Sent emails appear in your Gmail Sent folder.',
@@ -86,9 +85,6 @@ def review_payload(
             'source': tailored.get('source_digest', '')
         };
     }
-    if (step in ('fill', 'submit')) {
-        return [context, artifacts];
-    }
     if (step == 'send') {
         return artifacts.get('draft', {});
     }
@@ -96,9 +92,6 @@ def review_payload(
         return context.get('event', {});
     }
     raise ValueError('This step does not need review.');
-}
-def _host(url: str) -> str {
-    return (urlsplit(url).hostname or '') if url else '';
 }
 def review_summary(
     step: str, context: dict[(str, any)], artifacts: dict[(str, any)]
@@ -118,66 +111,6 @@ def review_summary(
             'notes': `list(tailored.get('notes', [])),
             'score': tailored.get('score', {}),
             'consequence': 'Stack keeps the changes you accept, rebuilds the PDF in your format, and fits it to one page. Nothing is shared.'
-        };
-    }
-    if (step == 'fill') {
-        verified = answers(context.get('facts', []));
-        fields = artifacts.get('inspect', {}).get('fields', []);
-        (rows, documents, notes) = ([], [], []);
-        tailored = artifacts.get('tailor', {});
-        for f in fields {
-            label = str((f.get('label', '') or f.get('name', 'Field')));
-            if (f.get('type') == 'file') {
-                kind = 'cover_letter'
-                    if ('cover' in label.lower())
-                    else 'pdf'
-                        if `any((x in label.lower()) for x in ('resume', 'cv'))
-                        else '';
-                pdf = tailored.get(kind, {}) if kind else {};
-                if pdf {
-                    documents.append(
-                        {
-                            'label': label,
-                            'name': pdf.get('name', 'Document.pdf'),
-                            'pages': pdf.get('pages', 0)
-                        }
-                    );
-                } elif f.get('required') {
-                    notes.append(
-                        (
-                            'No document is attached for “'
-                            + label
-                            + '”. Complete it in the browser handoff.'
-                        )
-                    );
-                }
-            } elif (
-                (f.get('type') not in ('checkbox', 'radio'))
-                and (f.get('key') in verified)
-            ) {
-                rows.append({'label': label, 'value': verified[f['key']]});
-            }
-        }
-        return {
-            'step': step,
-            'title': ('Share answers and documents with ' + employer),
-            'destination': _host(job.get('url', '')),
-            'answers': rows,
-            'documents': documents,
-            'diff': str(tailored.get('pdf', {}).get('diff', ''))[:6000],
-            'notes': notes,
-            'consequence': 'Stack fills and checks the form. It does not submit. You approve submission separately.'
-        };
-    }
-    if (step == 'submit') {
-        return {
-            'step': step,
-            'title': ('Submit your application to ' + employer),
-            'destination': _host(job.get('url', '')),
-            'answers': [],
-            'documents': [],
-            'notes': ['The completed form was verified in the browser session.'],
-            'consequence': 'Stack clicks Submit once and saves the confirmation. This cannot be undone.'
         };
     }
     if (step == 'send') {
@@ -295,16 +228,6 @@ with entry {
         },
 
         {
-            'key': 'applications',
-            'kinds': ['application'],
-            'title': 'Application assistant',
-            'where': 'Applications',
-            'summary': 'Reads a supported application form, explains fit, tailors your resume, fills the form, and submits once.',
-            'input': 'A saved real job on Greenhouse, Lever, or Ashby, your resume, and confirmed answers.',
-            'review': 'You approve the exact answers and documents before they are shared, then approve submission separately.',
-            'alternative': 'Open the application page, apply yourself, then tap Mark as submitted.'
-        },
-        {
             'key': 'networking',
             'kinds': ['network'],
             'title': 'Networking & follow-ups',
@@ -321,7 +244,7 @@ with entry {
             'where': 'Resume',
             'summary': 'Edits your LaTeX resume for a specific job (reorders, rewords, and trims to one page) and keeps your format.',
             'input': 'Your LaTeX source from Overleaf or a built-in template, and a saved job.',
-            'review': 'You accept or reject each change before the PDF is final. It is only shared inside an application you approve.',
+            'review': 'You accept or reject each change before the PDF is final. Download the finished PDF and use it when you apply yourself.',
             'alternative': 'Edit your resume in Overleaf yourself using the job-fit analysis.'
         },
         {
@@ -397,8 +320,6 @@ with entry {
     ];
     ACTION_NAMES = {
         'model': 'Model',
-        'browser_fill': 'Browser fill',
-        'submit_application': 'Submit application',
         'send_email': 'Send email',
         'calendar_write': 'Calendar write',
         'gmail_read': 'Gmail read'
@@ -534,52 +455,6 @@ def feature_status(facts: dict[(str, any)]) -> list[dict[(str, any)]] {
             ]
         ),
 
-        'applications': (
-            model_checks
-            + [
-                check(
-                    'applications',
-                    'A saved real job',
-                    (facts.get('applications', 0) > 0),
-                    'Swipe right on a job to save it.',
-                    'jobs'
-                ),
-                check(
-                    'resume',
-                    'An uploaded resume',
-                    (facts.get('resumes', 0) > 0),
-                    'Upload a PDF on the Resume tab.',
-                    'resume'
-                ),
-                check(
-                    'facts',
-                    'Confirmed resume facts',
-                    (facts.get('resume_facts', 0) > 0),
-                    'Extract and confirm your resume facts.',
-                    'facts'
-                ),
-                permission('browser_fill'),
-                operator('browser_fill'),
-                permission('submit_application', optional=True),
-                check(
-                    'browser',
-                    'Browser worker available',
-                    facts.get('browser'),
-                    'The operator has not configured the isolated browser worker.',
-                    '',
-                    user=False
-                ),
-                check(
-                    'certified',
-                    'Automatic submission certified',
-                    facts.get('certified_adapters'),
-                    'No application site is certified for automatic submission yet. You submit through the browser handoff or the employer site.',
-                    '',
-                    user=False,
-                    optional=True
-                )
-            ]
-        ),
         'networking': (
             model_checks
             + [

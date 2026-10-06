@@ -1,5 +1,7 @@
 # Agent experience: access, review, and monitoring
 
+> Historical implementation notes. The application assistant was removed from main on 2026-10-06; its full implementation is preserved on `archive/application-assistant-20261006` at `f7bd644`. Form inspection, filling, submission, and cover-letter generation are no longer available. Job-fit analysis, resume tailoring, manual application tracking, and LinkedIn review remain.
+
 Branch `codex/agent-experience`, based on `a186068` (before the OpenResume work).
 This change makes every agentic feature reachable from the screen where it is
 relevant, keeps the user in control of outbound actions, and shows progress and

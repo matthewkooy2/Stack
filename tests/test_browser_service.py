@@ -95,6 +95,15 @@ class BrowserService(unittest.TestCase):
             host.executor.shutdown()
         self.assertEqual(results, [{'artifact': 'capture'}])
 
+    def test_retired_application_operations_are_rejected(self):
+        host = BrowserHost(Pool)
+        try:
+            for operation in ('inspect', 'fill', 'submit'):
+                with self.assertRaisesRegex(ValueError, 'Unknown browser operation'):
+                    host.dispatch('/' + operation, dict(owner='owner', id='run', context={}))
+        finally:
+            host.executor.shutdown()
+
     def test_idle_snapshots_stay_on_playwright_thread(self):
         host = BrowserHost(Pool)
         try:
@@ -126,7 +135,7 @@ class BrowserHandoffService(unittest.TestCase):
             else:
                 state = host.dispatch('/control', dict(owner='owner', id='run', action='resume', generation=1, controller='viewer-synthetic-test'))
                 self.assertEqual(state['mode'], 'agent')
-                stale = host.dispatch('/inspect', dict(owner='owner', id='run', context={}))
+                stale = host.dispatch('/linkedin_scan', dict(owner='owner', id='run', context={}))
                 self.assertTrue(stale['interrupted'], 'old agent generation must not run after resume')
         finally:
             host.pool.release.set();thread.join(3);host.executor.shutdown()

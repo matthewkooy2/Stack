@@ -92,7 +92,6 @@ with entry:__main__ {
                         'web_url',
                         'monthly_cents',
                         'user_monthly_cents',
-                        'certified_adapters',
                         'action_daily_limits'
                     )
                 },

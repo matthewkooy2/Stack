@@ -80,7 +80,17 @@ def _steps(r: AgentRun) -> list[str] { return workflow_steps(r.kind, r.workflow_
 
 # Only explicit continuation changes an old run's workflow. Receipts keep their original step names.
 def _pause_legacy(r: AgentRun) -> bool {
-    if r.workflow_version != 1 or r.kind not in ["resume", "application"] or r.status in TERMINAL { return False; }
+    if r.status in TERMINAL { return False; }
+    if r.kind=="application" {
+        intents=[a for a in [root -->][?:AgentAction] if a.run_id==jid(r) and a.status=="intent"];
+        status="uncertain" if intents else "cancelled";
+        message="Application assistant retired. Reconcile the previously dispatched action." if intents else "Application assistant retired. Saved results remain available.";
+        if r.status==status and r.message==message and not r.lease { return False; }
+        r.status=status;r.message=message;r.lease="";r.lease_until=0.0;r.next_at=0.0;r.review={};r.approvals={};r.requests=[];r.upgrade_pending=False;r.updated_at=time.time();
+        for t in [root.shared -->][?:AgentTicket] { if t.run_id==jid(r) { t.state=status;t.due_at=0.0; } }
+        return True;
+    }
+    if r.workflow_version != 1 or r.kind!="resume" { return False; }
     intents=[a for a in [root -->][?:AgentAction] if a.run_id==jid(r) and a.status=="intent"];
     status="uncertain" if intents else "blocked";
     if r.upgrade_pending and r.status==status { return False; }
@@ -99,12 +109,9 @@ def _upgrade_legacy_runs() -> int {
     return changed;
 }
 def _continue_legacy(r: AgentRun) -> None {
-    if r.workflow_version != 1 or r.kind not in ["resume", "application"] { return; }
+    if r.workflow_version != 1 or r.kind!="resume" { return; }
     actions=[a for a in [root -->][?:AgentAction] if a.run_id==jid(r)];
     if any(a.status=="intent" for a in actions) { raise ValueError("Reconcile the dispatched action first."); }
-    if any(a.step=="submit" and a.status=="confirmed" for a in actions) {
-        r.status="completed";r.message="The previous submission is confirmed. It will not be repeated.";return;
-    }
     r.workflow_version=2;r.upgrade_pending=False;r.index=0;r.artifacts={};r.review={};r.approvals={};
     # The normal tailor blocker refreshes the current resume/source from the saved application.
     r.context={**r.context,"resume_format":""};
@@ -122,7 +129,7 @@ def _run_view(r: AgentRun, detail: bool = False) -> dict[str, any] {
     out={"id":jid(r),"kind":r.kind,"target_id":r.target_id,"status":r.status,"step":steps[min(r.index,len(steps)-1)],"message":r.message,"created_at":r.created_at,"updated_at":r.updated_at,"cost_cents":r.cost_cents,"provider":r.provider,"subscription_calls":r.subscription_calls,"dismissed":r.dismissed,"workflow_version":r.workflow_version,"upgrade_pending":r.upgrade_pending,
         **present(r.kind,r.status,r.index,steps,r.context,r.next_at)};
     out["attention"]=_needs_attention(r) or r.status=="paused";
-    out["browser"]={"supported":r.kind in ["application","linkedin"],"available":r.status not in TERMINAL and (r.kind=="application" or (r.kind=="linkedin" and r.index==0))};
+    out["browser"]={"supported":r.kind=="linkedin","available":r.status not in TERMINAL and r.kind=="linkedin" and r.index==0};
     out["needs_resume_review"]=r.status=="needs_input" and out["step"]=="tailor" and not _tailor_ready(r.context);
     out["has_requests"]=len(r.requests)>0;
     out["retry_at"]=r.next_at if r.status=="queued" and r.attempts>0 else 0.0;
@@ -206,7 +213,7 @@ def _agent_start(kind: str, target_id: str, context: dict[str, any], nonce: str 
     _agent_access();
     if kind not in STEPS { return {"error":"Unknown agent."}; }
     m=_agent_memory();context={**context,"facts":context_facts(m.facts,context),"prompt_version":VERSION};
-    key=digest([kind,target_id,nonce or ("once" if kind in ["application","network"] else context)]);
+    key=digest([kind,target_id,nonce or ("once" if kind=="network" else context)]);
     for old in [root -->][?:AgentRun] { if old.key==key { return _run_view(old,True); } }
     r=root ++> AgentRun(workflow_version=2,kind=kind,target_id=target_id,context=context,created_at=time.time(),updated_at=time.time(),key=key,policy_revision=m.revision);
     ticket=root.shared ++> AgentTicket(owner=jid(root),run_id=jid(r));
@@ -225,7 +232,7 @@ def:priv agent_cancel(id: str) -> dict[str, any] {
         r.status="uncertain" if intents else "cancelled";
         r.message="Cancellation requested; reconcile the dispatched action." if intents else "Cancelled";
         r.lease="";r.updated_at=time.time();commit();
-        close_browser=r.kind in ["linkedin","application"];owner=jid(root);out=_run_view(r,True);
+        close_browser=r.kind=="linkedin";owner=jid(root);out=_run_view(r,True);
     }
     # Closing a remote browser must not hold up every account's database writer.
     if close_browser {
@@ -240,6 +247,7 @@ def:priv agent_respond(id: str, values: list[dict[str, any]] = [], reuse: bool =
     with _catalog_lock {
         _agent_fresh();r=_owned_run(id);
         if r is None or r.status not in ["needs_input","blocked"] { return {"error":"This run is not waiting for input."}; }
+        if r.kind=="application" { return {"error":"The application assistant has been retired."}; }
         if r.kind=="linkedin" and len(validated)>0 { return {"error":"Enter LinkedIn login details only in the browser handoff, never in task answers."}; }
         _continue_legacy(r);
         if r.status=="completed" { commit();return _run_view(r,True); }
@@ -247,7 +255,7 @@ def:priv agent_respond(id: str, values: list[dict[str, any]] = [], reuse: bool =
         if reuse { m.facts=[f for f in m.facts if f["key"] not in keys]+validated;m.revision+=1; }
         r.context["facts"]=[f for f in m.facts if f["key"] not in keys]+validated;
         r.context["fact_overrides"]=[] if reuse else validated;
-        if validated and r.kind in ["application","resume","jobs"] { r.index=0;r.artifacts={}; }
+        if validated and r.kind in ["resume","jobs"] { r.index=0;r.artifacts={}; }
         r.status="queued";r.message="Ready to resume";r.requests=[];r.attempts=0;r.updated_at=time.time();
         for t in [root.shared -->][?:AgentTicket] { if t.run_id==id { t.state="queued";t.due_at=0; } }
         commit();return _run_view(r,True);
@@ -278,9 +286,8 @@ def:pub agent_claim(token: str) -> dict[str, any] {
             if r.attempts>=3 { r.status="failed";r.message="This step failed three times. Review the error before retrying.";t.state="failed";continue; }
             m=_agent_memory();overrides=r.context.get("fact_overrides",[]);override_keys=[f["key"] for f in overrides];
             current_facts=context_facts([f for f in m.facts if f["key"] not in override_keys]+overrides,r.context);
-            if digest(r.context.get("facts",[]))!=digest(current_facts) and r.kind in ["application","resume","jobs"] {
+            if digest(r.context.get("facts",[]))!=digest(current_facts) and r.kind in ["resume","jobs"] {
                 r.index=0;r.artifacts={};step=_steps(r)[0];
-                for a in [root -->][?:AgentAction] { if a.run_id==jid(r) and a.step=="fill" and a.status=="confirmed" { a.key=a.key+":"+jid(a); } }
             }
             r.context["facts"]=current_facts;
             reservation=0;c=config();
@@ -293,7 +300,7 @@ def:pub agent_claim(token: str) -> dict[str, any] {
                 _agent_access();
                 if step in REVIEWED {
                     # Surface missing permissions before asking for review; agent_authorize rechecks at dispatch.
-                    if step in EXTERNAL { authorize(m.policy,EXTERNAL[step],r.context.get("contact",{}).get("email","") if step=="send" else ("" if step=="calendar" else r.context.get("job",{}).get("url",""))); }
+                    if step in EXTERNAL { authorize(m.policy,EXTERNAL[step],r.context.get("contact",{}).get("email","") if step=="send" else ""); }
                     reviewed=digest(review_payload(step,r.context,r.artifacts));
                     if r.approvals.get(step)!=reviewed {
                         r.status="review";r.review={**review_summary(step,r.context,r.artifacts),"hash":reviewed};
@@ -331,7 +338,7 @@ def:pub agent_claim(token: str) -> dict[str, any] {
 }
 def _agent_leased(id: str, owner: str, lease: str) -> AgentRun {
     _agent_owner(owner);r=_owned_run(id);
-    if r is None or not lease or r.lease!=lease or r.lease_until<time.time() or r.status!="running" { raise ValueError("Run lease expired or cancelled."); }
+    if r is None or r.kind=="application" or not lease or r.lease!=lease or r.lease_until<time.time() or r.status!="running" { raise ValueError("Run lease expired or cancelled."); }
     return r;
 }
 def:pub agent_model_log(token: str, id: str, owner: str, lease: str, record: dict[str, any]) -> dict[str, any] {
@@ -372,12 +379,9 @@ def:pub agent_authorize(token: str, id: str, owner: str, lease: str, payload_has
             r=_agent_leased(id,owner,lease);step=_steps(r)[r.index];m=_agent_memory();
             if step not in EXTERNAL { return {"error":"This step has no external action."}; }
             if step in REVIEWED and (not r.approvals.get(step) or r.approvals.get(step)!=payload_hash) { raise ValueError("This action does not match what you approved. Review it again."); }
-            action=EXTERNAL[step];destination=r.context.get("contact",{}).get("email","") if step=="send" else r.context.get("job",{}).get("url","");
+            action=EXTERNAL[step];destination=r.context.get("contact",{}).get("email","") if step=="send" else "";
             authorize(m.policy,action,destination);
             if step in ["send","calendar"] and not [c for c in [root -->][?:AgentConnection] if c.provider=="google" and c.state=="connected"] { raise ValueError("Google authorization was revoked or is unavailable."); }
-            if step=="submit" {
-                if r.artifacts.get("inspect",{}).get("adapter","") not in config()["certified_adapters"] { raise ValueError("This browser adapter is not certified for automatic submission."); }
-            }
             if step=="send" {
                 contacts=[c for c in [root -->][?:AgentContact] if jid(c)==r.target_id];
                 if not contacts or contacts[0].data.get("email")!=r.context.get("contact",{}).get("email") or not contacts[0].data.get("selected") or contacts[0].data.get("stopped") { raise ValueError("This contact is not selected or outreach has stopped."); }
@@ -420,11 +424,11 @@ def _agent_complete(token: str, id: str, owner: str, lease: str, result: dict[st
             r.status="uncertain" if intents else "blocked";r.requests=[];r.message=str(result.get("message","This step could not complete. Retry when ready."))[:1000];
         } elif result.get("needs_input") {
             r.status="needs_input";r.requests=result.get("requests",[]);r.message=str(result.get("message","Your input is needed."))[:1000];
-            # The browser can prove it stopped before sending/filling anything.
+            # A dispatched action still needs reconciliation.
             if intents { r.status="uncertain";r.message="An action was dispatched; reconcile it before resuming."; }
         } else {
             artifact=result.get("artifact",{});
-            if step in ["submit","send","calendar"] and not artifact.get("receipt") {
+            if step in ["send","calendar"] and not artifact.get("receipt") {
                 r.status="uncertain";r.message="No confirmation receipt was returned.";
             } else {
                 if step=="approve_resume" {
@@ -460,10 +464,6 @@ def:priv agent_reconcile(id: str, outcome: str, evidence: str) -> dict[str, any]
                 if outcome=="not_sent" { a.key=a.key+":"+jid(a); }
             }
         }
-        if outcome=="not_sent" and step=="submit" {
-            r.index=_steps(r).index("fill");
-            for a in [root -->][?:AgentAction] { if a.run_id==id and a.step=="fill" and a.status=="confirmed" { a.key=a.key+":"+jid(a); } }
-        }
         if outcome=="confirmed" { r.artifacts[step]={"receipt":evidence,"user_confirmed":True};r.index+=1; }
         r.status="completed" if r.index>=len(_steps(r)) else "queued";r.message="Reconciled by you";r.attempts=0;
         _pause_legacy(r);
@@ -484,6 +484,7 @@ def:priv agent_approve(id: str, step: str, review_hash: str, edits: dict[str, an
     with _catalog_lock {
         _agent_fresh();r=_owned_run(id);
         if r is None or r.status!="review" { return {"error":"This task is not waiting for your review."}; }
+        if r.kind=="application" { return {"error":"The application assistant has been retired."}; }
         # The approval covers exactly the version the user saw; a newer version needs a new look.
         if r.review.get("step")!=step or r.review.get("hash")!=review_hash or _steps(r)[r.index]!=step { return {"error":"This review changed. Look it over again before approving."}; }
         # Approving something Stack cannot deliver would only fail later; keep the review and say why.
@@ -512,6 +513,7 @@ def:priv agent_retry(id: str) -> dict[str, any] {
     with _catalog_lock {
         _agent_fresh();r=_owned_run(id);
         if r is None { return {"error":"Run not found."}; }
+        if r.kind=="application" { return {"error":"The application assistant has been retired."}; }
         # Uncertain runs must be reconciled; completed or cancelled work is never replayed.
         if r.status not in ["failed","blocked"] or r.kind=="live" { return {"error":"Only a failed or paused task can be retried."}; }
         if [a for a in [root -->][?:AgentAction] if a.run_id==id and a.status=="intent"] { return {"error":"An action may have been dispatched. Reconcile it first."}; }

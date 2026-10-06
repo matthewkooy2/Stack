@@ -61,26 +61,50 @@ is covered deterministically.
 | 3743990006093006 | Principal Administrative Analyst (1824) - Multiple Departments Citywide (C00188) |
 | 3743990008082106 | Electrical Line Worker (7338, Specialty B) - Dept of Technology |
 
-Raw local evidence: `artifacts/municipal-adapter-live.json` and
-`artifacts/municipal-adapter-audit.json` (ignored runtime artifacts). This is live
-adapter evidence, not verified catalog coverage. The historical Government
-baseline is zero; the resulting live adapter sample contains 158 active government
-listings. These counts must not be added to the historical production total.
+Raw local evidence: `artifacts/municipal-adapter-live.json`,
+`artifacts/municipal-adapter-audit.json`, and `artifacts/municipal-live-audit.json`
+(ignored runtime artifacts). The final audit ran the actual Jac worker in a fresh
+process for every batch, against an isolated Jac/Postgres backend. Its tracked
+source files matched the candidate exactly. Ten independent official detail
+refetches matched the stored fields and each listing was returned by authenticated
+account detail and title-search requests.
+
+| Measurement | Before | After |
+|---|---:|---:|
+| Active US listings in disposable catalog | 0 | 158 |
+| Active Government listings in disposable catalog | 0 | 158 |
+
+The official public feed contained 159 IDs; one had a supplied Close Date that had
+already passed, so the catalog correctly excluded it. All 159 collected records
+had distinct listing identities. The ten exact sampled IDs appear above. These
+are measured additions in a disposable environment, not production growth or
+nationwide recall; do not add them to the historical production total.
 
 Executed checks: python tests/test_discovery.py (21 passed),
 python tests/test_municipal_discovery.py (7 passed), and
 python tests/test_matching.py (16 passed plus both synthetic evaluations).
-jac check scripts/discovery-worker.jac passed in WSL before the runtime stall.
+jac check scripts/discovery-worker.jac passed. The Linux contributor suite passed
+all 12 tests, and `JAC_TEST_JOBS=0 jac test tests/catalog_tests.jac` passed all three
+tests, including two clean missing cycles, the 24-hour removal boundary, invalid
+cycles preserving listings and independent observations preserving activity.
 
-Required integration remains pending: WSL execution began returning
-Wsl/Service/WSAETIMEDOUT, and the isolated server stalled while compiling.
-JAC_TEST_JOBS=0 jac test tests/catalog_tests.jac has no confirmed result.
-`tests/test_municipal_runtime.py prepare`, backend restart, `fixtures`, and `live`
-must pass against disposable storage before this candidate can be accepted.
-The Windows contributor suite cannot establish Linux behavior: four POSIX mode
-checks failed and two platform checks skipped. Required checks are not waived.
+`tests/test_municipal_runtime.py prepare`, an actual backend stop/restart with the
+same storage, and `fixtures` passed: persisted manifest, adapter/worker/catalog/
+account search, duplicate identity across sources, malformed refresh, immediate
+expiry with warm search cache, disable, purge and retained application decisions.
+The final `live` run passed in 18 batches with ten audited listings and account
+search checks. No required test skipped.
 
-## Resume required runtime verification
+Initial WSL memory pressure caused execution timeouts; execution recovered before
+the required checks completed. The copied Python audit runtime needed
+`SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt` to use the system trust bundle;
+certificate verification remained enabled. The first audit failed at its TLS
+handshake; a fresh empty-catalog collection and audit then passed with that setting.
+Earlier Windows contributor errors were POSIX permission/platform differences;
+the intended Linux suite passed without skips. No operator database or credentials
+were used, and no deployment was performed.
+
+## Repeat runtime verification
 
 Use an isolated Linux copy with its own .jac, storage, worker token, auth secret
 and database; do not point these tests at an operator or production API. Set

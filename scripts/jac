@@ -2,17 +2,29 @@
 set -eu
 STACK_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 export JAC_CACHE_HOME="${STACK_JAC_CACHE_HOME:-$STACK_ROOT/.jac/tool-cache}"
-# A Unix socket cannot use the long worktree path. Keep runtime/test temporary
-# output beside the common Git directory, on the same disk as the repository.
-STACK_COMMON_GIT=$(git -C "$STACK_ROOT" rev-parse --path-format=absolute --git-common-dir)
-STACK_TEMP_PARENT=$(CDPATH= cd -- "$STACK_COMMON_GIT/.." && pwd)
-export TMPDIR="${STACK_TMP_DIR:-$STACK_TEMP_PARENT/.jac-tmp}"
+export PATH="$STACK_ROOT/.jac/tools/bin:$PATH"
+if [ -d "$STACK_ROOT/.jac/tools/postgres" ]; then
+    export JAC_PG_DIST="$STACK_ROOT/.jac/tools/postgres"
+    export JAC_PG_VERSION="18.6.0"
+fi
+if [ -z "${STACK_TMP_DIR:-}" ]; then
+    STACK_TMP_DIR=$(python3 -c 'import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]+"/scripts"); import bootstrap; print(bootstrap.temporary_directory(Path(sys.argv[1])))' "$STACK_ROOT")
+fi
+export TMPDIR="$STACK_TMP_DIR"
 mkdir -p "$TMPDIR"
-# This Mac also has a newer development Jac on PATH. Prefer Stack's installed
-# project version; an explicit override still wins.
-STACK_PINNED_JAC="$STACK_TEMP_PARENT/../.tools/jac/0.37.21/jac"
-if [ -z "${STACK_JAC_BIN:-}" ] && [ -x "$STACK_PINNED_JAC" ]; then
-    STACK_JAC_BIN="$STACK_PINNED_JAC"
+if [ -z "${STACK_JAC_BIN:-}" ]; then
+    if [ -x "$STACK_ROOT/.jac/tools/bin/jac" ]; then
+        STACK_JAC_BIN="$STACK_ROOT/.jac/tools/bin/jac"
+    elif [ "$(uname -s)" = Darwin ]; then
+        STACK_JAC_BIN=$(command -v jac || true)
+    else
+        echo 'Run make setup to provision the pinned project Jac compiler.' >&2
+        exit 1
+    fi
+fi
+if [ -z "$STACK_JAC_BIN" ]; then
+    echo 'Install Jac 0.37.21 for the optional Mac/iOS path.' >&2
+    exit 1
 fi
 cd "$STACK_ROOT"
-exec "${STACK_JAC_BIN:-$HOME/.local/bin/jac}" "$@"
+exec "$STACK_JAC_BIN" "$@"

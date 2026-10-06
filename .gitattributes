@@ -1,2 +1,8 @@
 # PDF cross-reference offsets refer to exact bytes; never convert line endings.
 *.pdf binary
+
+# Public Linux/WSL2 launchers must retain Unix line endings on every checkout.
+scripts/jac text eol=lf
+scripts/setup text eol=lf
+scripts/setup-ios text eol=lf
+Makefile text eol=lf

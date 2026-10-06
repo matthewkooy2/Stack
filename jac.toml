@@ -12,7 +12,7 @@ websockets = "==17.0.1"
 google-auth = "==2.40.3"
 requests = "==2.33.1"
 
-python-dotenv = ">=1.2.1,<2.0.0"
+python-dotenv = "==1.2.4"
 
 [dependencies.npm]
 react = "19.2.3"

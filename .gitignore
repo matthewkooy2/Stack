@@ -24,3 +24,7 @@ node_modules/
 
 # Third-party UI reference screenshots are private study material.
 /references/
+
+# Provider login stores never belong in a contributor checkout.
+/.codex/
+/.claude/

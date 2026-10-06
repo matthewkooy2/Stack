@@ -801,6 +801,8 @@ def:pub agent_schedule(token: str, wake_key: str = "") -> dict[str, any] {
                 if r.kind=="live" and r.status in ["waiting","running"] and r.lease_until<time.time() { r.status="failed";r.lease="";r.message="Live interview expired. Its reserved budget is retained."; }
                 _project_agent(r);_notify_agent(r);
             }
+            # Keep maintenance above, but one denied account must not stop other accounts' work.
+            try { _agent_access(); } except ValueError { continue; }
             if not m.policy.get("enabled") or m.policy.get("expires_at",0)<time.time() { continue; }
             if m.policy.get("analyze_top_matches") and "model" in m.policy.get("actions",[]) {
                 today=time.time()-86400;recent=[r for r in [root -->][?:AgentRun] if r.kind=="jobs" and r.created_at>today];

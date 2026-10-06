@@ -7,6 +7,7 @@ import secrets;
 import from uuid { uuid4, UUID }
 import from pathlib { Path }
 import from jaclang.runtime.runtime { JacRuntime }
+import from jaclang.server.session { Session }
 import from core.catalog { _catalog_lock }
 import from agents.contracts { VERSION, STEPS, workflow_steps, PAID, EXTERNAL, TERMINAL, CLI_PROVIDERS, config, model_access, model_status, digest, default_policy, validate_policy, validate_facts, context_facts, authorize, reserve_cents, validate_contact }
 import from agents.voice { voice_settings, voice_reservation, SECONDS }
@@ -290,14 +291,14 @@ def:pub agent_claim(token: str) -> dict[str, any] {
                 r.index=0;r.artifacts={};step=_steps(r)[0];
             }
             r.context["facts"]=current_facts;
-            reservation=0;c=config();
+            reservation=0;
             if step=="tailor" and not _tailor_ready(r.context) {
                 r.status="needs_input";r.requests=[];r.updated_at=now;t.state="needs_input";
                 r.message="Upload a resume before tailoring." if not r.context.get("resume_id") else "Upload this resume's LaTeX to tailor it. No new PDF has been generated.";
                 continue;
             }
             try {
-                _agent_access();
+                c=config();_agent_access();
                 if step in REVIEWED {
                     # Surface missing permissions before asking for review; agent_authorize rechecks at dispatch.
                     if step in EXTERNAL { authorize(m.policy,EXTERNAL[step],r.context.get("contact",{}).get("email","") if step=="send" else ""); }
@@ -339,6 +340,7 @@ def:pub agent_claim(token: str) -> dict[str, any] {
 def _agent_leased(id: str, owner: str, lease: str) -> AgentRun {
     _agent_owner(owner);r=_owned_run(id);
     if r is None or r.kind=="application" or not lease or r.lease!=lease or r.lease_until<time.time() or r.status!="running" { raise ValueError("Run lease expired or cancelled."); }
+    _agent_access();
     return r;
 }
 def:pub agent_model_log(token: str, id: str, owner: str, lease: str, record: dict[str, any]) -> dict[str, any] {
@@ -592,6 +594,9 @@ def:pub agent_invite(token: str) -> dict[str, any] {
 def:priv agent_accept_invite(invite: str) -> dict[str, any] {
     with _catalog_lock {
         _agent_fresh();if _agent_memory().deleted { return {"error":"This account was deleted."}; }
+        # Promote/replay the graph transaction before consuming an irreversible single-use token.
+        memory=JacRuntime.get_context().mem;
+        if isinstance(memory,Session) { memory.ensure_writable_txn(); }
         accepted=token_consume("stack-beta",invite);
         if accepted is None { return {"error":"Invitation is invalid, expired, or already used."}; }
         _agent_memory().admitted=True;commit();return {"admitted":True};

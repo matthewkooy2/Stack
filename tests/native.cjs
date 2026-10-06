@@ -216,7 +216,7 @@ async function agentScreenTests({ui,text,button,press,field,input,tick,labelled,
  // Uses a dedicated test API config (never a real one) to bind this account to a local provider;
  // the test plays the worker, so no model, browser, or email is contacted.
  const config=process.env.STACK_TEST_AGENT_CONFIG,owner=(await device.rpc('bootstrap',{})).user_id;
- fs.writeFileSync(config,JSON.stringify({provider:'codex-cli',local_cli_owner:owner,local_cli_daily_limit:20,action_daily_limits:{send_email:5}}));
+ fs.writeFileSync(config,JSON.stringify({invite_only:false,provider:'codex-cli',local_cli_owner:owner,local_cli_daily_limit:20,action_daily_limits:{send_email:5}}));
  const finish=(work,result)=>agentWorker('agent_finish',{id:work.id,owner:work.owner,lease:work.lease,result});
  const openBadge=async()=>{const badge=labelled(/^Agents: /)[0];assert.ok(badge,'Agents header entry');await act(async()=>{await badge.props.onPress();await new Promise(r=>setTimeout(r,60));});};
  try{
@@ -260,7 +260,7 @@ async function agentScreenTests({ui,text,button,press,field,input,tick,labelled,
   await tick();assert.ok((await agentWorker('agent_claim')).idle);
   await press('Close details');
  } finally {
-  fs.writeFileSync(config,'{}');
+  fs.writeFileSync(config,'{"invite_only":false}');
   // Leave the shared worker queue empty for suites that claim the next global task.
   for(const run of (await device.rpc('agent_activity',{})).runs)if(!['completed','cancelled','failed'].includes(run.status))await device.rpc('agent_cancel',{id:run.id}).catch(()=>{});
  }
@@ -391,7 +391,7 @@ async function tailoringEndToEnd(){
  await field('Your name','E2E Tester');await field('Target role',marker);await field('Expected graduation (YYYY-MM)','2027-05');await field('Available full-time from (YYYY-MM)','2027-06');
  await press('Experienced');await field('Years of experience in this field','2');await press('Full-time');
  const owner=(await device.rpc('bootstrap',{})).user_id;
- fs.writeFileSync(configPath,JSON.stringify({provider:process.env.STACK_E2E_PROVIDER||'codex-cli',local_cli_owner:owner,local_cli_daily_limit:50}));
+ fs.writeFileSync(configPath,JSON.stringify({invite_only:false,provider:process.env.STACK_E2E_PROVIDER||'codex-cli',local_cli_owner:owner,local_cli_daily_limit:50}));
  await device.rpc('agent_save_policy',{policy:{enabled:true,expires_at:Date.now()/1000+3600,actions:['model'],domains:[],daily_limits:{},followup_limit:0,followup_days:7,analyze_top_matches:false}});
  await device.rpc('import_job_url',{url:fixtureURL});const work=await worker('discovery_claim',{preferred_id:fixtureSource});
  const now=Date.now()/1000,jobIds=[0,1].map(i=>'job_'+crypto.createHash('sha256').update(fixtureURL+'/'+i).digest('hex').slice(0,32));

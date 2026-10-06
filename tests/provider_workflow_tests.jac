@@ -16,7 +16,7 @@ def rpc(client: any, name: str, args: dict[str, any] = {}) -> dict[str, any] {
 test "subscription claims are account bound capped and separate from API money" {
     with tempfile.TemporaryDirectory(prefix="stack-provider-test-") as directory {
         path=Path(directory)/"provider.json";
-        path.write_text(json.dumps({}));
+        path.write_text(json.dumps({"invite_only":False}));
         with patch.dict(os.environ,{"STACK_AGENT_CONFIG":str(path),"STACK_AGENT_WORKER_TOKEN":"provider-test-token"}) {
             client=JacTestClient.from_file(str(Path("main.jac").resolve()),base_path=directory);
             try {
@@ -24,7 +24,7 @@ test "subscription claims are account bound capped and separate from API money" 
                 a=first.data["token"];owner=rpc(client,"agent_settings")["account_id"];
                 second=client.register_user("provider-other","Test-provider-password-456");assert second.ok,second.text;
                 b=second.data["token"];
-                path.write_text(json.dumps({"provider":"codex-cli","local_cli_owner":str(UUID(owner)),"local_cli_daily_limit":1}));
+                path.write_text(json.dumps({"invite_only":False,"provider":"codex-cli","local_cli_owner":str(UUID(owner)),"local_cli_daily_limit":1}));
                 client.set_auth_token(a);
                 assert rpc(client,"agent_settings")["activity"]["model_provider"]["configured"];
                 runs=[];

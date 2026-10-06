@@ -52,24 +52,35 @@ def digest(value: any) -> str {
 """Deployment config is private, never accepted from a mobile client."""
 def config() -> dict[(str, any)] {
     path = Path(os.environ.get('STACK_AGENT_CONFIG', 'storage/agents/config.json'));
-    raw = json.loads(path.read_text()) if path.exists() else {};
-    return {
-        'provider': str(raw.get('provider', 'openai')),
-        'local_cli_owner': str(raw.get('local_cli_owner', '')),
-        'local_cli_daily_limit': int(raw.get('local_cli_daily_limit', 0)),
-        'monthly_cents': int(raw.get('monthly_cents', 0)),
-        'user_monthly_cents': int(raw.get('user_monthly_cents', 0)),
-        'model': str(raw.get('model', '')),
-        'input_cents_per_million': int(raw.get('input_cents_per_million', 0)),
-        'output_cents_per_million': int(raw.get('output_cents_per_million', 0)),
-        'max_output_tokens': min(
-            12000, max(256, int(raw.get('max_output_tokens', 3000)))
-        ),
-        'action_daily_limits': raw.get('action_daily_limits', {}),
-        'invite_only': bool(raw.get('invite_only', False)),
-        'web_url': str(raw.get('web_url', '')),
-        'sandbox_available': (raw.get('sandbox_available') is True)
-    };
+    try {
+        try { raw = json.loads(path.read_text()); }
+        except FileNotFoundError { raw = {}; }
+        if not isinstance(raw, `dict) {
+            raise ValueError('Agent configuration must be a JSON object.');
+        }
+        return {
+            'provider': str(raw.get('provider', 'openai')),
+            'local_cli_owner': str(raw.get('local_cli_owner', '')),
+            'local_cli_daily_limit': int(raw.get('local_cli_daily_limit', 0)),
+            'monthly_cents': int(raw.get('monthly_cents', 0)),
+            'user_monthly_cents': int(raw.get('user_monthly_cents', 0)),
+            'model': str(raw.get('model', '')),
+            'input_cents_per_million': int(raw.get('input_cents_per_million', 0)),
+            'output_cents_per_million': int(raw.get('output_cents_per_million', 0)),
+            'max_output_tokens': min(
+                12000, max(256, int(raw.get('max_output_tokens', 3000)))
+            ),
+            'action_daily_limits': raw.get('action_daily_limits', {}),
+            # Only an explicit JSON false permits public admission.
+            'invite_only': (raw.get('invite_only') is not False),
+            'web_url': str(raw.get('web_url', '')),
+            'sandbox_available': (raw.get('sandbox_available') is True)
+        };
+    } except (OSError, ValueError, TypeError, OverflowError) {
+        raise ValueError(
+            'Agent configuration is invalid. Check STACK_AGENT_CONFIG (default storage/agents/config.json): use a readable JSON object and valid numeric limits; public admission requires invite_only: false.'
+        ) from None;
+    }
 }
 def account_key(value: str) -> str {
     # Jac jid() uses UUID hex; operator tools may save the hyphenated form.

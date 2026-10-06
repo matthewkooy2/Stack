@@ -217,6 +217,12 @@ class ResumeProcessing(unittest.TestCase):
         self.assertEqual(self.rpc('bootstrap')['resumes'][0]['processing']['source']['status'], 'failed')
 
 class SSDCompilation(unittest.TestCase):
+    def setUp(self):
+        # These tests replace the compiler process and do not need a host installation.
+        compiler = patch.object(latex, 'engine', return_value='controlled-tectonic')
+        compiler.start()
+        self.addCleanup(compiler.stop)
+
     def test_large_compiler_output_is_read_with_a_bound(self):
         loaded = latex.load('resume.tex', TEX)
         def oversized(args, **kwargs):

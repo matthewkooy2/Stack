@@ -10,7 +10,12 @@ concurrency:
   group: stack-production-backend
   cancel-in-progress: false
 jobs:
+  security:
+    uses: ./.github/workflows/dependency-security.yml
+    permissions:
+      contents: read
   deploy:
+    needs: security
     # Enable format 3 only after the attended host migration documented below.
     if: github.ref == 'refs/heads/main' && vars.STACK_RELEASE_FORMAT == '3'
     runs-on: ubuntu-24.04

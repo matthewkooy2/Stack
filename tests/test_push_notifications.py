@@ -28,13 +28,19 @@ def controlled_transport(origin):
     """Rewrite only the fixed Expo destination at the HTTP opener boundary."""
     original = urllib.request.build_opener
     class Transport:
-        def open(self, request, timeout=30):
+        def open(self, request, data=None, timeout=30):
+            if isinstance(request, str):
+                request = urllib.request.Request(request, data=data)
             if not request.full_url.startswith('https://exp.host/--/api/v2/push/'):
-                return original(security.NoRedirect).open(request, timeout=timeout)
+                return original(security.NoRedirect).open(request, data=data, timeout=timeout)
             local = urllib.request.Request(origin + request.full_url.split('/push/', 1)[1],
-                data=request.data, headers=dict(request.header_items()), method=request.get_method())
+                data=request.data if data is None else data,
+                headers=dict(request.header_items()), method=request.get_method())
             return original(security.NoRedirect).open(local, timeout=timeout)
-    with patch.object(urllib.request, 'build_opener', return_value=Transport()):
+    # urlopen caches build_opener's result globally. Restore that cache as well
+    # as the factory so neither a fixture origin nor a test opener escapes.
+    with patch.object(urllib.request, 'build_opener', return_value=Transport()), \
+            patch.object(urllib.request, '_opener', None):
         yield
 
 class Fixture(BaseHTTPRequestHandler):

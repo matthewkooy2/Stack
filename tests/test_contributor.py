@@ -102,6 +102,23 @@ class Contributor(unittest.TestCase):
         self.assertEqual(env['STACK_AGENT_CONFIG'], str(self.root / 'storage/agents/config.json'))
         self.assertEqual(env['HOME'], str(self.root))
 
+    def test_local_models_start_without_subscription_binding_or_paid_credentials(self):
+        path = self.root / 'storage/agents/config.json'
+        for provider in ('ollama', 'lmstudio'):
+            config = json.loads(path.read_text())
+            config.update(provider=provider, model='synthetic-installed-model',
+                          local_cli_owner='', local_cli_daily_limit=0, monthly_cents=0)
+            path.write_text(json.dumps(config))
+            self.assertEqual(contributor.configuration(self.root)[0]['provider'], provider)
+            inherited = {'PATH': os.environ['PATH'], 'OPENAI_API_KEY': 'synthetic-paid-key',
+                         'STACK_LOCAL_MODEL_API_KEY': 'synthetic-private-local-key'}
+            bootstrap = types.SimpleNamespace(environment=lambda root: dict(inherited))
+            with patch.dict(sys.modules, {'bootstrap': bootstrap}):
+                env = contributor.environment(self.root)
+            self.assertNotIn('OPENAI_API_KEY', env)
+            self.assertNotIn('STACK_LOCAL_MODEL_API_KEY', env)
+            self.assertEqual(env['STACK_AGENT_CONFIG'], str(path))
+
     def test_doctor_redacts_malformed_configuration(self):
         marker = 'synthetic-private-error-content'
         (self.root / 'storage/agents/config.json').write_text(marker)

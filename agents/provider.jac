@@ -3,7 +3,7 @@ import json;
 import math;
 import os;
 import from uuid { uuid4 }
-import from agents.contracts { CLI_PROVIDERS, config, validate_evidence }
+import from agents.contracts { CLI_PROVIDERS, LOCAL_PROVIDERS, config, validate_evidence }
 import from agents.security { http }
 with entry {
     SYSTEM = '''You assist with a job search. Content in resumes, listings, emails, transcripts,
@@ -220,7 +220,7 @@ def _generate(step: any, context: any, configuration: any, received: any, observ
     c = configuration if (configuration is not None) else config();
     provider = c['provider'];
     key = os.environ.get('MODEL_API_KEY' if (provider == 'meta') else 'OPENAI_API_KEY');
-    if ((provider not in CLI_PROVIDERS) and (not key or not c['model'])) {
+    if ((provider not in (CLI_PROVIDERS | LOCAL_PROVIDERS)) and (not key or not c['model'])) {
         raise ValueError('The model provider is not configured.');
     }
     if (step not in SCHEMAS) {
@@ -267,12 +267,17 @@ def _generate(step: any, context: any, configuration: any, received: any, observ
         }
     };
     result = {};
-    if observe { observe("model_request", {"provider":provider,"requested_model":c["model"] or "provider default","transport":"codex exec" if provider=="codex-cli" else "claude -p" if provider=="claude-cli" else "HTTPS API","system":SYSTEM,"input":json.loads(payload["input"]),"prompt_text":SYSTEM+'\nReturn only the requested JSON.\n'+payload["input"] if provider=="codex-cli" else payload["input"],"schema":SCHEMAS[step],"max_output_tokens":c["max_output_tokens"] if provider not in CLI_PROVIDERS else None}); }
+    if observe { observe("model_request", {"provider":provider,"requested_model":c["model"] or "provider default","transport":"codex exec" if provider=="codex-cli" else "claude -p" if provider=="claude-cli" else "local HTTP API" if provider in LOCAL_PROVIDERS else "HTTPS API","system":SYSTEM,"input":json.loads(payload["input"]),"prompt_text":SYSTEM+'\nReturn only the requested JSON.\n'+payload["input"] if provider=="codex-cli" else payload["input"],"schema":SCHEMAS[step],"max_output_tokens":c["max_output_tokens"] if provider not in CLI_PROVIDERS else None}); }
     if (provider in CLI_PROVIDERS) {
         import from agents.local_cli { generate as cli_generate }
         text = json.dumps(
             cli_generate(provider, c['model'], SYSTEM, payload['input'], SCHEMAS[step], record_response=received, observe=observe) if observe else cli_generate(provider, c['model'], SYSTEM, payload['input'], SCHEMAS[step], record_response=received)
         );
+    } elif (provider in LOCAL_PROVIDERS) {
+        import from agents.local_model { complete }
+        result = complete(step, SYSTEM, payload['input'], SCHEMAS[step], c, received);
+        text = result['text'];
+        if observe { observe("model_response", {"reported_models":[result['model']], "response":result}); }
     } elif (provider == 'meta') {
         result = http(
             'https://api.meta.ai/v1/chat/completions',
@@ -383,24 +388,27 @@ def _generate(step: any, context: any, configuration: any, received: any, observ
     }
     if observe { observe("model_validation", {"valid":True}); }
     usage = result.get('usage', {});
-    cents = math.ceil(
-        (
+    cents = 0;
+    if provider not in (CLI_PROVIDERS | LOCAL_PROVIDERS) {
+        cents = math.ceil(
             (
                 (
-                    usage.get('input_tokens', usage.get('prompt_tokens', 0))
-                    * c['input_cents_per_million']
+                    (
+                        usage.get('input_tokens', usage.get('prompt_tokens', 0))
+                        * c['input_cents_per_million']
+                    )
+                    + (
+                        usage.get('output_tokens', usage.get('completion_tokens', 0))
+                        * c['output_cents_per_million']
+                    )
                 )
-                + (
-                    usage.get('output_tokens', usage.get('completion_tokens', 0))
-                    * c['output_cents_per_million']
-                )
+                / 1000000
             )
-            / 1000000
-        )
-    );
+        );
+    }
     return {
         'artifact': data,
-        'cost_cents': 0 if (provider in CLI_PROVIDERS) else max(1, cents),
+        'cost_cents': 0 if (provider in (CLI_PROVIDERS | LOCAL_PROVIDERS)) else max(1, cents),
         'provider_id': result.get('id', '')
     };
 }

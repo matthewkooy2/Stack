@@ -100,7 +100,7 @@ def configuration(root):
         if len((root / name).read_text().strip()) < 32:
             raise RuntimeError('Invalid worker token. Restore private worker files from backup.')
     provider = config.get('provider', 'openai')
-    if provider not in ('openai', 'meta', 'codex-cli', 'claude-cli'):
+    if provider not in ('openai', 'meta', 'codex-cli', 'claude-cli', 'ollama', 'lmstudio'):
         raise RuntimeError('Unknown model provider. Run make login PROVIDER=codex OWNER=your-account-id.')
     if provider.endswith('-cli'):
         UUID(config.get('local_cli_owner', ''))

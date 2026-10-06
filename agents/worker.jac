@@ -4,7 +4,7 @@ import os;
 import from pathlib { Path }
 import time;
 import urllib.request;
-import from agents.contracts { CLI_PROVIDERS, config, digest, model_access }
+import from agents.contracts { CLI_PROVIDERS, LOCAL_PROVIDERS, config, digest, model_access }
 import from agents.tracing { trace_data }
 import from agents.browser_control { BROWSER_OPERATIONS, BROWSER_ERROR_MESSAGE, browser_diagnostic, sanitize_browser_diagnostic }
 def call(name: str, args: dict[str, any]) -> dict[str, any] {
@@ -115,7 +115,7 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
             result = generate(step, model_context, c, observe=observe, record=record);
         } except ValueError as exc {
             if step == 'linkedin_review' { return {'blocked':True, 'message':str(exc), 'requests':[]}; }
-            if (c['provider'] in CLI_PROVIDERS) {
+            if (c['provider'] in (CLI_PROVIDERS | LOCAL_PROVIDERS)) {
                 return {'needs_input': True, 'message': str(exc), 'requests': []};
             }
             raise;

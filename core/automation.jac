@@ -8,7 +8,7 @@ import from uuid { uuid4, UUID }
 import from pathlib { Path }
 import from jaclang.runtime.runtime { JacRuntime }
 import from core.catalog { _catalog_lock }
-import from agents.contracts { VERSION, STEPS, workflow_steps, PAID, EXTERNAL, TERMINAL, CLI_PROVIDERS, config, model_access, model_status, digest, default_policy, validate_policy, validate_facts, context_facts, authorize, reserve_cents, validate_contact }
+import from agents.contracts { VERSION, STEPS, workflow_steps, PAID, EXTERNAL, TERMINAL, CLI_PROVIDERS, LOCAL_PROVIDERS, config, model_access, model_status, digest, default_policy, validate_policy, validate_facts, context_facts, authorize, reserve_cents, validate_contact }
 import from agents.voice { voice_settings, voice_reservation, SECONDS }
 import from agents.prep { catalog, problem, validate_session }
 import from agents.security { seal, unseal }
@@ -317,7 +317,7 @@ def:pub agent_claim(token: str) -> dict[str, any] {
                         usage=_usage("cli:"+day+":"+c["provider"]);
                         if usage.actions>=c["local_cli_daily_limit"] { raise ValueError("The local subscription daily request limit is reached."); }
                         usage.actions+=1;commit();_agent_owner(t.owner);r.subscription_calls+=1;
-                    } else {
+                    } elif c["provider"] not in LOCAL_PROVIDERS {
                         reservation=reserve_cents({**r.context,"linkedin_profile":r.artifacts.get("linkedin_scan",{})} if step=="linkedin_review" else r.context);
                         commit();month=time.strftime("%Y-%m",time.gmtime());
                         global_usage=_usage("cost:"+month);user_usage=_usage("cost:"+month+":"+t.owner);

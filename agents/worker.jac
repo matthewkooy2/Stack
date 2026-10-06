@@ -231,6 +231,18 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
     }
     raise ValueError('Unsupported worker step.');
 }
+def notification_once(token: str) -> dict[str, any] {
+    import from agents.notifications { deliver, receipt }
+    notice = call('agent_notification_claim', {'token': token});
+    if notice.get('idle') { return notice; }
+    auth = {'token': token, **{k: notice[k] for k in ('owner', 'id', 'key', 'lease')}};
+    if notice['phase'] == 'send' {
+        call('agent_notification_begin', auth);
+        result = deliver(notice['device'], notice);
+    } else { result = receipt(notice['ticket']); }
+    return call('agent_notification_finish', {**auth, 'result': result});
+}
+
 def main() {
     token = (
         os.environ.get('STACK_AGENT_WORKER_TOKEN', '')
@@ -263,27 +275,7 @@ def main() {
                     );
                 }
             }
-            notice = call('agent_notification_claim', {'token': token});
-            if not notice.get('idle') {
-                import from agents.notifications { deliver }
-                receipts = [];
-                for device in notice['devices'] {
-                    try {
-                        receipts.append(deliver(device, notice));
-                    } except Exception {
-                        ;
-                    }
-                }
-                call(
-                    'agent_notification_finish',
-                    {
-                        'token': token,
-                        'owner': notice['owner'],
-                        'id': notice['id'],
-                        'receipt': ','.join(receipts)
-                    }
-                );
-            }
+            notification_once(token);
             work = call('agent_claim', {'token': token});
             if work.get('idle') {
                 time.sleep(3);

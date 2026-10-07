@@ -2,19 +2,21 @@
 import copy
 from unittest.mock import patch
 import unittest
-from tests.test_record_resume import RecordWorkflow, RECORDS, extracted
+import tests.test_record_resume as record_cases
 from tests.test_bullet_bank import FACTS
+RECORDS = record_cases.RECORDS
+extracted = record_cases.extracted
 
 
 class BankWorkflow(unittest.TestCase):
-    setUp = RecordWorkflow.setUp
-    rpc = RecordWorkflow.rpc
-    worker = RecordWorkflow.worker
-    callback = RecordWorkflow.callback
-    import_resume = RecordWorkflow.import_resume
-    job = RecordWorkflow.job
-    dispatch = RecordWorkflow.dispatch
-    finish = RecordWorkflow.finish
+    setUp = record_cases.RecordWorkflow.setUp
+    rpc = record_cases.RecordWorkflow.rpc
+    worker = record_cases.RecordWorkflow.worker
+    callback = record_cases.RecordWorkflow.callback
+    import_resume = record_cases.RecordWorkflow.import_resume
+    job = record_cases.RecordWorkflow.job
+    dispatch = record_cases.RecordWorkflow.dispatch
+    finish = record_cases.RecordWorkflow.finish
 
     def tearDown(self):
         if not self.deleted:
@@ -22,10 +24,10 @@ class BankWorkflow(unittest.TestCase):
             for source in self.rpc('resume_bank')['sources']:
                 if source['editable']:
                     self.rpc('resume_bank_delete', {'id': source['id'], 'revision': source['revision']})
-        RecordWorkflow.tearDown(self)
+        record_cases.RecordWorkflow.tearDown(self)
 
     def create(self, confirm=True):
-        value = self.rpc('resume_bank_save', {'name': 'Fictional analyst, Example Co, 2024',
+        value = self.rpc('resume_bank_save', {'id': '', 'revision': 0, 'name': 'Fictional analyst, Example Co, 2024',
             'source': 'My fictional project notes', 'records': FACTS, 'confirm': confirm})
         self.assertNotIn('error', value, value)
         return next(s for s in value['sources'] if s['editable'])
@@ -35,6 +37,14 @@ class BankWorkflow(unittest.TestCase):
         confirmed = self.rpc('resume_save_records', {'id': rid, 'revision': review['revision'], 'records': RECORDS, 'confirm': True})
         self.assertTrue(confirmed['confirmed'])
         return rid, confirmed['revision'], original
+
+    def test_omitted_creation_defaults_are_zero_and_draft(self):
+        result = self.rpc('resume_bank_save', {'name': 'Omitted defaults', 'source': 'Fictional notes', 'records': FACTS})
+        self.assertNotIn('error', result, result)
+        saved = next(s for s in result['sources'] if s['editable'])
+        self.assertEqual(saved['revision'], 1)
+        self.assertFalse(saved['confirmed'])
+        self.assertIn('error', self.rpc('resume_bank_save', {'id': saved['id'], 'name': saved['name'], 'source': saved['source'], 'records': FACTS}))
 
     def test_crud_reload_history_stale_edits_account_isolation_export_and_delete(self):
         source = self.create(False)

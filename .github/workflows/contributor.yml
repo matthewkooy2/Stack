@@ -31,6 +31,13 @@ jobs:
           sudo apt-get install -y git make python3-venv ca-certificates curl tar xz-utils libfontconfig1
       - name: Bootstrap a clean public checkout
         run: python3 scripts/contributor.py setup
+      - name: Preserve browser build for rendered review
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: browser-review-${{ github.event.pull_request.head.sha || github.sha }}
+          path: .jac/client/workspace/dist/
+          if-no-files-found: error
+          retention-days: 7
       - name: Repeat setup without resetting local state
         run: python3 scripts/contributor.py setup
       - name: Check local prerequisites without model calls

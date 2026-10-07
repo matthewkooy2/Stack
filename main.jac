@@ -121,10 +121,10 @@ def:priv resume_bank() -> dict[str, any] {
 
 def:priv resume_bank_save(name: str, source: str, records: list[dict[str, any]], confirm: bool = False, id: str = "", revision: int = 0) -> dict[str, any] {
     _agent_access();
-    # Some RPC adapters omit empty/zero defaults. Edits still require a revision.
+    # The pinned RPC adapter stringifies omitted defaults. Edits still require a revision.
     if id is None { id=""; }
-    if not id and revision is None { revision=0; }
-    if confirm is None { confirm=False; }
+    if not id and (revision is None or revision=="0") { revision=0; }
+    if confirm is None or confirm=="False" { confirm=False; }
     with _write_lock {
         _agent_fresh();items=[r for r in [root -->][?:Resume] if r.review.get("kind")==BANK_KIND];
         current=[r for r in items if jid(r)==id];

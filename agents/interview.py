@@ -1,6 +1,7 @@
 """Bounded interview state and source validation; no model or transport authority."""
 import copy
 import re
+from typing import Any
 
 STEPS = {'interview_turn', 'interview_coach'}
 TEXT = {'type': 'string'}  # Bounds are checked explicitly; shared validator supports no minLength.
@@ -60,7 +61,7 @@ def local_qwen(configuration):
     if configuration.get('provider') not in ('ollama', 'lmstudio') or 'qwen' not in configuration.get('model', '').lower():
         raise ValueError('This interview requires a locally configured Qwen model. Answers remain saved; retry after local setup. No cloud fallback is used.')
 
-def create(job, facts, application_id, resume_id):
+def create(job, facts, application_id, resume_id) -> dict[str, Any]:
     description = str(job.get('description', '')).strip()
     if not description or len(description) > 12000:
         raise ValueError('Choose a saved role with a job description of up to 12,000 characters.')
@@ -84,15 +85,15 @@ def create(job, facts, application_id, resume_id):
             'resume_id': resume_id, 'job': copy.deepcopy(job), 'facts': confirmed, 'questions': [question, second],
             'turns': [], 'status': 'active', 'pending': '', 'analysis': {}, 'coaching': {}, 'finished_at': 0}
 
-def answer_text(text):
+def answer_text(text) -> str:
     if not isinstance(text, str) or not text.strip() or len(text) > 4000:
         raise ValueError('Review an answer of 1 to 4,000 characters before saving.')
     return text.strip()
 
-def sources(data):
+def sources(data) -> dict[str, str]:
     return {'answer:' + str(i + 1): t['answer'] for i, t in enumerate(data['turns'])}
 
-def context(data, revision, final=False):
+def context(data, revision, final=False) -> dict[str, Any]:
     turns = data['turns'] if final else data['turns'][-1:]
     return {'job': data['job'], 'resume_id': data['resume_id'], 'fact_overrides': data['facts'],
             'facts': data['facts'], 'session_revision': revision,
@@ -137,12 +138,12 @@ def validate(step, artifact, context):
         if len(set(artifact['followup_questions'])) != 2:
             raise ValueError('Coaching needs two distinct practice questions.')
 
-def followup(analysis, data):
+def followup(analysis, data) -> str:
     return ('In your reviewed answer you said "' + analysis['focus_quote'] + '". '
             + analysis['question'] + ' Relate your explanation to this saved role requirement: "'
             + data['questions'][0]['evidence'][0]['quote'] + '".')
 
-def correct(data, index, text):
+def correct(data, index, text) -> dict[str, Any]:
     out = copy.deepcopy(data)
     out['turns'][index]['answer'] = answer_text(text)
     # Answered questions are history. Every unanswered generated question may depend
@@ -152,7 +153,7 @@ def correct(data, index, text):
     out.update(analysis={}, coaching={}, pending='')
     return out
 
-def apply(data, revision, step, artifact, task_context):
+def apply(data, revision, step, artifact, task_context) -> dict[str, Any]:
     if revision != task_context['session_revision']:
         raise ValueError('The transcript changed while analysis was running. Saved answers are safe; request analysis again.')
     validate(step, artifact, task_context)

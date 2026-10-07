@@ -157,7 +157,7 @@ def:priv interview_continue(id: str, revision: int, action: str = "followup") ->
                     question={"question":interview_flow.followup(analysis,p.data),"evidence":analysis["evidence"],"kind":"followup","focus_quote":analysis["focus_quote"],"basis_revision":p.revision};
                     questions=p.data["questions"][:count]+[question]+[q for q in p.data["questions"][count:] if q["kind"]!="followup"];
                     p.data={**p.data,"questions":questions};p.revision+=1;
-                elif count>=len(p.data["questions"]) { raise ValueError("All saved role questions are answered. Finish, or request a follow-up."); }
+                } elif count>=len(p.data["questions"]) { raise ValueError("All saved role questions are answered. Finish, or request a follow-up."); }
             } else { raise ValueError("Unknown interview action."); }
             p.updated_at=time.time();commit();return interview_get(id);
         } except ValueError as e { return {"error":str(e)}; }

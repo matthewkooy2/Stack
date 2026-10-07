@@ -25,6 +25,13 @@ def git(*args):
     return subprocess.check_output(["git", *args], text=True).strip()
 
 
+def message_errors(message):
+    result = errors(message.splitlines()[0] if message else "")
+    if re.search(r"^co-authored-by\s*:", message, re.I | re.M):
+        result.append("omit coauthor attribution")
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--event", help="GitHub pull_request event file")
@@ -37,15 +44,15 @@ def main():
         subjects.append(("PR title", pr["title"]))
         base, head = pr["base"]["sha"], pr["head"]["sha"]
         for sha in git("rev-list", f"{base}..{head}").splitlines():
-            subjects.append((sha, git("show", "-s", "--format=%s", sha)))
+            subjects.append((sha, git("show", "-s", "--format=%B", sha)))
     if args.revision_range:
         for sha in git("rev-list", args.revision_range).splitlines():
-            subjects.append((sha, git("show", "-s", "--format=%s", sha)))
+            subjects.append((sha, git("show", "-s", "--format=%B", sha)))
     if not args.event and not args.revision_range:
         parser.error("provide --event or --range")
     failed = False
     for label, subject in subjects:
-        problems = errors(subject)
+        problems = errors(subject) if label == "PR title" else message_errors(subject)
         if problems:
             # JSON escaping prevents subjects from injecting workflow commands.
             print(json.dumps({"revision": label, "subject": subject, "errors": problems}))

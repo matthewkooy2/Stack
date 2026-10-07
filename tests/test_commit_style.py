@@ -17,6 +17,8 @@ class CommitStyleTests(unittest.TestCase):
         self.assertEqual(policy.errors("fix<resume>: refresh scores after edits"), [])
         for subject in ["fix(resume): refresh scores", "Merge pull request #40", "fix<resume>: Refresh scores", "fix<resume>: refresh scores.", "fix<resume>: refresh scores\n"]:
             self.assertTrue(policy.errors(subject), subject)
+        self.assertEqual(policy.message_errors("fix<resume>: refresh scores\n\nPreserve scores for unchanged source."), [])
+        self.assertIn("omit coauthor attribution", policy.message_errors("fix<resume>: refresh scores\n\nCo-Authored-By: Model <model@example.invalid>"))
 
     def test_range_and_pr_inspect_source_and_merge_subjects(self):
         with tempfile.TemporaryDirectory() as directory:

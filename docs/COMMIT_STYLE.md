@@ -29,7 +29,7 @@ automatic default messages or automatic attribution. Repository merge settings
 can change and must be inspected when selecting a merge method.
 
 The `Commit style` check inspects PR titles and introduced commits, including
-merge commits, and new main commits. It does not repair historical messages.
+merge commits, new main commits and coauthor trailers. It does not repair historical messages.
 Making the check required needs a separately approved branch rule. A passing
 check cannot prove that a future GitHub-generated merge message will comply;
 the explicit merge message and post-merge verification remain necessary.

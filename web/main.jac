@@ -3,6 +3,7 @@ import "./style.css";
 import from "./model-permission.js" { updateModelPermission }
 import from .Feedback { AgentFeedback }
 import from .BulletBank { BulletBank }
+import from "./Interview.js" { Interview }
 
 def:pub app -> JsxElement {
     has logged: bool = False, username: str = "", password: str = "", invite: str = "", error: str = "", notice: str = "",
@@ -132,8 +133,9 @@ def:pub app -> JsxElement {
                 <p>Sign in through the browser handoff, confirm the profile is yours, then start analysis. Captured profile text goes to your configured model. Login details stay in a temporary browser session. You apply suggested edits yourself.</p>
                 <button className="primary" disabled={busy or not linkedinUrl.strip()} onClick={startLinkedIn}>Review my LinkedIn profile</button>
             </section> if page=="Network" else <div/>}
-            <nav>{[<button key={p} className={"active" if page==p else ""} onClick={lambda { page=p; }}>{p}</button> for p in ["Practice","Network","Bullet bank","Activity","Features","Account"]]}<button onClick={refresh}>Refresh</button></nav>
+            <nav>{[<button key={p} className={"active" if page==p else ""} onClick={lambda { page=p; }}>{p}</button> for p in ["Practice","Interview","Network","Bullet bank","Activity","Features","Account"]]}<button onClick={refresh}>Refresh</button></nav>
             {<BulletBank/> if page=="Bullet bank" else <div/>}
+            {<Interview applications={applications}/> if page=="Interview" else <div/>}
             {<div className="workspace"><aside><h2>Practice library</h2>{[<article key={p["id"]}><strong>{p["title"]}</strong><p>{p["topic"]+" · "+str(p["minutes"])+" minutes"}</p>{[<button key={lang} onClick={lambda { create(p["id"],lang); }}>{"C++" if lang=="cpp" else lang.upper()}</button> for lang in p["languages"]]}{<button onClick={lambda { create(p["id"],""); }}>Start</button> if len(p["languages"])==0 else <span/>}</article> for p in problems]}<h2>Continue</h2>{[<button key={p["id"]} onClick={lambda { openSession(p["id"]); }}>{p["data"]["problem_id"]}</button> for p in sessions]}</aside>
                 <section>{<div><div className="toolbar"><Timer key={current["id"]} seconds={data.get("elapsed_seconds",0)} onChange={lambda (v: int) { data={**data,"elapsed_seconds":v}; }}/><button disabled={busy} onClick={lambda { save(); }}>Save</button><button onClick={lambda { openSession(current["id"]); }}>Refresh results</button></div>
                     {[<article key={p["id"]}><h2>{p["title"]}</h2><p>{p["prompt"]}</p><details><summary>Hints</summary>{[<p key={hint}>{hint}</p> for hint in p["hints"]]}</details></article> for p in problems if p["id"]==data["problem_id"]]}

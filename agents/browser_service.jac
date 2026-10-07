@@ -69,6 +69,18 @@ class BrowserHost {
         }
     }
     def perform(self: BrowserHost, path: any, data: any) -> any {
+        if path == '/release-smoke' {
+            # A fresh memory-only context uses the serving Chromium instance.
+            # Block all requests; no sessions, credentials, models or websites.
+            context=self.pool.browser.new_context();
+            try {
+                context.route('**/*',lambda (route: any) { route.abort(); });
+                page=context.new_page();
+                page.set_content('<p id="probe">Stack readiness</p>',timeout=2000);
+                ready=page.locator('#probe').inner_text(timeout=2000)=='Stack readiness';
+                return {'ready':ready,'nonce':data['nonce']};
+            } finally { context.close(); }
+        }
         self.pool.operation_stage='expire_session';
         self.pool.expire();
         self.pool.operation_stage='operation';
@@ -153,6 +165,7 @@ def main() -> any {
                 self.path
                 not in (
                     '/frame',
+                    '/release-smoke',
                     '/control',
                     '/subscribe',
                     '/handoff',
@@ -171,6 +184,12 @@ def main() -> any {
                     return;
                 }
                 data = json.loads(self.rfile.read(size));
+                if self.path == '/release-smoke' {
+                    if size>128 or not isinstance(data.get('nonce'),str) or len(data['nonce'])!=32 {
+                        self.send_error(400);return;
+                    }
+                    data={'owner':'release-smoke','nonce':data['nonce']};
+                }
                 result = host.dispatch(self.path, data);
             } except Exception as exc {
                 result = {

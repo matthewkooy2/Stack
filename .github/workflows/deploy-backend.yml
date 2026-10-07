@@ -12,9 +12,9 @@ concurrency:
 jobs:
   deploy:
     # Enable format 3 only after the attended host migration documented below.
-    if: github.ref == 'refs/heads/main' && vars.STACK_RELEASE_FORMAT == '3'
+    if: github.ref == 'refs/heads/main' && vars.STACK_RELEASE_FORMAT == '3' && vars.STACK_RELEASE_HEALTH_PROTOCOL == '1'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     environment: stack-production
     env:
       RELEASE_COMMIT: ${{ github.sha }}
@@ -86,7 +86,19 @@ jobs:
           printf '%s\n' "$KNOWN_HOSTS" > "$hosts"
           [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9.-]+$ ]] && [[ "$DEPLOY_PORT" =~ ^[0-9]+$ ]]
           echo "$RELEASE_DIGEST  $RUNNER_TEMP/backend.tar.gz" | sha256sum --check --status
-          timeout 12m ssh -4 -T -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$hosts" \
+          set +e
+          timeout 17m ssh -4 -T -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$hosts" \
             -o IdentitiesOnly=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
             -i "$key" -p "$DEPLOY_PORT" "stack-deploy@$DEPLOY_HOST" \
-            "stack-release $RELEASE_COMMIT $RELEASE_DIGEST" < "$RUNNER_TEMP/backend.tar.gz"
+            "stack-release $RELEASE_COMMIT $RELEASE_DIGEST" < "$RUNNER_TEMP/backend.tar.gz" > "$RUNNER_TEMP/host-receipt.raw"
+          result=$?
+          set -e
+          python3 deploy/verify_release_receipt.py --input "$RUNNER_TEMP/host-receipt.raw" \
+            --output "$RUNNER_TEMP/health-receipt.json" --commit "$RELEASE_COMMIT" --exit-code "$result"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: health-${{ github.sha }}
+          path: ${{ runner.temp }}/health-receipt.json
+          retention-days: 1
+          if-no-files-found: ignore

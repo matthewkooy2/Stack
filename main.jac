@@ -1,5 +1,6 @@
 """Stack API. All personal data endpoints require Jac authentication."""
 import time;
+import from agents.release_readiness { api_smoke }
 import from threading { RLock }
 import from jaclang.runtime.runtime { JacRuntime }
 import from core.catalog { _catalog_lock, _catalog_job, _saved_search, _retained_snapshot, _drop_overrides, search_jobs, get_job, save_search, reset_search, import_job_url, get_import_status, source_status, discovery_claim, discovery_complete, discovery_manage, discovery_report, discovery_analyze }
@@ -187,6 +188,11 @@ node Reminder { has target_type: str, target_id: str, title: str, due_at: float,
 node Settings { has selected_resume: str = "", tailored_backfilled: bool = False; }
 
 def:pub health() -> dict[str, str] { return {"status":"ok","app":"Stack"}; }
+
+def:pub release_smoke(token: str, nonce: str) -> dict[str, any] {
+    if not _agent_system(token) { return {"error":"Worker authorization required."}; }
+    return api_smoke(nonce);
+}
 
 def _error(message: str) -> dict[str, any] { return {"error": message}; }
 def _refresh_transaction() -> None {

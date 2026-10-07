@@ -70,5 +70,5 @@ def:pub BulletBank -> JsxElement {
             {<div><button disabled={busy} onClick={lambda { edit(item); }}>Edit experience</button><button disabled={busy} onClick={lambda { remove(item); }}>Delete experience</button>
                 <details><summary>Sources and corrections</summary>{[<p key={str(h["revision"])}>{"Revision "+str(h["revision"])+" · "+h["source"]+" · "+("Confirmed" if h["confirmed"] else "Draft")+" · "+"; ".join(r["text"] for r in h["records"])}</p> for h in item["history"]]}</details></div> if item["editable"] else <p>Imported resume records; edit them on the Resume tab.</p>}
         </article> for item in data.get("sources",[])]}
-    </section>;
+    </section>
 }

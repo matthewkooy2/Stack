@@ -1,11 +1,13 @@
 """User-authored experience groups in the existing reviewed Resume record store."""
 from copy import deepcopy
+from typing import Any
 from agents.record_resume import validate_records
 
 KIND = 'experience_bank'
 
 
-def save_review(previous, name, source, records, confirmed, revision, now):
+def save_review(previous: dict[str, Any], name: str, source: str, records: list[dict[str, Any]],
+                confirmed: bool, revision: int, now: float) -> dict[str, Any]:
     if not isinstance(name, str) or not 1 <= len(name.strip()) <= 160:
         raise ValueError('Name this experience in 160 characters or less.')
     if not isinstance(source, str) or not 1 <= len(source.strip()) <= 500:
@@ -24,7 +26,8 @@ def save_review(previous, name, source, records, confirmed, revision, now):
             'history': history, 'confirmed_at': now if confirmed else 0.0}
 
 
-def compose(base, selections, sources):
+def compose(base: list[dict[str, Any]], selections: list[dict[str, Any]],
+            sources: list[dict[str, Any]]) -> dict[str, Any]:
     """Resolve exact private, confirmed source revisions; never infer claims."""
     records = deepcopy(validate_records(base))
     if not isinstance(selections, list) or len(selections) > 100:

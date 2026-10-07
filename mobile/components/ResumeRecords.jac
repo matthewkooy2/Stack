@@ -30,5 +30,5 @@ def:pub ResumeRecords(id: str, onChanged: any) -> JsxElement {
             {<Chip label="Allow model to propose omission" active={r.get("allow_omit",False)} onPress={lambda { update(r["id"],"allow_omit",not r.get("allow_omit",False)); }}/> if r["kind"]=="bullet" else <View/>}
         </View> for r in records]}
         <Button label="Save draft details" secondary={True} disabled={busy or not records} onPress={lambda { save(False); }}/><Button label="Save and confirm resume facts" disabled={busy or not records} onPress={lambda { save(True); }}/>
-    </View>;
+    </View>
 }

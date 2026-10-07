@@ -71,5 +71,5 @@ def:pub BulletBank(onChanged: any) -> JsxElement {
                     <Text style={s.small}>Sources and corrections</Text>{[<Text key={str(h["revision"])} style={s.small}>{"Revision "+str(h["revision"])+" · "+h["source"]+" · "+"; ".join(r["text"] for r in h["records"])}</Text> for h in item["history"]]}</View> if item["editable"] else <Text style={s.small}>Edit imported facts with Review details above.</Text>}
             </View> for item in data.get("sources",[])]}
         </View> if opened else <View/>}
-    </View>;
+    </View>
 }

@@ -131,7 +131,7 @@ def:priv resume_bank_save(name: str, source: str, records: list[dict[str, any]],
         try { review=bank_save_review(r.review if r is not None else {},name,source,records,confirm,revision,time.time()); }
         except ValueError as e { return _error(str(e)); }
         if r is None { r=root ++> Resume(name=name.strip(),file_key="",size=0,created_at=time.time()); }
-        r.name=name.strip();r.review=review;r.review_revision=revision+1;r.review_confirmed=confirm;
+        r.name=name.strip();r.review=dict(review);r.review_revision=revision+1;r.review_confirmed=confirm;
         commit();return resume_bank();
     }
 }

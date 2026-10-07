@@ -1,0 +1,32 @@
+name: Commit style
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  commit-style:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify commit policy behavior
+        run: python3 -m unittest discover -s tests -p test_commit_style.py -v
+      - name: Check PR title and introduced commit subjects
+        if: github.event_name == 'pull_request'
+        run: python3 scripts/check_commit_style.py --event "$GITHUB_EVENT_PATH"
+      - name: Check newly introduced main subjects, including merge commits
+        if: github.event_name == 'push'
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          if [ "$BEFORE" = 0000000000000000000000000000000000000000 ]; then
+            python3 scripts/check_commit_style.py --range "$AFTER"
+          else
+            python3 scripts/check_commit_style.py --range "$BEFORE..$AFTER"
+          fi

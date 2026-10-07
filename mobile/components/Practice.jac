@@ -1,4 +1,5 @@
 import from "@jac/mobui" { View, Text }
+import from "react" { useEffect, useRef }
 import from "../device.js" { rpc, errorText, openJobLink }
 import from ..theme { s }
 import from .UI { Button, Field, Chip }
@@ -8,32 +9,53 @@ import from .Agents { Pill, TaskRow, featureByKey, runsFor, stateTone, stateLabe
 def:pub Practice(runs: list[dict[str, any]] = [], features: list[dict[str, any]] = [], onOpenTask: any = None, onNavigate: any = None) -> JsxElement {
     has problems: list[dict[str, any]] = [], sessions: list[dict[str, any]] = [], current: dict[str, any] = {},
         data: dict[str, any] = {}, error: str = "", busy: bool = False, web: str = "", message: str = "", dirty: bool = False;
+    control=useRef({"epoch":0,"busy":False,"id":"","session":{}});
+    control.current["session"]=current;
+    async def pollResults -> None {
+        id=control.current["id"];epoch=control.current["epoch"];
+        if not id or control.current["busy"] { return; }
+        try {
+            result=await rpc("prep_get",{"id":id});
+            if epoch==control.current["epoch"] and id==control.current["id"] { current={**control.current["session"],"feedback":result["feedback"],"results":result["results"]}; }
+        } except Exception as e { if epoch==control.current["epoch"] { error=errorText(e); } }
+    }
+    useEffect(lambda {
+        timer=setInterval(lambda { pollResults(); },1500);
+        return lambda { clearInterval(timer);control.current["epoch"]+=1;control.current["id"]=""; };
+    },[]);
     async def reload -> None {
         try { result=await rpc("prep_catalog",{});problems=result["problems"];result=await rpc("prep_sessions",{});sessions=result["sessions"];settings=await rpc("agent_settings",{});web=settings.get("web_url",""); }
         except Exception as e { error=errorText(e); }
     }
     async can with entry { await reload(); }
     async def start(id: str, language: str) -> None {
+        if control.current["busy"] { return; }
+        control.current["busy"]=True;control.current["epoch"]+=1;epoch=control.current["epoch"];
         busy=True;error="";
-        try { current=await rpc("prep_create",{"problem_id":id,"language":language});data=current["data"];dirty=False;await reload(); }
+        try { result=await rpc("prep_create",{"problem_id":id,"language":language});if epoch!=control.current["epoch"] { return; }current=result;control.current["id"]=current["id"];data=current["data"];dirty=False;await reload(); }
         except Exception as e { error=errorText(e); }
-        busy=False;
+        finally { if epoch==control.current["epoch"] { control.current["busy"]=False;busy=False; } }
     }
     async def resume(id: str) -> None {
         # Reloading replaces the editor; keep unsaved work unless it belongs to another session.
         if dirty and len(current)>0 and current["id"]==id { error="You have unsaved changes. Save practice first, then refresh.";return; }
-        try { current=await rpc("prep_get",{"id":id});data=current["data"];dirty=False;error=""; }
+        if control.current["busy"] { return; }
+        control.current["busy"]=True;control.current["epoch"]+=1;epoch=control.current["epoch"];busy=True;
+        try { result=await rpc("prep_get",{"id":id});if epoch!=control.current["epoch"] { return; }current=result;control.current["id"]=id;data=current["data"];dirty=False;error=""; }
         except Exception as e { error=errorText(e); }
+        finally { if epoch==control.current["epoch"] { control.current["busy"]=False;busy=False; } }
     }
     async def save(kind: str = "") -> None {
+        if control.current["busy"] { return; }
+        control.current["busy"]=True;control.current["epoch"]+=1;epoch=control.current["epoch"];
         busy=True;error="";message="";
         try {
-            current=await rpc("prep_save",{"id":current["id"],"revision":current["revision"],"data":data});data=current["data"];dirty=False;
-            if kind { result=await rpc("agent_start",{"kind":kind,"target_id":current["id"]});message=result["title"]+" started. Status appears below; results are added to this session."; }
+            result=await rpc("prep_save",{"id":current["id"],"revision":current["revision"],"data":data});if epoch!=control.current["epoch"] { return; }current=result;data=current["data"];dirty=False;
+            if kind { result=await rpc("agent_start",{"kind":kind,"target_id":current["id"]});if epoch!=control.current["epoch"] { return; }message=result["title"]+" started. Status appears below; results are added to this session."; }
             else { message="Practice saved. Continue on either device."; }
             await reload();
         } except Exception as e { error=errorText(e); }
-        busy=False;
+        finally { if epoch==control.current["epoch"] { control.current["busy"]=False;busy=False; } }
     }
     def change(key: str, value: str) -> None { data=withKey(data,key,value);dirty=True; }
     coaching=featureByKey(features,"coaching");code=featureByKey(features,"code");live=featureByKey(features,"live");
@@ -59,6 +81,6 @@ def:pub Practice(runs: list[dict[str, any]] = [], features: list[dict[str, any]]
             {[<Text key={str(r["at"])} style={s.body}>{"Tests: "+str(r["data"].get("passed",0))+" / "+str(r["data"].get("total",0))+" "+r["data"].get("error","")}</Text> for r in current.get("results",[])]}
             {[<View key={str(f["at"])} style={s.hero}><Text style={s.strong}>Coaching</Text><Text style={s.body}>{f["data"].get("text",f["data"].get("summary",""))}</Text>{[<Text key={row["criterion"]} style={s.small}>{row["criterion"]+" · "+str(row["score"])+"/4 — "+row["feedback"]}</Text> for row in f["data"].get("rubric",[])]}{<AgentFeedback key={f["run_id"]+f["output_version"]} runId={f["run_id"]} outputVersion={f["output_version"]}/> if f.get("run_id") and f.get("output_version") else <View/>}</View> for f in current.get("feedback",[])]}
         </View> if len(current)>0 else <View/>}
-        <Button label={"Save to switch exercises" if dirty else "Choose another exercise"} secondary={True} disabled={dirty} onPress={lambda { current={}; }}/><Text style={s.strong}>Continue a session</Text>{[<Button key={p["id"]} label={p["data"]["problem_id"]+(" · "+p["data"]["language"] if p["data"]["language"] else "")} secondary={True} onPress={lambda { resume(p["id"]); }}/> for p in sessions]}
+        <Button label={"Save to switch exercises" if dirty else "Choose another exercise"} secondary={True} disabled={dirty or busy} onPress={lambda { control.current["epoch"]+=1;control.current["id"]="";current={}; }}/><Text style={s.strong}>Continue a session</Text>{[<Button key={p["id"]} label={p["data"]["problem_id"]+(" · "+p["data"]["language"] if p["data"]["language"] else "")} secondary={True} onPress={lambda { resume(p["id"]); }}/> for p in sessions]}
     </View>
 }

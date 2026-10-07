@@ -3,6 +3,7 @@ import "./style.css";
 # Make the transport helper's relative dependency visible to Jac's asset staging.
 import "./google-auth.js";
 import from "./model-permission.js" { updateModelPermission }
+import from "react" { useRef }
 import from .Feedback { AgentFeedback }
 import from .BulletBank { BulletBank }
 import from "./Interview.js" { Interview }
@@ -13,6 +14,8 @@ def:pub app -> JsxElement {
         current: dict[str, any] = {}, data: dict[str, any] = {}, activity: dict[str, any] = {}, selected: dict[str, any] = {}, browser: dict[str, any] = {},
         values: dict[str, str] = {}, oauth: dict[str, any] = {}, settings: dict[str, any] = {}, mail: list[dict[str, any]] = [], interviews: list[dict[str, any]] = [], applications: list[dict[str, any]] = [], mailSelected: dict[str, any] = {}, eventApplication: str = "", eventStatus: str = "", deletePassword: str = "",
         linkedinUrl: str = "", targetRole: str = "", features: list[dict[str, any]] = [], subject: str = "", body: str = "", editsFor: str = "";
+    practice=useRef({"epoch":0,"busy":False,"id":"","run":""});
+    has coachingRun: dict[str, any] = {};
     async can with entry {
         oauth=oauthResult();busy=True;
         try {
@@ -26,16 +29,25 @@ def:pub app -> JsxElement {
         busy=False;starting=False;
     }
     async def refresh -> None {
-        settings=await rpc("agent_settings",{});activity=settings["activity"];
-        result=await rpc("prep_catalog",{});problems=result["problems"];
-        result=await rpc("prep_sessions",{});sessions=result["sessions"];
-        result=await rpc("agent_events",{});mail=result["events"];interviews=result["interviews"];
-        result=await rpc("bootstrap",{});applications=[a for a in result["applications"] if not a["demo"]];features=result["agents"].get("features",[]);
+        epoch=practice.current["epoch"];
+        result=await rpc("agent_settings",{});if epoch!=practice.current["epoch"] { return; }settings=result;activity=settings["activity"];
+        result=await rpc("prep_catalog",{});if epoch!=practice.current["epoch"] { return; }problems=result["problems"];
+        result=await rpc("prep_sessions",{});if epoch!=practice.current["epoch"] { return; }sessions=result["sessions"];
+        result=await rpc("agent_events",{});if epoch!=practice.current["epoch"] { return; }mail=result["events"];interviews=result["interviews"];
+        result=await rpc("bootstrap",{});if epoch!=practice.current["epoch"] { return; }applications=[a for a in result["applications"] if not a["demo"]];features=result["agents"].get("features",[]);
     }
     """Keep progress current without replacing answers or email edits being typed."""
     async def poll -> None {
         if not logged or busy { return; }
         try {
+            if page=="Practice" and practice.current["id"] and not practice.current["busy"] {
+                id=practice.current["id"];epoch=practice.current["epoch"];runId=practice.current["run"];
+                result=await rpc("prep_get",{"id":id});
+                run=await rpc("agent_run",{"id":runId}) if runId else {};
+                if epoch==practice.current["epoch"] and id==practice.current["id"] {
+                    current={**current,"feedback":result["feedback"],"results":result["results"]};coachingRun=run;
+                }
+            }
             if page in ["Activity","Account"] { settings=await rpc("agent_settings",{});activity=settings["activity"]; }
             if len(selected)>0 and selected["status"] not in ["completed","cancelled","failed"] { showRun(await rpc("agent_run",{"id":selected["id"]})); }
         } except Exception as e { error=errorText(e); }
@@ -70,22 +82,39 @@ def:pub app -> JsxElement {
         busy=False;
     }
     async def openSession(id: str) -> None {
-        try { current=await rpc("prep_get",{"id":id});data=current["data"];page="Practice"; }
+        if practice.current["busy"] { return; }
+        practice.current["busy"]=True;practice.current["epoch"]+=1;epoch=practice.current["epoch"];busy=True;
+        try { result=await rpc("prep_get",{"id":id});if epoch!=practice.current["epoch"] { return; }current=result;practice.current["id"]=id;practice.current["run"]="";coachingRun={};data=current["data"];page="Practice"; }
         except Exception as e { error=errorText(e); }
+        finally { if epoch==practice.current["epoch"] { practice.current["busy"]=False;busy=False; } }
     }
     async def create(id: str, language: str) -> None {
-        try { current=await rpc("prep_create",{"problem_id":id,"language":language});data=current["data"];await refresh(); }
+        if practice.current["busy"] { return; }
+        practice.current["busy"]=True;practice.current["epoch"]+=1;epoch=practice.current["epoch"];busy=True;
+        try { result=await rpc("prep_create",{"problem_id":id,"language":language});if epoch!=practice.current["epoch"] { return; }current=result;practice.current["id"]=current["id"];practice.current["run"]="";coachingRun={};data=current["data"];await refresh(); }
         except Exception as e { error=errorText(e); }
+        finally { if epoch==practice.current["epoch"] { practice.current["busy"]=False;busy=False; } }
     }
     async def save(kind: str = "") -> None {
+        if practice.current["busy"] { return; }
+        practice.current["busy"]=True;practice.current["epoch"]+=1;epoch=practice.current["epoch"];
         busy=True;error="";
         try {
-            current=await rpc("prep_save",{"id":current["id"],"revision":current["revision"],"data":data});data=current["data"];
-            if kind { await rpc("agent_start",{"kind":kind,"target_id":current["id"]});notice="Queued. Refresh the session to see results."; }
+            result=await rpc("prep_save",{"id":current["id"],"revision":current["revision"],"data":data});if epoch!=practice.current["epoch"] { return; }current=result;data=current["data"];
+            if kind { run=await rpc("agent_start",{"kind":kind,"target_id":current["id"]});if epoch!=practice.current["epoch"] { return; }practice.current["id"]=current["id"];practice.current["run"]=run["id"];coachingRun=run;notice="Coaching is running. Results appear here when ready."; }
             else { notice="Saved. Continue on either device."; }
             await refresh();
         } except Exception as e { error=errorText(e); }
-        busy=False;
+        finally { if epoch==practice.current["epoch"] { practice.current["busy"]=False;busy=False; } }
+    }
+    async def retryCoaching -> None {
+        if practice.current["busy"] { return; }
+        practice.current["busy"]=True;practice.current["epoch"]+=1;epoch=practice.current["epoch"];busy=True;
+        try {
+            result=await rpc("agent_respond",{"id":coachingRun["id"],"values":[],"reuse":False}) if coachingRun["status"]=="needs_input" else await rpc("agent_retry",{"id":coachingRun["id"]});
+            if epoch==practice.current["epoch"] { coachingRun=result; }
+        } except Exception as e { error=errorText(e); }
+        if epoch==practice.current["epoch"] { practice.current["busy"]=False;busy=False; }
     }
     async def openRun(id: str) -> None {
         try { showRun(await rpc("agent_run",{"id":id}));values={};browser={}; }
@@ -156,12 +185,12 @@ def:pub app -> JsxElement {
     }
     async def deleteAccount -> None {
         if not confirmAccountDelete() { return; }
-        try { await rpc("account_delete",{"username":username,"password":deletePassword});logout();logged=False;deletePassword="";notice="Your account and active data were deleted."; }
+        try { await rpc("account_delete",{"username":username,"password":deletePassword});practice.current["epoch"]+=1;practice.current["busy"]=False;busy=False;practice.current["id"]="";practice.current["run"]="";coachingRun={};logout();logged=False;deletePassword="";notice="Your account and active data were deleted."; }
         except Exception as e { error=errorText(e); }
     }
     <main>
         <Poll onTick={poll}/>
-        <header><div><span className="brand">stack</span><h1>Your next chapter, in motion.</h1><p>Practice deeply. Let your agents handle the follow-through.</p></div>{<button onClick={lambda { logout();logged=False;sessionReady=False;linkedinUrl="";targetRole="";current={};selected={};settings={};data={}; }}>Sign out</button> if logged else <span>Private beta</span>}</header>
+        <header><div><span className="brand">stack</span><h1>Your next chapter, in motion.</h1><p>Practice deeply. Let your agents handle the follow-through.</p></div>{<button onClick={lambda { practice.current["epoch"]+=1;practice.current["busy"]=False;busy=False;practice.current["id"]="";practice.current["run"]="";coachingRun={};logout();logged=False;sessionReady=False;linkedinUrl="";targetRole="";current={};selected={};settings={};data={}; }}>Sign out</button> if logged else <span>Private beta</span>}</header>
         {<p className="error" role="alert">{error}</p> if error else <div/>}{<p className="notice">{notice}</p> if notice else <div/>}
         {<section className="login"><h2>Checking your sign-in…</h2></section> if starting else (<section className="login"><h2>{"Join Stack" if signup else "Welcome back"}</h2>{<p>Sign in to the same Stack account you used to start connecting Google. Your connection will finish after sign-in.</p> if oauth.get("code") else <span/>}
             {<div><button disabled={busy} onClick={lambda { googleLogin(); }}>Continue with Google</button><p>Google sign-in uses your basic identity. Gmail and Calendar are optional.</p><p>Already use Stack? Sign in with your password, then choose “Link Google sign-in” in Account to keep your data.</p><label>Username<input value={username} onChange={lambda (e: any) { username=e.target.value; }}/></label><label>Password<input type="password" value={password} onChange={lambda (e: any) { password=e.target.value; }}/></label></div> if not sessionReady else <p>You are signed in. Accept your invitation to open Stack.</p>}
@@ -184,6 +213,7 @@ def:pub app -> JsxElement {
                     <label>Your reasoning<textarea value={data["answer"]} onChange={lambda (e: any) { data={**data,"answer":e.target.value}; }}/></label>
                     {<label>{data["language"].upper()+" editor"}<textarea className="code" spellCheck={False} value={data["code"]} onChange={lambda (e: any) { data={**data,"code":e.target.value}; }}/></label> if data["language"] else <Diagram value={data["canvas"]} onChange={lambda (v: dict[str, any]) { data={**data,"canvas":v}; }}/>}
                     <div className="toolbar">{<button disabled={busy} onClick={lambda { save("code"); }}>Run tests</button> if data["language"] else <span/>}<button className="primary" disabled={busy} onClick={lambda { save("prep"); }}>Get coaching</button></div>
+                    {<div><p role="status">{coachingRun.get("message","")}</p>{<button disabled={busy} onClick={lambda { retryCoaching(); }}>Retry coaching</button> if coachingRun.get("status","") in ["needs_input","blocked","failed"] else <span/>}</div> if coachingRun.get("id") else <span/>}
                     <Recorder onTranscript={lambda (text: str) { data={**data,"transcript":text}; }}/><label>Review your transcript<textarea value={data["transcript"]} onChange={lambda (e: any) { data={**data,"transcript":e.target.value}; }}/></label><LiveInterview sessionId={current["id"]} onTranscript={lambda (text: str) { data={**data,"transcript":text}; }}/>
                     {[<article key={str(r["at"])}><h3>{"Tests: "+str(r["data"].get("passed",0))+" / "+str(r["data"].get("total",0))}</h3><pre>{r["data"].get("error","")}</pre><p>{"Attempt revision "+str(r["revision"])}</p></article> for r in current["results"]]}
                     {[<article key={str(f["at"])}><h3>Coaching</h3><pre>{f["data"].get("text",f["data"].get("summary",""))}</pre>{[<p key={row["criterion"]}><strong>{row["criterion"]+" · "+str(row["score"])+"/4"}</strong>{" — "+row["feedback"]}</p> for row in f["data"].get("rubric",[])]}{[<p key={q}>{q}</p> for q in f["data"].get("followup_questions",[])]}{<AgentFeedback key={f["run_id"]+f["output_version"]} runId={f["run_id"]} outputVersion={f["output_version"]}/> if f.get("run_id") and f.get("output_version") else <span/>}</article> for f in current["feedback"]]}

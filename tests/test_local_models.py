@@ -181,6 +181,27 @@ class LocalModels(unittest.TestCase):
                 with patch.object(provider,'generate') as gen:
                     self.assertTrue(worker.dispatch(work,'worker-token')['needs_input']);gen.assert_not_called()
 
+    def test_practice_changed_inflight_does_not_store_stale_coaching(self):
+        with service('lmstudio',COACH) as (url,_):
+            self.configure('lmstudio',url)
+            client=JacTestClient.from_file(str(Path('main.jac').resolve()),base_path=self.tmp.name+'/stale')
+            def rpc(name,args=None):
+                response=client.post('/function/'+name,json=args or {});self.assertTrue(response.ok,response.text)
+                result=response.data['result'];self.assertNotIn('error',result);return result
+            try:
+                registered=client.register_user('practice-stale','Synthetic-local-password-123');self.assertTrue(registered.ok)
+                token=registered.data['token'];rpc('agent_settings');rpc('agent_save_policy',{'policy':{'enabled':True,'expires_at':time.time()+3600,'actions':['model']}})
+                current=rpc('prep_create',{'problem_id':'project'});run=rpc('agent_start',{'kind':'prep','target_id':current['id']})
+                client.clear_auth();claim=rpc('agent_claim',{'token':'local-worker-token'})
+                with patch.object(worker,'call',side_effect=rpc): result=worker.dispatch(claim,'local-worker-token')
+                client.set_auth_token(token);data=current['data'];data['answer']='Newer answer'
+                updated=rpc('prep_save',{'id':current['id'],'revision':current['revision'],'data':data})
+                client.clear_auth();done=rpc('agent_finish',{'token':'local-worker-token',**{k:claim[k] for k in ('id','owner','lease')},'result':result})
+                self.assertEqual(done['status'],'needs_input')
+                client.set_auth_token(token);saved=rpc('prep_get',{'id':current['id']})
+                self.assertEqual(saved['feedback'],[]);self.assertEqual(saved['data']['answer'],'Newer answer')
+            finally:client.close()
+
     def test_worker_account_workflow_persists_without_subscription_cap_or_api_money(self):
         for name in ('ollama','lmstudio'):
             with self.subTest(name=name),service(name,COACH) as (url,requests):

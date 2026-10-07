@@ -117,7 +117,7 @@ class Journey:
         assert DESCRIPTION.split('.')[0] in self.get()['data']['questions'][1]['question']
         self.answer(ANSWER2);self.work()
         current=self.get();assert current['data']['analysis']['2']['text']
-        assert flow.followup(current['data']['analysis']['2'],current['data'])!=flow.followup(first,current['data'])
+        assert ANSWER2 in flow.followup(current['data']['analysis']['2'],current['data'])
         current=self.rpc('interview_correct',{'id':current['id'],'revision':current['revision'],'index':1,'answer':CORRECTED})
         assert current['data']['turns'][1]['original']==ANSWER2
         assert not current['data']['coaching'] and not current['data']['analysis']

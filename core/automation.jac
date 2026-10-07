@@ -12,6 +12,7 @@ import from agents.contracts { VERSION, STEPS, workflow_steps, PAID, EXTERNAL, T
 import from agents.voice { voice_settings, voice_reservation, SECONDS }
 import from agents.prep { catalog, problem, validate_session }
 import from agents.security { seal, unseal }
+import agents.notifications as push;
 import from agents.contacts { parse_contacts }
 import from agents.experience { REVIEWED, ATTENTION, ACTIVE, review_payload, review_summary, present }
 import from agents.google { authorization_url, exchange, refreshed, SCOPES }
@@ -43,7 +44,10 @@ node AgentInterview { has key: str, application_id: str, event: dict[str, any], 
 node AgentEvent { has key: str, data: dict[str, any], created_at: float; }
 node PrepSession { has data: dict[str, any], created_at: float, updated_at: float, revision: int = 0, results: list[dict[str, any]] = [], feedback: list[dict[str, any]] = [], recordings: list[dict[str, any]] = []; }
 node AgentPushDevice { has key: str, sealed: str; }
-node AgentNotification { has key: str, run_id: str, state: str = "queued", receipt: str = ""; }
+node AgentNotification {
+    has key: str, run_id: str, state: str = "queued", receipt: str = "";
+    has initialized: bool = False, deliveries: list[dict[str, any]] = [];
+}
 node AgentAdmission { has owner: str, created_at: float; }
 
 def _agent_fresh() -> None {
@@ -686,29 +690,126 @@ def:priv agent_remove_push(device_token: str) -> dict[str, any] {
         commit();return {"removed":True};
     }
 }
+def _notification_refresh(n: AgentNotification, now: float) -> None {
+    if n.state=="cancelled" { return; }
+    if not n.initialized {
+        if n.state=="queued" {
+            n.deliveries=[push.new_delivery(device_node.key) for device_node in [root -->][?:AgentPushDevice]];
+        } elif n.state=="sent" and n.receipt {
+            # Legacy send tickets had no durable device mapping. Poll them, but
+            # never use their position to retire a current registered device.
+            n.deliveries=[];
+            for ticket in n.receipt.split(",") {
+                d=push.new_delivery("legacy:"+str(len(n.deliveries)));
+                d.update(state="accepted",ticket=ticket,accepted_at=now,due_at=now);
+                n.deliveries.append(d);
+            }
+        } else {
+            if n.state=="dispatched" or n.state=="sent" { n.state="uncertain"; }
+            n.initialized=True;return;
+        }
+        n.initialized=True;
+    }
+    if n.deliveries {
+        n.deliveries=push.recover(n.deliveries,now);n.state=push.status(n.deliveries);
+    } elif n.state=="queued" { n.state="no_devices"; }
+}
+
+def _notification_owned(id: str) -> AgentNotification | None {
+    for n in [root -->][?:AgentNotification] { if jid(n)==id { return n; } }
+    return None;
+}
+
+def _notification_view(n: AgentNotification) -> dict[str, any] {
+    return {"id":jid(n),"run_id":n.run_id,"state":n.state,
+        "devices":[{k:d[k] for k in ["state","attempts","receipt_attempts","ticket","error"]} for d in n.deliveries]};
+}
+
+def:priv agent_notification_status(id: str = "") -> dict[str, any] {
+    _agent_access();
+    if not id { return {"notifications":[_notification_view(n) for n in [root -->][?:AgentNotification]]}; }
+    n=_notification_owned(id);
+    if n is None { return {"error":"Notification not found."}; }
+    return _notification_view(n);
+}
+
 def:pub agent_notification_claim(token: str) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
     with _catalog_lock {
-        _agent_fresh();owners=[a.owner for a in [root.shared -->][?:AgentAdmission]];
+        _agent_fresh();owners=[a.owner for a in [root.shared -->][?:AgentAdmission]];now=time.time();
         for owner in owners {
             _agent_owner(owner);
             for n in [root -->][?:AgentNotification] {
-                if n.state!="queued" { continue; }
-                n.state="dispatched";devices=[unseal(d.sealed)["token"] for d in [root -->][?:AgentPushDevice]];commit();
-                return {"owner":owner,"id":jid(n),"run_id":n.run_id,"devices":devices};
+                _notification_refresh(n,now);
+                if n.state=="cancelled" { continue; }
+                for index in range(len(n.deliveries)) {
+                    d=dict(n.deliveries[index]);
+                    if d["state"] not in ["queued","accepted"] or d["lease"] or d["due_at"]>now { continue; }
+                    phase="receipt" if d["state"]=="accepted" else "send";device="";
+                    if phase=="send" {
+                        devices=[v for v in [root -->][?:AgentPushDevice] if v.key==d["key"]];
+                        if not devices { d.update(state="failed",error="DeviceRemoved");n.deliveries[index]=d;continue; }
+                        try { device=unseal(devices[0].sealed)["token"]; }
+                        except ValueError { d.update(state="failed",error="DeviceLocked");n.deliveries[index]=d;continue; }
+                        d["state"]="claimed";
+                    } else { d["receipt_attempts"]+=1; }
+                    d.update(lease=secrets.token_urlsafe(24),lease_until=now+push.LEASE_SECONDS);
+                    n.deliveries[index]=d;n.state=push.status(n.deliveries);commit();
+                    return {"owner":owner,"id":jid(n),"run_id":n.run_id,"key":d["key"],
+                        "lease":d["lease"],"phase":phase,"device":device,"ticket":d["ticket"]};
+                }
+                if n.deliveries { n.state=push.status(n.deliveries); }
             }
+            commit();
         }
         return {"idle":True};
     }
 }
-def:pub agent_notification_finish(token: str, owner: str, id: str, receipt: str) -> dict[str, any] {
+
+def:pub agent_notification_begin(token: str, owner: str, id: str, key: str, lease: str) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
     with _catalog_lock {
-        _agent_fresh();_agent_owner(owner);
-        for n in [root -->][?:AgentNotification] {
-            if jid(n)==id and n.state=="dispatched" { n.state="sent" if receipt else "failed";n.receipt=receipt;commit();return {"saved":True}; }
+        _agent_fresh();_agent_owner(owner);n=_notification_owned(id);now=time.time();
+        if n is None or n.state=="cancelled" { return {"error":"Notification not found."}; }
+        for index in range(len(n.deliveries)) {
+            d=dict(n.deliveries[index]);
+            if d["key"]==key and lease and d["lease"]==lease and d["lease_until"]>now and d["state"]=="claimed" {
+                if not [v for v in [root -->][?:AgentPushDevice] if v.key==key] {
+                    d.update(state="failed",error="DeviceRemoved",lease="",lease_until=0.0);
+                    n.deliveries[index]=d;n.state=push.status(n.deliveries);commit();
+                    return {"error":"Notification device was removed."};
+                }
+                # Commit the uncertainty boundary before contacting Expo.
+                d.update(state="dispatching",attempts=d["attempts"]+1);n.deliveries[index]=d;commit();
+                return {"started":True};
+            }
         }
-        return {"error":"Notification not found."};
+        return {"error":"Notification lease is no longer active."};
+    }
+}
+
+def:pub agent_notification_finish(token: str, owner: str, id: str, key: str, lease: str, result: dict[str, any]) -> dict[str, any] {
+    if not _agent_system(token) { return {"error":"Worker authorization required."}; }
+    with _catalog_lock {
+        _agent_fresh();_agent_owner(owner);n=_notification_owned(id);now=time.time();
+        if n is None or n.state=="cancelled" { return {"error":"Notification not found."}; }
+        if set(result)-{"state","error","ticket"} { return {"error":"Invalid notification result."}; }
+        for index in range(len(n.deliveries)) {
+            d=n.deliveries[index];
+            if d["key"]!=key { continue; }
+            if lease and d["last_lease"]==lease and d["last_result"]==result { return {"saved":True}; }
+            if not lease or d["lease"]!=lease or d["lease_until"]<=now or d["state"] not in ["dispatching","accepted"] {
+                return {"error":"Notification lease is no longer active."};
+            }
+            try { updated=push.complete(d,result,now); }
+            except ValueError as e { return {"error":str(e)}; }
+            n.deliveries[index]=updated;n.state=push.status(n.deliveries);
+            if updated["error"]=="DeviceNotRegistered" {
+                for device in [root -->][?:AgentPushDevice] { if device.key==key { del device; } }
+            }
+            commit();return {"saved":True};
+        }
+        return {"error":"Notification device not found."};
     }
 }
 

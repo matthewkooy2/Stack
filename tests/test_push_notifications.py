@@ -228,10 +228,12 @@ class PushNotifications(unittest.TestCase):
             'STACK_TEST_PUSH_PARENT_PID': str(os.getpid())}
         self.client.close()
         manifest = Path(self.directory.name) / 'legacy-manifest.json'
-        # A standalone source root preserves the deployed type's module name.
-        # Compiling a fixture nested inside this project prefixes its namespace.
+        # JacTestClient prefixes types with a hash of the application path.
+        # Compile old and current source at the SAME disposable application path,
+        # as a real update does, without mutating this checkout or serialized rows.
         legacy_source = Path(self.directory.name) / 'legacy-source'
-        (legacy_source / 'core').mkdir(parents=True)
+        shutil.copytree(ROOT, legacy_source, ignore=shutil.ignore_patterns(
+            '.git', '.jac', 'storage', 'node_modules', '__pycache__', '.venv'))
         for source, destination in (
             (ROOT / 'tests/fixtures/push_legacy/main.jac', legacy_source / 'main.jac'),
             (ROOT / 'tests/fixtures/push_legacy/core/automation.jac', legacy_source / 'core/automation.jac'),
@@ -244,7 +246,13 @@ class PushNotifications(unittest.TestCase):
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=120)
         self.assertEqual(seeded.returncode, 0, seeded.stdout[-5000:])
         legacy = json.loads(manifest.read_text())
-        self.client = JacTestClient.from_file(str(ROOT / 'main.jac'), base_path=self.directory.name)
+        for relative in ('main.jac', 'core/automation.jac', 'jac.toml'):
+            shutil.copyfile(ROOT / relative, legacy_source / relative)
+        # Dependencies are immutable and already installed; only compiler output
+        # belongs to this disposable application directory.
+        (legacy_source / '.jac').mkdir(exist_ok=True)
+        (legacy_source / '.jac/venv').symlink_to((ROOT / '.jac/venv').resolve(), target_is_directory=True)
+        self.client = JacTestClient.from_file(str(legacy_source / 'main.jac'), base_path=self.directory.name)
         self.api.client = self.client
         self.addCleanup(self.client.close)
         self.auth = legacy['auth']

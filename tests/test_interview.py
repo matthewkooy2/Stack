@@ -266,7 +266,7 @@ class InterviewAcceptance(unittest.TestCase):
             try:
                 buffer=io.BytesIO()
                 with wave.open(buffer,'wb') as audio:
-                    audio.setnchannels(1);audio.setsampwidth(2);audio.setframerate(16000);audio.writeframes(b'\0\0'*16000)
+                    audio.setnchannels(1);audio.setsampwidth(2);audio.setframerate(16000);audio.writeframes(b'\xe8\x03'*16000)
                 recording=journey.rpc('transcription_upload',{'client_id':'mat5-recording-owner','content':base64.b64encode(buffer.getvalue()).decode()})
                 current=journey.get()
                 args={'id':current['id'],'revision':current['revision'],'answer':ANSWER1,'client_id':'recorded-answer','recording_id':recording['id']}
@@ -301,6 +301,7 @@ class InterviewAcceptance(unittest.TestCase):
             journey=Journey(directory,url)
             try:
                 journey.answer(ANSWER1);journey.work();current=journey.get()
+                self.assertFalse(current['data']['pending'],current['run'])
                 current=journey.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'followup'})
                 self.assertEqual(current['data']['questions'][1]['kind'],'followup')
                 current=journey.rpc('interview_correct',{'id':current['id'],'revision':current['revision'],'index':0,'answer':ANSWER1+' I did not measure speed.'})

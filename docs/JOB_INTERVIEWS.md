@@ -112,9 +112,7 @@ words are required; synthetic speech is not evidence of physical microphone
 accuracy. Raw Whisper recognition and model/scoring output are never mocked;
 the simulated reviewed correction is supplied explicitly through transcript-save.
 
-`scripts/compile-mobile.jac` and `tests/transcription-native.cjs` exercise the
-generated native interface and existing recording adapter with controlled
-OS/API/model boundaries. Native fixtures cover the explicit reviewed-transcript
-handoff, preserved typed drafts, submission identity/retry, frozen controls during
-a delayed save and saved-session load, correction, strengths/rubric/practice display and saved-session
-reopen. Physical iPhone evidence remains necessary for device acceptance.
+CI compiles the generated native interface with `scripts/compile-mobile.jac`;
+the reviewed-transcript handoff, correction and saved-session behavior are
+verified through the persisted API journeys in `tests/test_interview.py`.
+Physical iPhone evidence remains necessary for device acceptance.

@@ -1,0 +1,152 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  # Superseded PR pushes are cancelled; every main commit is checked before deployment.
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  static:
+    name: Type-check and native compile
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.22.0'
+      - uses: ./.github/actions/setup-jac
+      - name: Check server, web and native modules
+        run: >-
+          jac check main.jac web/main.jac mobile/main.jac
+          core/automation.jac core/stories.jac
+          agents/provider.jac agents/worker.jac agents/gateway.jac agents/local_model.jac agents/contracts.jac
+          agents/notifications.jac agents/tracing.jac agents/resume_processing.jac agents/experience.jac
+          scripts/agent-admin.jac
+      - name: Compile the native app
+        run: jac run --no-serve scripts/compile-mobile.jac
+
+  onboarding:
+    name: Contributor setup, offline tests and smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Scan public Git history for developer credentials
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/gitleaks"
+          curl --fail --location --retry 3 https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz --output "$RUNNER_TEMP/gitleaks/gitleaks.tar.gz"
+          printf '%s  %s\n' 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb "$RUNNER_TEMP/gitleaks/gitleaks.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/gitleaks/gitleaks.tar.gz" -C "$RUNNER_TEMP/gitleaks"
+          "$RUNNER_TEMP/gitleaks/gitleaks" git --log-opts=--all --redact=100 --no-banner --ignore-gitleaks-allow
+      - name: Install documented machine prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git make python3-venv ca-certificates curl tar xz-utils libfontconfig1
+      - name: Bootstrap a clean public checkout
+        run: python3 scripts/contributor.py setup
+      - name: Preserve browser build for rendered review
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: browser-review-${{ github.event.pull_request.head.sha || github.sha }}
+          path: .jac/client/workspace/dist/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Check local prerequisites without model calls
+        run: python3 scripts/contributor.py doctor
+      - name: Run offline unit suites (make test)
+        run: python3 scripts/contributor.py test
+      - name: Start backend, workers, and browser UI and verify health
+        run: python3 scripts/contributor.py dev --smoke
+      - name: Repeat setup after persistent accounts and local data exist
+        run: python3 scripts/contributor.py setup
+      - name: Verify accounts and saved practice survive repeat setup and restart
+        run: python3 scripts/contributor.py dev --smoke
+
+  integration:
+    name: Integration (${{ matrix.suite }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: resumes
+            python: test_record_resume.py test_bullet_bank_workflow.py test_resume_processing.py
+            jac: ''
+          - suite: coaching
+            python: test_interview.py test_local_models.py test_stories_api.py
+            jac: ''
+          - suite: accounts
+            python: test_push_notifications.py
+            jac: tests/google_signin_tests.jac tests/google_signin_gateway_tests.jac
+    env:
+      JAC_DB_SCRATCH: '1'
+      JAC_TEST_JOBS: '0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-jac
+      - name: Run persisted API and worker journeys
+        env:
+          SUITES: ${{ matrix.python }}
+        run: |
+          set -euo pipefail
+          for suite in $SUITES; do
+            echo "::group::$suite"
+            jac run --no-serve "tests/$suite"
+            echo '::endgroup::'
+          done
+      - name: Run Jac integration tests
+        if: matrix.jac != ''
+        run: jac test ${{ matrix.jac }}
+
+  windows:
+    name: Windows PDF limits and startup
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Install the pinned PDF dependency
+        run: python -c "import subprocess,sys,tomllib; spec=tomllib.load(open('jac.toml','rb'))['dependencies']['pypdf']; subprocess.check_call([sys.executable,'-m','pip','install','--disable-pip-version-check','pypdf'+spec])"
+      - name: Exercise PDF resource limits
+        run: python -m unittest discover -s tests -p test_pdf_safety.py -v
+      - name: Verify service and HTTP deadline cases
+        run: python -m unittest discover -s deploy/startup -p test_startup.py -v
+      - name: Verify disposable Windows startup orchestration
+        shell: pwsh
+        run: ./deploy/startup/test-windows-startup.ps1
+
+  # The single check to require in branch protection; deployment waits on this workflow.
+  ci-ok:
+    name: CI passed
+    if: always()
+    needs: [static, onboarding, integration, windows]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every job to succeed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do
+            [ "$result" = success ] || { echo "A required job finished as $result." >&2; exit 1; }
+          done

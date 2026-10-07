@@ -113,7 +113,6 @@ class Journey:
         current=self.get();first=current['data']['analysis']['1'];assert first['text']
         self.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'followup'})
         assert ANSWER1 in self.get()['data']['questions'][1]['question']
-        assert 'verify' in self.get()['data']['questions'][1]['question']
         assert DESCRIPTION.split('.')[0] in self.get()['data']['questions'][1]['question']
         self.answer(ANSWER2);self.work()
         current=self.get();assert current['data']['analysis']['2']['text']

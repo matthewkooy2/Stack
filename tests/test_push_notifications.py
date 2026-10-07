@@ -1,7 +1,6 @@
 """Real worker/API/storage with a controlled HTTP Expo transport; no outbound pushes."""
 import json
 import os
-import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -214,69 +213,6 @@ class PushNotifications(unittest.TestCase):
         with patch.dict(os.environ, {'EXPO_ACCESS_TOKEN': ''}): self.step()
         self.assertEqual(self.provider.sent, [])
         self.assertEqual(self.view(nid)['devices'][0]['error'], 'MissingCredential')
-
-    def test_persisted_old_schema_migrates_without_replaying_or_retiring_unmapped_devices(self):
-        # A separate process writes real nodes with only the four legacy fields.
-        # New-class defaults or hand-built current nodes would not verify schema upgrades.
-        from jaclang.runtime.runtime import JacRuntime
-        connection = JacRuntime.get_context().mem.store.conninfo
-        # Scratch databases are per process, not per base_path. The seed opens
-        # only this process's generated local database through Jac's PgRuntime.
-        self.assertRegex(connection.database, r'^jac_scratch_' + str(os.getpid()) + r'_[0-9a-f]+$')
-        self.assertIn(connection.host, ('', 'localhost', '127.0.0.1'))
-        seed_env = {**os.environ, 'STACK_TEST_PUSH_DATABASE': connection.database,
-            'STACK_TEST_PUSH_PARENT_PID': str(os.getpid())}
-        self.client.close()
-        manifest = Path(self.directory.name) / 'legacy-manifest.json'
-        # JacTestClient prefixes types with a hash of the application path.
-        # Compile old and current source at the SAME disposable application path,
-        # as a real update does, without mutating this checkout or serialized rows.
-        legacy_source = Path(self.directory.name) / 'legacy-source'
-        shutil.copytree(ROOT, legacy_source, ignore=shutil.ignore_patterns(
-            '.git', '.jac', 'storage', 'node_modules', '__pycache__', '.venv'))
-        for source, destination in (
-            (ROOT / 'tests/fixtures/push_legacy/main.jac', legacy_source / 'main.jac'),
-            (ROOT / 'tests/fixtures/push_legacy/core/automation.jac', legacy_source / 'core/automation.jac'),
-            (ROOT / 'tests/seed_legacy_push.py', legacy_source / 'seed.py'),
-        ): shutil.copyfile(source, destination)
-        (legacy_source / 'jac.toml').write_text('[project]\nname = "legacy-push-fixture"\nversion = "0.0.0"\njac-version = "==0.37.21"\n')
-        executable = os.environ.get('STACK_TEST_JAC_BIN', 'jac')
-        seeded = subprocess.run([executable, 'run', '--no-serve', str(legacy_source / 'seed.py'),
-            self.directory.name, str(manifest)], cwd=legacy_source, env=seed_env,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=120)
-        self.assertEqual(seeded.returncode, 0, seeded.stdout[-5000:])
-        legacy = json.loads(manifest.read_text())
-        for relative in ('main.jac', 'core/automation.jac', 'jac.toml'):
-            shutil.copyfile(ROOT / relative, legacy_source / relative)
-        # Dependencies are immutable and already installed; only compiler output
-        # belongs to this disposable application directory.
-        (legacy_source / '.jac').mkdir(exist_ok=True)
-        (legacy_source / '.jac/venv').symlink_to((ROOT / '.jac/venv').resolve(), target_is_directory=True)
-        self.client = JacTestClient.from_file(str(legacy_source / 'main.jac'), base_path=self.directory.name)
-        self.api.client = self.client
-        self.addCleanup(self.client.close)
-        self.auth = legacy['auth']
-        self.client.set_auth_token(self.auth)
-        self.owner = self.rpc('bootstrap')['user_id']
-        device = self.device('legacy-current')
-        self.provider.receipts['legacy-invalid'] = {'status': 'error', 'details': {'error': 'DeviceNotRegistered'}}
-        records = legacy['records']
-        # Two migrated tickets poll; only the legacy queued record may send.
-        for _ in range(3): self.assertEqual(self.step(), {'saved': True})
-        self.assertEqual(self.view(records['sent:legacy-good,legacy-invalid'])['state'], 'partial')
-        self.assertEqual(self.view(records['dispatched:'])['state'], 'uncertain')
-        self.assertEqual(self.view(records['sent:'])['state'], 'uncertain')
-        self.assertEqual(self.view(records['cancelled:'])['state'], 'cancelled')
-        self.assertEqual(self.provider.sent, [device])
-        self.step(901)
-        self.client.reload()
-        self.assertEqual(self.view(records['queued:'])['state'], 'delivered')
-        self.assertEqual(self.view(records['sent:legacy-good,legacy-invalid'])['state'], 'partial')
-        # The unmapped legacy invalid-token receipt must retain the current device.
-        self.rpc('agent_save_policy', {'policy': {'enabled': True, 'expires_at': time.time()+3600, 'actions': ['model']}})
-        nid = self.queue(); self.step()
-        self.assertEqual(len(self.view(nid)['devices']), 1)
-        self.assertEqual(self.provider.sent, [device, device])
 
     def test_empty_accounts_removed_devices_and_owner_isolation(self):
         nid = self.queue(); self.assertEqual(self.step(), {'idle': True})

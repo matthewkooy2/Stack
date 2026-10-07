@@ -373,11 +373,15 @@ def tests(root):
     env = environment(root)
     env.update(PYTHONPATH=str(root), JAC_TEST_JOBS='0')
     # All of these suites use synthetic data and mocked provider/network boundaries.
+    # CI runs exactly this list; server-backed journeys run separately as integration suites.
     for path in ('test_bootstrap.py', 'test_jac_launcher.py', 'test_contributor.py', 'test_gitignore.py', 'test_pdf_safety.py', 'test_fixture_provenance.py',
-                 'test_matching.py', 'test_discovery.py', 'test_municipal_discovery.py', 'test_agent_providers.py', 'test_gateway.py'):
+                 'test_matching.py', 'test_discovery.py', 'test_municipal_discovery.py', 'test_agent_providers.py', 'test_gateway.py',
+                 'test_model_logs.py', 'test_stories.py', 'test_bullet_bank.py', 'test_interview_contract.py'):
         execute(root, [str(root / 'scripts/jac'), 'run', '--no-serve', 'tests/' + path], env)
-    execute(root, [str(root / 'scripts/jac'), 'test', 'tests/provider_workflow_tests.jac'], env)
-    execute(root, ['node', 'tests/test_web_model_permission.cjs'], env)
+    execute(root, [sys.executable, '-m', 'unittest', 'discover', '-s', 'deploy/startup', '-p', 'test_startup.py'], env)
+    execute(root, [str(root / 'scripts/jac'), 'test', 'tests/provider_workflow_tests.jac', 'tests/provider_transport_tests.jac'], env)
+    for path in ('test_web_model_permission.cjs', 'google_signin_clients.cjs'):
+        execute(root, ['node', 'tests/' + path], env)
     print('Offline contributor and provider checks passed; no real model requests.')
 
 

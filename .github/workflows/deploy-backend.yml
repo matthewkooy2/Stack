@@ -1,6 +1,9 @@
 name: Deploy Stack backend
 on:
-  push:
+  # Deploy only commits whose full CI run passed on a push to main.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 permissions:
@@ -12,12 +15,20 @@ concurrency:
 jobs:
   deploy:
     # Enable format 3 only after the attended host migration documented below.
-    if: github.ref == 'refs/heads/main' && vars.STACK_RELEASE_FORMAT == '3'
+    # A fork PR from a branch named main also reports head_branch main, so require
+    # a push in this repository rather than trusting the branch name alone.
+    if: >-
+      github.ref == 'refs/heads/main' && vars.STACK_RELEASE_FORMAT == '3' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: stack-production
     env:
-      RELEASE_COMMIT: ${{ github.sha }}
+      # workflow_run's github.sha is the current main head, not the commit CI verified.
+      RELEASE_COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
       - name: Require approved deployment access
         env:
@@ -44,7 +55,7 @@ jobs:
           fi
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.RELEASE_COMMIT }}
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -56,7 +67,7 @@ jobs:
           python3 -c 'import json,os; r=json.load(open(os.environ["RUNNER_TEMP"]+"/release.json")); print("RELEASE_DIGEST="+r["sha256"])' >> "$GITHUB_ENV"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: backend-${{ github.sha }}
+          name: backend-${{ env.RELEASE_COMMIT }}
           path: |
             ${{ runner.temp }}/backend.tar.gz
             ${{ runner.temp }}/release.json

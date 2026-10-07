@@ -38,6 +38,13 @@ jobs:
           set -euo pipefail
           jac run --no-serve tests/test_record_resume.py 2>&1 | tee "$RUNNER_TEMP/record-resumes.log"
           grep -qx 'OK' "$RUNNER_TEMP/record-resumes.log"
+      - name: Verify private bullet bank and reviewed tailoring provenance
+        run: |
+          set -euo pipefail
+          jac run --no-serve tests/test_bullet_bank.py 2>&1 | tee "$RUNNER_TEMP/bullet-bank.log"
+          grep -qx 'OK' "$RUNNER_TEMP/bullet-bank.log"
+          jac run --no-serve tests/test_bullet_bank_workflow.py 2>&1 | tee "$RUNNER_TEMP/bullet-bank-workflow.log"
+          grep -qx 'OK' "$RUNNER_TEMP/bullet-bank-workflow.log"
       - name: Preserve durable source processing
         run: |
           set -euo pipefail

@@ -153,6 +153,23 @@ class Providers(unittest.TestCase):
         self.assertIn('shell_tool', command);self.assertIn('plugins', command)
         self.assertFalse(Path(directory).exists())
 
+    def test_plain_coaching_clis_have_no_schema_or_json_acceptance(self):
+        text='<img src=x onerror=alert(1)> {broken JSON. Partial:'
+        for name in ('codex-cli','claude-cli'):
+            calls=[]
+            def run(command,directory,prompt='',**kwargs):
+                calls.append(command)
+                if command[1:3]==['login','status']:return 0,'Logged in using ChatGPT'
+                if command[1:3]==['auth','status']:return 0,json.dumps({'loggedIn':True,'authMethod':'claude.ai','apiProvider':'firstParty'})
+                if name=='codex-cli':
+                    Path(command[command.index('--output-last-message')+1]).write_text(text)
+                    return 0,''
+                return 0,json.dumps({'is_error':False,'result':text})
+            c={**contracts.config(),'provider':name,'model':'test'}
+            with patch.object(local_cli.shutil,'which',return_value='/tools/cli'),patch.object(local_cli,'run',side_effect=run):
+                self.assertEqual(provider.generate('coach',{'session':{'answer':'My answer'}},c)['artifact']['text'],text)
+            self.assertNotIn('--output-schema',calls[-1]);self.assertNotIn('--json-schema',calls[-1])
+
     def test_codex_refuses_api_login_before_generation(self):
         with patch.object(local_cli.shutil, 'which', return_value='/tools/codex'), patch.object(local_cli, 'run', return_value=(0, 'Logged in using an API key')) as run:
             with self.assertRaisesRegex(ValueError, 'codex login'):
@@ -167,7 +184,7 @@ class Providers(unittest.TestCase):
                 return 0, json.dumps({'loggedIn': True, 'authMethod': 'claude.ai', 'apiProvider': 'firstParty'})
             return 0, json.dumps({'is_error': False, 'structured_output': REPORT})
         with patch.object(local_cli.shutil, 'which', return_value='/tools/claude'), patch.object(local_cli, 'run', side_effect=run):
-            self.assertEqual(local_cli.generate('claude-cli', '', '', '', {}), REPORT)
+            self.assertEqual(local_cli.generate('claude-cli', '', '', '', provider.SCHEMAS['fit']), REPORT)
         self.assertEqual(calls[-1][calls[-1].index('--tools')+1], '')
         self.assertIn('--safe-mode', calls[-1]);self.assertNotIn('--bare', calls[-1])
         self.assertIn('--strict-mcp-config', calls[-1])

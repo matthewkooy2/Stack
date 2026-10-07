@@ -1,6 +1,6 @@
 import from "./transport.js" { rpc, login, logout, errorText, oauthResult, googleSignIn, googleSignInResult, downloadJSON, downloadPDF, Timer, Diagram, BrowserView, Recorder, LiveInterview, confirmAccountDelete, Poll, isoTime }
 import "./style.css";
-// Make the transport helper's relative dependency visible to Jac's asset staging.
+# Make the transport helper's relative dependency visible to Jac's asset staging.
 import "./google-auth.js";
 import from "./model-permission.js" { updateModelPermission }
 import from .Feedback { AgentFeedback }

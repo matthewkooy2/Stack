@@ -128,6 +128,36 @@ class API(unittest.TestCase):
         self.assertEqual(self.rpc('story_sources')['sources'],[])
         self.assertEqual(self.rpc('story_get',{'id':story['id']})['source']['text'],event['text'])
 
+    def test_manual_bank_sources_revisions_snapshots_and_isolation(self):
+        event=FIXTURE['events'][0]
+        args={'id':'','revision':0,'name':'Fictional manual experience',
+              'source':FIXTURE['label'],'records':[{'id':'r0','kind':'paragraph','text':event['text']}],'confirm':False}
+        bank=self.rpc('resume_bank_save',args)
+        self.assertNotIn('error',bank,bank)
+        group=bank['sources'][0]
+        self.assertEqual(self.rpc('story_sources')['sources'],[])
+        args.update(id=group['id'],revision=group['revision'],confirm=True)
+        group=self.rpc('resume_bank_save',args)['sources'][0]
+        src=self.rpc('story_sources')['sources'][0]
+        self.assertEqual(src['key'],'resume:'+group['id'])
+        self.assertEqual(src['text'],event['text'])
+        story=self.create(src,'Fictional manual source snapshot')
+        args.update(revision=group['revision'],records=[{'id':'r0','kind':'paragraph','text':event['text']+' I corrected the timing.'}])
+        group=self.rpc('resume_bank_save',args)['sources'][0]
+        fresh=self.rpc('story_sources')['sources'][0]
+        self.assertNotEqual(fresh['revision'],src['revision'])
+        self.assertIn('error',self.create(src,'stale manual source'))
+        self.client.set_auth_token(self.b)
+        self.assertEqual(self.rpc('story_sources')['sources'],[])
+        self.assertIn('error',self.create(fresh,'foreign manual source'))
+        self.client.set_auth_token(self.a)
+        self.client.reload();self.client.set_auth_token(self.a)
+        self.assertEqual(self.rpc('story_get',{'id':story['id']})['source']['text'],event['text'])
+        self.assertNotIn('error',self.rpc('resume_bank_delete',{'id':group['id'],'revision':group['revision']}))
+        self.assertEqual(self.rpc('story_sources')['sources'],[])
+        self.assertIn('error',self.create(fresh,'deleted manual source'))
+        self.assertEqual(self.rpc('story_get',{'id':story['id']})['source']['text'],event['text'])
+
     def test_recorded_sources_revisions_missing_outcomes_and_separate_events(self):
         event=FIXTURE['events'][1]
         rec=self.rpc('transcription_upload',{'client_id':'fictional-story-recording-001','content':base64.b64encode(wav()).decode()})

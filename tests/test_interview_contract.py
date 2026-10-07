@@ -40,4 +40,18 @@ class ContractTests(unittest.TestCase):
         self.assertTrue(all(q['kind']!='followup' for q in corrected['questions'][2:]))
         self.assertFalse(corrected['analysis']);self.assertFalse(corrected['coaching']);self.assertFalse(corrected['pending'])
 
+    def test_old_client_display_aliases_keep_complete_raw_text_without_mutating_storage(self):
+        for text in ('plain prose', '{broken', '<script>alert(1)</script>', 'unsupported claims', 'partial:'):
+            self.data['analysis']={'1':{'text':text,'summary':text}}
+            self.data['coaching']={'text':text,'summary':text}
+            presented=flow.client_data(self.data)
+            self.assertEqual(presented['analysis']['1']['improvement'],text)
+            self.assertEqual(presented['analysis']['1']['focus_quote'],'')
+            final=presented['coaching']
+            self.assertEqual(final['summary'],text)
+            self.assertEqual(final['rubric'],{})
+            for key in ('strengths','next_exercises','followup_questions','evidence'):self.assertEqual(final[key],[])
+            self.assertEqual(self.data['analysis']['1'],{'text':text,'summary':text})
+            self.assertEqual(self.data['coaching'],{'text':text,'summary':text})
+
 if __name__=='__main__': unittest.main(verbosity=2)

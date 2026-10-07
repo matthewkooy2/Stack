@@ -79,3 +79,15 @@ def apply(data, revision, step, artifact, task_context) -> dict[str, Any]:
         out['coaching'] = artifact
     out['pending'] = ''
     return out
+
+def client_data(data) -> dict[str, Any]:
+    """Plain text aliases for older clients, without inspecting model content."""
+    out = copy.deepcopy(data)
+    for item in out.get('analysis', {}).values():
+        if 'text' in item:
+            item.update(strength='Coaching', improvement=item['text'], focus_quote='')
+    item = out.get('coaching', {})
+    if 'text' in item:
+        item.update(summary=item['text'], strengths=[], rubric={}, next_exercises=[],
+                    followup_questions=[], evidence=[])
+    return out

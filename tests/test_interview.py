@@ -126,7 +126,8 @@ class Journey:
         work,result=self.work();assert work['context']['interview']['answer_sources']['answer:2']==CORRECTED
         assert result['artifact']['text']
         self.client.reload();self.client.set_auth_token(self.tokens[0]);current=self.get()
-        assert current['data']['status']=='finished' and current['data']['coaching']==result['artifact']
+        assert current['data']['status']=='finished' and current['data']['coaching']['text']==result['artifact']['text']
+        assert self.rpc('prep_get',{'id':current['id']})['data']['coaching']==result['artifact']
         return current
 
 class InterviewAcceptance(unittest.TestCase):
@@ -188,11 +189,14 @@ class InterviewAcceptance(unittest.TestCase):
                     self.assertEqual(result['artifact']['text'],text)
                     journey.client.reload();journey.client.set_auth_token(journey.tokens[0])
                     self.assertEqual(journey.get()['data']['analysis']['1']['text'],text)
+                    self.assertEqual(journey.get()['data']['analysis']['1']['improvement'],text)
                 current=journey.get();journey.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'next'})
                 journey.answer(ANSWER2);journey.work();current=journey.get()
                 current=journey.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'finish'})
                 journey.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'analyze'})
-                journey.work();self.assertEqual(journey.get()['data']['coaching']['text'],values[-1])
+                journey.work();final=journey.get()['data']['coaching'];self.assertEqual(final['text'],values[-1])
+                self.assertEqual(final['summary'],values[-1]);self.assertEqual(final['rubric'],{})
+                for key in ('strengths','next_exercises','followup_questions','evidence'):self.assertEqual(final[key],[])
             finally: journey.close()
 
     def test_revision_and_pending_correction_reject_stale_worker_result(self):

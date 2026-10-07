@@ -1,8 +1,8 @@
 # Backend health and compatible rollback (MAT-30)
 
-This source is prepared for review. Installing trusted helpers, establishing a
-baseline, setting workflow variables, publishing a PR, merging, or deploying
-requires separate authorization. It does not change the current host.
+Installing trusted helpers and establishing the first healthy baseline require
+separate privileged activation approval. Routine source delivery cannot activate
+this protocol on the existing host by itself.
 
 ## Promotion contract
 
@@ -42,7 +42,7 @@ and CI to 20 minutes. A forcibly killed or power-interrupted transaction cannot
 promise recovery: its durable journal blocks the next deployment until reviewed.
 
 Any failed candidate automatically quiesces all writers again, restores old
-source (removing candidate-added files), identity, source policy, and browser
+source, identity, source policy, and browser
 image selection, starts the prior, and verifies its exact loaded revision and
 health. The deployment still exits nonzero. If quiescing, restore, protected-state
 verification, or prior health fails, the journal holds the deployment; it makes a
@@ -64,27 +64,46 @@ receipt as healthy without an actual check.
 
 Install the reviewed existing receiver/promoter/wrappers and support modules,
 plus `release_safety.py`, `release_probe.py`, and `release_channel.py` in the
-existing trusted helper directory. The channel helper must be readable/executable
-by stack using the existing directory traversal policy: root:stack 0640 suffices
-for Python source. Its only operations run as stack in `.jac/release-readiness`;
+existing trusted helper directory. Root validates and reads the channel's static
+source and passes it to isolated Python as stack; stack needs no read or traversal
+permission on the private helper directory. Its only operations run as stack in `.jac/release-readiness`;
 the root helper never writes worker-controlled IPC paths. Keep existing sudo,
 SSH, Docker, network, systemd and Tailscale authority unchanged.
 
-Each automatic candidate requires `/etc/stack-release/compatibility.json`,
-root-owned 0600, reviewed against the exact prior and candidate artifact:
+An attended review establishes `/etc/stack-release/compatibility.json`, root-owned
+0600, once per compatibility epoch. Ordinary reviewed main releases within the
+same epoch need no recurring human approval. Artifact digest/revision checks
+remain exact for every release. The trusted promoter independently compares both
+prior and candidate inventories against this root-approved policy:
 
 ```json
 {
-  "protocol": 1,
-  "prior_commit": "<exact healthy prior SHA>",
-  "candidate_commit": "<exact candidate SHA>",
-  "artifact_sha256": "<candidate artifact digest>",
-  "runtime_contract": "<unchanged format-3 runtime contract>",
+  "protocol": 2,
+  "epoch": "<reviewed bootstrap identifier>",
+  "files": {"<every backend manifest path>": "<approved sha256>"},
+  "routine_files": ["agents/gateway.jac"],
+  "browser_files": {"<every browser source path>": "<approved sha256>"},
+  "routine_browser_files": [],
+  "browser_contract": {"<every browser contract path>": "<approved sha256>"},
   "data_compatible": true,
   "irreversible_migrations": false,
   "protected_files": {"<reviewed root-owned runtime/config path>": "<sha256>"}
 }
 ```
+
+Every added/deleted file and every changed file outside the explicit routine
+allowlists holds before service stop. Freeze the entire server-filtered `jac.toml`
+(including entrypoints and placement), `main.jac`, persistence code in `core/`,
+worker/result producers, workflow contracts, discovery normalization/matching/
+timeline code, browser session persistence and launchers. The example gateway
+allowlist is a starting proposal requiring review of the actual bootstrap source;
+it is not permission to add persistence writes to a routine file. Browser frame
+transport or search presentation may be included only after the same review.
+Both prior and candidate must satisfy the same frozen hashes. Release-supplied
+epoch labels or attestations grant no authority. Frozen changes require an
+attended epoch update, including compatible forward migration where applicable.
+This conservatively guards accidental incompatibility in trusted reviewed code;
+hashes cannot prove arbitrary routine code semantically safe.
 
 Review node/schema changes AND runtime data transformations, startup migrations,
 workflow checkpoint semantics and old code's ability to read candidate-written
@@ -94,7 +113,7 @@ for `/etc/stack/api.env`, `/etc/stack/worker.env`, all three installed Stack uni
 needed by the host. Browser protected state is additionally verified by the
 existing browser policy. Configure an explicit existing worker token in the
 root-owned worker environment; never print it. Do not add new service credentials
-or broader access for this task. Missing approval, changed hashes, changed runtime
+or broader access for this task. Missing policy, changed frozen hashes, changed runtime
 contract, or incompatible/irreversible migration stops before promotion.
 
 For irreversible migrations: keep automation paused, make a reviewed backup,
@@ -122,7 +141,7 @@ On `held`, interrupted `deploying`/`recovering`, or missing receipt after timeou
    code/image state. Keep current user data and configuration intact.
 4. Start the compatible prior or reviewed forward repair, verify exact serving
    revisions and health, and save evidence. Reconcile source policy/last healthy
-   receipt and journal under operator review, then review the next exact artifact.
+   receipt and journal under operator review, then reconcile the compatibility epoch.
 5. Enable protocol variable only after this bootstrap and checks are approved.
 
 ## Local evidence and remaining checks

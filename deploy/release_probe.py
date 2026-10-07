@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 import secrets
+import stat
 import subprocess
 import sys
 import time
@@ -51,8 +52,15 @@ class Probe:
         self.commit = None
 
     def ipc(self, action, *args):
+        helper = Path(__file__).with_name('release_channel.py')
+        st = helper.lstat()
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != 0 or st.st_mode & 0o022:
+            raise Held('worker_round_trip')
+        # stack cannot traverse the private root helper directory. Pass only
+        # trusted static source, not credentials, and execute it as stack.
+        source = helper.read_text()
         result = subprocess.run(['/usr/sbin/runuser', '-u', 'stack', '--',
-            '/usr/bin/python3', '-I', str(Path(__file__).with_name('release_channel.py')),
+            '/usr/bin/python3', '-I', '-c', source,
             action, *args], cwd=self.live, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=2)
         if result.returncode or len(result.stdout) > MAX_RESPONSE:
             raise Held('worker_round_trip')

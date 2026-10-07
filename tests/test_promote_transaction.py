@@ -25,7 +25,7 @@ class Promoter(unittest.TestCase):
             root = Path(folder); live = root / 'live'; state = root / 'state'
             live.mkdir(); state.mkdir(); (state / 'incoming').mkdir(); (state / 'build').mkdir()
             data = live / 'storage'; data.mkdir(); (data / 'account').write_text('keep-current-data')
-            backend = {'main.jac': b'candidate', 'jac.toml': b'unchanged-runtime', 'agents/new.py': b'new'}
+            backend = {'main.jac': b'candidate', 'jac.toml': b'unchanged-runtime'}
             (live / 'main.jac').write_bytes(b'prior'); (live / 'jac.toml').write_bytes(backend['jac.toml'])
             policy = {n: promoter.digest((live / n).read_bytes()) for n in ('main.jac', 'jac.toml')}
             (state / 'source-state.json').write_bytes(promoter.canonical(policy))
@@ -36,18 +36,29 @@ class Promoter(unittest.TestCase):
                 '/etc/systemd/system/stack-worker.service', '/etc/systemd/system/stack-gateway.service',
                 '/opt/stack/scripts/jac', '/usr/local/bin/jac']
             protected = {name: b'synthetic-private-config' for name in protected_names}
-            approval = dict(protocol=1, prior_commit='a' * 40, candidate_commit='b' * 40, artifact_sha256='c' * 64,
-                runtime_contract='d' * 64, data_compatible=failure != 'gate', irreversible_migrations=False,
+            approval = dict(protocol=2, epoch='fixture', files=policy, routine_files=['main.jac'],
+                browser_files={}, routine_browser_files=[], browser_contract={},
+                data_compatible=failure != 'gate', irreversible_migrations=False,
                 protected_files={n: promoter.digest(v) for n, v in protected.items()})
             manifest = dict(commit='b' * 40, files={n: promoter.digest(v) for n, v in backend.items()}, runtime_contract='d' * 64)
+            rejected = failure in ('gate', 'frozen', 'added', 'deleted', 'runtime', 'forged')
+            if failure in ('frozen', 'forged'):
+                approval['routine_files'] = []
+                if failure == 'forged': manifest['epoch'] = approval['epoch']
+            if failure == 'added': backend['agents/new.py'] = b'new'
+            if failure == 'deleted': backend.pop('main.jac')
+            if failure == 'runtime': backend['jac.toml'] = b'changed-entrypoint'
+            manifest['files'] = {n: promoter.digest(v) for n, v in backend.items()}
             browser_state, image = state / 'browser-state.json', root / 'image-id'
             browser_protected = {}
             if failure in ('browser_drift', 'browser_unhealthy'):
                 name = '/etc/stack/browser.env'
                 protected[name] = b'original-browser-config'
                 browser_protected[name] = promoter.digest(protected[name])
-                manifest['browser'] = {'fingerprint': 'e' * 64}
-                browser_state.write_bytes(promoter.canonical({'protected': browser_protected, 'image': 'prior-image'}))
+                manifest['browser'] = {'fingerprint': 'e' * 64, 'files': {'agents/browser_service.jac': 'e' * 64}, 'contract': {}}
+                approval['browser_files'] = manifest['browser']['files']
+                approval['routine_browser_files'] = ['agents/browser_service.jac']
+                browser_state.write_bytes(promoter.canonical({'protected': browser_protected, 'image': 'prior-image', 'files': manifest['browser']['files'], 'contract': {}}))
                 image.write_bytes(b'synthetic-image')
             def root_file(path):
                 name = str(path)
@@ -112,20 +123,19 @@ class Promoter(unittest.TestCase):
                     contextlib.redirect_stdout(io.StringIO()):
                 old_mask = os.umask(0o077)
                 try:
-                    if failure == 'gate':
-                        with self.assertRaises(RuntimeError): promoter.main()
+                    if rejected:
+                        with self.assertRaises((RuntimeError, AssertionError)): promoter.main()
                     elif failure:
                         with self.assertRaises(SystemExit): promoter.main()
                     else: promoter.main()
                 finally: os.umask(old_mask)
             self.assertEqual((data / 'account').read_text(), 'keep-current-data')
-            if failure == 'gate':
+            if rejected:
                 self.assertEqual(commands, []); self.assertFalse((state / 'transaction.json').exists())
             else:
                 result = json.loads((state / 'transaction.json').read_bytes())
                 self.assertEqual(result['status'], 'healthy' if not failure else ('held' if failure in ('drift', 'browser_drift') else 'failed'))
                 self.assertEqual((live / 'main.jac').read_bytes(), b'prior' if failure else b'candidate')
-                self.assertEqual((live / 'agents/new.py').exists(), not bool(failure))
                 if failure:
                     self.assertEqual(json.loads((state / 'source-state.json').read_bytes()), policy)
                     self.assertEqual(json.loads((state / 'last-release.json').read_bytes())['commit'], 'a' * 40)
@@ -141,6 +151,11 @@ class Promoter(unittest.TestCase):
     def test_browser_protected_drift_holds(self): self.run_fixture('browser_drift')
     def test_browser_image_and_state_restore(self): self.run_fixture('browser_unhealthy')
     def test_incompatible_pair_stops_before_services(self): self.run_fixture('gate')
+    def test_frozen_source_stops_before_services(self): self.run_fixture('frozen')
+    def test_added_source_stops_before_services(self): self.run_fixture('added')
+    def test_deleted_source_stops_before_services(self): self.run_fixture('deleted')
+    def test_full_runtime_configuration_stops_before_services(self): self.run_fixture('runtime')
+    def test_release_epoch_claim_cannot_authorize_change(self): self.run_fixture('forged')
 
 
 if __name__ == '__main__': unittest.main()

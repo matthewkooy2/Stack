@@ -15,6 +15,44 @@ from release_safety import Held
 
 
 class Protocol(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == 'linux' and os.geteuid() == 0, 'Disposable root-to-unprivileged IPC fixture')
+    def test_actual_child_cannot_read_helper_directory(self):
+        import pwd
+        import subprocess
+        account = pwd.getpwnam('nobody')
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder); root.chmod(0o755)
+            private = root / 'private'; private.mkdir(mode=0o700)
+            helper = private / 'release_channel.py'
+            helper.write_bytes((ROOT / 'deploy/release_channel.py').read_bytes()); helper.chmod(0o600)
+            live = root / 'live'; live.mkdir(mode=0o700)
+            os.chown(live, account.pw_uid, account.pw_gid)
+            (live / '.jac').mkdir(mode=0o700); os.chown(live / '.jac', account.pw_uid, account.pw_gid)
+            denied = subprocess.run(['/usr/sbin/runuser', '-u', 'nobody', '--', '/usr/bin/cat', str(helper)], capture_output=True)
+            self.assertNotEqual(denied.returncode, 0)
+            actual = subprocess.run
+            def disposable_run(args, **kwargs):
+                self.assertEqual(args[:4], ['/usr/sbin/runuser', '-u', 'stack', '--'])
+                return actual([*args[:2], 'nobody', *args[3:]], **kwargs)
+            with patch.object(release_probe, '__file__', str(private / 'release_probe.py')), \
+                    patch.object(release_probe.subprocess, 'run', disposable_run):
+                probe = release_probe.Probe(live, 'synthetic')
+                self.assertEqual(probe.ipc('prepare', 'a' * 40, 'b' * 32), {})
+                self.assertEqual(json.loads((live / '.jac/release-readiness/challenge.json').read_bytes())['commit'], 'a' * 40)
+                self.assertEqual(probe.ipc('close'), {})
+
+    def test_ipc_runs_static_source_without_child_helper_access(self):
+        import stat
+        import types
+        with patch.object(Path, 'lstat', return_value=types.SimpleNamespace(st_mode=stat.S_IFREG | 0o600, st_uid=0)), \
+                patch.object(Path, 'read_text', return_value='trusted static source'), \
+                patch.object(release_probe.subprocess, 'run', return_value=types.SimpleNamespace(returncode=0, stdout=b'{}')) as run:
+            release_probe.Probe(Path('.'), 'secret').ipc('close')
+        args, kwargs = run.call_args
+        self.assertEqual(args[0], ['/usr/sbin/runuser', '-u', 'stack', '--', '/usr/bin/python3', '-I', '-c', 'trusted static source', 'close'])
+        self.assertEqual(kwargs['timeout'], 2)
+        self.assertNotIn('secret', repr(args))
+
     @unittest.skipUnless(hasattr(os, 'O_NOFOLLOW'), 'Linux IPC safety flags required')
     def test_actual_ipc_nonce_round_trip_and_captured_identity(self):
         with tempfile.TemporaryDirectory() as folder:

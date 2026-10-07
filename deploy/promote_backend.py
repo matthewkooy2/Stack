@@ -149,9 +149,10 @@ def main():
             assert (previous['status'] == 'healthy' or
                     previous['status'] == 'failed' and previous.get('recovery') == 'healthy'), 'Unresolved transaction requires operator recovery'
         approval = json.loads(root_file(Path('/etc/stack-release/compatibility.json')))
-        compatibility(approval, prior['commit'], manifest['commit'], sha, manifest['runtime_contract'])
+        prior_browser = json.loads(root_file(browser_release.BROWSER_STATE)) if browser else None
+        compatibility(approval, policy, manifest['files'], prior_browser, browser)
         assert contract(target('jac.toml').read_bytes()) == manifest['runtime_contract'], 'Runtime change requires attended review'
-        # Trusted operator review binds the exact pair and data/schema behavior;
+        # One attended epoch review freezes non-routine source and data behavior;
         # runtime/config snapshots are hashes only, never CI diagnostic output.
         protected = approval.get('protected_files', {})
         required = {'/etc/stack/api.env', '/etc/stack/worker.env',
@@ -257,5 +258,5 @@ if __name__ == "__main__":
         main()
     except Exception as error:
         print(json.dumps({"status": "rejected", "stage": "preflight_or_receipt", "error": type(error).__name__,
-                          "action": "Review private host state and compatibility approval; do not retry unresolved transactions."}))
+                          "action": "Review private host state and compatibility epoch; do not retry unresolved transactions."}))
         sys.exit(1)

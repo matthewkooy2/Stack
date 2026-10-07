@@ -35,15 +35,35 @@ class Safety(unittest.TestCase):
         with self.assertRaises(Held):
             wait_ready(late, CANDIDATE, attempts=1, clock=clock.time, sleep=clock.sleep)
 
-    def test_compatibility_is_exact_and_fail_closed(self):
-        valid = dict(protocol=1, prior_commit=PRIOR, candidate_commit=CANDIDATE,
-                     artifact_sha256='c' * 64, runtime_contract='d' * 64,
+    def test_one_epoch_allows_consecutive_routine_releases(self):
+        files = {'jac.toml': 'a' * 64, 'main.jac': 'b' * 64, 'agents/gateway.jac': 'c' * 64}
+        valid = dict(protocol=2, epoch=PRIOR, files=files, routine_files=['agents/gateway.jac'],
+                     browser_files={}, routine_browser_files=[], browser_contract={},
                      data_compatible=True, irreversible_migrations=False)
-        compatibility(valid, PRIOR, CANDIDATE, 'c' * 64, 'd' * 64)
-        for field in valid:
-            invalid = {**valid, field: None}
+        old = files
+        for value in ('d', 'e', 'f'):
+            new = {**files, 'agents/gateway.jac': value * 64}
+            compatibility(valid, old, new)
+            old = new
+        for field in ('protocol', 'epoch', 'files', 'browser_files', 'browser_contract',
+                      'data_compatible', 'irreversible_migrations'):
             with self.subTest(field=field), self.assertRaises(Held):
-                compatibility(invalid, PRIOR, CANDIDATE, 'c' * 64, 'd' * 64)
+                compatibility({**valid, field: None}, files, files)
+        for new in ({**files, 'main.jac': 'e' * 64}, {**files, 'jac.toml': 'e' * 64},
+                    {**files, 'new.py': 'e' * 64}, {'jac.toml': files['jac.toml']}):
+            with self.subTest(new=new), self.assertRaises(Held):
+                compatibility(valid, files, new)
+        with self.assertRaises(Held):
+            compatibility(valid, {**files, 'main.jac': 'f' * 64}, files)
+        with self.assertRaises(Held):
+            compatibility({**valid, 'routine_files': ['jac.toml']}, files, files)
+        with self.assertRaises(Held):
+            compatibility(valid, files, files, candidate_browser={'epoch': PRIOR, 'files': {'evil.py': 'e' * 64}})
+        browser = {'files': {'agents/browser.jac': 'a' * 64}, 'contract': {'Dockerfile': 'b' * 64}}
+        approved = {**valid, 'browser_files': browser['files'], 'browser_contract': browser['contract']}
+        compatibility(approved, files, files, browser, browser)
+        with self.assertRaises(Held):
+            compatibility(approved, files, files, browser, {**browser, 'contract': {'Dockerfile': 'c' * 64}})
 
     def simulate(self, failure=''):
         with tempfile.TemporaryDirectory() as folder:

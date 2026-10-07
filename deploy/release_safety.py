@@ -6,15 +6,42 @@ class Held(RuntimeError):
     pass
 
 
-def compatibility(approval, prior, candidate, artifact, runtime):
-    # A release cannot self-authorize a data/schema compatibility claim.
-    if (approval.get('protocol') != 1 or approval.get('prior_commit') != prior
-            or approval.get('candidate_commit') != candidate
-            or approval.get('artifact_sha256') != artifact
-            or approval.get('runtime_contract') != runtime
+def compatibility(approval, prior, candidate, prior_browser=None, candidate_browser=None):
+    """Root-approved epoch, independently checked against actual payload hashes.
+
+    Complete inventories prevent added/deleted files bypassing the frozen set.
+    Only explicitly reviewed routine files may differ between compatible releases.
+    Artifact revision/digest validation remains the receiver's separate obligation.
+    """
+    if (approval.get('protocol') != 2 or not isinstance(approval.get('epoch'), str)
+            or not 1 <= len(approval['epoch']) <= 64
             or approval.get('data_compatible') is not True
             or approval.get('irreversible_migrations') is not False):
         raise Held('compatibility_review_required')
+    def inventory(policy, old, new, routine):
+        if (not isinstance(policy, dict) or not isinstance(routine, list)
+                or len(set(routine)) != len(routine) or not set(routine) <= set(policy)
+                or set(old) != set(policy) or set(new) != set(policy)):
+            raise Held('compatibility_inventory')
+        if any(not isinstance(h, str) or len(h) != 64 or
+               any(c not in '0123456789abcdef' for c in h) for h in policy.values()):
+            raise Held('compatibility_inventory')
+        if any(old[n] != h or new[n] != h for n, h in policy.items() if n not in routine):
+            raise Held('compatibility_frozen_source')
+    routine = approval.get('routine_files', [])
+    if not isinstance(routine, list) or 'jac.toml' in routine:
+        raise Held('compatibility_runtime')
+    inventory(approval.get('files'), prior, candidate, routine)
+    # jac.toml is the entire server-filtered configuration, not the narrower
+    # dependency/database contract. Entry points and placement remain frozen.
+    if 'jac.toml' not in approval['files']:
+        raise Held('compatibility_runtime')
+    old, new = prior_browser or {}, candidate_browser or {}
+    inventory(approval.get('browser_files'), old.get('files', {}), new.get('files', {}),
+              approval.get('routine_browser_files', []))
+    contract = approval.get('browser_contract')
+    if not isinstance(contract, dict) or old.get('contract', {}) != contract or new.get('contract', {}) != contract:
+        raise Held('compatibility_browser_contract')
 
 
 def wait_ready(check, commit, *, attempts=20, interval=3, deadline=60,

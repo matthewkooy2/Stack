@@ -41,6 +41,9 @@ import from agents.experience { feature_status }
 import from agents.google { SCOPES }
 import from core.transcription { transcription_upload, transcription_list, transcription_get, transcription_audio, transcription_action, transcription_transfer_complete, transcription_processing_claim, transcription_processing_progress, transcription_processing_finish, transcription_retry_setup, transcription_processing_runtime }
 import from agents.transcription_store { Store as TranscriptionStore }
+import from core.stories { story_get, story_list, story_save, story_generate, story_delete }
+import from core.automation { BehavioralStory }
+import from agents.stories { empty as empty_story }
 import os;
 
 node Profile {
@@ -756,6 +759,42 @@ def:priv resume_save_records(id: str, revision: int, records: list[dict[str, any
     }
 }
 
+def:priv story_sources() -> dict[str, any] {
+    _agent_access();sources=[];
+    for r in [root -->][?:Resume] {
+        if r.review_confirmed and r.review.get("records") {
+            sources.append({"key":"resume:"+jid(r),"kind":"reviewed_resume_records","revision":digest({"revision":r.review_revision,"records":r.review["records"]}),
+                "text":"\n".join(record["text"] for record in r.review["records"]),"resume_id":jid(r),"provenance":"User-confirmed imported resume records","review_revision":r.review_revision});
+        }
+    }
+    for f in _agent_memory().facts {
+        if f.get("verified") and str(f["key"]).startswith("resume.") {
+            sources.append({"key":"fact:"+f["key"],"kind":"reviewed_resume_fact","revision":digest(f),"text":f["value"],"resume_id":f.get("resume_id",""),"provenance":f.get("source","")});
+        }
+    }
+    for r in TranscriptionStore().list(jid(root)) {
+        if r["status"]=="completed" and r["transcript"].strip() {
+            sources.append({"key":"recording:"+r["id"],"kind":"recorded_answer","revision":str(r["revision"]),"text":r["transcript"],"original_transcript":r["original_transcript"],"model":r["model"]});
+        }
+    }
+    return {"sources":sources};
+}
+
+def:priv story_create(source_key: str, source_revision: str, excerpt: str, title: str, reviewed_single_event: bool = False) -> dict[str, any] {
+    _agent_access();
+    if not reviewed_single_event { return _error("Review the excerpt and confirm it describes one event before saving a story."); }
+    if not title.strip() or len(title)>160 or not excerpt.strip() or len(excerpt)>8000 { return _error("Use a title under 160 characters and a single event excerpt under 8,000 characters."); }
+    with _write_lock {
+        _agent_fresh();sources=[s for s in story_sources()["sources"] if s["key"]==source_key];
+        if not sources or sources[0]["revision"]!=source_revision { return _error("The source changed or is unavailable. Review its current version."); }
+        source=sources[0];
+        if excerpt not in source["text"] { return _error("Select an exact excerpt from the reviewed source."); }
+        source={**source,"text":excerpt,"full_text":source["text"],"reviewed_single_event":True,"reviewed_at":time.time()};
+        s=root ++> BehavioralStory(title=title.strip(),source=source,content=empty_story(source),created_at=time.time(),updated_at=time.time());
+        commit();return story_get(jid(s));
+    }
+}
+
 def:priv resume_save_details(id: str, revision: int, values: dict[str, any], confirm: bool = False) -> dict[str, any] {
     _agent_access();
     if _owned_resume(id) is None { return _error("Resume not found."); }
@@ -995,7 +1034,7 @@ def _export_resume(r: Resume) -> dict[str, any] {
     return out;
 }
 def:priv account_export() -> dict[str, any] {
-    _agent_access();return {"account":bootstrap(),"agents":agent_export(),"recordings":TranscriptionStore().list(jid(root)),"resumes":[_export_resume(r) for r in [root -->][?:Resume]],"tailored_resumes":[read_tailored_resume(jid(x)) for x in [root -->][?:TailoredResume]]};
+    _agent_access();return {"account":bootstrap(),"agents":agent_export(),"stories":story_list()["stories"],"recordings":TranscriptionStore().list(jid(root)),"resumes":[_export_resume(r) for r in [root -->][?:Resume]],"tailored_resumes":[read_tailored_resume(jid(x)) for x in [root -->][?:TailoredResume]]};
 }
 def:priv account_delete(username: str, password: str) -> dict[str, any] {
     _agent_access();

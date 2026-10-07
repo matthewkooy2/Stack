@@ -32,6 +32,11 @@ with entry {
         'items': `obj({'source': TEXT, 'quote': TEXT, 'claim': TEXT})
     };
     SCHEMAS = {
+        'story': `obj({
+            'fields': `obj({k: `obj({'source': TEXT, 'quote': TEXT}) for k in ['situation','task','action','result','personal','team','learning']}),
+            'topics': {'type':'array','maxItems':4,'items':{'type':'string','enum':['ownership','conflict','decisions','learning']}},
+            'evidence': EVIDENCE
+        }),
         'fit': `obj(
             {
                 'summary': TEXT,
@@ -146,6 +151,7 @@ with entry {
     };
 }
 def sources_for(context: dict[str, any]) -> dict[str, str] {
+    if context.get('story_source') { return {context['story_source']['key']:context['story_source']['text']}; }
     sources = {
         'listing': str(context.get('job', {}).get('description', '')),
         'answer': str(context.get('session', {}).get('answer', '')),
@@ -227,7 +233,25 @@ def _generate(step: any, context: any, configuration: any, received: any, observ
         raise ValueError('Unsupported model operation.');
     }
     sources = sources_for(context);
+    schema=SCHEMAS[step];model_context=context;
+    if step=='story' {
+        import from agents.stories { selection_contract }
+        contract=selection_contract(context['story_source']);schema=contract['schema'];
+        model_context={'story_quotes':contract['quotes']};
+    }
     instructions = {
+        'story': 'Organize the single user-selected event in sources into STAR fields by choosing quotation IDs from context.story_quotes. '
+        'Every field is one supplied quotation ID or the empty string. Never copy text, join quotations, create an ID or add factual prose. '
+        'Fill each field with a relevant quotation when one is explicitly present; use the empty string only for missing or ambiguous fields. '
+        'Situation describes the setting; action describes what was done; result needs an explicit known outcome. '
+        'Task requires an explicitly stated assignment, responsibility or required goal. An action alone does not establish a task: '
+        'when the source only describes work performed, leave task empty so Stack asks for the missing responsibility. '
+        'Personal identifies the explicit I statement of work the person did; team identifies the explicit team statement. '
+        'A quotation may be reused across fields: the same I statement may serve both action and personal. Keep personal and team contributions separate. '
+        'Use empty result for unknown or pending outcomes or when the source gives no outcome. Learning needs an explicit reflection, otherwise leave it empty. '
+        'Recommend at least one relevant question topic when the event supports one: ownership for personal responsibility or work, '
+        'conflict for disagreement, decisions for a choice or tradeoff, learning for explicit reflection. Multiple topics are allowed. '
+        'Topics are question recommendations, not factual claims. Stack resolves source quotations and derives evidence.',
         'fit': 'Explain fit and gaps with citations. Preserve the supplied deterministic requirement checks.',
         'tailor': 'Tailor the resume in context.resume_structure for this job. Items have stable ids. '
         'ranking: every bullet id, most to least relevant to this job; Stack removes the least relevant bullets until the resume fits one page. '
@@ -258,27 +282,27 @@ def _generate(step: any, context: any, configuration: any, received: any, observ
         'max_output_tokens': c['max_output_tokens'],
         'instructions': SYSTEM,
         'input': json.dumps(
-            {'task': instructions, 'sources': sources, 'context': context}
+            {'task': instructions, 'sources': sources, 'context': model_context}
         ),
         'text': {
             'format': {
                 'type': 'json_schema',
                 'name': ('stack_' + step),
                 'strict': True,
-                'schema': SCHEMAS[step]
+                'schema': schema
             }
         }
     };
     result = {};
-    if observe { observe("model_request", {"provider":provider,"requested_model":c["model"] or "provider default","transport":"codex exec" if provider=="codex-cli" else "claude -p" if provider=="claude-cli" else "local HTTP API" if provider in LOCAL_PROVIDERS else "HTTPS API","system":SYSTEM,"input":json.loads(payload["input"]),"prompt_text":SYSTEM+'\nReturn only the requested JSON.\n'+payload["input"] if provider=="codex-cli" else payload["input"],"schema":SCHEMAS[step],"max_output_tokens":c["max_output_tokens"] if provider not in CLI_PROVIDERS else None}); }
+    if observe { observe("model_request", {"provider":provider,"requested_model":c["model"] or "provider default","transport":"codex exec" if provider=="codex-cli" else "claude -p" if provider=="claude-cli" else "local HTTP API" if provider in LOCAL_PROVIDERS else "HTTPS API","system":SYSTEM,"input":json.loads(payload["input"]),"prompt_text":SYSTEM+'\nReturn only the requested JSON.\n'+payload["input"] if provider=="codex-cli" else payload["input"],"schema":schema,"max_output_tokens":c["max_output_tokens"] if provider not in CLI_PROVIDERS else None}); }
     if (provider in CLI_PROVIDERS) {
         import from agents.local_cli { generate as cli_generate }
         text = json.dumps(
-            cli_generate(provider, c['model'], SYSTEM, payload['input'], SCHEMAS[step], record_response=received, observe=observe) if observe else cli_generate(provider, c['model'], SYSTEM, payload['input'], SCHEMAS[step], record_response=received)
+            cli_generate(provider, c['model'], SYSTEM, payload['input'], schema, record_response=received, observe=observe) if observe else cli_generate(provider, c['model'], SYSTEM, payload['input'], schema, record_response=received)
         );
     } elif (provider in LOCAL_PROVIDERS) {
         import from agents.local_model { complete }
-        result = complete(step, SYSTEM, payload['input'], SCHEMAS[step], c, received);
+        result = complete(step, SYSTEM, payload['input'], schema, c, received);
         text = result['text'];
         if observe { observe("model_response", {"reported_models":[result['model']], "response":result}); }
     } elif (provider == 'meta') {
@@ -296,7 +320,7 @@ def _generate(step: any, context: any, configuration: any, received: any, observ
                     'json_schema': {
                         'name': ('stack_' + step),
                         'strict': True,
-                        'schema': SCHEMAS[step]
+                        'schema': schema
                     }
                 }
             },
@@ -332,6 +356,10 @@ def _generate(step: any, context: any, configuration: any, received: any, observ
     }
     try {
         data = json.loads(text);
+        if (step == 'story') {
+            import from agents.stories { resolve_selection }
+            data = resolve_selection(data, context['story_source']);
+        }
         validate_evidence(data['evidence'], sources);
         if (step == 'linkedin_review') {
             import from agents.linkedin { validate_review }
@@ -372,7 +400,7 @@ def _generate(step: any, context: any, configuration: any, received: any, observ
             );
         }
     } except (ValueError, KeyError, TypeError) as exc {
-        if observe { observe("model_validation", {"valid":False,"message":"Response failed source validation."}); }
+        if observe { observe("model_validation", {"valid":False,"message":str(exc) if step=="story" and isinstance(exc,ValueError) else "Response failed source validation."}); }
         if (step == 'linkedin_review') {
             reason = str(exc)
                 if isinstance(exc, ValueError)

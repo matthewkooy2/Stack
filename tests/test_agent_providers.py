@@ -76,6 +76,39 @@ class Providers(unittest.TestCase):
             with patch.object(local_cli, 'generate', return_value=bad):
                 with self.assertRaisesRegex(ValueError, 'validated'): provider.generate('fit', CONTEXT)
 
+    def test_story_transport_selects_private_ids_and_resolves_exact_quotes(self):
+        from agents.stories import FIELDS, selection_contract
+        self.configure(provider='codex-cli')
+        source = {'key': 'fact:resume.private', 'text':
+                  'A release failed. I wrote a retry test. Our team deployed it. Errors stopped.'}
+        contract = selection_contract(source)
+        ids = {quote: key for key, quote in contract['quotes'].items()}
+        selected = {'fields': {field: '' for field in FIELDS}, 'topics': ['ownership']}
+        selected['fields'].update(action=ids['I wrote a retry test.'],
+                                  personal=ids['I wrote a retry test.'],
+                                  team=ids['Our team deployed it.'], result=ids['Errors stopped.'])
+        with patch.object(local_cli, 'generate', return_value=selected) as generate:
+            result = provider.generate('story', {'story_source': source,
+                                               'facts': [{'key': 'resume.other', 'value': 'Private other event', 'verified': True}]})
+        request = json.loads(generate.call_args.args[3])
+        self.assertEqual(generate.call_args.args[4], contract['schema'])
+        self.assertEqual(request['sources'], {source['key']: source['text']})
+        self.assertEqual(request['context'], {'story_quotes': contract['quotes']})
+        self.assertNotIn('Private other event', generate.call_args.args[3])
+        for claim in result['artifact']['evidence']:
+            self.assertEqual(claim['source'], source['key'])
+            self.assertIn(claim['quote'], source['text'])
+        self.assertEqual(result['artifact']['fields']['personal']['quote'], 'I wrote a retry test.')
+        rejected = {**selected, 'fields': {**selected['fields'], 'result': 'foreign:q0'}}
+        attempts = []
+        def received_response(*args, **kwargs):
+            kwargs['record_response'](json.dumps(rejected), 'model_json')
+            return rejected
+        with patch.object(local_cli, 'generate', side_effect=received_response):
+            with self.assertRaisesRegex(ValueError, 'validated'):
+                provider.generate('story', {'story_source': source}, record=attempts.append)
+        self.assertEqual(attempts[-1]['status'], 'rejected')
+
     def test_meta_uses_own_key_and_structured_output(self):
         self.configure(provider='meta', model='muse-test', input_cents_per_million=100, output_cents_per_million=500)
         result = {'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps(REPORT)}}],

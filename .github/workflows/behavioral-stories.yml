@@ -1,0 +1,50 @@
+name: Behavioral story bank
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  behavioral-stories:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      JAC_DB_SCRATCH: '1'
+      JAC_TEST_JOBS: '0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install pinned Jac runtime
+        run: |
+          set -euo pipefail
+          runtime=jac-0.37.21-linux-x86_64
+          url=https://github.com/jaseci-labs/jac/releases/download/v0.37.21
+          cd "$RUNNER_TEMP"
+          curl --fail --location --retry 2 "$url/$runtime" --output "$runtime"
+          curl --fail --location --retry 2 "$url/$runtime.sha256" --output "$runtime.sha256"
+          sha256sum --check "$runtime.sha256"
+          chmod +x "$runtime"
+          mkdir -p "$RUNNER_TEMP/jac-bin"
+          mv "$runtime" "$RUNNER_TEMP/jac-bin/jac"
+          echo "$RUNNER_TEMP/jac-bin" >> "$GITHUB_PATH"
+      - name: Install server dependencies
+        run: jac install --no-npm
+      - name: Check story API and worker integration
+        run: jac check main.jac core/stories.jac core/automation.jac agents/provider.jac agents/worker.jac
+      - name: Verify fixed-history grounding and corrections
+        run: |
+          set -euo pipefail
+          jac run --no-serve tests/test_stories.py 2>&1 | tee "$RUNNER_TEMP/story-contracts.log"
+          grep -qx 'OK' "$RUNNER_TEMP/story-contracts.log"
+      - name: Verify provider transport and source isolation
+        run: |
+          set -euo pipefail
+          jac run --no-serve tests/test_agent_providers.py 2>&1 | tee "$RUNNER_TEMP/story-providers.log"
+          grep -qx 'OK' "$RUNNER_TEMP/story-providers.log"
+      - name: Verify private API, worker, persistence, and reviewed sources
+        run: |
+          set -euo pipefail
+          jac run --no-serve tests/test_stories_api.py 2>&1 | tee "$RUNNER_TEMP/story-api.log"
+          grep -Eq '^OK( \(skipped=[0-9]+\))?$' "$RUNNER_TEMP/story-api.log"

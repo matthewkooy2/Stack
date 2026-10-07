@@ -29,9 +29,11 @@ async function preflight(env = process.env, request = fetch) {
   if (!version) throw new Error('Cannot determine the configured marketing version.');
   const versions = await get(`apps/${encodeURIComponent(apps.data[0].id)}/appStoreVersions?filter[platform]=IOS&filter[versionString]=${encodeURIComponent(version)}&limit=2`);
   if (!versions.data?.some(v => v.attributes?.versionString === version && v.attributes?.platform === 'IOS')) {
-    throw new Error(`Create the iOS ${version} version record in App Store Connect before enabling uploads.`);
+    // Apple creates the TestFlight beta version on first upload; an App Store
+    // release version is only needed when preparing a store submission.
+    console.log(`No App Store release record for iOS ${version}; the first upload will create its TestFlight beta version.`);
   }
-  console.log(`App Store Connect credentials and iOS ${version} version record verified.`);
+  console.log(`App Store Connect credentials and app access verified for iOS ${version}.`);
 }
 module.exports = {preflight};
 if (require.main === module) preflight().catch(error => {

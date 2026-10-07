@@ -96,8 +96,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
   build-and-upload:
-    # Uploads stay off until STACK_TESTFLIGHT_ENABLED is true, after the App
-    # Store Connect version record matches the app's marketing version.
+    # Uploads require an explicit enable switch and a successful Apple preflight.
     needs: preflight
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.STACK_TESTFLIGHT_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || !inputs.preflight_only)
     runs-on: xcode-27

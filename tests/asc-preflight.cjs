@@ -21,9 +21,10 @@ test('preflight signs a valid token and verifies the configured app/version', as
 test('missing secret stops before network access', async () => {
   await assert.rejects(preflight({...env,ASC_PRIVATE_KEY:''}, () => assert.fail('network called')), /ASC_PRIVATE_KEY/);
 });
-test('missing version blocks uploads', async () => {
+test('missing store release version permits the first TestFlight beta upload', async () => {
   let calls=0;
-  await assert.rejects(preflight(env, async()=>({ok:true,json:async()=>++calls===1?app:{data:[]}})), /Create the iOS 0.1.0/);
+  await preflight(env, async()=>({ok:true,json:async()=>++calls===1?app:{data:[]}}));
+  assert.equal(calls, 2);
 });
 test('Apple authentication failure is reported without response contents', async () => {
   await assert.rejects(preflight(env, async()=>({ok:false,status:401,json:()=>assert.fail('body read')})), /HTTP 401/);

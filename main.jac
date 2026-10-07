@@ -32,6 +32,7 @@ import from agents.tailoring { resume_text }
 import from agents.pdf_safety { inspect_pdf, inspect_file }
 import from agents.resume_templates { TEMPLATES as LATEX_TEMPLATES, fill as fill_template }
 import from agents.record_resume { validate_upload, validate_records, check_documents }
+import from agents.bullet_bank { save_review as bank_save_review, compose as bank_compose, KIND as BANK_KIND }
 import from agents.linkedin { profile_url }
 import from agents.voice { voice_settings }
 import from agents.prep { problem, validate_session }
@@ -99,8 +100,65 @@ def _profile() -> Profile {
 }
 def _settings() -> Settings { _profile(); return [root -->][?:Settings][0]; }
 def _owned_resume(id: str) -> Resume | None {
-    for r in [root -->][?:Resume] { if jid(r) == id { return r; } }
+    for r in [root -->][?:Resume] { if jid(r) == id and r.review.get("kind")!=BANK_KIND { return r; } }
     return None;
+}
+
+def _bank_view(r: Resume) -> dict[str, any] {
+    return {"id":jid(r),"name":r.name,"records":r.review.get("records",[]),"revision":r.review_revision,
+        "confirmed":r.review_confirmed,"editable":r.review.get("kind")==BANK_KIND,
+        "upload_digest":r.upload_digest,"confirmed_at":r.review.get("confirmed_at",0.0),
+        "source":r.review.get("source","Imported resume: "+r.name),"history":r.review.get("history",r.review.get("record_history",[]))};
+}
+
+def:priv resume_bank() -> dict[str, any] {
+    _agent_access();
+    return {"sources":[_bank_view(r) for r in [root -->][?:Resume] if r.review.get("records")],
+        "resumes":[{"id":jid(r),"name":r.name,"revision":r.review_revision,"confirmed":r.review_confirmed,
+            "selection":r.review.get("bank_selection",[])} for r in [root -->][?:Resume] if r.review.get("records") and r.review.get("kind")!=BANK_KIND and not r.template.get("kind")],
+        "limits":{"groups":100,"records_per_group":300,"records_per_resume":300}};
+}
+
+def:priv resume_bank_save(name: str, source: str, records: list[dict[str, any]], confirm: bool = False, id: str = "", revision: int = 0) -> dict[str, any] {
+    _agent_access();
+    with _write_lock {
+        _agent_fresh();items=[r for r in [root -->][?:Resume] if r.review.get("kind")==BANK_KIND];
+        current=[r for r in items if jid(r)==id];
+        if id and not current { return _error("Experience not found."); }
+        if not id and (revision!=0 or len(items)>=100) { return _error("Create up to 100 experience groups."); }
+        r=current[0] if current else None;
+        if r is not None and r.review_revision!=revision { return _error("Experience changed. Reload before saving."); }
+        try { review=bank_save_review(r.review if r is not None else {},name,source,records,confirm,revision,time.time()); }
+        except ValueError as e { return _error(str(e)); }
+        if r is None { r=root ++> Resume(name=name.strip(),file_key="",size=0,created_at=time.time()); }
+        r.name=name.strip();r.review=review;r.review_revision=revision+1;r.review_confirmed=confirm;
+        commit();return resume_bank();
+    }
+}
+
+def:priv resume_bank_delete(id: str, revision: int) -> dict[str, any] {
+    _agent_access();
+    with _write_lock {
+        _agent_fresh();items=[r for r in [root -->][?:Resume] if jid(r)==id and r.review.get("kind")==BANK_KIND];
+        if not items { return _error("Experience not found."); }
+        r=items[0];
+        if r.review_revision!=revision { return _error("Experience changed. Reload before deleting."); }
+        del r;commit();return resume_bank();
+    }
+}
+
+def:priv resume_bank_select(id: str, revision: int, selection: list[dict[str, any]]) -> dict[str, any] {
+    _agent_access();
+    with _write_lock {
+        _agent_fresh();r=_owned_resume(id);
+        if r is None { return _error("Resume not found."); }
+        if revision!=r.review_revision { return _error("Resume changed. Reload before choosing experience."); }
+        if not r.review_confirmed or not r.review.get("records") or r.template.get("kind") { return _error("Use a confirmed PDF/DOCX record resume for bullet bank selection."); }
+        try { bank_compose(r.review["records"],selection,[_bank_view(x) for x in [root -->][?:Resume] if jid(x)!=id and x.review.get("records")]); }
+        except ValueError as e { return _error(str(e)); }
+        checked=[{"id":x["id"],"revision":x["revision"],"record_ids":x["record_ids"]} for x in selection];
+        r.review={**r.review,"bank_selection":checked};r.review_revision+=1;commit();return resume_bank();
+    }
 }
 def _file_path(key: str) -> Path {
     directory = Path("storage/resumes") / hashlib.sha256(jid(root).encode()).hexdigest();
@@ -130,7 +188,7 @@ def:priv bootstrap() -> dict[str, any] {
       "applications":[_app_view(a) for a in [root -->][?:Application]],
       "people":PEOPLE,
       "contacts":[{"id":jid(c),"person_id":c.person_id,"saved":c.saved,"draft":c.draft,"notes":c.notes} for c in [root -->][?:Contact]],
-      "resumes":[{"id":jid(r),"name":r.name,"size":r.size,"created_at":r.created_at,"details_status":"Confirmed" if r.review_confirmed else "Review" if r.review.get("records") else "Processing","review_revision":r.review_revision,"processing":r.processing,"format":_resume_format(r)} for r in [root -->][?:Resume]],
+      "resumes":[{"id":jid(r),"name":r.name,"size":r.size,"created_at":r.created_at,"details_status":"Confirmed" if r.review_confirmed else "Review" if r.review.get("records") else "Processing","review_revision":r.review_revision,"processing":r.processing,"format":_resume_format(r)} for r in [root -->][?:Resume] if r.review.get("kind")!=BANK_KIND],
       "selected_resume":_settings().selected_resume,
       "tailored_resumes":[_tailored_view(x) for x in [root --> [?:TailoredResume, -created_at]]],
       "agents":{**_agent_summary(),"features":_features()},
@@ -372,7 +430,8 @@ def _resume_source(r: Resume) -> dict[str, any] {
     }
     if r.template.get("kind")!="builtin" {
         if not r.review_confirmed or not r.review.get("records") { raise ValueError("Review and confirm the imported records for "+r.name+" before tailoring."); }
-        return {"format":"records","records":r.review["records"],"template":r.review.get("template","classic"),"revision":r.review_revision,"upload_digest":r.upload_digest};
+        composed=bank_compose(r.review["records"],r.review.get("bank_selection",[]),[_bank_view(x) for x in [root -->][?:Resume] if jid(x)!=jid(r) and x.review.get("records")]);
+        return {"format":"records",**composed,"template":r.review.get("template","classic"),"revision":r.review_revision,"upload_digest":r.upload_digest};
     }
     if not r.review_confirmed { raise ValueError("Confirm the details for "+r.name+" to fill its built-in template."); }
     return {**fill_template(r.template["builtin"],r.review.get("values",{})),"format":"builtin"};
@@ -477,12 +536,14 @@ def:pub agent_worker_resume_source(token: str, id: str, owner: str, lease: str) 
 }
 def:priv read_resume(id: str) -> dict[str, any] {
     r = _owned_resume(id); if r is None { return _error("Resume not found."); }
+    if r.review.get("kind")==BANK_KIND { return _error("This experience has records, not an uploaded file."); }
     path = _file_path(r.file_key);
     if not path.exists() { return _error("This file is unavailable. Please upload it again."); }
     return {"name":r.name,"content":base64.b64encode(path.read_bytes()).decode(),"review":{**r.review,"revision":r.review_revision,"confirmed":r.review_confirmed}};
 }
 def:priv change_resume(id: str, action: str, name: str = "") -> dict[str, any] {
     r = _owned_resume(id); if r is None { return _error("Resume not found."); }
+    if r.review.get("kind")==BANK_KIND { return _error("Manage this experience in the bullet bank."); }
     if action=="select" { _settings().selected_resume=id; }
     elif action=="rename" {
         if not name.strip() or len(name)>160 { return _error("Enter a name under 160 characters."); }
@@ -528,7 +589,7 @@ Jobs saved before any resume was uploaded have no resume of their own."""
 def _application_resume(a: Application) -> Resume | None {
     r=_owned_resume(a.resume_id);
     if r is None { r=_owned_resume(_settings().selected_resume); }
-    resumes=[root -->][?:Resume];
+    resumes=[r for r in [root -->][?:Resume] if r.review.get("kind")!=BANK_KIND];
     if r is None and len(resumes)==1 { r=resumes[0]; }
     return r;
 }
@@ -549,7 +610,7 @@ def _application_agent_context(a: Application) -> dict[str, any] {
     if resume is not None {
         context["resume_name"]=resume.name;
         try {
-            if _tailor_source(resume)=="records" { context["resume_text"]="\n".join(record["text"] for record in resume.review["records"]); }
+            if _tailor_source(resume)=="records" { context["resume_text"]="\n".join(record["text"] for record in _resume_source(resume)["records"]); }
             else { context["resume_text"]=inspect_file(_file_path(resume.file_key),True)["text"]; }
         } except Exception { context["resume_text"]=""; }
     }
@@ -677,8 +738,15 @@ def:priv resume_save_records(id: str, revision: int, records: list[dict[str, any
         if r is None { return _error("Resume not found."); }
         if r.review_revision!=revision { return _error("Resume review changed. Reload it before saving."); }
         if not r.review.get("imported_records") { return _error("Wait for resume import before reviewing its records."); }
+        history=r.review.get("record_history",[]);
+        if not history {
+            history=[{"revision":revision,"records":r.review["records"],"confirmed":r.review_confirmed,
+                "source":"Previously reviewed import: "+r.name,"saved_at":r.review.get("confirmed_at",0.0)}];
+        }
+        if len(history)>=100 { return _error("This resume has 100 record revisions. Export before importing a new copy."); }
         _cancel_resume_work(r,"import");
-        r.review={**r.review,"records":checked,"template":template,"confirmed_at":time.time() if confirm else 0.0};
+        r.review={**r.review,"records":checked,"template":template,"confirmed_at":time.time() if confirm else 0.0,
+            "record_history":history+[{"revision":revision+1,"records":checked,"confirmed":confirm,"source":"User-reviewed import: "+r.name,"saved_at":time.time()}]};
         r.review_revision+=1;r.review_confirmed=confirm;commit();
         return {**r.review,"revision":r.review_revision,"confirmed":r.review_confirmed};
     }
@@ -896,7 +964,7 @@ def _features() -> list[dict[str, any]] {
     if not voice_error and not (c["monthly_cents"]>0 and c["user_monthly_cents"]>0) { voice_error="Live interviews need an API budget; subscription providers cannot run them."; }
     facts=m.facts;real=[a for a in [root -->][?:Application] if not a.demo];
     # The resume a newly tailored job uses; see _application_resume.
-    default_resume=_owned_resume(_settings().selected_resume);resumes=[root -->][?:Resume];
+    default_resume=_owned_resume(_settings().selected_resume);resumes=[r for r in [root -->][?:Resume] if r.review.get("kind")!=BANK_KIND];
     if default_resume is None and len(resumes)==1 { default_resume=resumes[0]; }
     return feature_status({
         "now":time.time(),"policy":m.policy,"model":model_status(jid(root)),"google_scopes":scopes,
@@ -904,7 +972,7 @@ def _features() -> list[dict[str, any]] {
         "browser":bool(os.environ.get("STACK_BROWSER_URL","")) and bool(os.environ.get("STACK_BROWSER_TOKEN","")),
         "sandbox":bool(os.environ.get("STACK_SANDBOX_URL","")) or c["sandbox_available"],"voice_error":voice_error,"web_url":c["web_url"],
         "operator_limits":c["action_daily_limits"],
-        "resumes":len([root -->][?:Resume]),"applications":len(real),
+        "resumes":len(resumes),"applications":len(real),
         "tailor_source":_tailor_source(default_resume),"tailor_resume":default_resume.name if default_resume is not None else "",
         "resume_facts":len([f for f in facts if f.get("verified") and str(f["key"]).startswith("resume.")]),
         "verified_facts":len([f for f in facts if f.get("verified")]),
@@ -914,6 +982,7 @@ def _features() -> list[dict[str, any]] {
 def:priv agent_features() -> dict[str, any] { _agent_access();return {"features":_features()}; }
 
 def _export_resume(r: Resume) -> dict[str, any] {
+    if r.review.get("kind")==BANK_KIND { return {**_bank_view(r),"review":r.review,"created_at":r.created_at}; }
     out={"id":jid(r),**read_resume(jid(r)),"format":_resume_format(r)};
     if r.template {
         try { out["source"]=latex_encode(_resume_source(r)); }
@@ -940,7 +1009,7 @@ def:priv account_delete(username: str, password: str) -> dict[str, any] {
             }
         }
         try { importlib.import_module("agents.worker").browser_call("purge",{"owner":owner}); } except Exception { cleanup_failed=True; }
-        for r in [root -->][?:Resume] { _cancel_resume_work(r);_file_path(r.file_key).unlink(missing_ok=True);_remove_template_files(r); }
+        for r in [root -->][?:Resume] { _cancel_resume_work(r);if r.file_key { _file_path(r.file_key).unlink(missing_ok=True); }_remove_template_files(r); }
         for x in [root -->][?:TailoredResume] {
             _file_path(x.pdf_key).unlink(missing_ok=True);
             if x.docx_key { _file_path(x.docx_key).unlink(missing_ok=True); }

@@ -36,12 +36,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--event", help="GitHub pull_request event file")
     parser.add_argument("--range", dest="revision_range", help="Git commit range, including merges")
+    parser.add_argument("--title", help="Current PR title; the event payload can predate a rename")
     args = parser.parse_args()
     subjects = []
     if args.event:
         with open(args.event, encoding="utf-8") as stream:
             pr = json.load(stream)["pull_request"]
-        subjects.append(("PR title", pr["title"]))
+        subjects.append(("PR title", args.title or pr["title"]))
         base, head = pr["base"]["sha"], pr["head"]["sha"]
         for sha in git("rev-list", f"{base}..{head}").splitlines():
             subjects.append((sha, git("show", "-s", "--format=%B", sha)))

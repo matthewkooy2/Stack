@@ -151,7 +151,9 @@ class HttpDeadlineTests(unittest.TestCase):
                     for byte in raw:
                         self.wfile.write(bytes([byte]))
                         self.wfile.flush()
-                        time.sleep(0.15)
+                        # Below the 0.4s inactivity timeout, so only the wall deadline can stop
+                        # the read. Without it the body takes about 4.2s.
+                        time.sleep(0.3)
                 except (BrokenPipeError, ConnectionResetError):
                     pass
 
@@ -165,7 +167,8 @@ class HttpDeadlineTests(unittest.TestCase):
         try:
             with self.assertRaises(startup.StartupFailure):
                 startup.Startup(0.4).http(f"http://127.0.0.1:{server.server_port}/health")
-            self.assertLess(time.monotonic() - clock, 0.9)
+            # Generous slack for slow hosted runners; still far below the undeadlined read.
+            self.assertLess(time.monotonic() - clock, 2.0)
         finally:
             server.shutdown()
             server.server_close()

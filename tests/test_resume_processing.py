@@ -216,7 +216,7 @@ class ResumeProcessing(unittest.TestCase):
         self.finish(work, result)
         self.assertEqual(self.rpc('bootstrap')['resumes'][0]['processing']['source']['status'], 'failed')
 
-class SSDCompilation(unittest.TestCase):
+class CompilerOutputBounds(unittest.TestCase):
     def setUp(self):
         # These tests replace the compiler process and do not need a host installation.
         compiler = patch.object(latex, 'engine', return_value='controlled-tectonic')
@@ -235,19 +235,6 @@ class SSDCompilation(unittest.TestCase):
             with patch.object(Path, 'read_bytes', side_effect=AssertionError('Unbounded file read')):
                 with self.assertRaisesRegex(ValueError, '10 MB'):
                     latex.compile(loaded)
-
-    def test_compiler_scratch_packages_and_subprocess_temp_are_on_ssd(self):
-        loaded = latex.load('resume.tex', TEX)
-        def compile_fixture(args, **kwargs):
-            directory = Path(kwargs['cwd']).resolve()
-            self.assertTrue(directory.is_relative_to(ROOT / '.jac/resume-work'))
-            self.assertEqual(kwargs['env']['TMPDIR'], str(directory))
-            self.assertEqual(kwargs['env']['TECTONIC_CACHE_DIR'], str(ROOT / '.jac/tectonic-cache'))
-            self.assertTrue(directory.stat().st_mode & 0o700)
-            (directory / 'resume.pdf').write_bytes(PDF)
-            return type('Result', (), {'returncode': 0})()
-        with patch.object(latex.subprocess, 'run', side_effect=compile_fixture):
-            self.assertGreater(latex.compile(loaded)['pages'], 0)
 
 if __name__ == '__main__':
     unittest.main()

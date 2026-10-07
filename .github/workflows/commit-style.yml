@@ -6,9 +6,15 @@ on:
     branches: [main]
 permissions:
   contents: read
+  pull-requests: read
+concurrency:
+  # A push followed by a rename starts two runs; only the latest should report.
+  group: commit-style-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
 jobs:
   commit-style:
     runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -18,7 +24,13 @@ jobs:
         run: python3 -m unittest discover -s tests -p test_commit_style.py -v
       - name: Check PR title and introduced commit subjects
         if: github.event_name == 'pull_request'
-        run: python3 scripts/check_commit_style.py --event "$GITHUB_EVENT_PATH"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          title=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" --jq .title)
+          python3 scripts/check_commit_style.py --event "$GITHUB_EVENT_PATH" --title "$title"
       - name: Check newly introduced main subjects, including merge commits
         if: github.event_name == 'push'
         env:
@@ -26,7 +38,8 @@ jobs:
           AFTER: ${{ github.sha }}
         run: |
           if [ "$BEFORE" = 0000000000000000000000000000000000000000 ]; then
-            python3 scripts/check_commit_style.py --range "$AFTER"
+            # Branch creation has no previous tip; check only the pushed commit, not all history.
+            python3 scripts/check_commit_style.py --range "$AFTER^!"
           else
             python3 scripts/check_commit_style.py --range "$BEFORE..$AFTER"
           fi

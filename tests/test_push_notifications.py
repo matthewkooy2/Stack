@@ -214,6 +214,43 @@ class PushNotifications(unittest.TestCase):
         self.assertEqual(self.provider.sent, [])
         self.assertEqual(self.view(nid)['devices'][0]['error'], 'MissingCredential')
 
+    def test_persisted_old_schema_migrates_without_replaying_or_retiring_unmapped_devices(self):
+        # A separate process writes real nodes with only the four legacy fields.
+        # New-class defaults or hand-built current nodes would not verify schema upgrades.
+        self.client.close()
+        manifest = Path(self.directory.name) / 'legacy-manifest.json'
+        executable = os.environ.get('STACK_TEST_JAC_BIN', 'jac')
+        seeded = subprocess.run([executable, 'run', '--no-serve', str(ROOT / 'tests/seed_legacy_push.py'),
+            self.directory.name, str(manifest)], cwd=ROOT, env=os.environ.copy(),
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=120)
+        self.assertEqual(seeded.returncode, 0, seeded.stdout[-5000:])
+        legacy = json.loads(manifest.read_text())
+        self.client = JacTestClient.from_file(str(ROOT / 'main.jac'), base_path=self.directory.name)
+        self.api.client = self.client
+        self.addCleanup(self.client.close)
+        self.auth = legacy['auth']
+        self.client.set_auth_token(self.auth)
+        self.owner = self.rpc('bootstrap')['user_id']
+        device = self.device('legacy-current')
+        self.provider.receipts['legacy-invalid'] = {'status': 'error', 'details': {'error': 'DeviceNotRegistered'}}
+        records = legacy['records']
+        # Two migrated tickets poll; only the legacy queued record may send.
+        for _ in range(3): self.assertEqual(self.step(), {'saved': True})
+        self.assertEqual(self.view(records['sent:legacy-good,legacy-invalid'])['state'], 'partial')
+        self.assertEqual(self.view(records['dispatched:'])['state'], 'uncertain')
+        self.assertEqual(self.view(records['sent:'])['state'], 'uncertain')
+        self.assertEqual(self.view(records['cancelled:'])['state'], 'cancelled')
+        self.assertEqual(self.provider.sent, [device])
+        self.step(901)
+        self.client.reload()
+        self.assertEqual(self.view(records['queued:'])['state'], 'delivered')
+        self.assertEqual(self.view(records['sent:legacy-good,legacy-invalid'])['state'], 'partial')
+        # The unmapped legacy invalid-token receipt must retain the current device.
+        self.rpc('agent_save_policy', {'policy': {'enabled': True, 'expires_at': time.time()+3600, 'actions': ['model']}})
+        nid = self.queue(); self.step()
+        self.assertEqual(len(self.view(nid)['devices']), 1)
+        self.assertEqual(self.provider.sent, [device, device])
+
     def test_empty_accounts_removed_devices_and_owner_isolation(self):
         nid = self.queue(); self.assertEqual(self.step(), {'idle': True})
         self.assertEqual(self.view(nid)['state'], 'no_devices')

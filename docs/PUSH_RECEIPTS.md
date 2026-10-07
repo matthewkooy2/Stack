@@ -87,6 +87,11 @@ origin. It reloads storage and kills subprocess workers before send, after
 acceptance and before receipt finish. Required scenarios fail if unexecuted;
 there are no silent skips or live credentials in CI.
 
+The legacy migration case writes the old four-field notification schema in a
+separate process, then opens that disposable storage with the current API. It
+checks old accepted tickets, interrupted dispatch, missing tickets, cancelled
+records and queued records, including receipt failure without a device mapping.
+
 ## Live provider and phone acceptance
 
 Live-provider certification is a separate dedicated exercise when an operator

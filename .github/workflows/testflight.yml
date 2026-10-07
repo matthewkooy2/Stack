@@ -1,0 +1,97 @@
+name: Stack TestFlight deployment
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - 'native/**'
+      - 'core/**'
+      - 'jac.toml'
+      - 'scripts/jac'
+      - 'scripts/compile-mobile.jac'
+      - 'scripts/setup*'
+      - 'scripts/ci/ios-testflight.sh'
+      - '.github/workflows/testflight.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: stack-testflight-main
+  cancel-in-progress: false
+jobs:
+  build-and-upload:
+    if: github.ref == 'refs/heads/main'
+    runs-on: xcode-27
+    timeout-minutes: 60
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      STACK_API_URL: ${{ vars.STACK_API_URL }}
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+    steps:
+      - name: Check deployment configuration
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$STACK_API_URL" || { echo 'Add the STACK_API_URL Actions variable with the public HTTPS API origin.' >&2; exit 1; }
+          test -n "$APPLE_TEAM_ID" || { echo 'Add the APPLE_TEAM_ID Actions variable from Apple Developer membership.' >&2; exit 1; }
+          test -n "$ASC_KEY_ID" || { echo 'Add the ASC_KEY_ID Actions secret.' >&2; exit 1; }
+          test -n "$ASC_ISSUER_ID" || { echo 'Add the ASC_ISSUER_ID Actions secret.' >&2; exit 1; }
+          test -n "$ASC_PRIVATE_KEY" || { echo 'Add the ASC_PRIVATE_KEY Actions secret.' >&2; exit 1; }
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.22.0'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.14'
+      - name: Install the checksum-pinned Jac compiler
+        run: |
+          set -euo pipefail
+          mkdir -p .jac/tools/bin
+          curl --fail --location --retry 3 https://github.com/jaseci-labs/jac/releases/download/v0.37.21/jac-0.37.21-macos-aarch64 --output .jac/tools/bin/jac
+          echo 'f828966109cd023748a8e484c2a66795325dee3c646f7416235da86ef561cf72  .jac/tools/bin/jac' | shasum -a 256 --check
+          chmod +x .jac/tools/bin/jac
+      - name: Install locked CocoaPods
+        run: |
+          set -euo pipefail
+          export GEM_HOME="$GITHUB_WORKSPACE/.jac/gems"
+          gem install cocoapods --version 1.17.0 --no-document
+          echo "GEM_HOME=$GEM_HOME" >> "$GITHUB_ENV"
+          echo "$GEM_HOME/bin" >> "$GITHUB_PATH"
+      - name: Prepare App Store Connect API key
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          key_dir="$HOME/.appstoreconnect/private_keys"
+          key_path="$key_dir/AuthKey_${ASC_KEY_ID}.p8"
+          umask 077
+          mkdir -p "$key_dir"
+          printf '%s' "$ASC_PRIVATE_KEY" > "$key_path"
+          echo "ASC_AUTH_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+      - name: Build, sign, and upload to TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: bash scripts/ci/ios-testflight.sh
+      - name: Remove App Store Connect API key file
+        if: always()
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+        run: rm -f "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+      - name: Retain diagnostics if deployment fails
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: testflight-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .jac/ci-ios/*.log
+          if-no-files-found: ignore
+          retention-days: 3

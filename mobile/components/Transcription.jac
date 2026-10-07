@@ -5,7 +5,7 @@ import from "../audio-recording.js" { useRecording, localRecordings, saveLocalRe
 import from ..theme { s }
 import from .UI { Button, Field, Chip }
 
-def:pub Transcription(owner: str) -> JsxElement {
+def:pub Transcription(owner: str, onUseTranscript: any = None, disabled: bool = False) -> JsxElement {
     has recordings: list[dict[str, any]] = [], local: list[dict[str, any]] = [], current: dict[str, any] = {},
         text: str = "", dirty: bool = False, busy: bool = False, error: str = "", notice: str = "", progress: dict[str, any] = {}, runtime: dict[str, any] = {};
     capture=useRecording(owner);
@@ -104,23 +104,24 @@ def:pub Transcription(owner: str) -> JsxElement {
         <Text style={s.small}>{"Local transcription ready." if runtime.get("status")=="ready" else runtime.get("message","Checking local transcription…")}</Text>
         {<Button label="Retry local setup" secondary={True} onPress={retrySetup}/> if runtime.get("status")=="unavailable" else <View/>}
         <Text style={s.strong}>{recordingClock(capture.elapsed)}</Text>
-        {<Button label="Stop and transcribe" onPress={stop} disabled={busy}/> if capture.recording else <Button label="Record" onPress={record} disabled={busy or dirty}/>}
+        {<Button label="Stop and transcribe" onPress={stop} disabled={disabled or busy}/> if capture.recording else <Button label="Record" onPress={record} disabled={disabled or busy or dirty}/>}
         {<Text style={s.small}>Your recording stays on this phone until you delete it. Moving away from this screen or locking your phone stops recording.</Text>}
         {<Text style={s.errorText}>{error or capture.error}</Text> if error or capture.error else <View/>}
         {<Text style={s.small}>{"Uploading "+str(progress.get("percent","…"))+"%"}</Text> if progress.get("status")=="uploading" else <View/>}
         {<Text style={s.noticeText}>{notice}</Text> if notice else <View/>}
-        {[<View key={row["client_id"]} style={s.hero}><Text style={s.small}>Saved on this phone · ready to upload</Text><Button label="Upload saved recording" secondary={True} disabled={busy or capture.recording} onPress={lambda { retryUpload(row); }}/><Chip label="Delete phone recording" onPress={lambda { confirmDelete("phone recording",lambda { removeLocal(row); }); }}/></View> for row in local if not row.get("server_id") and row["status"]!="recording"]}
+        {[<View key={row["client_id"]} style={s.hero}><Text style={s.small}>Saved on this phone · ready to upload</Text><Button label="Upload saved recording" secondary={True} disabled={disabled or busy or capture.recording} onPress={lambda { retryUpload(row); }}/><Chip label="Delete phone recording" disabled={disabled or busy} onPress={lambda { confirmDelete("phone recording",lambda { removeLocal(row); }); }}/></View> for row in local if not row.get("server_id") and row["status"]!="recording"]}
         <Text style={s.strong}>Saved recordings</Text>
-        {[<Button key={row["id"]} label={row["status"].capitalize()+" · "+str(round(row["duration_seconds"]))+" seconds"} secondary={True} disabled={busy or capture.recording} onPress={lambda { open(row["id"]); }}/> for row in recordings]}
+        {[<Button key={row["id"]} label={row["status"].capitalize()+" · "+str(round(row["duration_seconds"]))+" seconds"} secondary={True} disabled={disabled or busy or capture.recording} onPress={lambda { open(row["id"]); }}/> for row in recordings]}
         {<View style={{gap:10}}>
             <Text style={s.strong}>{current["status"].capitalize()+(" · "+str(round(current["percent"]))+"%" if current.get("percent") is not None else "")}</Text>
             <Text style={s.small}>{"Stage elapsed: "+recordingClock(Date.now()-current["stage_at"]*1000) if current["status"] in ["queued","decoding","loading","transcribing"] else ""}</Text>
             <Text style={s.small}>{"Upload: "+("pending" if current["timings"].get("transfer_ms") is None else str(round(current["timings"]["transfer_ms"]/1000,1))+"s")+" · Queue: "+str(round(current["timings"]["queue_ms"]/1000,1))+"s · Prepare: "+str(round(current["timings"]["decode_ms"]/1000,1))+"s · Load: "+str(round(current["timings"]["load_ms"]/1000,1))+"s · Transcribe: "+str(round(current["timings"]["transcribe_ms"]/1000,1))+"s"}</Text>
             {<Text style={s.errorText}>{current["error"]}</Text> if current.get("error") else <View/>}
-            {<View style={{gap:10}}><Field label="Transcript" value={text} onChange={edit} multiline={True}/><Button label={"Save transcript" if dirty else "Transcript saved"} onPress={lambda { change("save",current["id"]); }} disabled={busy or not dirty}/><Text style={s.small}>{"Original: "+current["original_transcript"]}</Text></View> if current["status"]=="completed" else <View/>}
-            {<Button label="Retry transcription" secondary={True} disabled={busy} onPress={lambda { change("retry",current["id"]); }}/> if current["status"] in ["failed","cancelled"] else <View/>}
-            {<Button label="Cancel transcription" secondary={True} disabled={busy} onPress={lambda { change("cancel",current["id"]); }}/> if current["status"] in ["queued","decoding","loading","transcribing"] else <View/>}
-            <Chip label="Delete recording and transcript" onPress={lambda { confirmDelete("recording and transcript",lambda { change("delete",current["id"]); }); }}/>
+            {<View style={{gap:10}}><Field label="Transcript" value={text} disabled={disabled or busy} onChange={edit} multiline={True}/><Button label={"Save transcript" if dirty else "Transcript saved"} onPress={lambda { change("save",current["id"]); }} disabled={disabled or busy or not dirty}/><Text style={s.small}>{"Original: "+current["original_transcript"]}</Text></View> if current["status"]=="completed" else <View/>}
+            {<Button label="Use reviewed transcript in interview" disabled={disabled or busy or dirty or not text.strip()} onPress={lambda { onUseTranscript(text,current["id"]); }}/> if current["status"]=="completed" and onUseTranscript else <View/>}
+            {<Button label="Retry transcription" secondary={True} disabled={disabled or busy} onPress={lambda { change("retry",current["id"]); }}/> if current["status"] in ["failed","cancelled"] else <View/>}
+            {<Button label="Cancel transcription" secondary={True} disabled={disabled or busy} onPress={lambda { change("cancel",current["id"]); }}/> if current["status"] in ["queued","decoding","loading","transcribing"] else <View/>}
+            <Chip label="Delete recording and transcript" disabled={disabled or busy} onPress={lambda { confirmDelete("recording and transcript",lambda { change("delete",current["id"]); }); }}/>
         </View> if len(current)>0 else <View/>}
     </View>
 }

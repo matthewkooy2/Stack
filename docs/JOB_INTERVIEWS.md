@@ -1,9 +1,12 @@
 # Job-specific reviewed interviews (MAT-5)
 
-The selected first stage is a browser-verifiable backend and functional interface
-in Stack's existing Jac browser workspace. Final iPhone UI integration/refinement
-and physical-device acceptance remain later stages. The original MAT-5 physical
-iPhone checklist remains open. This selects manual reviewed answers, local Qwen
+The job-specific flow has a backend and browser workspace interface, plus a native
+interview screen in Prep. The native screen reuses the existing recorder: save
+transcript edits, choose **Use reviewed transcript in interview**, review the
+answer and submit it for analysis. Existing typed drafts are preserved until the
+user explicitly selects the recorded transcript. Pending submission freezes
+editing and handoff controls. The original MAT-5 physical iPhone checklist remains
+open until an installed build is verified. This selects manual reviewed answers, local Qwen
 analysis and coaching, optional existing local transcription, and typed fallback.
 Live voice, paid/cloud fallback, avatars, video, automatic turn-taking and live
 coding are outside this delivery. Normal source merge and its automatic backend
@@ -11,6 +14,10 @@ deployment are authorized after checks and independent review pass. Privileged
 startup installation and live configuration changes are outside this scope.
 
 ## Current implementation
+
+Source implementation and local compiled/browser acceptance do not publish an
+installed iPhone build or the live workspace bundle. Verify those release states
+separately. Backend automatic deployment currently excludes workspace assets.
 
 In the browser workspace, select **Interview**, choose a saved role and start.
 The first questions quote the saved listing and a confirmed resume fact when one
@@ -85,11 +92,29 @@ interaction checks against the built functional UI separately, including connect
 loss/recovery, denied microphone and typed fallback. Native microphone/backgrounding
 and physical iPhone flow require device evidence before completing MAT-5.
 
-At the initial checkpoint on October 6, 2026, Windows JavaScript/Python syntax and
-Git whitespace checks passed. Full Jac/API/worker/storage, actual Qwen and browser
-acceptance had not passed: WSL reported allocation failure and command timeouts
-during validation. Implementation is retained for continued validation and review;
-it is not merged, deployed or physically verified. Installed runtimes inspected:
-Ollama qwen3:4b-instruct (`0edcdef34593`, 2.5 GB) and LM Studio model ID
-`qwen3-4b-instruct`, on an RTX 2070 SUPER. Prior MAT-28 latency/model evidence does
-not certify this interview flow. Record fresh successful measurements before merge.
+The backend/browser slice merged in PR42 and automatically deployed at9a00344.
+Actual local Qwen accepted two typed synthetic turns and final coaching; actual
+Chrome accepted the typed UI flow with controlled model replies. The recorded
+API fixture injected a transcript; it did not run speech recognition. These
+results do not establish composed speech or installed native acceptance.
+
+The opt-in composed check is `jac run --no-serve scripts/interview-speech-smoke.py
+--audio <answer-1.wav> --audio <answer-2.wav> --model qwen3-4b-instruct --url <local-url>`.
+Generate fixture speech with the existing offline Windows voice using
+`scripts/generate-interview-speech.ps1 -OutputDirectory <owned-fixture-folder>`.
+The check requires existing integrity-verified Whisper files, disables automatic
+setup, runs the real probe and actual transcription worker, checks raw recognition,
+then saves known fixture text as simulated user review. It submits reviewed
+texts/recording IDs through real interview APIs and uses actual Qwen. It retains
+raw model results, original transcripts, latency, word-sequence similarity and
+reload evidence. At least85% normalized word-sequence similarity and essential
+words are required; synthetic speech is not evidence of physical microphone
+accuracy. Raw Whisper recognition and model/scoring output are never mocked;
+the simulated reviewed correction is supplied explicitly through transcript-save.
+
+`scripts/compile-mobile.jac` and `tests/transcription-native.cjs` exercise the
+generated native interface and existing recording adapter with controlled
+OS/API/model boundaries. Native fixtures cover the explicit reviewed-transcript
+handoff, preserved typed drafts, submission identity/retry, frozen controls during
+a delayed save and saved-session load, correction, strengths/rubric/practice display and saved-session
+reopen. Physical iPhone evidence remains necessary for device acceptance.

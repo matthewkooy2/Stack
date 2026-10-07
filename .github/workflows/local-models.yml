@@ -45,6 +45,13 @@ jobs:
         run: |
           npm install --prefix "$MAT5_REACT_MODULES" --ignore-scripts --no-audit --no-fund react@19.2.3 react-test-renderer@19.2.3
           node tests/interview-ui.cjs
+      - name: Compile and exercise native interview and recorder handoff
+        env:
+          MAT5_NATIVE_MODULES: ${{ runner.temp }}/mat5-native
+        run: |
+          jac run --no-serve scripts/compile-mobile.jac
+          npm install --prefix "$MAT5_NATIVE_MODULES" --ignore-scripts --no-audit --no-fund react@19.2.3 react-test-renderer@19.2.3 @babel/core@7.29.7 @babel/plugin-transform-modules-commonjs@7.29.7 react-error-boundary@4.1.2 zod@3.25.76 react-hook-form@7.88.0 @hookform/resolvers@3.10.0
+          node tests/transcription-native.cjs
       - name: Preserve existing provider behavior and response logs
         run: |
           jac run --no-serve tests/test_agent_providers.py

@@ -242,10 +242,14 @@ def _generate(step: any, context: any, configuration: any, received: any, observ
     instructions = {
         'story': 'Organize the single user-selected event in sources into STAR fields by choosing quotation IDs from context.story_quotes. '
         'Every field is one supplied quotation ID or the empty string. Never copy text, join quotations, create an ID or add factual prose. '
-        'Use the empty string for missing or ambiguous fields. Personal and team choices are separately constrained; keep their contributions separate. '
+        'Fill each field with a relevant quotation when one is explicitly present; use the empty string only for missing or ambiguous fields. '
         'Situation describes the setting; task describes the responsibility; action describes what was done; result needs an explicit known outcome. '
+        'Personal identifies the explicit I statement of work the person did; team identifies the explicit team statement. '
+        'A quotation may be reused across fields: the same I statement may serve both action and personal. Keep personal and team contributions separate. '
         'Use empty result for unknown or pending outcomes or when the source gives no outcome. Learning needs an explicit reflection, otherwise leave it empty. '
-        'Topics are recommendations for ownership, conflict, decisions or learning questions, not facts. Stack resolves source quotations and derives evidence.',
+        'Recommend at least one relevant question topic when the event supports one: ownership for personal responsibility or work, '
+        'conflict for disagreement, decisions for a choice or tradeoff, learning for explicit reflection. Multiple topics are allowed. '
+        'Topics are question recommendations, not factual claims. Stack resolves source quotations and derives evidence.',
         'fit': 'Explain fit and gaps with citations. Preserve the supplied deterministic requirement checks.',
         'tailor': 'Tailor the resume in context.resume_structure for this job. Items have stable ids. '
         'ranking: every bullet id, most to least relevant to this job; Stack removes the least relevant bullets until the resume fits one page. '

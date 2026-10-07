@@ -41,7 +41,7 @@ class ContractTests(unittest.TestCase):
         self.data['turns'].append({'answer':'I explained the write overhead.'})
         context=flow.context(self.data,2,True)
         coach={'summary':flow.SUMMARY,'strengths':[{'criterion':'Verification','source':'answer:1','quote':'SQL query plan'}],
-            'rubric':[{'criterion':criterion,'score':2,'feedback':flow.IMPROVEMENTS[i%3]} for i,criterion in enumerate(flow.CRITERIA)],
+            'rubric':{criterion:{'score':2,'feedback':flow.IMPROVEMENTS[i%3]} for i,criterion in enumerate(flow.CRITERIA)},
             'next_exercises':[flow.EXERCISES[0]],'followup_questions':list(flow.QUESTIONS[:2]),
             'evidence':[self.turn['evidence'][0],{'source':'answer:2','quote':'write overhead','claim':'Reviewed answer excerpt'}]}
         flow.validate('interview_coach',coach,context)
@@ -49,13 +49,18 @@ class ContractTests(unittest.TestCase):
             with self.subTest(field=field):
                 artifact=copy.deepcopy(coach)
                 if field=='summary': artifact[field]='You generated millions in revenue.'
-                elif field=='rubric': artifact[field][0]['feedback']='Your CEO experience is impressive.'
+                elif field=='rubric': artifact[field]['Specificity']['feedback']='Your CEO experience is impressive.'
                 elif field=='strengths': artifact[field][0]['quote']='I was CEO.'
                 elif field=='evidence': artifact[field][0]['claim']='You were CEO.'
                 else: artifact[field][0]='Discuss your CEO experience.'
                 with self.assertRaises(ValueError): flow.validate('interview_coach',artifact,context)
-        for field,value in (('rubric',coach['rubric'][:1]),('followup_questions',[flow.QUESTIONS[0]]*2)):
+        incomplete={'Specificity':coach['rubric']['Specificity'],'Reflection':coach['rubric']['Reflection']}
+        repeated=[{'criterion':criterion,'score':2,'feedback':flow.IMPROVEMENTS[0]} for criterion in ('Specificity','Reflection','Reflection','Reflection')]
+        for field,value in (('rubric',incomplete),('rubric',repeated),('followup_questions',[flow.QUESTIONS[0]]*2)):
             with self.assertRaises(ValueError): flow.validate('interview_coach',{**coach,field:value},context)
+        for value in (-1,5,True):
+            artifact=copy.deepcopy(coach);artifact['rubric']['Ownership']['score']=value
+            with self.assertRaises(ValueError): flow.validate('interview_coach',artifact,context)
 
     def test_bounds_and_foreign_or_empty_quotes(self):
         for change in ({'focus_quote':''},{'focus_quote':'x'*1501},{'evidence':[]},

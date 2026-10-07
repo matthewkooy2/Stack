@@ -59,7 +59,8 @@ fabricated achievements paired with genuine quotes, is rejected. Rubric scores
 remain model judgments, with source evidence visible; they do not certify skills.
 Interview records have their own authenticated list endpoint; ordinary practice
 lists and study-plan reuse exclude them, preserving existing practice sessions.
-Final coaching requires four distinct behavioral criteria, evidence-bound strength
+Final coaching has four required named rubric entries so a local model cannot
+repeat one criterion and omit another. It requires evidence-bound strength
 selections and two distinct visible practice questions. Completed transcription
 offers an explicit replacement when an answer has already been typed. A delayed
 upload response cannot attach an old recording to a newly opened question.

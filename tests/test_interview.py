@@ -58,7 +58,7 @@ def fixture_model():
                 else:
                     artifact={'summary':flow.SUMMARY,
                         'strengths':[{'criterion':'Verification','source':next(iter(answers)),'quote':next(iter(answers.values()))}],
-                        'rubric':[{'criterion':criterion,'score':3,'feedback':flow.IMPROVEMENTS[i%3]} for i,criterion in enumerate(flow.CRITERIA)],
+                        'rubric':{criterion:{'score':3,'feedback':flow.IMPROVEMENTS[i%3]} for i,criterion in enumerate(flow.CRITERIA)},
                         'next_exercises':[flow.EXERCISES[1]],
                         'followup_questions':list(flow.QUESTIONS[1:3]),
                         'evidence':[{'source':source,'quote':answer,'claim':'Reviewed answer excerpt'} for source,answer in answers.items()]}

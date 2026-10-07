@@ -77,8 +77,9 @@ async function record(root){await click(root,'Record answer locally');await clic
  }
 
  root=await start();session.data.status='finished';session.data.coaching={summary:'Assessment uses reviewed excerpts.',strengths:[{criterion:'Verification',source:'answer:1',quote:'I inspected the plan.'}],
- rubric:[{criterion:'Specificity',score:2,feedback:'Explain your contribution.'}],next_exercises:['Describe a limitation.'],followup_questions:['What did you personally do?','How did you verify the result?'],evidence:[]};
+ rubric:Object.fromEntries(['Specificity','Ownership','Verification','Reflection'].map(criterion=>[criterion,{score:2,feedback:'Explain your contribution.'}])),next_exercises:['Describe a limitation.'],followup_questions:['What did you personally do?','How did you verify the result?'],evidence:[]};
  await act(async()=>{await root.root.findAllByType('button').find(n=>text(n).startsWith('SQL Tools')&&text(n).includes('answers')).props.onClick();});
  assert.ok(content(root).includes('Practice questions'));assert.ok(content(root).includes('How did you verify the result?'));assert.ok(content(root).includes('Model-selected strength to build on: Verification'));
+ for(const criterion of ['Specificity','Ownership','Verification','Reflection'])assert.ok(content(root).includes(criterion+' 2/4:'));
  await act(async()=>root.unmount());console.log('PASS: microphone denial, connection retry, completed upload retry, draft preservation, stale upload isolation, model retry routing, visible final questions/strengths');
 })().catch(error=>{console.error(error);process.exitCode=1;});

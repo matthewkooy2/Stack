@@ -31,10 +31,14 @@ COACH_SCHEMA = {'type': 'object', 'properties': {
     'strengths': {'type':'array', 'maxItems':4, 'items':{'type':'object','properties':{
         'criterion':choice(CRITERIA),'source':TEXT,'quote':TEXT},
         'required':['criterion','source','quote'],'additionalProperties':False}},
-    'rubric': {'type': 'array', 'maxItems': 4, 'items': {'type': 'object', 'properties': {
-        'criterion': choice(CRITERIA),
-        'score': {'type': 'integer', 'minimum': 0, 'maximum': 4},
-        'feedback': choice(IMPROVEMENTS)}, 'required': ['criterion', 'score', 'feedback'], 'additionalProperties': False}},
+    # Named required entries make rubric coverage structural. A local model may
+    # repeat a criterion in an array even when instructed to return four distinct ones.
+    'rubric': {'type': 'object', 'properties': {criterion: {
+        'type': 'object', 'properties': {
+            'score': {'type': 'integer', 'minimum': 0, 'maximum': 4},
+            'feedback': choice(IMPROVEMENTS)},
+        'required': ['score', 'feedback'], 'additionalProperties': False
+    } for criterion in CRITERIA}, 'required': list(CRITERIA), 'additionalProperties': False},
     'next_exercises': {'type': 'array', 'maxItems': 3, 'items': choice(EXERCISES)},
     'followup_questions': {'type': 'array', 'maxItems': 2, 'items': choice(QUESTIONS)},
     'evidence': EVIDENCE}, 'required': ['summary', 'strengths', 'rubric', 'next_exercises', 'followup_questions', 'evidence'],
@@ -53,7 +57,7 @@ INSTRUCTIONS = {
 for _step in INSTRUCTIONS:
     INSTRUCTIONS[_step] += (' Select the exact allowed coaching strings from the schema. Do not write free-form coaching prose. '
         'Evidence claim must be "Reviewed answer excerpt". Cite only reviewed answer sources. '
-        'For final coaching, return all four distinct rubric criteria and exactly two distinct practice questions. '
+        'For final coaching, fill every named rubric criterion with its score and feedback, and exactly two distinct practice questions. '
         'Select strengths as assessment categories tied to exact reviewed source quotes, never verified skills. '
         'Select short exact answer quotes. The application ties the selected follow-up to the quoted answer and saved role.')
 
@@ -133,7 +137,7 @@ def validate(step, artifact, context):
     elif len(cited) < 2 or not artifact.get('rubric') or not artifact.get('next_exercises'):
         raise ValueError('Coaching must cite two reviewed answers and give concrete next practice. Retry local coaching.')
     if step == 'interview_coach':
-        if len(artifact['rubric']) != 4 or {r['criterion'] for r in artifact['rubric']} != set(CRITERIA):
+        if set(artifact['rubric']) != set(CRITERIA):
             raise ValueError('Coaching needs four distinct behavioral rubric criteria.')
         if len(set(artifact['followup_questions'])) != 2:
             raise ValueError('Coaching needs two distinct practice questions.')

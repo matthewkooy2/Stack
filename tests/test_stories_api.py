@@ -167,7 +167,7 @@ class API(unittest.TestCase):
                 self.assertTrue(saved['content']['fields']['team']['quote'])
                 self.assertTrue(saved['content']['fields']['result']['quote'])
             else:self.assertIn('result',[q['field'] for q in saved['missing']])
-            self.assertTrue(saved['content']['topics'])
+            self.assertTrue(set(saved['content']['topics']) & set(event['topics']),saved['content']['topics'])
             evidence.append({'fixture':event['id'],'elapsed_seconds':round(time.monotonic()-start,3),'content':saved['content'],
                 'model_logs':self.rpc('agent_model_logs',{'id':claim['id']}),'test_process_max_rss_kib':resource.getrusage(resource.RUSAGE_SELF).ru_maxrss})
         (ROOT/'.jac/story-real-evidence.json').write_text(json.dumps(evidence,indent=2))

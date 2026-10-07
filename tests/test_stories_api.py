@@ -159,8 +159,17 @@ class API(unittest.TestCase):
             start=time.monotonic()
             with patch.object(worker,'call',side_effect=call):result=worker.dispatch(claim,TOKEN)
             done=self.system('agent_finish',{**{k:claim[k] for k in ('id','owner','lease')},'result':result})
+            entry={'fixture':event['id'],'elapsed_seconds':round(time.monotonic()-start,3),'completion':done,
+                'model_logs':self.rpc('agent_model_logs',{'id':claim['id']}),
+                'test_process_max_rss_kib':resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}
+            evidence.append(entry)
+            # Preserve rejected responses before disposable cleanup so diagnosis
+            # uses the exact provider output rather than a tuned fixture.
+            (ROOT/'.jac/story-real-evidence.json').write_text(json.dumps(evidence,indent=2))
             self.assertEqual(done['status'],'completed',done)
             saved=self.rpc('story_get',{'id':story['id']})
+            entry.update(content=saved['content'],missing=saved['missing'])
+            (ROOT/'.jac/story-real-evidence.json').write_text(json.dumps(evidence,indent=2))
             for item in saved['content']['evidence']:self.assertIn(item['quote'],event['text'])
             if event['id']=='retry':
                 self.assertTrue(saved['content']['fields']['personal']['quote'])
@@ -168,8 +177,7 @@ class API(unittest.TestCase):
                 self.assertTrue(saved['content']['fields']['result']['quote'])
             else:self.assertIn('result',[q['field'] for q in saved['missing']])
             self.assertTrue(set(saved['content']['topics']) & set(event['topics']),saved['content']['topics'])
-            evidence.append({'fixture':event['id'],'elapsed_seconds':round(time.monotonic()-start,3),'content':saved['content'],
-                'model_logs':self.rpc('agent_model_logs',{'id':claim['id']}),'test_process_max_rss_kib':resource.getrusage(resource.RUSAGE_SELF).ru_maxrss})
+
         (ROOT/'.jac/story-real-evidence.json').write_text(json.dumps(evidence,indent=2))
         self.client.reload();self.client.set_auth_token(self.a)
         self.assertEqual(len(self.rpc('story_list')['stories']),3)

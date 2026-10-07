@@ -20,6 +20,7 @@ with entry {
     # jac-app.js imports the registry this writes; Jac's own mobile build stages both.
     stage_native_image_assets(output / "jac-src", output);
     shutil.copyfile(project / "native/device.js", output / "jac-src/mobile/device.js");
+    shutil.copyfile(project / "native/google-auth.js", output / "jac-src/mobile/google-auth.js");
     shutil.copyfile(project / "native/browser-viewer.js", output / "jac-src/mobile/browser-viewer.js");
     shutil.copyfile(project / "native/audio-recording.js", output / "jac-src/mobile/audio-recording.js");
     shutil.copyfile(project / "native/adzuna-logo.png", output / "jac-src/mobile/adzuna-logo.png");

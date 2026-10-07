@@ -44,25 +44,10 @@ def fixture_model():
             if state['mode']=='malformed': body=b'{malformed'
             else:
                 task=json.loads(payload['messages'][1]['content'])
-                answers=task['context']['interview']['answer_sources']
-                if 'focus_quote' in payload['response_format']['json_schema']['schema']['properties']:
-                    source=task['context']['interview']['latest_source'];answer=answers[source]
-                    quote='query plan' if 'query plan' in answer else 'write overhead'
-                    artifact={'question':flow.QUESTIONS[1] if 'query plan' in answer else flow.QUESTIONS[2],
-                        'focus_quote':quote,'strength':flow.STRENGTHS[0],
-                        'improvement':flow.IMPROVEMENTS[1],
-                        'evidence':[{'source':source,'quote':quote,'claim':'Reviewed answer excerpt'}]}
-                    if state['mode']=='invented': artifact['focus_quote']='Invented ten million dollars'
-                    if state['mode']=='fabricated_prose': artifact['strength']='You were CEO and grew revenue by ten million dollars.'
-                    if state['mode']=='unrelated_question': artifact['question']='Describe your Mars mission.'
-                else:
-                    artifact={'summary':flow.SUMMARY,
-                        'strengths':[{'criterion':'Verification','source':next(iter(answers)),'quote':next(iter(answers.values()))}],
-                        'rubric':{criterion:{'score':3,'feedback':flow.IMPROVEMENTS[i%3]} for i,criterion in enumerate(flow.CRITERIA)},
-                        'next_exercises':[flow.EXERCISES[1]],
-                        'followup_questions':list(flow.QUESTIONS[1:3]),
-                        'evidence':[{'source':source,'quote':answer,'claim':'Reviewed answer excerpt'} for source,answer in answers.items()]}
-                body=json.dumps({'model':'qwen-fixture','choices':[{'finish_reason':'stop','message':{'content':json.dumps(artifact)}}]}).encode()
+                assert 'response_format' not in payload
+                text = state.get('text', 'Useful coaching in plain prose. Practice explaining your contribution.')
+                if state['mode']=='empty': text=''
+                body=json.dumps({'model':'qwen-fixture','choices':[{'finish_reason':state.get('finish_reason','stop'),'message':{'content':text}}]}).encode()
             self.send_response(200);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
     server=ThreadingHTTPServer(('127.0.0.1',0),Handler);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try: yield 'http://127.0.0.1:'+str(server.server_port),state
@@ -125,23 +110,24 @@ class Journey:
         self.client.set_auth_token(self.tokens[0]);return work,result
     def complete(self):
         self.answer(ANSWER1);self.work()
-        current=self.get();first=current['data']['analysis']['1'];assert first['focus_quote'] in ANSWER1
+        current=self.get();first=current['data']['analysis']['1'];assert first['text']
         self.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'followup'})
-        assert first['question'] in self.get()['data']['questions'][1]['question']
-        assert first['focus_quote'] in self.get()['data']['questions'][1]['question']
+        assert ANSWER1 in self.get()['data']['questions'][1]['question']
+        assert 'verify' in self.get()['data']['questions'][1]['question']
         assert DESCRIPTION.split('.')[0] in self.get()['data']['questions'][1]['question']
         self.answer(ANSWER2);self.work()
-        current=self.get();assert current['data']['analysis']['2']['focus_quote'] in ANSWER2
-        assert flow.followup(current['data']['analysis']['2'],current['data'])!=flow.followup(first,current['data'])
+        current=self.get();assert current['data']['analysis']['2']['text']
+        assert ANSWER2 in flow.followup(current['data']['analysis']['2'],current['data'])
         current=self.rpc('interview_correct',{'id':current['id'],'revision':current['revision'],'index':1,'answer':CORRECTED})
         assert current['data']['turns'][1]['original']==ANSWER2
         assert not current['data']['coaching'] and not current['data']['analysis']
         current=self.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'finish'})
         self.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'analyze'})
         work,result=self.work();assert work['context']['interview']['answer_sources']['answer:2']==CORRECTED
-        assert result['artifact']['evidence']
+        assert result['artifact']['text']
         self.client.reload();self.client.set_auth_token(self.tokens[0]);current=self.get()
-        assert current['data']['status']=='finished' and current['data']['coaching']==result['artifact']
+        assert current['data']['status']=='finished' and current['data']['coaching']['text']==result['artifact']['text']
+        assert self.rpc('prep_get',{'id':current['id']})['data']['coaching']==result['artifact']
         return current
 
 class InterviewAcceptance(unittest.TestCase):
@@ -163,7 +149,7 @@ class InterviewAcceptance(unittest.TestCase):
                 self.assertIn('error',journey.rpc('interview_answer',{'id':done['id'],'revision':done['revision'],'answer':'after finish','client_id':'finished'},True))
             finally: journey.close()
     def test_recoverable_malformed_invented_unavailable_and_typed_continuation(self):
-        for mode in ('malformed','invented','fabricated_prose','unrelated_question','unavailable','cloud'):
+        for mode in ('malformed','empty','unavailable','cloud'):
             with self.subTest(mode=mode),tempfile.TemporaryDirectory() as directory,fixture_model() as (url,state):
                 journey=Journey(directory,url)
                 try:
@@ -190,6 +176,29 @@ class InterviewAcceptance(unittest.TestCase):
                     current=journey.get();journey.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'finish'})
                     self.assertEqual(journey.get()['data']['status'],'finished')
                 finally:journey.close()
+    def test_all_nonempty_model_text_is_persisted_without_output_checks(self):
+        values=['Plain prose without any scores or citations.', '{broken JSON', '<img src=x onerror=alert(1)>',
+                'You were CEO and made ten million dollars.', 'Partial coaching: first,']
+        with tempfile.TemporaryDirectory() as directory,fixture_model() as (url,state):
+            journey=Journey(directory,url)
+            try:
+                for text in values:
+                    state.update(text=text,finish_reason='length')
+                    journey.answer(ANSWER1) if not journey.get()['data']['turns'] else journey.rpc('interview_continue',{'id':journey.session['id'],'revision':journey.get()['revision'],'action':'analyze'})
+                    _,result=journey.work()
+                    self.assertEqual(result['artifact']['text'],text)
+                    journey.client.reload();journey.client.set_auth_token(journey.tokens[0])
+                    self.assertEqual(journey.get()['data']['analysis']['1']['text'],text)
+                    self.assertEqual(journey.get()['data']['analysis']['1']['improvement'],text)
+                current=journey.get();journey.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'next'})
+                journey.answer(ANSWER2);journey.work();current=journey.get()
+                current=journey.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'finish'})
+                journey.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'analyze'})
+                journey.work();final=journey.get()['data']['coaching'];self.assertEqual(final['text'],values[-1])
+                self.assertEqual(final['summary'],values[-1]);self.assertEqual(final['rubric'],{})
+                for key in ('strengths','next_exercises','followup_questions','evidence'):self.assertEqual(final[key],[])
+            finally: journey.close()
+
     def test_revision_and_pending_correction_reject_stale_worker_result(self):
         with tempfile.TemporaryDirectory() as directory,fixture_model() as (url,_):
             journey=Journey(directory,url)

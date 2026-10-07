@@ -1,5 +1,5 @@
 import from "@jac/mobui" { View, Text, Pressable, ScrollView, Modal, Switch, KeyboardAvoidingView, ActivityIndicator }
-import from "./device.js" { Icon, authenticate, restoreSession, rpc, signOut, errorText, isUnauthorized, shortDate, dateTime, tomorrow, later, pickResume, previewResume, reconcileNotifications, Lifecycle, SwipeSurface, DateField, PDFView, openSettings, confirmDelete, openJobLink, persistSwipe, uploadResumeFile, uploadProgressText, ResumeProcessing }
+import from "./device.js" { Icon, authenticate, authenticateGoogle, cancelGoogleSignIn, restoreSession, rpc, signOut, errorText, isUnauthorized, shortDate, dateTime, tomorrow, later, pickResume, previewResume, reconcileNotifications, Lifecycle, SwipeSurface, DateField, PDFView, openSettings, confirmDelete, openJobLink, persistSwipe, uploadResumeFile, uploadProgressText, ResumeProcessing }
 import from .theme { s }
 import from .components.UI { Button, Field, Chip, Empty, Logo }
 import from .components.Prep { Prep }
@@ -31,19 +31,19 @@ def _preferenceForm(p: dict[str, any]) -> dict[str, any] {
 
 def:pub app -> JsxElement {
     has logged: bool = False, starting: bool = True, busy: bool = False, refreshing: bool = False,
-        pendingSwipes: int = 0, revision: int = 0, signup: bool = True, username: str = "", password: str = "", invite: str = "", error: str = "", notice: str = "",
+        pendingSwipes: int = 0, revision: int = 0, signup: bool = True, googlePending: bool = False, sessionReady: bool = False, username: str = "", password: str = "", invite: str = "", error: str = "", notice: str = "",
         state: dict[str, any] = {}, tab: str = "Jobs", modal: str = "", selected: str = "", applicationFilter: str = "All", networkFilter: str = "Discover",
         name: str = "", role: str = "", location: str = "United States", mode: str = "Any", notifications: bool = True, graduation: str = "", availableFrom: str = "", prefs: dict[str, any] = {}, profileRevision: int = 0,
         notes: str = "", draft: str = "", rename: str = "", pdfUri: str = "", reminderId: str = "", reminderTitle: str = "", reminderDue: float = 0.0, targetType: str = "", targetId: str = "", returnModal: str = "", pendingOpen: dict[str, any] = {},
         uploadProgress: dict[str, any] = {}, hubPage: str = "Needs you", hubTask: str = "", hubOpenings: int = 0, savedJob: str = "";
 
-    def profileFields -> None {
-        p=state["profile"]; name=p["name"]; role=p["role"]; location=p["location"]; mode=p["mode"]; notifications=p["notifications"];graduation=p.get("graduation_month","");availableFrom=p.get("available_from","");prefs=_preferenceForm(p);
+    def profileFields(source: dict[str, any] = {}) -> None {
+        p=(source if source else state)["profile"]; name=p["name"]; role=p["role"]; location=p["location"]; mode=p["mode"]; notifications=p["notifications"];graduation=p.get("graduation_month","");availableFrom=p.get("available_from","");prefs=_preferenceForm(p);
     }
     async def logout -> None {
         busy=True;
         try { await signOut(); } except Exception as e { error=errorText(e); busy=False; return; }
-        logged=False; state={}; modal=""; password=""; username=""; tab="Jobs"; pdfUri=""; notice=""; error=""; pendingOpen={}; busy=False;
+        logged=False;sessionReady=False; state={}; modal=""; password=""; username=""; tab="Jobs"; pdfUri=""; notice=""; error=""; pendingOpen={}; busy=False;
     }
     def openRecord(kind: str, id: str) -> None {
         selected=id; error=""; notice="";
@@ -96,8 +96,8 @@ def:pub app -> JsxElement {
     }
     async can with entry {
         try {
-            logged=await restoreSession();
-            if logged { state=await rpc("bootstrap",{}); profileFields(); await reconcileNotifications(state,False); }
+            restored=await restoreSession();sessionReady=restored;
+            if restored { await completeLogin(); }
         } except Exception as e { error=errorText(e); if isUnauthorized(e) { await logout(); } }
         starting=False;
     }
@@ -106,13 +106,34 @@ def:pub app -> JsxElement {
         if len(username.strip())<3 or len(password)<8 { error="Use a username of at least 3 characters and a password of at least 8."; return; }
         busy=True; error="";
         try {
-            await authenticate(username,password,signup); password="";
-            if invite { await rpc("agent_accept_invite",{"invite":invite});invite=""; }
-            state=await rpc("bootstrap",{}); logged=True;profileFields(); await reconcileNotifications(state,False);
-            if len(pendingOpen)>0 { notificationOpen(pendingOpen); }
+            await authenticate(username,password,signup); password="";sessionReady=True;
+            await completeLogin();
         } except Exception as e { error=errorText(e); }
         busy=False;
     }
+    async def completeLogin -> None {
+        if invite { await rpc("agent_accept_invite",{"invite":invite});invite=""; }
+        admission=await rpc("agent_admission",{});
+        if not admission.get("admitted") { error="Enter your beta invitation to continue.";return; }
+        latest=await rpc("bootstrap",{});state=latest;logged=True;profileFields(latest);await reconcileNotifications(latest,False);
+        if len(pendingOpen)>0 { notificationOpen(pendingOpen); }
+    }
+    async def acceptInvitation -> None {
+        busy=True;error="";
+        try { await completeLogin(); } except Exception as e { error=errorText(e); }
+        busy=False;
+    }
+    async def googleLogin(link: bool = False) -> None {
+        if busy { return; }
+        busy=True;googlePending=True;error="";
+        try {
+            result=await authenticateGoogle("",link);sessionReady=True;
+            if link { notice="Google sign-in is linked to this Stack account."; }
+            await completeLogin();
+        } except Exception as e { error=errorText(e); }
+        busy=False;googlePending=False;
+    }
+    async def cancelGoogle -> None { await cancelGoogleSignIn(); }
     async def mutate(endpoint: str, args: dict[str, any], close: bool = True, ask: bool = False) -> None {
         if busy { return; } revision=revision+1; busy=True; error=""; notice="";
         try {
@@ -168,13 +189,17 @@ def:pub app -> JsxElement {
 
     <KeyboardAvoidingView style={s.screen} behavior="padding">
         <Lifecycle onRefresh={refresh} onOpen={notificationOpen}/>
-        {<View style={[s.empty,{flex:1,justifyContent:"center"}]}><Text style={s.brand}>stack</Text><ActivityIndicator color="#3765E8"/></View> if starting else (
+        {<View style={[s.empty,{flex:1,justifyContent:"center"}]}><Text style={s.brand}>stack</Text><ActivityIndicator color="#3765E8"/><Button label="Cancel pending Google sign-in" onPress={cancelGoogle} secondary={True}/></View> if starting else (
         <ScrollView contentContainerStyle={s.auth} keyboardShouldPersistTaps="handled">
             <View style={s.authLogo}><Icon name="layers" color="white" size={35}/></View>
             <View style={{gap:13}}><Text style={s.eyebrow}>A LITTLE MOMENTUM. A BIG NEXT STEP.</Text><Text style={s.authTitle}>Your next chapter{"\n"}starts here.</Text><Text style={s.body}>Find your people. Find your fit. Make your move.</Text></View>
-            <View style={{gap:15}}><Text style={s.heading}>{"Create your Stack" if signup else "Welcome back"}</Text><Field label="Username" value={username} onChange={lambda (v: str) { username=v; }}/><Field label="Password" value={password} onChange={lambda (v: str) { password=v; }} secret={True}/><Field label="Beta invitation (first visit)" value={invite} onChange={lambda (v: str) { invite=v; }}/>
+            <View style={{gap:15}}><Text style={s.heading}>{"Create your Stack" if signup else "Welcome back"}</Text>
+                {<View style={{gap:12}}><Button label="Continue with Google" onPress={lambda { googleLogin(); }} disabled={busy}/><Text style={s.small}>Google sign-in uses your basic identity. Gmail and Calendar are optional. Already use Stack? Sign in with your password and link Google from Profile to keep your data.</Text><Field label="Username" value={username} onChange={lambda (v: str) { username=v; }}/><Field label="Password" value={password} onChange={lambda (v: str) { password=v; }} secret={True}/></View> if not sessionReady else <Text style={s.body}>You are signed in. Accept your invitation to open Stack.</Text>}
+                <Field label="Beta invitation (first visit)" value={invite} onChange={lambda (v: str) { invite=v; }}/>
                 {<Text style={s.errorText}>{error}</Text> if error else <View/>}
-                <Button label={"Just a moment…" if busy else ("Get started" if signup else "Sign in")} onPress={login} disabled={busy} icon="next"/>
+                <Button label={"Just a moment…" if busy else ("Accept invitation" if sessionReady else ("Get started" if signup else "Sign in"))} onPress={acceptInvitation if sessionReady else login} disabled={busy} icon="next"/>
+                {<Button label="Cancel Google sign-in" onPress={cancelGoogle} secondary={True}/> if googlePending else <View/>}
+                {<Button label="Use another account" onPress={logout} secondary={True}/> if sessionReady else <View/>}
                 <Pressable onPress={lambda { signup=not signup; error=""; }} accessibilityRole="button"><Text style={[s.body,{textAlign:"center",color:"#3765E8"}]}>{"Already have an account? Sign in" if signup else "New here? Create an account"}</Text></Pressable>
             </View>
             <Text style={[s.small,{textAlign:"center"}]}>Development preview · Real job discovery{"\n"}Real accounts. Your resume stays private.\nJob data is for your personal search; do not redistribute provider datasets.</Text>
@@ -255,7 +280,7 @@ def:pub app -> JsxElement {
                         <View style={{gap:20}}><View style={s.card}><View style={s.row}><View style={[s.avatar,{backgroundColor:"#E8EFFE",width:65,height:65}]}><Text style={[s.avatarText,{fontSize:25}]}>{state["profile"]["name"][0:1].upper()}</Text></View><View style={s.grow}><Text style={s.heading}>{state["profile"]["name"]}</Text><Text style={s.body}>{state["profile"]["role"]}</Text></View></View><Text style={s.body}>{state["profile"]["location"]} · {state["profile"]["mode"]}</Text><Button label="Edit profile & preferences" onPress={editProfile} secondary={True}/></View>
                             <Text style={s.heading}>Your agent connection.</Text><Text style={s.strong}>{state.get("agents",{}).get("model_provider",{}).get("provider","Not configured")}</Text><Text style={s.small}>{state.get("agents",{}).get("model_provider",{}).get("message","")}</Text><Button label="Agents: features, rules and activity" secondary={True} onPress={lambda { openAgents("Features"); }}/>
                             <View style={s.mutedBox}><View style={s.row}><Icon name="shield" size={19}/><Text style={s.strong}>Your space stays yours.</Text></View><Text style={s.small}>Account data and PDFs are stored on your Mac during development. Model requests share the selected task context with your configured provider.</Text></View>
-                            <Button label="iPhone notification settings" onPress={openSettings} secondary={True} icon="bell"/><Button label="Sign out" onPress={logout} secondary={True} disabled={busy} icon="logout"/><Text style={[s.small,{textAlign:"center"}]}>Stack 0.1 · Built for your next chapter</Text>
+                            <Text style={s.small}>Link Google sign-in to keep using this Stack account and its saved data.</Text><Button label="Link Google sign-in" onPress={lambda { googleLogin(True); }} secondary={True} disabled={busy}/>{<Button label="Cancel Google sign-in" onPress={cancelGoogle} secondary={True}/> if googlePending else <View/>}<Button label="iPhone notification settings" onPress={openSettings} secondary={True} icon="bell"/><Button label="Sign out" onPress={logout} secondary={True} disabled={busy} icon="logout"/><Text style={[s.small,{textAlign:"center"}]}>Stack 0.1 · Built for your next chapter</Text>
                         </View>
                     ) if modal=="Profile" and len(state)>0 else <View/>}
                     {<View style={{gap:19}}><Field label="Your name" value={name} onChange={lambda (v: str) { name=v; }}/><Field label="Target role" value={role} onChange={lambda (v: str) { role=v; }} placeholder="Separate several roles with commas"/><Field label="Expected graduation (YYYY-MM)" value={graduation} onChange={lambda (v: str) { graduation=v; }} placeholder="2027-05"/><Field label="Available full-time from (YYYY-MM)" value={availableFrom} onChange={lambda (v: str) { availableFrom=v; }} placeholder="Optional"/><Field label="Location" value={location} onChange={lambda (v: str) { location=v; }} placeholder="City and state, a state, or United States"/><MatchInputs value={prefs} onChange={lambda (v: dict[str, any]) { prefs=v; }}/><View style={s.between}><Text style={s.strong}>Reminder notifications</Text><Switch value={notifications} onValueChange={lambda (v: bool) { notifications=v; }}/></View><Button label="Save preferences" onPress={saveProfile} disabled={busy}/></View> if modal=="Edit profile" else <View/>}

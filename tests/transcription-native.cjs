@@ -146,7 +146,7 @@ async function runInterview(){
     }else if(name==='interview_continue'){
       if(args.action==='followup')session.data.questions.splice(session.data.turns.length,0,{question:'How did you verify your result?'});
       if(args.action==='finish')session.data.status='finished';
-      if(args.action==='analyze'&&session.data.status==='finished')session.data.coaching={summary:'Scores are model judgments.',strengths:[{criterion:'Verification',source:'answer:1',quote:session.data.turns[0].answer}],rubric:Object.fromEntries(['Specificity','Ownership','Verification','Reflection'].map(k=>[k,{score:3,feedback}])),next_exercises:['Describe a verification step.'],followup_questions:['How did you verify?','What did you learn?'],evidence:session.data.turns.map((t,i)=>({source:'answer:'+(i+1),quote:t.answer}))};
+      if(args.action==='analyze'&&session.data.status==='finished')session.data.coaching={text:'<img src=x onerror=alert(1)> Plain prose {broken JSON. Partial coaching:',summary:'<img src=x onerror=alert(1)> Plain prose {broken JSON. Partial coaching:'};
       session.revision++;
     }else if(name==='interview_correct'){
       session.data.turns[args.index].answer=args.answer;session.data.analysis={};session.data.coaching={};session.revision++;
@@ -179,9 +179,38 @@ async function runInterview(){
     assert.equal(answerField().props.editable,false,'Pending saved-session load freezes answer input');assert.equal(button('Start job interview').props.disabled,true,'Pending saved-session load freezes actions');
     await act(async()=>{releaseOpen();holdingInterviewGet=null;await opening;await flush();});assert.equal(answerField().props.value,'');assert.match(JSON.stringify(ui.toJSON()),/A different role question/);
     await press('SQL Tools Engineer · 2 answers · active');
-    await press('Finish interview');await press('Get final coaching');const rendered=JSON.stringify(ui.toJSON());for(const criterion of ['Specificity','Ownership','Verification','Reflection'])assert(rendered.includes(criterion+' 3/4:'));assert(rendered.includes('Model-selected strength: Verification'));assert(rendered.includes('answer:1: Reviewed spoken correction.'));
+    session.data.analysis['2']={text:'Successful plain answer coaching.'};await press('Finish interview');await press('Get final coaching');const rendered=JSON.stringify(ui.toJSON());assert(rendered.includes('<img src=x onerror=alert(1)> Plain prose {broken JSON. Partial coaching:'));
     await unmount();await act(async()=>{ui=renderer.create(React.createElement(Interview,{owner:'owner-a'}));await flush();});await press('SQL Tools Engineer · 2 answers · finished');assert.match(JSON.stringify(ui.toJSON()),/Final coaching/);assert.match(JSON.stringify(ui.toJSON()),/Original spoken answer/);
     console.log('PASS native interview: compiled recorder handoff/review/draft preservation, recording ID/original, connection retry identity, two answers/correction/four scores/feedback/reopen. OS and API/model replies are controlled fixtures.');
   }finally{fakeDevice.rpc=oldRpc;await unmount();}
 }
-run().then(runInterview).catch(e=>{console.error(e);process.exitCode=1;}).finally(async()=>{await unmount();global.setInterval=realInterval;global.clearInterval=realClear;});
+async function runPractice(){
+  const {Practice}=load(path.join(root,'.jac/mobile-rn/jac-src/mobile/components/Practice.js'));
+  const oldRpc=fakeDevice.rpc,calls=[];
+  const session={id:'practice-a',revision:1,data:{problem_id:'project',language:'',answer:'Saved answer',notes:''},feedback:[],results:[]};
+  let hold=null;
+  fakeDevice.rpc=async(name,args={})=>{
+    calls.push({name,args});
+    if(name==='prep_catalog')return{problems:[{id:'project',title:'Project',prompt:'Explain a project',topic:'Behavioral',minutes:5,languages:[],hints:[]}]};
+    if(name==='prep_sessions')return{sessions:[structuredClone(session)]};
+    if(name==='agent_settings')return{web_url:''};
+    if(name==='prep_get'){if(hold)await hold;return structuredClone(session);}
+    if(name==='prep_save'){assert.equal(args.id,session.id);assert.equal(args.revision,1);session.data=args.data;session.revision++;return structuredClone(session);}
+    throw Error('Unexpected Practice RPC '+name);
+  };
+  const answer=()=>ui.root.findAll(n=>n.type==='TextInput'&&n.props.accessibilityLabel==='Explain your approach')[0];
+  try{
+    await act(async()=>{ui=renderer.create(React.createElement(Practice));await flush();});await press('project');
+    session.feedback=[{at:1,data:{text:'<img src=x onerror=alert(1)> {malformed JSON. Partial:'}}];
+    await act(async()=>{answer().props.onChangeText('Draft typed while coaching runs');});await tick();
+    assert(JSON.stringify(ui.toJSON()).includes(session.feedback[0].data.text));assert.equal(answer().props.value,'Draft typed while coaching runs');
+    await press('Save practice');assert.equal(calls.find(c=>c.name==='prep_save').args.id,'practice-a','Timer preserves current session identity/revision');
+    let release;hold=new Promise(resolve=>release=resolve);await tick();
+    await press('Choose another exercise');await act(async()=>{release();hold=null;await flush();});assert(!answer(),'Late poll cannot restore cleared session');
+    await press('project');let releaseOpen,opening;hold=new Promise(resolve=>releaseOpen=resolve);
+    await act(async()=>{opening=button('project').props.onPress();await flush();});await unmount();
+    await act(async()=>{releaseOpen();hold=null;await opening;await flush();});
+    console.log('PASS native Practice: mounted timer displays raw text, preserves typed draft and session identity, ignores late cleared-session and unmounted loads.');
+  }finally{fakeDevice.rpc=oldRpc;await unmount();}
+}
+run().then(runInterview).then(runPractice).catch(e=>{console.error(e);process.exitCode=1;}).finally(async()=>{await unmount();global.setInterval=realInterval;global.clearInterval=realClear;});

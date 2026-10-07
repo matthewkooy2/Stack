@@ -58,20 +58,20 @@ def:priv interview_create(application_id: str, client_id: str) -> dict[str, any]
     if not client_id or len(client_id)>100 { return {"error":"A bounded request ID is required."}; }
     with _write_lock {
         _agent_fresh();
-        for p in [root -->][?:PrepSession] { if p.data.get("mode")=="interview" and p.data.get("client_id")==client_id { return prep_get(jid(p)); } }
+        for p in [root -->][?:PrepSession] { if p.data.get("mode")=="interview" and p.data.get("client_id")==client_id { return interview_get(jid(p)); } }
         apps=[a for a in [root -->][?:Application] if jid(a)==application_id and not a.demo];
         if not apps { return {"error":"Choose one of your saved roles."}; }
         a=apps[0];resume=_application_resume(a);resume_id=jid(resume) if resume is not None else "";
         try { data=interview_flow.create(_application_job(a),_agent_memory().facts,application_id,resume_id); }
         except ValueError as e { return {"error":str(e)}; }
         data["client_id"]=client_id;
-        p=root ++> PrepSession(data=data,created_at=time.time(),updated_at=time.time());commit();return prep_get(jid(p));
+        p=root ++> PrepSession(data=data,created_at=time.time(),updated_at=time.time());commit();return interview_get(jid(p));
     }
 }
 
 def:priv interview_get(id: str) -> dict[str, any] {
     try {
-        p=_owned_interview(id);out=prep_get(id);
+        p=_owned_interview(id);out=prep_get(id);out["data"]=interview_flow.client_data(p.data);
         pending=p.data.get("pending","");r=_owned_run(pending) if pending else None;
         out["run"]=_run_view(r,True) if r is not None else {};return out;
     } except ValueError as e { return {"error":str(e)}; }
@@ -154,7 +154,7 @@ def:priv interview_continue(id: str, revision: int, action: str = "followup") ->
                     analysis=p.data["analysis"].get(str(count));
                     if not analysis { raise ValueError("Analyze the reviewed answer first, or continue with the saved role question."); }
                     if count>=6 { raise ValueError("This short interview has reached six answers. Finish and review it."); }
-                    question={"question":interview_flow.followup(analysis,p.data),"evidence":analysis["evidence"],"kind":"followup","focus_quote":analysis["focus_quote"],"basis_revision":p.revision};
+                    question={"question":interview_flow.followup(analysis,p.data),"evidence":[],"kind":"followup","basis_revision":p.revision};
                     questions=p.data["questions"][:count]+[question]+[q for q in p.data["questions"][count:] if q["kind"]!="followup"];
                     p.data={**p.data,"questions":questions};p.revision+=1;
                 } elif count>=len(p.data["questions"]) { raise ValueError("All saved role questions are answered. Finish, or request a follow-up."); }

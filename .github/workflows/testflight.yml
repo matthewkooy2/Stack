@@ -11,8 +11,10 @@ on:
       - 'scripts/compile-mobile.jac'
       - 'scripts/setup*'
       - 'scripts/ci/ios-testflight.sh'
+      - 'scripts/ci/asc-preflight.cjs'
       - 'tests/release-config.cjs'
       - 'tests/test_ios_testflight.py'
+      - 'tests/asc-preflight.cjs'
       - '.github/actions/ios-toolchain/**'
       - '.github/workflows/testflight.yml'
   push:
@@ -26,12 +28,38 @@ on:
       - 'scripts/compile-mobile.jac'
       - 'scripts/setup*'
       - 'scripts/ci/ios-testflight.sh'
+      - 'scripts/ci/asc-preflight.cjs'
       - '.github/actions/ios-toolchain/**'
       - '.github/workflows/testflight.yml'
   workflow_dispatch:
+    inputs:
+      preflight_only:
+        description: Check configuration and App Store Connect without uploading
+        type: boolean
+        default: true
 permissions:
   contents: read
 jobs:
+  preflight:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.STACK_TESTFLIGHT_ENABLED == 'true')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: stack-testflight
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.22.0'
+      - name: Check secrets and App Store Connect version
+        env:
+          STACK_API_URL: ${{ secrets.STACK_API_URL }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: node scripts/ci/asc-preflight.cjs
   # Pull requests get no signing secrets; prove the release archive builds unsigned.
   validate:
     if: github.event_name == 'pull_request'
@@ -56,6 +84,7 @@ jobs:
           set -euo pipefail
           node tests/release-config.cjs
           python3 tests/test_ios_testflight.py
+          node --test tests/asc-preflight.cjs
       - name: Archive the unsigned release build
         run: bash scripts/ci/ios-testflight.sh
       - name: Retain diagnostics if validation fails
@@ -69,7 +98,8 @@ jobs:
   build-and-upload:
     # Uploads stay off until STACK_TESTFLIGHT_ENABLED is true, after the App
     # Store Connect version record matches the app's marketing version.
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.STACK_TESTFLIGHT_ENABLED == 'true'
+    needs: preflight
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.STACK_TESTFLIGHT_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || !inputs.preflight_only)
     runs-on: xcode-27
     timeout-minutes: 60
     environment: stack-testflight
@@ -104,9 +134,9 @@ jobs:
           done
           test -n "$STACK_API_URL" || { echo 'Add the STACK_API_URL secret (public HTTPS API origin) to the stack-testflight environment.' >&2; exit 1; }
           test -n "$APPLE_TEAM_ID" || { echo 'Add the APPLE_TEAM_ID Actions variable from Apple Developer membership.' >&2; exit 1; }
-          test -n "$ASC_KEY_ID" || { echo 'Add the ASC_KEY_ID secret to the stack-testflight environment.' >&2; exit 1; }
-          test -n "$ASC_ISSUER_ID" || { echo 'Add the ASC_ISSUER_ID secret to the stack-testflight environment.' >&2; exit 1; }
-          test -n "$ASC_PRIVATE_KEY" || { echo 'Add the ASC_PRIVATE_KEY secret to the stack-testflight environment.' >&2; exit 1; }
+          test -n "$ASC_KEY_ID" || { echo 'Add the ASC_KEY_ID Actions secret.' >&2; exit 1; }
+          test -n "$ASC_ISSUER_ID" || { echo 'Add the ASC_ISSUER_ID Actions secret.' >&2; exit 1; }
+          test -n "$ASC_PRIVATE_KEY" || { echo 'Add the ASC_PRIVATE_KEY Actions secret.' >&2; exit 1; }
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false

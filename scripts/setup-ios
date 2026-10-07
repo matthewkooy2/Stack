@@ -6,6 +6,8 @@ if [ "$(uname -s)" != Darwin ]; then
 fi
 STACK_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$STACK_ROOT"
+# Keep the extracted compiler runtime outside the project for Jac mobile builds.
+export STACK_JAC_CACHE_HOME="${STACK_JAC_CACHE_HOME:-${TMPDIR:-/tmp}/stack-ios-jac-cache}"
 STACK_VERSION=$(./scripts/jac --version)
 case "$STACK_VERSION" in *"jac 0.37.21 "*) ;; *) echo "Install Jac 0.37.21 before setup (found: $STACK_VERSION)." >&2; exit 1;; esac
 ./scripts/jac install --no-npm

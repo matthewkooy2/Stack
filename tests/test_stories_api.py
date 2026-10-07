@@ -90,6 +90,44 @@ class API(unittest.TestCase):
         self.assertTrue(self.rpc('story_delete',{'id':story['id'],'revision':2})['deleted'])
         self.assertEqual(self.rpc('story_list')['stories'],[])
 
+    def test_confirmed_imported_resume_sources_revision_and_isolation(self):
+        # A real uploaded fixture uses the ordinary resume import/confirmation API.
+        raw=(ROOT/'tests/fixtures/synthetic-resume.pdf').read_bytes()
+        state=self.rpc('upload_resume',{'name':'Fictional-history.pdf','content':base64.b64encode(raw).decode()})
+        rid=state['resumes'][-1]['id']
+        claim=self.system('resume_processing_claim')
+        self.assertEqual(claim['kind'],'import')
+        event=FIXTURE['events'][0]
+        records=[{'id':'r0','kind':'paragraph','text':event['text']}]
+        done=self.system('resume_processing_finish',{**{k:claim[k] for k in ('id','owner','lease')},'result':{'records':records}})
+        self.assertTrue(done['saved'],done)
+        self.assertEqual(self.rpc('story_sources')['sources'],[])
+        review=self.rpc('agent_extract_resume',{'id':rid})
+        self.assertFalse(review['confirmed'])
+        confirmed=self.rpc('resume_save_records',{'id':rid,'revision':review['revision'],'records':records,'confirm':True})
+        src=self.rpc('story_sources')['sources'][0]
+        self.assertEqual(src['kind'],'reviewed_resume_records')
+        self.assertEqual(src['text'],event['text'])
+        story=self.create(src,'Confirmed fictional resume event')
+        revised=[{'id':'r0','kind':'paragraph','text':event['text']+' I corrected the timing.'}]
+        withdrawn=self.rpc('resume_save_records',{'id':rid,'revision':confirmed['revision'],'records':revised,'confirm':False})
+        self.assertEqual(self.rpc('story_sources')['sources'],[])
+        self.assertIn('error',self.create(src,'withdrawn source'))
+        self.rpc('resume_save_records',{'id':rid,'revision':withdrawn['revision'],'records':revised,'confirm':True})
+        fresh=self.rpc('story_sources')['sources'][0]
+        self.assertNotEqual(fresh['revision'],src['revision'])
+        self.assertIn('error',self.create(src,'stale source'))
+        self.client.reload();self.client.set_auth_token(self.a)
+        self.assertEqual(self.rpc('story_get',{'id':story['id']})['source']['text'],event['text'])
+        self.assertEqual(self.rpc('story_sources')['sources'][0],fresh)
+        self.client.set_auth_token(self.b)
+        self.assertEqual(self.rpc('story_sources')['sources'],[])
+        self.assertIn('error',self.create(fresh,'foreign source'))
+        self.client.set_auth_token(self.a)
+        self.rpc('change_resume',{'id':rid,'action':'delete'})
+        self.assertEqual(self.rpc('story_sources')['sources'],[])
+        self.assertEqual(self.rpc('story_get',{'id':story['id']})['source']['text'],event['text'])
+
     def test_recorded_sources_revisions_missing_outcomes_and_separate_events(self):
         event=FIXTURE['events'][1]
         rec=self.rpc('transcription_upload',{'client_id':'fictional-story-recording-001','content':base64.b64encode(wav()).decode()})

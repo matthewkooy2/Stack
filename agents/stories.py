@@ -5,7 +5,7 @@ from typing import Any
 
 FIELDS = ('situation', 'task', 'action', 'result', 'personal', 'team', 'learning')
 TOPICS = ('ownership', 'conflict', 'decisions', 'learning')
-UNKNOWN_OUTCOME = re.compile(r"\b(?:unknown|pending|do not know|don't know|not (?:yet )?(?:happened|measured|released)|no (?:known )?outcome)\b", re.I)
+UNKNOWN_OUTCOME = re.compile(r"\b(?:unknown|pending|undetermined|tbd|(?:yet )?to be (?:determined|measured|known|released|seen|established|decided)|do not know|don't know|not (?:yet )?(?:been )?(?:happened|measured|released|determined|known)|no (?:known )?outcome)\b", re.I)
 QUESTIONS = {
     'situation': 'What was happening in this event?',
     'task': 'What were you responsible for?',

@@ -9,11 +9,12 @@ are model suggestions, not factual claims or hiring predictions.
 
 ## Source review and use
 
-1. Call `story_sources` to read the account's verified `resume.*` facts and
-   completed recorded-answer transcripts. Unverified facts and incomplete
-   recordings are unavailable. Existing resume detail extraction/editing remains
-   unavailable on main; this feature uses the preserved reviewed fact bank and
-   `agent_save_facts` confirmation path. It does not infer facts from a raw PDF.
+1. Call `story_sources` to read the account's explicitly confirmed imported
+   resume records, verified `resume.*` facts, and completed recorded-answer
+   transcripts. Imported records become available only after confirmation through
+   `resume_save_records`; editing or withdrawing confirmation invalidates stale
+   source selections. Unconfirmed imports, unverified facts, and incomplete
+   recordings are unavailable. No facts are inferred from an unreviewed PDF.
 2. Select an exact excerpt describing one event. Review its accuracy and confirm
    `reviewed_single_event=true` with `story_create(source_key, source_revision,
    excerpt, title, reviewed_single_event)`. The title is the user's label. Select
@@ -72,5 +73,6 @@ jac check main.jac core/stories.jac core/automation.jac agents/provider.jac
 Implementation, executed verification, confirmed merge, and deployment are
 reported separately in the issue delivery record. This backend capability does
 not certify model quality across real careers or physical-device behavior. A
-story-bank UI, automatic event splitting, prose rewriting, and deployment are
-outside this issue's delivery boundary.
+story-bank UI, automatic event splitting, and prose rewriting are outside this
+backend capability. Deployment verification is recorded separately from source
+acceptance.

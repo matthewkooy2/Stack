@@ -761,6 +761,12 @@ def:priv resume_save_records(id: str, revision: int, records: list[dict[str, any
 
 def:priv story_sources() -> dict[str, any] {
     _agent_access();sources=[];
+    for r in [root -->][?:Resume] {
+        if r.review_confirmed and r.review.get("records") {
+            sources.append({"key":"resume:"+jid(r),"kind":"reviewed_resume_records","revision":digest({"revision":r.review_revision,"records":r.review["records"]}),
+                "text":"\n".join(record["text"] for record in r.review["records"]),"resume_id":jid(r),"provenance":"User-confirmed imported resume records","review_revision":r.review_revision});
+        }
+    }
     for f in _agent_memory().facts {
         if f.get("verified") and str(f["key"]).startswith("resume.") {
             sources.append({"key":"fact:"+f["key"],"kind":"reviewed_resume_fact","revision":digest(f),"text":f["value"],"resume_id":f.get("resume_id",""),"provenance":f.get("source","")});

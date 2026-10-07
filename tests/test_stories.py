@@ -44,6 +44,19 @@ class Stories(unittest.TestCase):
         for changes in ({'outcome':'x'},{'result':123},{'result':' '*3},{}):
             with self.assertRaises(ValueError):corrected(saved,changes,2)
 
+    def test_unresolved_outcomes_retain_follow_up_for_sources_and_corrections(self):
+        for text in ('The outcome is yet to be determined.', 'Results are TBD.',
+                     'Impact remains undetermined.', 'The result has not yet been measured.',
+                     'The production effect is to be established.'):
+            source={'key':'fixture','text':text}
+            value=empty(source);value['fields']['result']['quote']=text
+            value=validate(value,source)
+            self.assertIn('result',[q['field'] for q in missing(value)],text)
+            self.assertIn('result',[q['field'] for q in missing(corrected(empty(source),{'result':text},1))],text)
+        source={'key':'fixture','text':'The duplicate requests stopped in the fixture replay.'}
+        value=empty(source);value['fields']['result']['quote']=source['text']
+        self.assertNotIn('result',[q['field'] for q in missing(validate(value,source))])
+
     def test_team_possessives_unknown_outcomes_and_unselected_text(self):
         source={'key':'fixture','text':'My team shipped the change. The release has not happened, so I do not know the outcome.',
                 'full_text':'Other unrelated event.', 'original_transcript':'Obsolete uncorrected claim.'}

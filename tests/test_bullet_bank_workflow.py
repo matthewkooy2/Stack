@@ -38,6 +38,8 @@ class BankWorkflow(unittest.TestCase):
 
     def test_crud_reload_history_stale_edits_account_isolation_export_and_delete(self):
         source = self.create(False)
+        app = self.job()
+        self.assertEqual(next(a for a in self.rpc('bootstrap')['applications'] if a['id'] == app['id'])['tailor']['resume_id'], '')
         rid, revision, original = self.target()
         selection = [{'id': source['id'], 'revision': source['revision'], 'record_ids': ['r0']}]
         self.assertIn('error', self.rpc('resume_bank_select', {'id': rid, 'revision': revision, 'selection': selection}))
@@ -79,6 +81,9 @@ class BankWorkflow(unittest.TestCase):
         target = next(r for r in deleted['resumes'] if r['id'] == rid)
         self.assertNotIn('error', self.rpc('resume_bank_select', {'id': rid, 'revision': target['revision'], 'selection': []}))
         self.assertEqual(self.rpc('read_resume_source', {'id': rid})['source']['records'], RECORDS)
+        # Account deletion must handle a live record-only group with no file key.
+        remaining = self.create(True)
+        self.assertTrue(remaining['editable'])
         with patch('agents.worker.browser_call', return_value={}):
             self.assertTrue(self.rpc('account_delete', {'username': 'mat25-owner', 'password': 'Synthetic-Mat25-password-1'})['deleted'])
         self.deleted = True

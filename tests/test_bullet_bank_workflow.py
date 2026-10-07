@@ -122,7 +122,10 @@ class BankWorkflow(unittest.TestCase):
         self.rpc('resume_bank_delete', {'id': source['id'], 'revision': source['revision']})
         invalid = self.dispatch(final_claim)
         self.assertNotIn('artifact', invalid)
-        self.assertIn('error', invalid)
+        self.assertTrue(invalid['needs_input'], invalid)
+        self.assertIn('experience', invalid['message'])
+        self.finish(final_claim, invalid)
+        self.assertEqual(self.rpc('agent_run', {'id': run['id']})['status'], 'needs_input')
 
 
 if __name__ == '__main__':

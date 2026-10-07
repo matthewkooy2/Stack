@@ -43,6 +43,17 @@ COACH_SCHEMA = {'type': 'object', 'properties': {
     'followup_questions': {'type': 'array', 'maxItems': 2, 'items': choice(QUESTIONS)},
     'evidence': EVIDENCE}, 'required': ['summary', 'strengths', 'rubric', 'next_exercises', 'followup_questions', 'evidence'],
     'additionalProperties': False}
+
+def schema(step, task_context) -> dict[str, Any]:
+    """Constrain generation to this interview's reviewed answer identifiers."""
+    out = copy.deepcopy(TURN_SCHEMA if step == 'interview_turn' else COACH_SCHEMA)
+    answer_ids = list(task_context['interview']['answer_sources'])
+    if not answer_ids:
+        raise ValueError('Save a reviewed answer before requesting interview analysis.')
+    out['properties']['evidence']['items']['properties']['source'] = choice(answer_ids)
+    if step == 'interview_coach':
+        out['properties']['strengths']['items']['properties']['source'] = choice(answer_ids)
+    return out
 INSTRUCTIONS = {
     'interview_turn': 'Analyze only the latest reviewed answer. Give one specific strength and one improvement. '
         'Ask one short follow-up about a concrete detail in that answer, relevant to the saved role. '

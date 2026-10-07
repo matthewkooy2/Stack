@@ -232,15 +232,11 @@ def _generate(step: any, context: any, configuration: any, received: any, observ
     if ((provider not in (CLI_PROVIDERS | LOCAL_PROVIDERS)) and (not key or not c['model'])) {
         raise ValueError('The model provider is not configured.');
     }
-    if step in interview.STEPS {
-        SCHEMAS['interview_turn'] = interview.TURN_SCHEMA;
-        SCHEMAS['interview_coach'] = interview.COACH_SCHEMA;
-    }
-    if (step not in SCHEMAS) {
+    if (step not in SCHEMAS and step not in interview.STEPS) {
         raise ValueError('Unsupported model operation.');
     }
     sources = sources_for(context);
-    schema=SCHEMAS[step];model_context=context;
+    schema=interview.schema(step, context) if step in interview.STEPS else SCHEMAS[step];model_context=context;
     if step=='story' {
         import from agents.stories { selection_contract }
         contract=selection_contract(context['story_source']);schema=contract['schema'];

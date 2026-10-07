@@ -103,16 +103,18 @@ The opt-in composed check is `jac run --no-serve scripts/interview-speech-smoke.
 Generate fixture speech with the existing offline Windows voice using
 `scripts/generate-interview-speech.ps1 -OutputDirectory <owned-fixture-folder>`.
 The check requires existing integrity-verified Whisper files, disables automatic
-setup, runs the real probe and actual transcription worker, submits the returned
-texts/recording IDs through real interview APIs, and uses actual Qwen. It retains
+setup, runs the real probe and actual transcription worker, checks raw recognition,
+then saves known fixture text as simulated user review. It submits reviewed
+texts/recording IDs through real interview APIs and uses actual Qwen. It retains
 raw model results, original transcripts, latency, word-sequence similarity and
 reload evidence. At least85% normalized word-sequence similarity and essential
 words are required; synthetic speech is not evidence of physical microphone
-accuracy. No model, transcript or scoring output is injected in this check.
+accuracy. Raw Whisper recognition and model/scoring output are never mocked;
+the simulated reviewed correction is supplied explicitly through transcript-save.
 
 `scripts/compile-mobile.jac` and `tests/transcription-native.cjs` exercise the
 generated native interface and existing recording adapter with controlled
 OS/API/model boundaries. Native fixtures cover the explicit reviewed-transcript
 handoff, preserved typed drafts, submission identity/retry, frozen controls during
-a delayed save, correction, strengths/rubric/practice display and saved-session
+a delayed save and saved-session load, correction, strengths/rubric/practice display and saved-session
 reopen. Physical iPhone evidence remains necessary for device acceptance.

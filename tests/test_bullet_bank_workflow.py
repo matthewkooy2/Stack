@@ -134,8 +134,16 @@ class BankWorkflow(unittest.TestCase):
         self.assertTrue(saved['parse']['ok'])
         self.assertEqual(self.rpc('read_tailored_resume', {'id': saved['id']})['change_record']['bank_sources'][0], provenance)
         # A new proposal must not silently approve withdrawn or revised facts.
+        # Identical completed job/context requests intentionally reuse their run.
+        previous_run = run['id']
+        app = self.job()
+        self.rpc('select_application_resume', {'id': app['id'], 'resume_id': rid})
         run = self.rpc('agent_start', {'kind': 'resume', 'target_id': app['id']})
-        claim = self.worker('agent_claim');self.finish(claim, self.dispatch(claim))
+        self.assertNotIn('error', run, run)
+        self.assertNotEqual(run['id'], previous_run)
+        claim = self.worker('agent_claim')
+        self.assertEqual(claim['id'], run['id'], claim)
+        self.finish(claim, self.dispatch(claim))
         self.assertTrue(self.worker('agent_claim').get('idle'))
         waiting = self.rpc('agent_run', {'id': run['id']})
         self.assertEqual(waiting['status'], 'review', waiting)

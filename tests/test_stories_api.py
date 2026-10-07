@@ -171,6 +171,11 @@ class API(unittest.TestCase):
             entry.update(content=saved['content'],missing=saved['missing'])
             (ROOT/'.jac/story-real-evidence.json').write_text(json.dumps(evidence,indent=2))
             for item in saved['content']['evidence']:self.assertIn(item['quote'],event['text'])
+            # Fixed histories distinguish an assigned responsibility from work
+            # performed; action-only evidence must preserve the Task follow-up.
+            self.assertEqual(saved['content']['fields']['task']['quote'],event['fields']['task'])
+            if not event['fields']['task']:
+                self.assertIn('task',[q['field'] for q in saved['missing']])
             if event['id']=='retry':
                 self.assertTrue(saved['content']['fields']['personal']['quote'])
                 self.assertTrue(saved['content']['fields']['team']['quote'])

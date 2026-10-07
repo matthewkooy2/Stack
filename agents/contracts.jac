@@ -22,11 +22,13 @@ with entry {
         'profile': ['profile'],
         'prep': ['coach'],
         'stories': ['story'],
+        'interview_turn': ['interview_turn'],
+        'interview_coach': ['interview_coach'],
         'sync': ['sync'],
         'code': ['execute'],
         'calendar': ['calendar']
     };
-    PAID = {'fit', 'tailor', 'draft', 'coach', 'profile', 'linkedin_review', 'story'};
+    PAID = {'fit', 'tailor', 'draft', 'coach', 'profile', 'linkedin_review', 'story', 'interview_turn', 'interview_coach'};
     EXTERNAL = {
         'send': 'send_email',
         'calendar': 'calendar_write'

@@ -71,7 +71,7 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
         import from agents.research { contact_source }
         return {'artifact': contact_source(context['contact'])};
     }
-    if (step in ('fit', 'tailor', 'draft', 'coach', 'profile', 'linkedin_review', 'story')) {
+    if (step in ('fit', 'tailor', 'draft', 'coach', 'profile', 'linkedin_review', 'story', 'interview_turn', 'interview_coach')) {
         c = config();
         if (work.get('provider_config_hash') != digest(c)) {
             return {

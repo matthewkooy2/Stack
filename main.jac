@@ -45,6 +45,124 @@ import from core.stories { story_get, story_list, story_save, story_generate, st
 import from core.automation { BehavioralStory }
 import from agents.stories { empty as empty_story }
 import os;
+import agents.interview as interview_flow;
+
+def _owned_interview(id: str) -> PrepSession {
+    _agent_access();
+    for p in [root -->][?:PrepSession] { if jid(p)==id and p.data.get("mode")=="interview" { return p; } }
+    raise ValueError("Interview session not found.");
+}
+
+def:priv interview_create(application_id: str, client_id: str) -> dict[str, any] {
+    _agent_access();
+    if not client_id or len(client_id)>100 { return {"error":"A bounded request ID is required."}; }
+    with _write_lock {
+        _agent_fresh();
+        for p in [root -->][?:PrepSession] { if p.data.get("mode")=="interview" and p.data.get("client_id")==client_id { return prep_get(jid(p)); } }
+        apps=[a for a in [root -->][?:Application] if jid(a)==application_id and not a.demo];
+        if not apps { return {"error":"Choose one of your saved roles."}; }
+        a=apps[0];resume=_application_resume(a);resume_id=jid(resume) if resume is not None else "";
+        try { data=interview_flow.create(_application_job(a),_agent_memory().facts,application_id,resume_id); }
+        except ValueError as e { return {"error":str(e)}; }
+        data["client_id"]=client_id;
+        p=root ++> PrepSession(data=data,created_at=time.time(),updated_at=time.time());commit();return prep_get(jid(p));
+    }
+}
+
+def:priv interview_get(id: str) -> dict[str, any] {
+    try {
+        p=_owned_interview(id);out=prep_get(id);
+        pending=p.data.get("pending","");r=_owned_run(pending) if pending else None;
+        out["run"]=_run_view(r,True) if r is not None else {};return out;
+    } except ValueError as e { return {"error":str(e)}; }
+}
+
+def:priv interview_sessions() -> dict[str, any] {
+    _agent_access();
+    sessions=[p for p in [root --> [?:PrepSession, -updated_at]] if p.data.get("mode")=="interview"];
+    return {"sessions":[{"id":jid(p),"data":p.data,"revision":p.revision,"updated_at":p.updated_at} for p in sessions[:50]]};
+}
+
+def _interview_queue(p: PrepSession, final: bool = False) -> None {
+    kind="interview_coach" if final else "interview_turn";
+    attempt=int(p.data.get("model_attempt",0))+1;
+    run=_agent_start(kind,jid(p),interview_flow.context(p.data,p.revision,final),str(p.revision)+":"+str(attempt),False);
+    p.data={**p.data,"pending":run["id"],"model_attempt":attempt};
+}
+
+def:priv interview_answer(id: str, revision: int, answer: str, client_id: str, recording_id: str = "") -> dict[str, any] {
+    with _write_lock {
+        _agent_fresh();
+        try {
+            p=_owned_interview(id);text=interview_flow.answer_text(answer);
+            if not client_id or len(client_id)>100 { raise ValueError("A bounded answer request ID is required."); }
+            if any(t.get("client_id")==client_id for t in p.data["turns"]) { return interview_get(id); }
+            if revision!=p.revision { raise ValueError("This transcript changed. Reopen it before saving; your typed draft is retained."); }
+            if p.data["status"]!="active" or p.data.get("pending") or len(p.data["turns"])>=len(p.data["questions"]) { raise ValueError("Continue or finish the saved interview before answering."); }
+            if len(p.data["turns"])>=6 { raise ValueError("Finish this short interview after six answers."); }
+            original=text;
+            if recording_id {
+                recording=TranscriptionStore().get(jid(root),recording_id);
+                if recording["status"]!="completed" { raise ValueError("Wait for local transcription, or type your answer."); }
+                original=recording["original_transcript"];
+            }
+            question=p.data["questions"][len(p.data["turns"])];
+            p.data={**p.data,"turns":p.data["turns"]+[{"question":question,"original":original,"answer":text,"recording_id":recording_id,"client_id":client_id}],"coaching":{}};
+            p.revision+=1;p.updated_at=time.time();_interview_queue(p);commit();return interview_get(id);
+        } except ValueError as e { return {"error":str(e)}; }
+    }
+}
+
+def:priv interview_correct(id: str, revision: int, index: int, answer: str) -> dict[str, any] {
+    with _write_lock {
+        _agent_fresh();
+        try {
+            p=_owned_interview(id);text=interview_flow.answer_text(answer);
+            if p.revision!=revision or index<0 or index>=len(p.data["turns"]) { raise ValueError("This transcript changed. Reopen it before correcting."); }
+            # Cancel any claimed attempt before changing its evidence.
+            pending=_owned_run(p.data.get("pending",""));
+            if pending is not None and pending.status not in ["completed","cancelled","failed"] { pending.status="cancelled";pending.lease="";pending.lease_until=0; }
+            p.data=interview_flow.correct(p.data,index,text);p.revision+=1;p.updated_at=time.time();commit();return interview_get(id);
+        } except ValueError as e { return {"error":str(e)}; }
+    }
+}
+
+def:priv interview_continue(id: str, revision: int, action: str = "followup") -> dict[str, any] {
+    with _write_lock {
+        _agent_fresh();
+        try {
+            p=_owned_interview(id);
+            if revision!=p.revision { raise ValueError("This interview changed. Reopen it before continuing."); }
+            if action=="finish" {
+                if p.data["status"]=="finished" { return interview_get(id); }
+                if len(p.data["turns"])<2 { raise ValueError("Review at least two answers before finishing."); }
+                pending=_owned_run(p.data.get("pending",""));
+                if pending is not None and pending.status not in ["completed","cancelled","failed"] { pending.status="cancelled";pending.lease="";pending.lease_until=0; }
+                if p.data["status"]!="finished" { p.data={**p.data,"status":"finished","pending":"","finished_at":time.time()};p.revision+=1; }
+            } elif action=="analyze" {
+                if not p.data["turns"] or p.data.get("pending") { raise ValueError("Wait for the current task, or retry it below."); }
+                _interview_queue(p,p.data["status"]=="finished");
+            } elif action in ["followup","next"] {
+                if p.data["status"]!="active" or not p.data["turns"] { raise ValueError("Save a reviewed answer before continuing."); }
+                if action=="next" {
+                    pending=_owned_run(p.data.get("pending",""));
+                    if pending is not None and pending.status not in ["completed","cancelled","failed"] { pending.status="cancelled";pending.lease="";pending.lease_until=0; }
+                    p.data={**p.data,"pending":""};
+                } elif p.data.get("pending") { raise ValueError("Wait for analysis before requesting a follow-up."); }
+                count=len(p.data["turns"]);
+                if action=="followup" {
+                    analysis=p.data["analysis"].get(str(count));
+                    if not analysis { raise ValueError("Analyze the reviewed answer first, or continue with the saved role question."); }
+                    if count>=6 { raise ValueError("This short interview has reached six answers. Finish and review it."); }
+                    question={"question":interview_flow.followup(analysis,p.data),"evidence":analysis["evidence"],"kind":"followup","focus_quote":analysis["focus_quote"],"basis_revision":p.revision};
+                    questions=p.data["questions"][:count]+[question]+[q for q in p.data["questions"][count:] if q["kind"]!="followup"];
+                    p.data={**p.data,"questions":questions};p.revision+=1;
+                elif count>=len(p.data["questions"]) { raise ValueError("All saved role questions are answered. Finish, or request a follow-up."); }
+            } else { raise ValueError("Unknown interview action."); }
+            p.updated_at=time.time();commit();return interview_get(id);
+        } except ValueError as e { return {"error":str(e)}; }
+    }
+}
 
 node Profile {
     has linkedin_url: str = "", linkedin_target_role: str = "";
@@ -650,6 +768,7 @@ def:priv agent_start(kind: str, target_id: str) -> dict[str, any] {
         } elif kind in ["prep","code"] {
             for p in [root -->][?:PrepSession] {
                 if jid(p)==target_id {
+                    if p.data.get("mode")=="interview" { return {"error":"Use the local Qwen interview controls for this session."}; }
                     context={"session":p.data,"session_revision":p.revision,"problem":problem(str(p.data["problem_id"])),"test_results":[r for r in p.results if r["revision"]==p.revision]};
                     for a in [root -->][?:Application] { if jid(a)==p.data.get("application_id") { context["job"]=_application_job(a); } }
                     return _agent_start(kind,target_id,context,str(p.revision));
@@ -897,10 +1016,10 @@ def _notify_agent(r: AgentRun) -> None {
 def _create_study_plan(application_id: str) -> list[dict[str, any]] {
     applications=[a for a in [root -->][?:Application] if jid(a)==application_id and not a.demo];
     if not applications { return []; }
-    feedback=[f["data"] for p in [root -->][?:PrepSession] for f in p.feedback[-1:]];
+    feedback=[f["data"] for p in [root -->][?:PrepSession] if p.data.get("mode")!="interview" for f in p.feedback[-1:]];
     recommendations=study_plan(_application_job(applications[0]),feedback);out=[];
     for item in recommendations {
-        existing=[p for p in [root -->][?:PrepSession] if p.data.get("application_id")==application_id and p.data["problem_id"]==item["problem_id"]];
+        existing=[p for p in [root -->][?:PrepSession] if p.data.get("mode")!="interview" and p.data.get("application_id")==application_id and p.data["problem_id"]==item["problem_id"]];
         if existing { session=existing[0]; }
         else {
             spec=problem(str(item["problem_id"]));data=validate_session({"problem_id":item["problem_id"],"language":item["language"],"code":spec.get("starter",{}).get(item["language"],"")});data["application_id"]=application_id;

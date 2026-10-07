@@ -19,6 +19,7 @@ import from agents.experience { REVIEWED, ATTENTION, ACTIVE, review_payload, rev
 import from agents.google { authorization_url, exchange, refreshed, SCOPES }
 import from agents.tracing { capture_enabled, trace_data }
 import from agents.browser_control { BROWSER_ERROR_MESSAGE, sanitize_browser_diagnostic }
+import agents.interview as interview;
 import from jaclang.server.identity.app_tokens { token_create, token_peek, token_consume }
 
 node AgentMemory { has facts: list[dict[str, any]] = [], policy: dict[str, any] = {}, revision: int = 0, admitted: bool = False, deleted: bool = False; }
@@ -317,6 +318,7 @@ def:pub agent_claim(token: str) -> dict[str, any] {
                 }
                 if step=="linkedin_scan" { authorize(m.policy,"model");model_access(c,t.owner); }
                 if step in PAID {
+                    if step in interview.STEPS { interview.local_qwen(c); }
                     authorize(m.policy,"model");model_access(c,t.owner);
                     if c["provider"] in CLI_PROVIDERS {
                         commit();day=time.strftime("%Y-%m-%d",time.gmtime());
@@ -451,6 +453,13 @@ def _agent_complete(token: str, id: str, owner: str, lease: str, result: dict[st
                     r.artifacts["tailor"]={**r.artifacts.get("tailor",{}),**artifact.get("tailor",{})};
                     artifact={k:v for (k,v) in artifact.items() if k!="tailor"};
                 }
+                if step in interview.STEPS {
+                    sessions=[p for p in [root -->][?:PrepSession] if jid(p)==r.target_id and p.data.get("mode")=="interview"];
+                    try {
+                        if not sessions { raise ValueError("Interview session not found."); }
+                        p=sessions[0];p.data=interview.apply(p.data,p.revision,step,artifact,r.context);p.updated_at=time.time();
+                    } except ValueError as exc { r.status="needs_input";r.message=str(exc);commit();return _run_view(r,True); }
+                }
                 r.artifacts[step]=artifact;
                 for a in intents { a.status="confirmed";a.receipt=artifact; }
                 r.index+=1;r.attempts=0;r.status="completed" if r.index>=len(_steps(r)) else "queued";r.message="Completed" if r.status=="completed" else "Ready for next step";
@@ -576,7 +585,11 @@ def:priv agent_stop_contact(id: str) -> dict[str, any] {
     return {"error":"Contact not found."};
 }
 def:priv prep_catalog() -> dict[str, any] { _agent_access();return {"problems":catalog()}; }
-def:priv prep_sessions() -> dict[str, any] { _agent_access();return {"sessions":[{"id":jid(p),"data":p.data,"revision":p.revision,"updated_at":p.updated_at} for p in [root --> [?:PrepSession, -updated_at]][:50]]}; }
+def:priv prep_sessions() -> dict[str, any] {
+    _agent_access();
+    sessions=[p for p in [root --> [?:PrepSession, -updated_at]] if p.data.get("mode")!="interview"];
+    return {"sessions":[{"id":jid(p),"data":p.data,"revision":p.revision,"updated_at":p.updated_at} for p in sessions[:50]]};
+}
 def:priv prep_create(problem_id: str, language: str = "", application_id: str = "") -> dict[str, any] {
     _agent_access();
     try { spec=problem(problem_id);data=validate_session({"problem_id":problem_id,"language":language,"code":spec.get("starter",{}).get(language,"")}); }
@@ -596,6 +609,7 @@ def:priv prep_save(id: str, revision: int, data: dict[str, any]) -> dict[str, an
         _agent_fresh();
         for p in [root -->][?:PrepSession] {
             if jid(p)==id {
+                if p.data.get("mode")=="interview" { return {"error":"Use interview controls to preserve the conversation."}; }
                 if p.revision!=revision { return {"error":"This session changed on another device. Reload before saving."}; }
                 validated["application_id"]=p.data.get("application_id","");p.data=validated;p.revision+=1;p.updated_at=time.time();commit();return prep_get(id);
             }
@@ -843,7 +857,9 @@ def:priv prep_live(id: str) -> dict[str, any] {
         _agent_fresh();owner=jid(root);m=_agent_memory();
         sessions=[p for p in [root -->][?:PrepSession] if jid(p)==id];
         if not sessions { return {"error":"Practice session not found."}; }
-        p=sessions[0];context={"session":p.data,"problem":problem(str(p.data["problem_id"])),"results":p.results[-3:]};
+        p=sessions[0];
+        if p.data.get("mode")=="interview" { return {"error":"This interview uses local recording and Qwen analysis. Live voice is not enabled."}; }
+        context={"session":p.data,"problem":problem(str(p.data["problem_id"])),"results":p.results[-3:]};
         for old in [root -->][?:AgentRun] {
             if old.kind=="live" and old.target_id==id and old.status in ["waiting","running"] {
                 if old.lease_until>time.time() { return {"error":"A live interview is already open. End or cancel it first."}; }

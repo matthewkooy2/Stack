@@ -35,6 +35,16 @@ jobs:
         run: jac check agents/local_model.jac agents/contracts.jac agents/provider.jac agents/worker.jac core/automation.jac scripts/agent-admin.jac
       - name: Exercise local transports and account workflows
         run: jac run --no-serve tests/test_local_models.py
+      - name: Exercise job-specific reviewed interview workflow
+        run: |
+          python tests/test_interview_contract.py
+          jac run --no-serve tests/test_interview.py
+      - name: Exercise interview React recovery and transcript handoff
+        env:
+          MAT5_REACT_MODULES: ${{ runner.temp }}/mat5-react
+        run: |
+          npm install --prefix "$MAT5_REACT_MODULES" --ignore-scripts --no-audit --no-fund react@19.2.3 react-test-renderer@19.2.3
+          node tests/interview-ui.cjs
       - name: Preserve existing provider behavior and response logs
         run: |
           jac run --no-serve tests/test_agent_providers.py

@@ -26,7 +26,7 @@ lease = session.RuntimeLease(runtime=runtime, reset=False)
 
 root = Path(__file__).resolve().parent
 with patch.object(session, 'runtime_for_base', return_value=lease):
-    client = JacTestClient.from_file(str(root / 'fixtures/push_legacy/main.jac'), base_path=sys.argv[1])
+    client = JacTestClient.from_file(str(root / 'main.jac'), base_path=sys.argv[1])
     try:
         response = client.register_user('push-legacy', 'Synthetic-password-123')
         assert response.ok, response.text

@@ -1,6 +1,7 @@
 """Real worker/API/storage with a controlled HTTP Expo transport; no outbound pushes."""
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -227,9 +228,19 @@ class PushNotifications(unittest.TestCase):
             'STACK_TEST_PUSH_PARENT_PID': str(os.getpid())}
         self.client.close()
         manifest = Path(self.directory.name) / 'legacy-manifest.json'
+        # A standalone source root preserves the deployed type's module name.
+        # Compiling a fixture nested inside this project prefixes its namespace.
+        legacy_source = Path(self.directory.name) / 'legacy-source'
+        (legacy_source / 'core').mkdir(parents=True)
+        for source, destination in (
+            (ROOT / 'tests/fixtures/push_legacy/main.jac', legacy_source / 'main.jac'),
+            (ROOT / 'tests/fixtures/push_legacy/core/automation.jac', legacy_source / 'core/automation.jac'),
+            (ROOT / 'tests/seed_legacy_push.py', legacy_source / 'seed.py'),
+        ): shutil.copyfile(source, destination)
+        (legacy_source / 'jac.toml').write_text('[project]\nname = "legacy-push-fixture"\nversion = "0.0.0"\njac-version = "==0.37.21"\n')
         executable = os.environ.get('STACK_TEST_JAC_BIN', 'jac')
-        seeded = subprocess.run([executable, 'run', '--no-serve', str(ROOT / 'tests/seed_legacy_push.py'),
-            self.directory.name, str(manifest)], cwd=ROOT, env=seed_env,
+        seeded = subprocess.run([executable, 'run', '--no-serve', str(legacy_source / 'seed.py'),
+            self.directory.name, str(manifest)], cwd=legacy_source, env=seed_env,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=120)
         self.assertEqual(seeded.returncode, 0, seeded.stdout[-5000:])
         legacy = json.loads(manifest.read_text())

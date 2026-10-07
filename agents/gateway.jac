@@ -8,6 +8,7 @@ import os;
 import from pathlib { Path }
 import threading;
 import time;
+import from agents.release_readiness { REVISION }
 import from agents.browser_stream { relay }
 import from agents.transcription_readiness { public_status }
 import urllib.error;
@@ -78,6 +79,15 @@ class Handler(SimpleHTTPRequestHandler) {
     }
     def do_GET(self: Handler) -> any {
         path = urlsplit(self.path).path;
+        if path == '/release-health' {
+            (status, raw) = upstream('/function/health', b'{}');
+            value=json.loads(raw);
+            healthy=status==200 and value.get('data',{}).get('result',{}).get('status')=='ok';
+            raw=json.dumps({'commit':REVISION,'ready':healthy}).encode();
+            self.send_response(200);self.send_header('Content-Type','application/json');
+            self.send_header('Content-Length',str(len(raw)));self.end_headers();
+            self.wfile.write(raw);return;
+        }
         if (
             (path not in ('/', '/index.html', '/oauth/google'))
             and not (

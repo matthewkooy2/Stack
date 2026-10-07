@@ -1,3 +1,10 @@
+# Health and rollback protocol prepared for review
+
+[MAT-30 health and compatible rollback](DEPLOYMENT_HEALTH_ROLLBACK.md) supersedes
+the historical restart-only behavior below. The workflow additionally requires
+`STACK_RELEASE_HEALTH_PROTOCOL=1` after an authorized attended helper/baseline
+bootstrap. This source change does not update the host or enable that variable.
+
 # Release format 3 migration required
 
 Automatic deployments are paused unless the repository variable

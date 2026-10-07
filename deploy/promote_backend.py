@@ -12,9 +12,13 @@ from pathlib import Path
 import pwd
 import shutil
 import stat
+import shlex
 import subprocess
 import sys
 from backend_release import MAX_BYTES, canonical, digest, validate
+from backend_release import contract
+from release_safety import Held, compatibility, transaction, wait_ready
+from release_probe import Probe
 import browser_release
 
 LIVE = Path("/opt/stack")
@@ -22,9 +26,10 @@ STATE = Path("/var/lib/stack-release")
 SERVICES = ("stack-gateway.service", "stack-worker.service", "stack-api.service")
 
 
-def run(args, cwd=None):
+def run(args, cwd=None, timeout=None):
     # Do not send dependency/service logs containing private host values to CI.
-    result = subprocess.run(args, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
+    timeout = timeout or (180 if 'build' in args else 30)
+    result = subprocess.run(args, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
     if result.returncode:
         raise RuntimeError("Host command failed: " + Path(args[0]).name)
     return result.stdout
@@ -60,7 +65,8 @@ def write_atomic(path, data, group):
         parent.mkdir(mode=0o750)
         os.chown(parent, 0, group)
         parent.chmod(0o750)
-    temp = path.with_name(path.name + ".release-new")
+    import secrets
+    temp = path.with_name(path.name + ".release-" + secrets.token_hex(8))
     fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o640)
     with os.fdopen(fd, "wb") as stream:
         stream.write(data)
@@ -71,6 +77,32 @@ def write_atomic(path, data, group):
         # explicitly so stack can read source installed for its group.
         os.fchmod(stream.fileno(), 0o640)
     os.replace(temp, path)
+
+
+def secret_env(path):
+    values = {}
+    for line in root_file(path).decode().splitlines():
+        if not line or line.startswith('#'):
+            continue
+        key, value = line.split('=', 1)
+        parts = shlex.split(value)
+        assert len(parts) <= 1, 'Unsupported environment format'
+        values[key] = parts[0] if parts else ''
+    return values
+
+
+def service_stop(services):
+    # Confirmation matters: stop-command success alone is insufficient.
+    for service in services:
+        run(['systemctl', 'stop', service])
+    for service in services:
+        state = run(['systemctl', 'show', '--property=ActiveState', '--value', service]).decode().strip()
+        assert state in ('inactive', 'failed'), 'Writers are not quiescent'
+
+
+def service_start(services):
+    for service in reversed(services):
+        run(['systemctl', 'start', service])
 
 
 def main():
@@ -106,6 +138,32 @@ def main():
         assert source_state(policy) == policy, "Intervening local source changes require review"
         assert set(policy) <= set(backend), "Source deletion requires review"
         assert not any(target(name).exists() for name in set(backend) - set(policy)), "New source paths already exist locally; review required"
+        # Fail closed until an attended bootstrap establishes a healthy prior
+        # supporting the release-smoke protocol. Old restart-only receipts do not.
+        prior = json.loads(root_file(STATE / 'last-release.json'))
+        assert prior.get('status') == 'healthy' and prior.get('probe_protocol') == 1, 'Healthy baseline bootstrap required'
+        identity = root_file(LIVE / '.release-identity.json')
+        assert json.loads(identity)['commit'] == prior['commit'], 'Baseline identity mismatch'
+        if (STATE / 'transaction.json').exists():
+            previous = json.loads(root_file(STATE / 'transaction.json'))
+            assert (previous['status'] == 'healthy' or
+                    previous['status'] == 'failed' and previous.get('recovery') == 'healthy'), 'Unresolved transaction requires operator recovery'
+        approval = json.loads(root_file(Path('/etc/stack-release/compatibility.json')))
+        compatibility(approval, prior['commit'], manifest['commit'], sha, manifest['runtime_contract'])
+        assert contract(target('jac.toml').read_bytes()) == manifest['runtime_contract'], 'Runtime change requires attended review'
+        # Trusted operator review binds the exact pair and data/schema behavior;
+        # runtime/config snapshots are hashes only, never CI diagnostic output.
+        protected = approval.get('protected_files', {})
+        required = {'/etc/stack/api.env', '/etc/stack/worker.env',
+                    '/etc/systemd/system/stack-api.service', '/etc/systemd/system/stack-worker.service',
+                    '/etc/systemd/system/stack-gateway.service', '/opt/stack/scripts/jac', '/usr/local/bin/jac'}
+        assert required <= set(protected), 'Runtime/config inventory required'
+        assert all(digest(root_file(Path(p))) == h for p, h in protected.items()), 'Runtime/config changed since compatibility review'
+        worker_env = secret_env(Path('/etc/stack/worker.env'))
+        worker_token = worker_env.get('STACK_AGENT_WORKER_TOKEN', '')
+        assert worker_token, 'Explicit worker credential required for readiness'
+        browser_token = secret_env(Path('/etc/stack/browser.env')).get('STACK_BROWSER_TOKEN', '') if browser else ''
+        assert not browser or browser_token, 'Browser readiness credential required'
         stack = pwd.getpwnam("stack")
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         backup = Path("/var/backups/stack") / ("source-release-" + stamp)
@@ -115,6 +173,21 @@ def main():
         stage.mkdir(mode=0o750)
         os.chown(stage, stack.pw_uid, stack.pw_gid)
         browser_plan = browser_release.prepare(browser, payload, stage, manifest["commit"], run, root_file) if browser else None
+        if browser_plan:
+            for name, value in browser_plan['state']['protected'].items():
+                assert name not in protected or protected[name] == value, 'Conflicting protected runtime inventory'
+                protected[name] = value
+        def browser_check(timeout):
+            expected = json.loads(root_file(browser_release.BROWSER_STATE))
+            actual = json.loads(run(['/usr/bin/docker', 'container', 'inspect', 'stack-browser-pc'], timeout=timeout))[0]
+            assert actual['Image'] == expected['image'], 'Serving browser image mismatch'
+            assert browser_release.isolation(actual) == expected['isolation'], 'Browser isolation changed'
+        probe = Probe(LIVE, worker_token, browser_token, browser_check if browser else None)
+        # Known-good is proven BEFORE stopping any services or touching source.
+        try:
+            wait_ready(probe, prior['commit'])
+        finally:
+            probe.close()
         for name in backend:
             path = target(name)
             if path.exists():
@@ -122,37 +195,67 @@ def main():
                 copy.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(path, copy)
         (backup / "source-state.json").write_bytes(canonical(policy))
-        # No readiness/test gates or automatic rollback: command failures surface.
-        # A private source backup remains available for an attended correction.
-        for service in SERVICES:
-            run(["systemctl", "stop", service])
-        if browser_plan and browser_plan["changed"]:
-            run(["systemctl", "stop", "stack-browser.service"])
-        for name, value in backend.items():
-            write_atomic(target(name), value, stack.pw_gid)
-        run(["runuser", "-u", "stack", "--", "env", "STACK_JAC_BIN=/usr/local/bin/jac",
-             "/opt/stack/scripts/jac", "install", "--no-npm"], cwd=LIVE)
-        write_atomic(policy_path, canonical(manifest["files"]), 0)
-        policy_path.chmod(0o600)
+        (backup / '.release-identity.json').write_bytes(identity)
+        (backup / 'last-release.json').write_bytes(canonical(prior))
         if browser_plan:
-            browser_release.promote(browser_plan, backup, write_atomic)
-            if browser_plan["changed"]:
-                run(["systemctl", "start", "stack-browser.service"])
-        for service in reversed(SERVICES):
-            run(["systemctl", "start", service])
-        result = {"status": "restart_commands_completed", "commit": manifest["commit"], "sha256": sha,
-                  "source_backup": str(backup), "health_checks_run": False}
-        if browser_plan:
-            result.update(browser_image=browser_plan["image"], browser_rebuilt=browser_plan["changed"],
-                          browser_source=browser["fingerprint"])
-        write_atomic(STATE / "last-release.json", canonical(result), 0)
-        (STATE / "last-release.json").chmod(0o600)
+            (backup / 'browser-state.json').write_bytes(root_file(browser_release.BROWSER_STATE))
+            (backup / 'browser-image-id').write_bytes(root_file(browser_release.IMAGE_PATH))
+        services = SERVICES + (('stack-browser.service',) if browser else ())
+        def install():
+            for name, value in backend.items():
+                write_atomic(target(name), value, stack.pw_gid)
+            write_atomic(target('.release-identity.json'), canonical({'commit': manifest['commit']}), stack.pw_gid)
+            # Do not mutate dependencies or persistent caches/data on this path.
+            # Runtime contract changes stop above, before promotion.
+            if browser_plan:
+                browser_release.promote(browser_plan, backup, write_atomic)
+        def restore():
+            for name in backend:
+                if name in policy:
+                    write_atomic(target(name), (backup / 'source' / name).read_bytes(), stack.pw_gid)
+                else:
+                    target(name).unlink(missing_ok=True)
+            write_atomic(target('.release-identity.json'), identity, stack.pw_gid)
+            write_atomic(policy_path, canonical(policy), 0)
+            write_atomic(STATE / 'last-release.json', canonical(prior), 0)
+            (STATE / 'last-release.json').chmod(0o600)
+            if browser_plan:
+                for path, name in ((browser_release.BROWSER_STATE, 'browser-state.json'),
+                                   (browser_release.IMAGE_PATH, 'browser-image-id')):
+                    write_atomic(path, (backup / name).read_bytes(), 0)
+                    path.chmod(0o600)
+            assert source_state(policy) == policy, 'Recovery source verification failed'
+            assert all(digest(root_file(Path(p))) == h for p, h in protected.items()), 'Recovery runtime/config verification failed'
+        def persist(receipt):
+            receipt.update(sha256=sha, backup_id=backup.name, probe_protocol=1)
+            write_atomic(STATE / 'transaction.json', canonical(receipt), 0)
+            (STATE / 'transaction.json').chmod(0o600)
+        def finalize():
+            assert source_state(manifest['files']) == manifest['files'], 'Candidate source verification failed'
+            assert all(digest(root_file(Path(p))) == h for p, h in protected.items()), 'Runtime/config changed during deployment'
+            write_atomic(policy_path, canonical(manifest['files']), 0)
+            policy_path.chmod(0o600)
+            write_atomic(STATE / 'last-release.json', canonical({'status': 'healthy',
+                'commit': manifest['commit'], 'sha256': sha, 'probe_protocol': 1}), 0)
+            (STATE / 'last-release.json').chmod(0o600)
+        # A new Probe ensures the prior preflight reply cannot satisfy promotion.
+        probe = Probe(LIVE, worker_token, browser_token, browser_check if browser else None)
+        try:
+            result = transaction(prior['commit'], manifest['commit'],
+                stop=lambda: service_stop(services), install=install,
+                start=lambda: service_start(services), check=probe, restore=restore,
+                persist=persist, finalize=finalize)
+        finally:
+            probe.close()
         print(json.dumps(result))
+        if result['status'] != 'healthy':
+            sys.exit(1)
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception as error:
-        print(json.dumps({"status": "failed", "error": str(error) if isinstance(error, (AssertionError, RuntimeError)) else type(error).__name__}))
+        print(json.dumps({"status": "rejected", "stage": "preflight_or_receipt", "error": type(error).__name__,
+                          "action": "Review private host state and compatibility approval; do not retry unresolved transactions."}))
         sys.exit(1)

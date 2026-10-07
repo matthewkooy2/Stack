@@ -1,0 +1,27 @@
+name: Stack iOS toolchain
+description: Install the pinned Node, Python, Jac compiler, and CocoaPods for native iOS builds.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      with:
+        node-version: '22.22.0'
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      with:
+        python-version: '3.14'
+    - name: Install the checksum-pinned Jac compiler
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p .jac/tools/bin
+        curl --fail --location --retry 3 https://github.com/jaseci-labs/jac/releases/download/v0.37.21/jac-0.37.21-macos-aarch64 --output .jac/tools/bin/jac
+        echo 'f828966109cd023748a8e484c2a66795325dee3c646f7416235da86ef561cf72  .jac/tools/bin/jac' | shasum -a 256 --check
+        chmod +x .jac/tools/bin/jac
+    - name: Install locked CocoaPods
+      shell: bash
+      run: |
+        set -euo pipefail
+        export GEM_HOME="$GITHUB_WORKSPACE/.jac/gems"
+        gem install cocoapods --version 1.17.0 --no-document
+        echo "GEM_HOME=$GEM_HOME" >> "$GITHUB_ENV"
+        echo "$GEM_HOME/bin" >> "$GITHUB_PATH"

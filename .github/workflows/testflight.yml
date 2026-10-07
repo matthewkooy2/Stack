@@ -1,0 +1,194 @@
+name: Stack TestFlight deployment
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - 'native/**'
+      - 'core/**'
+      - 'jac.toml'
+      - 'scripts/jac'
+      - 'scripts/compile-mobile.jac'
+      - 'scripts/setup*'
+      - 'scripts/ci/ios-testflight.sh'
+      - 'scripts/ci/asc-preflight.cjs'
+      - 'tests/release-config.cjs'
+      - 'tests/test_ios_testflight.py'
+      - 'tests/asc-preflight.cjs'
+      - '.github/actions/ios-toolchain/**'
+      - '.github/workflows/testflight.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - 'native/**'
+      - 'core/**'
+      - 'jac.toml'
+      - 'scripts/jac'
+      - 'scripts/compile-mobile.jac'
+      - 'scripts/setup*'
+      - 'scripts/ci/ios-testflight.sh'
+      - 'scripts/ci/asc-preflight.cjs'
+      - '.github/actions/ios-toolchain/**'
+      - '.github/workflows/testflight.yml'
+  workflow_dispatch:
+    inputs:
+      preflight_only:
+        description: Check configuration and App Store Connect without uploading
+        type: boolean
+        default: true
+permissions:
+  contents: read
+jobs:
+  preflight:
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.STACK_TESTFLIGHT_ENABLED == 'true')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: stack-testflight
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.22.0'
+      - name: Check secrets and App Store Connect version
+        env:
+          STACK_API_URL: ${{ secrets.STACK_API_URL }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: node scripts/ci/asc-preflight.cjs
+  # Pull requests get no signing secrets; prove the release archive builds unsigned.
+  validate:
+    if: github.event_name == 'pull_request'
+    runs-on: xcode-27
+    timeout-minutes: 60
+    concurrency:
+      group: stack-testflight-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      STACK_TESTFLIGHT_MODE: validate
+      STACK_API_URL: https://stack.example.com
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/ios-toolchain
+      - name: Verify release configuration and upload script
+        run: |
+          set -euo pipefail
+          node tests/release-config.cjs
+          python3 tests/test_ios_testflight.py
+          node --test tests/asc-preflight.cjs
+      - name: Archive the unsigned release build
+        run: bash scripts/ci/ios-testflight.sh
+      - name: Retain diagnostics if validation fails
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: testflight-validation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .jac/ci-ios/*.log
+          if-no-files-found: ignore
+          retention-days: 3
+  build-and-upload:
+    # Uploads stay off until STACK_TESTFLIGHT_ENABLED is true, after the App
+    # Store Connect version record matches the app's marketing version.
+    needs: preflight
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.STACK_TESTFLIGHT_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || !inputs.preflight_only)
+    runs-on: xcode-27
+    timeout-minutes: 60
+    environment: stack-testflight
+    concurrency:
+      group: stack-testflight-main
+      cancel-in-progress: false
+    env:
+      CI: '1'
+      EXPO_NO_TELEMETRY: '1'
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      # Secrets are masked even in the runner's pre-step environment listing.
+      STACK_API_URL: ${{ secrets.STACK_API_URL }}
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+    steps:
+      - name: Check deployment configuration
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          # Also mask the bare and short hostnames that build tools may print.
+          # Escape workflow-command delimiters before registering any value.
+          host="${STACK_API_URL#*://}"
+          host="${host%%[:/]*}"
+          for value in "$host" "${host%%.*}"; do
+            [ -n "$value" ] || continue
+            value="${value//%/%25}"
+            value="${value//$'\r'/%0D}"
+            value="${value//$'\n'/%0A}"
+            printf '::add-mask::%s\n' "$value"
+          done
+          test -n "$STACK_API_URL" || { echo 'Add the STACK_API_URL secret (public HTTPS API origin) to the stack-testflight environment.' >&2; exit 1; }
+          test -n "$APPLE_TEAM_ID" || { echo 'Add the APPLE_TEAM_ID Actions variable from Apple Developer membership.' >&2; exit 1; }
+          test -n "$ASC_KEY_ID" || { echo 'Add the ASC_KEY_ID Actions secret.' >&2; exit 1; }
+          test -n "$ASC_ISSUER_ID" || { echo 'Add the ASC_ISSUER_ID Actions secret.' >&2; exit 1; }
+          test -n "$ASC_PRIVATE_KEY" || { echo 'Add the ASC_PRIVATE_KEY Actions secret.' >&2; exit 1; }
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/ios-toolchain
+      - name: Prepare App Store Connect API key
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          key_dir="$HOME/.appstoreconnect/private_keys"
+          key_path="$key_dir/AuthKey_${ASC_KEY_ID}.p8"
+          umask 077
+          mkdir -p "$key_dir"
+          printf '%s' "$ASC_PRIVATE_KEY" > "$key_path"
+          echo "ASC_AUTH_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+      - name: Build, sign, and upload to TestFlight
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: bash scripts/ci/ios-testflight.sh
+      - name: Remove App Store Connect API key file
+        if: always()
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+        run: rm -f "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"
+      # Log masking does not apply to artifact files, and this repository is public.
+      - name: Redact deployment host from diagnostics
+        id: redact
+        if: failure()
+        run: |
+          python3 - "$STACK_API_URL" .jac/ci-ios/*.log <<'PY'
+          import sys
+          from pathlib import Path
+          from urllib.parse import urlsplit
+          api = sys.argv[1]
+          host = urlsplit(api).hostname or ''
+          values = sorted({v for v in (api, api.rstrip('/'), host, host.split('.')[0]) if v}, key=len, reverse=True)
+          for name in sys.argv[2:]:
+              path = Path(name)
+              if not path.is_file():
+                  continue
+              text = path.read_text(errors='replace')
+              for value in values:
+                  text = text.replace(value, '[redacted]')
+              path.write_text(text)
+          PY
+      - name: Retain diagnostics if deployment fails
+        if: failure() && steps.redact.outcome == 'success'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: testflight-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .jac/ci-ios/*.log
+          if-no-files-found: ignore
+          retention-days: 3

@@ -43,7 +43,7 @@ def main():
             steps=[]
             for index,filename in enumerate(args.audio):
                 raw=Path(filename).read_bytes();journey.client.set_auth_token(journey.tokens[0])
-                recording=journey.rpc('transcription_upload',{'client_id':'speech-'+str(index),'content':base64.b64encode(raw).decode()})
+                recording=journey.rpc('transcription_upload',{'client_id':'mat5-real-speech-'+str(index),'content':base64.b64encode(raw).decode()})
                 journey.client.clear_auth();began=time.monotonic()
                 with patch.object(transcription,'call',side_effect=journey.rpc):
                     assert transcription.run_once(TOKEN),'Transcription worker did not claim fixture.'

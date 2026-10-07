@@ -460,6 +460,10 @@ def _agent_complete(token: str, id: str, owner: str, lease: str, result: dict[st
                         p=sessions[0];p.data=interview.apply(p.data,p.revision,step,artifact,r.context);p.updated_at=time.time();
                     } except ValueError as exc { r.status="needs_input";r.message=str(exc);commit();return _run_view(r,True); }
                 }
+                if step=="coach" {
+                    sessions=[p for p in [root -->][?:PrepSession] if jid(p)==r.target_id];
+                    if not sessions or sessions[0].revision!=r.context.get("session_revision",0) { r.status="needs_input";r.message="Practice changed while coaching was running. Request coaching again for your saved answer.";commit();return _run_view(r,True); }
+                }
                 r.artifacts[step]=artifact;
                 for a in intents { a.status="confirmed";a.receipt=artifact; }
                 r.index+=1;r.attempts=0;r.status="completed" if r.index>=len(_steps(r)) else "queued";r.message="Completed" if r.status=="completed" else "Ready for next step";

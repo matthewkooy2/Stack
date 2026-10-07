@@ -155,7 +155,21 @@ class LocalModels(unittest.TestCase):
         for score in (-1,5,True,2.5,float('nan'),float('inf')):
             artifact=copy.deepcopy(COACH);artifact['rubric'][0]['score']=score
             with self.subTest(score=score),service('lmstudio',artifact) as (url,_):
-                with self.assertRaises(ValueError): provider.generate('coach',{'session':{'answer':ANSWER}},self.configure('lmstudio',url))
+                self.assertEqual(provider.generate('coach',{'session':{'answer':ANSWER}},self.configure('lmstudio',url))['artifact']['text'],json.dumps(artifact))
+    def test_arbitrary_plain_coaching_and_length_finish_on_both_local_transports(self):
+        for name in ('lmstudio','ollama'):
+            for text in ('Plain prose.', '{broken JSON', '<script>alert(1)</script>', 'unsupported claims', 'Partial:'):
+                value=envelope(name)
+                message=value['message'] if name=='ollama' else value['choices'][0]['message']
+                message['content']=text
+                if name=='ollama': value.update(done_reason='length')
+                else: value['choices'][0]['finish_reason']='length'
+                value.pop('model',None)
+                with service(name,raw=json.dumps(value).encode()) as (url,requests):
+                    result=provider.generate('coach',{'session':{'answer':ANSWER}},self.configure(name,url))
+                    self.assertEqual(result['artifact']['text'],text)
+                    self.assertNotIn('format',requests[0][1]);self.assertNotIn('response_format',requests[0][1])
+
     def test_worker_pauses_local_errors_and_configuration_changes(self):
         for name in ('ollama','lmstudio'):
             with service(name,raw=b'{invalid') as (url,_):
@@ -212,7 +226,7 @@ class LocalModels(unittest.TestCase):
                         def observe(event,data): return rpc('agent_trace',{'token':'local-worker-token',**{k:claim[k] for k in ('id','owner','lease')},'event':event,'data':data})
                         with patch.object(worker,'call',side_effect=api),patch.object(provider,'http') as paid:
                             result=worker.dispatch(claim,'local-worker-token',observe=observe);paid.assert_not_called()
-                        self.assertEqual(result['artifact'],COACH)
+                        self.assertEqual(result['artifact']['text'],json.dumps(COACH))
                         rpc('agent_finish',{'token':'local-worker-token',**{k:claim[k] for k in ('id','owner','lease')},'result':result})
                         client.set_auth_token(auth)
                         done=rpc('agent_run',{'id':run['id']});self.assertEqual(done['status'],'completed')
@@ -249,7 +263,7 @@ class LocalModels(unittest.TestCase):
                     for rid in paused: self.assertEqual(rpc('agent_run',{'id':rid})['status'],'needs_input')
                     for auth,sid,rid in runs:
                         client.set_auth_token(auth)
-                        saved=rpc('prep_get',{'id':sid});self.assertEqual(saved['feedback'][0]['data'],COACH)
+                        saved=rpc('prep_get',{'id':sid});self.assertEqual(saved['feedback'][0]['data']['text'],json.dumps(COACH))
                         self.assertIn('raw_response',rpc('agent_model_logs',{'id':rid})['attempts'][0])
                         self.assertTrue(rpc('agent_traces',{'id':rid})['events'])
                     client.set_auth_token(other_token)

@@ -146,7 +146,7 @@ async function runInterview(){
     }else if(name==='interview_continue'){
       if(args.action==='followup')session.data.questions.splice(session.data.turns.length,0,{question:'How did you verify your result?'});
       if(args.action==='finish')session.data.status='finished';
-      if(args.action==='analyze'&&session.data.status==='finished')session.data.coaching={summary:'Scores are model judgments.',strengths:[{criterion:'Verification',source:'answer:1',quote:session.data.turns[0].answer}],rubric:Object.fromEntries(['Specificity','Ownership','Verification','Reflection'].map(k=>[k,{score:3,feedback}])),next_exercises:['Describe a verification step.'],followup_questions:['How did you verify?','What did you learn?'],evidence:session.data.turns.map((t,i)=>({source:'answer:'+(i+1),quote:t.answer}))};
+      if(args.action==='analyze'&&session.data.status==='finished')session.data.coaching={text:'<img src=x onerror=alert(1)> Plain prose {broken JSON. Partial coaching:',summary:'<img src=x onerror=alert(1)> Plain prose {broken JSON. Partial coaching:'};
       session.revision++;
     }else if(name==='interview_correct'){
       session.data.turns[args.index].answer=args.answer;session.data.analysis={};session.data.coaching={};session.revision++;
@@ -179,7 +179,7 @@ async function runInterview(){
     assert.equal(answerField().props.editable,false,'Pending saved-session load freezes answer input');assert.equal(button('Start job interview').props.disabled,true,'Pending saved-session load freezes actions');
     await act(async()=>{releaseOpen();holdingInterviewGet=null;await opening;await flush();});assert.equal(answerField().props.value,'');assert.match(JSON.stringify(ui.toJSON()),/A different role question/);
     await press('SQL Tools Engineer · 2 answers · active');
-    await press('Finish interview');await press('Get final coaching');const rendered=JSON.stringify(ui.toJSON());for(const criterion of ['Specificity','Ownership','Verification','Reflection'])assert(rendered.includes(criterion+' 3/4:'));assert(rendered.includes('Model-selected strength: Verification'));assert(rendered.includes('answer:1: Reviewed spoken correction.'));
+    session.data.analysis['2']={text:'Successful plain answer coaching.'};await press('Finish interview');await press('Get final coaching');const rendered=JSON.stringify(ui.toJSON());assert(rendered.includes('<img src=x onerror=alert(1)> Plain prose {broken JSON. Partial coaching:'));
     await unmount();await act(async()=>{ui=renderer.create(React.createElement(Interview,{owner:'owner-a'}));await flush();});await press('SQL Tools Engineer · 2 answers · finished');assert.match(JSON.stringify(ui.toJSON()),/Final coaching/);assert.match(JSON.stringify(ui.toJSON()),/Original spoken answer/);
     console.log('PASS native interview: compiled recorder handoff/review/draft preservation, recording ID/original, connection retry identity, two answers/correction/four scores/feedback/reopen. OS and API/model replies are controlled fixtures.');
   }finally{fakeDevice.rpc=oldRpc;await unmount();}

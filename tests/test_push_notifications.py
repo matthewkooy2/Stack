@@ -219,13 +219,12 @@ class PushNotifications(unittest.TestCase):
         # New-class defaults or hand-built current nodes would not verify schema upgrades.
         from jaclang.runtime.runtime import JacRuntime
         connection = JacRuntime.get_context().mem.store.conninfo
-        # Scratch databases are per process, not per base_path. Hand the seed
-        # subprocess only this process's generated local scratch connection.
+        # Scratch databases are per process, not per base_path. The seed opens
+        # only this process's generated local database through Jac's PgRuntime.
         self.assertRegex(connection.database, r'^jac_scratch_' + str(os.getpid()) + r'_[0-9a-f]+$')
         self.assertIn(connection.host, ('', 'localhost', '127.0.0.1'))
-        seed_env = {**os.environ, 'JAC_DB_URL': connection.dsn(),
+        seed_env = {**os.environ, 'STACK_TEST_PUSH_DATABASE': connection.database,
             'STACK_TEST_PUSH_PARENT_PID': str(os.getpid())}
-        seed_env.pop('JAC_DB_SCRATCH', None)
         self.client.close()
         manifest = Path(self.directory.name) / 'legacy-manifest.json'
         executable = os.environ.get('STACK_TEST_JAC_BIN', 'jac')

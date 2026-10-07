@@ -4,7 +4,7 @@ import shutil;
 import subprocess;
 import jaclang.client;
 import from jaclang.client.targets.mobile_target { MobileTarget }
-import from jaclang.client.targets.react_native.build { stage_compiled_entry, write_native_entry }
+import from jaclang.client.targets.react_native.build { stage_compiled_entry, stage_native_image_assets, write_native_entry }
 with entry {
     project = Path.cwd();
     subprocess.run(["node", "native/build-config.js", "--check", ".jac/mobile-rn"], check=True);
@@ -17,6 +17,8 @@ with entry {
         (compiled / (name + ".js")).write_text(artifact.js);
     }
     stage_compiled_entry(compiled, output, "mobile/main");
+    # jac-app.js imports the registry this writes; Jac's own mobile build stages both.
+    stage_native_image_assets(output / "jac-src", output);
     shutil.copyfile(project / "native/device.js", output / "jac-src/mobile/device.js");
     shutil.copyfile(project / "native/browser-viewer.js", output / "jac-src/mobile/browser-viewer.js");
     shutil.copyfile(project / "native/audio-recording.js", output / "jac-src/mobile/audio-recording.js");

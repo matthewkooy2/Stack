@@ -217,11 +217,20 @@ class PushNotifications(unittest.TestCase):
     def test_persisted_old_schema_migrates_without_replaying_or_retiring_unmapped_devices(self):
         # A separate process writes real nodes with only the four legacy fields.
         # New-class defaults or hand-built current nodes would not verify schema upgrades.
+        from jaclang.runtime.runtime import JacRuntime
+        connection = JacRuntime.get_context().mem.store.conninfo
+        # Scratch databases are per process, not per base_path. Hand the seed
+        # subprocess only this process's generated local scratch connection.
+        self.assertRegex(connection.database, r'^jac_scratch_' + str(os.getpid()) + r'_[0-9a-f]+$')
+        self.assertIn(connection.host, ('', 'localhost', '127.0.0.1'))
+        seed_env = {**os.environ, 'JAC_DB_URL': connection.dsn(),
+            'STACK_TEST_PUSH_PARENT_PID': str(os.getpid())}
+        seed_env.pop('JAC_DB_SCRATCH', None)
         self.client.close()
         manifest = Path(self.directory.name) / 'legacy-manifest.json'
         executable = os.environ.get('STACK_TEST_JAC_BIN', 'jac')
         seeded = subprocess.run([executable, 'run', '--no-serve', str(ROOT / 'tests/seed_legacy_push.py'),
-            self.directory.name, str(manifest)], cwd=ROOT, env=os.environ.copy(),
+            self.directory.name, str(manifest)], cwd=ROOT, env=seed_env,
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, timeout=120)
         self.assertEqual(seeded.returncode, 0, seeded.stdout[-5000:])
         legacy = json.loads(manifest.read_text())

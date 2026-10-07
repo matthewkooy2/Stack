@@ -38,6 +38,11 @@ jobs:
           set -euo pipefail
           jac run --no-serve tests/test_stories.py 2>&1 | tee "$RUNNER_TEMP/story-contracts.log"
           grep -qx 'OK' "$RUNNER_TEMP/story-contracts.log"
+      - name: Verify provider transport and source isolation
+        run: |
+          set -euo pipefail
+          jac run --no-serve tests/test_agent_providers.py 2>&1 | tee "$RUNNER_TEMP/story-providers.log"
+          grep -qx 'OK' "$RUNNER_TEMP/story-providers.log"
       - name: Verify private API, worker, persistence, and reviewed sources
         run: |
           set -euo pipefail

@@ -17,6 +17,46 @@ QUESTIONS = {
 }
 
 
+
+def _actor_compatible(field: str, quote: str) -> bool:
+    if field == 'personal':
+        return bool(re.match(r'I\b', quote, re.I)) and not re.search(r'\b(?:we|our|(?:my|the) team)\b', quote, re.I)
+    if field == 'team':
+        return bool(re.match(r'(?:we\b|teammates\b|(?:our|the|my) (?:team|teammates)\b)', quote, re.I)) and not re.search(r'\bI\b', quote, re.I)
+    return True
+
+
+def selection_contract(source: Any) -> dict[str, Any]:
+    """The model selects exact sentence/line IDs instead of copying source text."""
+    quotes = {}
+    for part in re.split(r'(?<=[.!?])\s+|\n+', source['text']):
+        quote = part.strip()
+        if quote and quote not in quotes.values():
+            quotes['q'+str(len(quotes))] = quote
+    fields = {field: {'type': 'string', 'enum': ['', *[key for key, quote in quotes.items()
+              if _actor_compatible(field, quote)]]} for field in FIELDS}
+    schema = {'type': 'object', 'properties': {
+        'fields': {'type': 'object', 'properties': fields, 'required': list(FIELDS), 'additionalProperties': False},
+        'topics': {'type': 'array', 'maxItems': 4, 'items': {'type': 'string', 'enum': list(TOPICS)}}},
+        'required': ['fields', 'topics'], 'additionalProperties': False}
+    return {'schema': schema, 'quotes': quotes}
+
+
+def resolve_selection(data: Any, source: Any) -> dict[str, Any]:
+    """Resolve only this source's allowed IDs, then retain the existing validator."""
+    if not isinstance(data, dict) or set(data) != {'fields', 'topics'}:
+        raise ValueError('Incomplete story selection.')
+    if not isinstance(data['fields'], dict) or set(data['fields']) != set(FIELDS):
+        raise ValueError('Select every STAR and contribution field.')
+    contract = selection_contract(source)
+    fields = {}
+    for field, key in data['fields'].items():
+        if not isinstance(key, str) or key not in contract['schema']['properties']['fields']['properties'][field]['enum']:
+            raise ValueError('Story selection uses an unavailable or incorrectly attributed quotation.')
+        fields[field] = {'source': source['key'], 'quote': contract['quotes'].get(key, '')}
+    return validate({'fields': fields, 'topics': data['topics'], 'evidence': []}, source)
+
+
 def validate(data: Any, source: Any) -> dict[str, Any]:
     if not isinstance(data, dict) or set(data) != {'fields', 'topics', 'evidence'}:
         raise ValueError('Incomplete story response.')
@@ -32,11 +72,9 @@ def validate(data: Any, source: Any) -> dict[str, Any]:
             raise ValueError('Story claims must copy exact source text.')
         # Preserve first-person/team attribution; ambiguous third-person text stays
         # in Action rather than being promoted to a personal contribution.
-        if quote and field == 'personal' and (not re.match(r'I\b', quote, re.I) or
-                re.search(r'\b(?:we|our|(?:my|the) team)\b', quote, re.I)):
+        if quote and field == 'personal' and not _actor_compatible(field, quote):
             raise ValueError('Personal contribution needs an explicit I statement without team attribution.')
-        if quote and field == 'team' and (not re.match(r'(?:we\b|teammates\b|(?:our|the|my) (?:team|teammates)\b)', quote, re.I) or
-                re.search(r'\bI\b', quote, re.I)):
+        if quote and field == 'team' and not _actor_compatible(field, quote):
             raise ValueError('Team contribution needs an explicit team statement without personal attribution.')
     topics = data['topics']
     if not isinstance(topics, list) or len(topics) > 4 or any(t not in TOPICS for t in topics):

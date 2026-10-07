@@ -3,7 +3,7 @@ import copy
 import json
 from pathlib import Path
 import unittest
-from agents.stories import validate, corrected, missing, empty, model_source
+from agents.stories import validate, corrected, missing, empty, model_source, selection_contract, resolve_selection
 
 FIXTURE = json.loads((Path(__file__).parent/'fixtures/behavioral-stories.json').read_text())
 
@@ -43,6 +43,25 @@ class Stories(unittest.TestCase):
         self.assertIn('result',[q['field'] for q in missing(saved)])
         for changes in ({'outcome':'x'},{'result':123},{'result':' '*3},{}):
             with self.assertRaises(ValueError):corrected(saved,changes,2)
+
+    def test_selection_ids_resolve_fixed_histories_without_copying_or_joining_text(self):
+        for event in FIXTURE['events']:
+            source={'key':'private:'+event['id'],'text':event['text']}
+            contract=selection_contract(source)
+            ids={quote:key for key,quote in contract['quotes'].items()}
+            selected={'fields':{field:ids.get(quote,'') for field,quote in event['fields'].items()},'topics':event['topics']}
+            result=resolve_selection(selected,source)
+            self.assertEqual(result['fields'],proposal(event,source['key'])['fields'])
+            for quote in contract['quotes'].values():self.assertIn(quote,source['text'])
+        event=FIXTURE['events'][0];source={'key':'private:retry','text':event['text']}
+        contract=selection_contract(source);ids={quote:key for key,quote in contract['quotes'].items()}
+        selected={'fields':{field:ids[quote] for field,quote in event['fields'].items()},'topics':event['topics']}
+        for field,key in [('personal',ids[event['fields']['team']]),('team',ids[event['fields']['personal']]),
+                          ('result','foreign:q0'),('personal',event['fields']['personal']+' '+event['fields']['learning'])]:
+            bad=copy.deepcopy(selected);bad['fields'][field]=key
+            with self.assertRaises(ValueError):resolve_selection(bad,source)
+        bad=copy.deepcopy(selected);bad['source']='foreign'
+        with self.assertRaises(ValueError):resolve_selection(bad,source)
 
     def test_unresolved_outcomes_retain_follow_up_for_sources_and_corrections(self):
         for text in ('The outcome is yet to be determined.', 'Results are TBD.',

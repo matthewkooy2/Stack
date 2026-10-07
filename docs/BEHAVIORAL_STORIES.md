@@ -24,7 +24,10 @@ are model suggestions, not factual claims or hiring predictions.
 3. Call `story_generate(id, revision)`. The persistent agent queue executes the
    `stories` workflow / `story` step with existing operator model configuration,
    account model permission, quotas, model-response logs, and worker leases.
-   Only the selected event is sent to inference. The provider and API completion
+   Only the selected event is sent to inference. The model selects exact source
+   sentence/line IDs; Stack resolves their immutable quotations and source key,
+   so the model never needs to reproduce opaque source keys or join text.
+   The provider and API completion
    path both check every displayed field's quotation. Personal contribution needs
    an explicit I statement; team contribution needs an explicit team statement.
    Mixed or ambiguous attribution stays missing. Explicit unknown/pending outcome

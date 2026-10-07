@@ -124,13 +124,15 @@ async function run(){
 }
 async function runInterview(){
   const {Interview}=load(path.join(root,'.jac/mobile-rn/jac-src/mobile/components/Interview.js'));
-  const oldRpc=fakeDevice.rpc,answers=[];let failSave=true,holdingInterviewSave=null;
+  const oldRpc=fakeDevice.rpc,answers=[];let failSave=true,holdingInterviewSave=null,holdingInterviewGet=null;
   const session={id:'native-interview',revision:0,run:{},data:{job:{title:'SQL Tools Engineer'},status:'active',pending:'',turns:[],analysis:{},coaching:{},questions:[{question:'Describe your SQL project.'},{question:'Describe a tradeoff.'}]}};
+  const other={id:'other-native-interview',revision:1,run:{},data:{job:{title:'Other role'},status:'active',pending:'',turns:[],analysis:{},coaching:{},questions:[{question:'A different role question.'}]}};
   const feedback='Explain how you checked the result; distinguish observations from assumptions.';
   fakeDevice.rpc=async(name,args={})=>{
     if(name==='bootstrap')return{applications:[{id:'role-one',job:{title:'SQL Tools Engineer',company:'Fixture team'}}]};
-    if(name==='interview_sessions')return{sessions:session.revision?[structuredClone(session)]:[]};
-    if(name==='interview_create'||name==='interview_get')return structuredClone(session);
+    if(name==='interview_sessions')return{sessions:session.revision?[structuredClone(session),structuredClone(other)]:[]};
+    if(name==='interview_get'){if(holdingInterviewGet)await holdingInterviewGet;return structuredClone(args.id===other.id?other:session);}
+    if(name==='interview_create')return structuredClone(session);
     if(name==='interview_answer'){
       answers.push(structuredClone(args));if(failSave){failSave=false;throw Error('Connection lost');}
       if(holdingInterviewSave)await holdingInterviewSave;
@@ -172,6 +174,11 @@ async function runInterview(){
     await act(async()=>{answerField().props.onChangeText('An unrelated unsaved draft.');});await press('Correct answer 2');
     const corrected=ui.root.findAll(n=>n.type==='TextInput'&&n.props.accessibilityLabel==='Corrected answer')[0];await act(async()=>{corrected.props.onChangeText('I explained the write overhead.');});await press('Save transcript correction');
     assert.equal(answerField().props.value,'An unrelated unsaved draft.','Correction preserves current draft');await act(async()=>{answerField().props.onChangeText('');});
+    let releaseOpen,opening;holdingInterviewGet=new Promise(resolve=>{releaseOpen=resolve;});
+    await act(async()=>{opening=button('Other role · 0 answers · active').props.onPress();await flush();});
+    assert.equal(answerField().props.editable,false,'Pending saved-session load freezes answer input');assert.equal(button('Start job interview').props.disabled,true,'Pending saved-session load freezes actions');
+    await act(async()=>{releaseOpen();holdingInterviewGet=null;await opening;await flush();});assert.equal(answerField().props.value,'');assert.match(JSON.stringify(ui.toJSON()),/A different role question/);
+    await press('SQL Tools Engineer · 2 answers · active');
     await press('Finish interview');await press('Get final coaching');const rendered=JSON.stringify(ui.toJSON());for(const criterion of ['Specificity','Ownership','Verification','Reflection'])assert(rendered.includes(criterion+' 3/4:'));assert(rendered.includes('Model-selected strength: Verification'));assert(rendered.includes('answer:1: Reviewed spoken correction.'));
     await unmount();await act(async()=>{ui=renderer.create(React.createElement(Interview,{owner:'owner-a'}));await flush();});await press('SQL Tools Engineer · 2 answers · finished');assert.match(JSON.stringify(ui.toJSON()),/Final coaching/);assert.match(JSON.stringify(ui.toJSON()),/Original spoken answer/);
     console.log('PASS native interview: compiled recorder handoff/review/draft preservation, recording ID/original, connection retry identity, two answers/correction/four scores/feedback/reopen. OS and API/model replies are controlled fixtures.');

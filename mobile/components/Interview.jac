@@ -29,10 +29,13 @@ def:pub Interview(owner: str) -> JsxElement {
         return lambda { active=False;clearInterval(timer);control.current["epoch"]+=1; };
     },[current.get("id","")]);
     async def open(id: str) -> None {
+        if control.current["busy"] { return; }
         if draft.strip() or correction>=0 { error="Save or clear your answer and correction before opening another interview.";return; }
+        control.current["busy"]=True;busy=True;
         control.current["epoch"]+=1;epoch=control.current["epoch"];
         try { result=await rpc("interview_get",{"id":id});if epoch==control.current["epoch"] { current=result;recording="";offered={};error="";control.current["answer"]=requestId(); } }
         except Exception as e { error=errorText(e); }
+        finally { control.current["busy"]=False;busy=False; }
     }
     async def act(name: str, args: dict[str, any], clear: bool = False) -> None {
         if control.current["busy"] { return; }

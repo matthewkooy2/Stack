@@ -108,16 +108,21 @@ class BankWorkflow(unittest.TestCase):
         run = self.rpc('agent_start', {'kind': 'resume', 'target_id': app['id']})
         self.assertNotIn('error', run, run)
         claim = self.worker('agent_claim')
+        self.assertEqual(claim['id'], run['id'], claim)
         result = self.dispatch(claim)
         self.assertIn('artifact', result, result)
         text, word = extracted(result['artifact'])
         for fact in FACTS:
             self.assertIn(fact['text'], text);self.assertIn(fact['text'], word)
         self.finish(claim, result)
+        # The next scheduler claim publishes the required human review boundary.
+        self.assertTrue(self.worker('agent_claim').get('idle'))
         waiting = self.rpc('agent_run', {'id': run['id']})
-        self.assertEqual(waiting['status'], 'review')
+        self.assertEqual(waiting['status'], 'review', waiting)
         self.rpc('agent_approve', {'id': run['id'], 'step': 'approve_resume', 'review_hash': waiting['review']['hash']})
         final_claim = self.worker('agent_claim')
+        self.assertEqual(final_claim['id'], run['id'], final_claim)
+        self.assertEqual(final_claim['step'], 'approve_resume', final_claim)
         final = self.dispatch(final_claim)
         self.assertIn('artifact', final, final)
         provenance = final['artifact']['tailor']['change_record']['bank_sources'][0]
@@ -131,7 +136,9 @@ class BankWorkflow(unittest.TestCase):
         # A new proposal must not silently approve withdrawn or revised facts.
         run = self.rpc('agent_start', {'kind': 'resume', 'target_id': app['id']})
         claim = self.worker('agent_claim');self.finish(claim, self.dispatch(claim))
+        self.assertTrue(self.worker('agent_claim').get('idle'))
         waiting = self.rpc('agent_run', {'id': run['id']})
+        self.assertEqual(waiting['status'], 'review', waiting)
         self.rpc('agent_approve', {'id': run['id'], 'step': 'approve_resume', 'review_hash': waiting['review']['hash']})
         final_claim = self.worker('agent_claim')
         self.rpc('resume_bank_delete', {'id': source['id'], 'revision': source['revision']})

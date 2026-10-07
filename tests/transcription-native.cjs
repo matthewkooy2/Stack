@@ -1,7 +1,7 @@
 // Actual generated Jac screen/runtime and native adapter; OS boundaries mocked.
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const {createRequire}=require('node:module');
-const root=path.resolve(__dirname,'..'),req=createRequire(path.join(root,'.jac/mobile-rn/package.json'));
+const root=path.resolve(__dirname,'..'),req=createRequire(path.join(process.env.MAT5_NATIVE_MODULES||path.join(root,'.jac/mobile-rn'),'package.json'));
 const React=req('react'),renderer=req('react-test-renderer'),babel=req('@babel/core'),{act}=renderer;
 globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 const intervalFns=new Map(),realInterval=global.setInterval,realClear=global.clearInterval;
@@ -83,7 +83,7 @@ const flush=()=>new Promise(resolve=>setTimeout(resolve,15));
 let ui;
 const button=label=>ui.root.findAll(n=>n.type==='Pressable'&&n.props.accessibilityLabel===label)[0];
 const field=()=>ui.root.findAll(n=>n.type==='TextInput'&&n.props.accessibilityLabel==='Transcript')[0];
-async function press(label){assert(button(label),'Missing button: '+label);await act(async()=>{await button(label).props.onPress();await flush();});}
+async function press(label){assert(button(label),'Missing button: '+label+'; available: '+JSON.stringify(ui.root.findAll(n=>n.type==='Pressable').map(n=>n.props.accessibilityLabel)));await act(async()=>{await button(label).props.onPress();await flush();});}
 async function tick(){await act(async()=>{for(const fn of [...intervalFns.values()])fn();await flush();});}
 async function mount(owner='owner-a'){await act(async()=>{ui=renderer.create(React.createElement(Transcription,{owner}));await flush();});}
 async function unmount(){if(ui)await act(async()=>{ui.unmount();await flush();});ui=null;}
@@ -122,4 +122,59 @@ async function run(){
   await assert.rejects(native.localRecordings('../owner'),/Sign in/);
   console.log('PASS native: permission denial, Record/Stop, durable files/timer, reopen without upload, retry same audio, owner isolation, interruption and edit/poll race.');
 }
-run().catch(e=>{console.error(e);process.exitCode=1;}).finally(async()=>{await unmount();global.setInterval=realInterval;global.clearInterval=realClear;});
+async function runInterview(){
+  const {Interview}=load(path.join(root,'.jac/mobile-rn/jac-src/mobile/components/Interview.js'));
+  const oldRpc=fakeDevice.rpc,answers=[];let failSave=true,holdingInterviewSave=null;
+  const session={id:'native-interview',revision:0,run:{},data:{job:{title:'SQL Tools Engineer'},status:'active',pending:'',turns:[],analysis:{},coaching:{},questions:[{question:'Describe your SQL project.'},{question:'Describe a tradeoff.'}]}};
+  const feedback='Explain how you checked the result; distinguish observations from assumptions.';
+  fakeDevice.rpc=async(name,args={})=>{
+    if(name==='bootstrap')return{applications:[{id:'role-one',job:{title:'SQL Tools Engineer',company:'Fixture team'}}]};
+    if(name==='interview_sessions')return{sessions:session.revision?[structuredClone(session)]:[]};
+    if(name==='interview_create'||name==='interview_get')return structuredClone(session);
+    if(name==='interview_answer'){
+      answers.push(structuredClone(args));if(failSave){failSave=false;throw Error('Connection lost');}
+      if(holdingInterviewSave)await holdingInterviewSave;
+      assert.equal(args.revision,session.revision);
+      const row=records.find(r=>r.id===args.recording_id);if(args.recording_id)assert.equal(row.status,'completed');
+      session.data.turns.push({answer:args.answer,original:row?row.original_transcript:args.answer,recording_id:args.recording_id,question:session.data.questions[session.data.turns.length]});session.revision++;
+      session.data.analysis[String(session.data.turns.length)]={strength:'Verification',improvement:feedback,focus_quote:args.answer};
+      if(session.data.turns.length===1){session.run={id:'native-analysis',status:'needs_input',message:'Model reply invalid; answer saved.'};session.data.analysis={};}
+    }else if(name==='agent_respond'){
+      assert.deepEqual(args,{id:'native-analysis',values:[],reuse:false});session.run={};session.data.analysis['1']={strength:'Verification',improvement:feedback,focus_quote:session.data.turns[0].answer};return{};
+    }else if(name==='interview_continue'){
+      if(args.action==='followup')session.data.questions.splice(session.data.turns.length,0,{question:'How did you verify your result?'});
+      if(args.action==='finish')session.data.status='finished';
+      if(args.action==='analyze'&&session.data.status==='finished')session.data.coaching={summary:'Scores are model judgments.',strengths:[{criterion:'Verification',source:'answer:1',quote:session.data.turns[0].answer}],rubric:Object.fromEntries(['Specificity','Ownership','Verification','Reflection'].map(k=>[k,{score:3,feedback}])),next_exercises:['Describe a verification step.'],followup_questions:['How did you verify?','What did you learn?'],evidence:session.data.turns.map((t,i)=>({source:'answer:'+(i+1),quote:t.answer}))};
+      session.revision++;
+    }else if(name==='interview_correct'){
+      session.data.turns[args.index].answer=args.answer;session.data.analysis={};session.data.coaching={};session.revision++;
+    }else return oldRpc(name,args);
+    return structuredClone(session);
+  };
+  const answerField=()=>ui.root.findAll(n=>n.type==='TextInput'&&n.props.accessibilityLabel==='Review your answer')[0];
+  records=[{id:'spoken-native',status:'completed',duration_seconds:1,transcript:'Reviewed spoken answer.',original_transcript:'Original spoken answer.',revision:1,timings:{},stage_at:0}];
+  try{
+    await act(async()=>{ui=renderer.create(React.createElement(Interview,{owner:'owner-a'}));await flush();});
+    await press('SQL Tools Engineer · Fixture team');await press('Start job interview');
+    await act(async()=>{answerField().props.onChangeText('Typed draft while transcript runs.');});
+    permissions.granted=false;await press('Record');assert.equal(answerField().props.value,'Typed draft while transcript runs.');permissions.granted=true;
+    await press('Completed · 1 seconds');await act(async()=>{field().props.onChangeText('Reviewed spoken correction.');});
+    assert(button('Use reviewed transcript in interview').props.disabled,'Unsaved transcript cannot be handed off');
+    await press('Save transcript');await press('Use reviewed transcript in interview');assert.equal(answerField().props.value,'Typed draft while transcript runs.');
+    await press('Use recorded transcript');assert.equal(answerField().props.value,'Reviewed spoken correction.');
+    await press('Save reviewed answer and analyze');assert.equal(answerField().props.value,'Reviewed spoken correction.');
+    let releaseSave,saving;holdingInterviewSave=new Promise(resolve=>{releaseSave=resolve;});
+    await act(async()=>{saving=button('Save reviewed answer and analyze').props.onPress();await flush();});
+    assert.equal(answerField().props.editable,false,'Pending save freezes answer input');assert.equal(button('Use reviewed transcript in interview').props.disabled,true,'Pending save freezes recorder handoff');assert.equal(field().props.editable,false,'Pending save freezes nested transcript edits');
+    await act(async()=>{releaseSave();holdingInterviewSave=null;await saving;await flush();});assert.equal(answers[0].client_id,answers[1].client_id);assert.equal(answers[1].recording_id,'spoken-native');
+    assert.equal(session.data.turns[0].original,'Original spoken answer.');await press('Retry local Qwen');assert.match(JSON.stringify(ui.toJSON()),/Answer coaching/);
+    await press('Ask answer follow-up');await act(async()=>{answerField().props.onChangeText('I compared the write overhead.');});await press('Save reviewed answer and analyze');
+    await act(async()=>{answerField().props.onChangeText('An unrelated unsaved draft.');});await press('Correct answer 2');
+    const corrected=ui.root.findAll(n=>n.type==='TextInput'&&n.props.accessibilityLabel==='Corrected answer')[0];await act(async()=>{corrected.props.onChangeText('I explained the write overhead.');});await press('Save transcript correction');
+    assert.equal(answerField().props.value,'An unrelated unsaved draft.','Correction preserves current draft');await act(async()=>{answerField().props.onChangeText('');});
+    await press('Finish interview');await press('Get final coaching');const rendered=JSON.stringify(ui.toJSON());for(const criterion of ['Specificity','Ownership','Verification','Reflection'])assert(rendered.includes(criterion+' 3/4:'));assert(rendered.includes('Model-selected strength: Verification'));assert(rendered.includes('answer:1: Reviewed spoken correction.'));
+    await unmount();await act(async()=>{ui=renderer.create(React.createElement(Interview,{owner:'owner-a'}));await flush();});await press('SQL Tools Engineer · 2 answers · finished');assert.match(JSON.stringify(ui.toJSON()),/Final coaching/);assert.match(JSON.stringify(ui.toJSON()),/Original spoken answer/);
+    console.log('PASS native interview: compiled recorder handoff/review/draft preservation, recording ID/original, connection retry identity, two answers/correction/four scores/feedback/reopen. OS and API/model replies are controlled fixtures.');
+  }finally{fakeDevice.rpc=oldRpc;await unmount();}
+}
+run().then(runInterview).catch(e=>{console.error(e);process.exitCode=1;}).finally(async()=>{await unmount();global.setInterval=realInterval;global.clearInterval=realClear;});

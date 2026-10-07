@@ -4,6 +4,7 @@ import from ..theme { s }
 import from .UI { Button, Chip }
 import from .Practice { Practice }
 import from .Transcription { Transcription }
+import from .Interview { Interview }
 
 glob QUESTIONS: list[dict[str, any]] = [
     {"id":"two-sum", "track":"Technical", "title":"Find a pair", "topic":"Arrays & hash maps", "time":"15 min", "prompt":"Given an array of integers and a target, return the indices of two distinct elements whose sum equals the target. What should happen if there is no matching pair?", "steps":["Clarify whether there is exactly one solution and whether values can repeat.","Walk through [2, 7, 11, 15] with target 9 before writing code.","Explain a simple solution, then improve it."], "guide":"Keep a map from previously seen values to their indices. For each value x, look for target − x before adding x to the map. Checking first prevents reusing the same index. Expected time: O(n); extra space: O(n).", "check":"Test duplicate values, negative numbers, and no solution. Explain why two nested loops take O(n²)."},
@@ -24,6 +25,7 @@ def:pub Prep(owner: str = "", runs: list[dict[str, any]] = [], features: list[di
     }
 
     <View style={{gap:22}}>
+        <Interview key={"interview:"+owner} owner={owner}/>
         <Transcription key={owner} owner={owner}/>
         <Practice runs={runs} features={features} onOpenTask={onOpenTask} onNavigate={onNavigate}/>
         <View style={{gap:7}}>

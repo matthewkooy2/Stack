@@ -1,0 +1,8 @@
+{
+  "kind": "offline synthetic English speech; no personal audio",
+  "answers": [
+    "I built a SQL tracker for a class project. I inspected the query plan and added an index. I verified the result with fixture queries.",
+    "I compared indexed and full table scans on our fixture data. I explained the write overhead to my teammate. We chose the index for the read heavy tracker."
+  ],
+  "required_transcript_words": [["tracker", "plan", "index"], ["scans", "write", "tracker"]]
+}

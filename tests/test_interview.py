@@ -7,6 +7,7 @@ import base64
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
+import importlib
 import json
 import os
 from pathlib import Path
@@ -23,7 +24,6 @@ if os.environ.get('JAC_DB_URL'):
     raise RuntimeError('Interview acceptance requires a disposable scratch database.')
 os.environ['JAC_DB_SCRATCH'] = '1'
 from jaclang.testing.testing import JacTestClient
-from agents.worker import dispatch
 from agents import interview as flow
 from discovery.normalize import normalize, digest
 
@@ -105,7 +105,7 @@ class Journey:
     def rpc(self,name,args=None,allow_error=False):
         response=self.client.post('/function/'+name,json=args or {});assert response.ok,response.text
         data=response.data['result']
-        if not allow_error: assert 'error' not in data,(name,data)
+        if not allow_error: assert not data.get('error'),(name,data)
         return data
     def get(self): return self.rpc('interview_get',{'id':self.session['id']})
     def answer(self,text,recording_id=''):
@@ -116,7 +116,10 @@ class Journey:
         self.client.clear_auth();work=self.rpc('agent_claim',{'token':'mat5-synthetic-worker'})
         assert not work.get('idle'),work
         start=time.monotonic()
-        with patch('agents.worker.call',side_effect=self.rpc): result=dispatch(work,'mat5-synthetic-worker')
+        # Jac reload may replace module instances. Patch and dispatch through the
+        # same current worker, rather than retaining a pre-reload function object.
+        worker=importlib.import_module('agents.worker')
+        with patch.object(worker,'call',side_effect=self.rpc): result=worker.dispatch(work,'mat5-synthetic-worker')
         self.timings.append({'step':work['step'],'seconds':round(time.monotonic()-start,3)})
         if finish:self.rpc('agent_finish',{'token':'mat5-synthetic-worker',**{k:work[k] for k in ('id','owner','lease')},'result':result})
         self.client.set_auth_token(self.tokens[0]);return work,result
@@ -173,7 +176,15 @@ class InterviewAcceptance(unittest.TestCase):
                         journey.client.clear_auth();self.assertTrue(journey.rpc('agent_claim',{'token':'mat5-synthetic-worker'}).get('idle'));journey.client.set_auth_token(journey.tokens[0])
                     else:journey.work()
                     current=journey.get();self.assertIn(current['run']['status'],('needs_input','blocked'));self.assertEqual(current['data']['turns'][0]['answer'],ANSWER1)
+                    self.assertEqual(len(state['requests']),0 if mode in ('unavailable','cloud') else 1,current['run'])
                     self.assertEqual(current['run']['cost_cents'],0);self.assertEqual(current['run']['subscription_calls'],0)
+                    if mode=='malformed':
+                        state['mode']='valid'
+                        journey.rpc('agent_respond',{'id':current['run']['id'],'values':[],'reuse':False})
+                        journey.work();current=journey.get()
+                        self.assertFalse(current['data']['pending'],current['run'])
+                        self.assertEqual(current['data']['turns'][0]['answer'],ANSWER1)
+                        self.assertTrue(current['data']['analysis'])
                     current=journey.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'next'})
                     self.assertFalse(current['data']['pending']);journey.answer(ANSWER2)
                     current=journey.get();journey.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'finish'})

@@ -6,7 +6,7 @@ const dependencyRequire=createRequire(path.resolve(process.env.MAT5_REACT_MODULE
 const React=dependencyRequire('react'),renderer=dependencyRequire('react-test-renderer');
 const {act}=renderer;globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 const code=fs.readFileSync('web/Interview.js','utf8').replace(/^import [^\n]+\n/gm,'').replace('export function Interview','function Interview');
-const intervals=new Map();let clock=0,deny=false,upload,failedSave=false,session;
+const intervals=new Map();let clock=0,deny=false,upload,failedSave=false,session,retry;
 const clone=x=>JSON.parse(JSON.stringify(x));
 function fresh(){session={id:'interview-one',revision:0,data:{mode:'interview',job:{title:'SQL Tools',company:'Class team'},status:'active',turns:[],questions:[
  {kind:'role',question:'Describe your SQL investigation.',evidence:[{source:'listing',quote:'Build SQL tools'}]},
@@ -15,6 +15,7 @@ async function rpc(name,args={}){
  if(name==='interview_sessions')return{sessions:[clone(session)]};
  if(name==='interview_get'||name==='interview_create')return clone(session);
  if(name==='transcription_upload')return upload(args);
+ if(name==='agent_respond'||name==='agent_retry'){retry={name,args};session.run.status='queued';return clone(session.run);}
  if(name==='interview_answer'){
   if(failedSave)throw new Error('Synthetic connection lost');
   session.data.turns.push({question:session.data.questions[session.data.turns.length],answer:args.answer,original:args.answer,recording_id:args.recording_id});session.revision++;return clone(session);
@@ -67,9 +68,17 @@ async function record(root){await click(root,'Record answer locally');await clic
  await act(async()=>{resolveUpload({id:'old-recording',status:'completed',transcript:'Old session transcript.'});await pending;});
  assert.equal(answer(root).props.value,'New answer draft.');assert.ok(!button(root,'Use recorded transcript'));await act(async()=>root.unmount());
 
+ for(const status of ['needs_input','blocked','failed']){
+  root=await start();session.run={id:'local-run',status,message:'Synthetic recoverable model failure'};
+  await act(async()=>{await root.root.findAllByType('button').find(n=>text(n).startsWith('SQL Tools')&&text(n).includes('answers')).props.onClick();});
+  await click(root,'Retry local Qwen');assert.equal(retry.name,status==='needs_input'?'agent_respond':'agent_retry');assert.equal(retry.args.id,'local-run');
+  if(status==='needs_input'){assert.equal(retry.args.reuse,false);assert.equal(retry.args.values.length,0);}
+  assert.equal(session.run.status,'queued');await act(async()=>root.unmount());
+ }
+
  root=await start();session.data.status='finished';session.data.coaching={summary:'Assessment uses reviewed excerpts.',strengths:[{criterion:'Verification',source:'answer:1',quote:'I inspected the plan.'}],
  rubric:[{criterion:'Specificity',score:2,feedback:'Explain your contribution.'}],next_exercises:['Describe a limitation.'],followup_questions:['What did you personally do?','How did you verify the result?'],evidence:[]};
  await act(async()=>{await root.root.findAllByType('button').find(n=>text(n).startsWith('SQL Tools')&&text(n).includes('answers')).props.onClick();});
  assert.ok(content(root).includes('Practice questions'));assert.ok(content(root).includes('How did you verify the result?'));assert.ok(content(root).includes('Model-selected strength to build on: Verification'));
- await act(async()=>root.unmount());console.log('PASS: microphone denial, connection retry, completed upload retry, draft preservation, stale upload isolation, visible final questions/strengths');
+ await act(async()=>root.unmount());console.log('PASS: microphone denial, connection retry, completed upload retry, draft preservation, stale upload isolation, model retry routing, visible final questions/strengths');
 })().catch(error=>{console.error(error);process.exitCode=1;});

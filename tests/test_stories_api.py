@@ -24,7 +24,7 @@ class API(unittest.TestCase):
         scratch=ROOT/'.jac/story-api-tests';scratch.mkdir(parents=True,exist_ok=True)
         self.tmp=tempfile.TemporaryDirectory(dir=scratch);self.addCleanup(self.tmp.cleanup)
         self.config=Path(self.tmp.name)/'config.json'
-        self.config.write_text(json.dumps({'provider':'ollama','model':'qwen3:4b-instruct',
+        self.config.write_text(json.dumps({'provider':os.environ.get('STACK_STORY_MODEL_PROVIDER','ollama'),'model':os.environ.get('STACK_STORY_MODEL','qwen3:4b-instruct'),
             'local_model_url':os.environ.get('STACK_STORY_MODEL_URL','http://127.0.0.1:11434'),
             'max_output_tokens':1800,'local_model_timeout':90}))
         env=patch.dict(os.environ,{'STACK_AGENT_CONFIG':str(self.config),
@@ -169,7 +169,7 @@ class API(unittest.TestCase):
             else:self.assertIn('result',[q['field'] for q in saved['missing']])
             self.assertTrue(saved['content']['topics'])
             evidence.append({'fixture':event['id'],'elapsed_seconds':round(time.monotonic()-start,3),'content':saved['content'],
-                'model_logs':self.rpc('agent_model_logs',{'id':claim['id']}),'max_rss_kib':resource.getrusage(resource.RUSAGE_SELF).ru_maxrss})
+                'model_logs':self.rpc('agent_model_logs',{'id':claim['id']}),'test_process_max_rss_kib':resource.getrusage(resource.RUSAGE_SELF).ru_maxrss})
         (ROOT/'.jac/story-real-evidence.json').write_text(json.dumps(evidence,indent=2))
         self.client.reload();self.client.set_auth_token(self.a)
         self.assertEqual(len(self.rpc('story_list')['stories']),3)

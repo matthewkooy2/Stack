@@ -57,8 +57,11 @@ foreign citations, actor promotion, and correction provenance.
 worker completion, transcript corrections, stale edits, two accounts, export,
 and deletion. With `STACK_STORY_REAL_MODEL=1`, it also runs the real worker
 dispatch and configured local inference against those same histories, recording
-latency, process peak memory, structured content, and model logs under
-`.jac/story-real-evidence.json`.
+latency, API test-process peak memory, structured content, and model logs under
+`.jac/story-real-evidence.json`. Select an existing LM Studio model with
+`STACK_STORY_MODEL_PROVIDER=lmstudio` and `STACK_STORY_MODEL=<installed id>`.
+The separate model-server resource measurements belong in the acceptance receipt;
+the API test-process RSS does not measure the model server.
 
 Run from an isolated checkout with disposable data and Jac 0.37.21:
 

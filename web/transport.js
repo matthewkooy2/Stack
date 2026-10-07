@@ -1,5 +1,6 @@
 // Browser capabilities only. Session tokens stay in memory; reload signs out.
 import React, {useRef, useState, useEffect} from 'react';
+import {beginGoogle,finishGoogle} from './google-auth.js';
 let token = '', epoch = 0;
 const browserStreams=new Set();
 export async function request(path, body, authenticated=true) {
@@ -17,8 +18,15 @@ export async function login(username,password,signup=false){
   if(!result.token)throw new Error('No session returned.');token=result.token;epoch++;
 }
 export function logout(){token='';epoch++;for(const close of browserStreams)close();browserStreams.clear();}
+export async function googleSignIn(invite='',link=false){return beginGoogle(request,invite,link);}
+export async function googleSignInResult(){
+  const observed=epoch,result=await finishGoogle(request);
+  if(!result)return null;
+  if(observed!==epoch)throw new Error('Your session changed. Start Google sign-in again.');
+  token=result.token;epoch++;return result;
+}
 export function errorText(e){return e?.message||'Request failed.';}
-export function oauthResult(){const q=new URLSearchParams(location.search);const result={code:q.get('code')||'',state:q.get('state')||''};if(result.code)history.replaceState(null,'',location.pathname);return result;}
+export function oauthResult(){if(location.pathname!=='/oauth/google')return {};const q=new URLSearchParams(location.search);const result={code:q.get('code')||'',state:q.get('state')||''};if(result.code)history.replaceState(null,'',location.pathname);return result;}
 export function downloadJSON(value){const url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='stack-export.json';a.click();URL.revokeObjectURL(url);}
 export function downloadPDF(pdf){const raw=Uint8Array.from(atob(pdf.content),c=>c.charCodeAt(0));const url=URL.createObjectURL(new Blob([raw],{type:'application/pdf'}));const a=document.createElement('a');a.href=url;a.download=pdf.name;a.click();URL.revokeObjectURL(url);}
 export function Timer({seconds=0,onChange}){

@@ -79,5 +79,15 @@ lucide-react-native = "1.48.0"
 [scale.admin]
 enabled = false
 
+# Jac owns identity-only Google SSO; optional Gmail/Calendar use /oauth/google.
+# Runtime environment supplies credentials. Empty values leave SSO disabled.
+[scale.sso]
+host = "${STACK_SSO_HOST:-http://localhost:8000}"
+client_auth_callback_url = "${STACK_SSO_CALLBACK_URL:-}"
+
+[scale.sso.google]
+client_id = "${GOOGLE_CLIENT_ID:-}"
+client_secret = "${GOOGLE_CLIENT_SECRET:-}"
+
 [database]
 indexes = { JobAlias = ["key"], CatalogJob = ["key", "canonical_url", "identity", "active", "checked_at"], JobSource = ["key", "next_at"], DiscoveryRequest = ["status", "key"], AgentRun = ["key", "status", "created_at"], AgentTicket = ["state", "due_at"], AgentUsage = ["key"], AgentEvent = ["key"], PrepSession = ["updated_at"], ResumeTicket = ["status", "created_at", "lease_until"] }

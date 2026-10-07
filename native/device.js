@@ -9,6 +9,7 @@ import Constants from 'expo-constants';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import Pdf from 'react-native-pdf';
 import {BrowserViewer,createBrowserStream} from './browser-viewer.js';
+import {beginGoogle,waitGoogle,cancelGoogle,pendingGoogle} from './google-auth.js';
 import {Layers, BriefcaseBusiness, Users, FileText, UserRound, MapPin, ArrowUpRight, ArrowRight, X, Check, SlidersHorizontal, ChevronLeft, ChevronRight, Bell, Plus, Upload, MoreHorizontal, Sparkles, Bookmark, Search, LogOut, Clock, Mail, ShieldCheck, CircleCheck, RotateCcw, Settings, GraduationCap, CodeXml, MessagesSquare, CircleAlert, CalendarDays, Pencil} from 'lucide-react-native';
 const glyphs = {layers:Layers, jobs:Layers, applications:BriefcaseBusiness, network:Users, resume:FileText, profile:UserRound, prep:GraduationCap, code:CodeXml, conversation:MessagesSquare, pin:MapPin, arrow:ArrowUpRight, next:ArrowRight, x:X, check:Check, filter:SlidersHorizontal, back:ChevronLeft, chevron:ChevronRight, bell:Bell, plus:Plus, upload:Upload, more:MoreHorizontal, sparkles:Sparkles, bookmark:Bookmark, search:Search, logout:LogOut, clock:Clock, mail:Mail, shield:ShieldCheck, done:CircleCheck, retry:RotateCcw, settings:Settings, alert:CircleAlert, calendar:CalendarDays};
 glyphs.edit = Pencil;
@@ -36,7 +37,30 @@ async function request(path,body,authenticated=true) {
     throw e;
   } finally {clearTimeout(timer);}
 }
-export async function restoreSession(){token=await SecureStore.getItemAsync(sessionKey)||''; return !!token;}
+async function adoptGoogle(pending){
+  const observed=generation,result=await waitGoogle(request,SecureStore,pending,()=>AppState.currentState==='active');
+  if(observed!==generation)throw new Error('Your session changed. Start Google sign-in again.');
+  await SecureStore.setItemAsync(sessionKey,result.token);
+  if(observed!==generation){
+    // Cancellation/account changes can occur while the OS persists the result.
+    if(token)await SecureStore.setItemAsync(sessionKey,token);else await SecureStore.deleteItemAsync(sessionKey);
+    throw new Error('Your session changed. Start Google sign-in again.');
+  }
+  generation++;token=result.token;
+  if(result.invite)await rpc('agent_accept_invite',{invite:result.invite});
+  return result;
+}
+export async function restoreSession(){
+  token=await SecureStore.getItemAsync(sessionKey)||'';
+  const pending=await pendingGoogle(SecureStore);
+  if(pending)await adoptGoogle(pending);
+  return !!token;
+}
+export async function authenticateGoogle(invite='',link=false){
+  const pending=await beginGoogle(request,SecureStore,url=>Linking.openURL(url),invite,link);
+  return adoptGoogle(pending);
+}
+export async function cancelGoogleSignIn(){generation++;await cancelGoogle(SecureStore);}
 export async function authenticate(username,password,signup){
   const identity={type:'username',value:username.trim().toLowerCase()};
   const credential={type:'password',password};
@@ -58,6 +82,7 @@ export function persistSwipe(jobId,action,startAgent=false){
   swipeQueue=operation;return operation;
 }
 export async function signOut(){
+  await cancelGoogleSignIn();
   if(pushToken && token){try {await rpc('agent_remove_push',{device_token:pushToken});}catch {} pushToken='';}pushAttempt=0;
   generation++; token='';
   for(const close of browserStreams)close();browserStreams.clear();

@@ -9,6 +9,8 @@ on:
       - 'jac.toml'
       - 'scripts/jac'
       - 'scripts/compile-mobile.jac'
+      - 'scripts/stage-mobui.cjs'
+      - 'scripts/auth-build-config.cjs'
       - 'scripts/setup*'
       - 'scripts/ci/ios-testflight.sh'
       - 'scripts/ci/asc-preflight.cjs'
@@ -26,6 +28,8 @@ on:
       - 'jac.toml'
       - 'scripts/jac'
       - 'scripts/compile-mobile.jac'
+      - 'scripts/stage-mobui.cjs'
+      - 'scripts/auth-build-config.cjs'
       - 'scripts/setup*'
       - 'scripts/ci/ios-testflight.sh'
       - 'scripts/ci/asc-preflight.cjs'
@@ -83,6 +87,7 @@ jobs:
         run: |
           set -euo pipefail
           node tests/release-config.cjs
+          node tests/auth-build-config.cjs
           python3 tests/test_ios_testflight.py
           node --test tests/asc-preflight.cjs
       - name: Archive the unsigned release build

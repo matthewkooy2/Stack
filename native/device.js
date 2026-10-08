@@ -10,23 +10,28 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import Pdf from 'react-native-pdf';
 import {BrowserViewer,createBrowserStream} from './browser-viewer.js';
 import {beginGoogle,waitGoogle,cancelGoogle,pendingGoogle} from './google-auth.js';
-import {Layers, BriefcaseBusiness, Users, FileText, UserRound, MapPin, ArrowUpRight, ArrowRight, X, Check, SlidersHorizontal, ChevronLeft, ChevronRight, Bell, Plus, Upload, MoreHorizontal, Sparkles, Bookmark, Search, LogOut, Clock, Mail, ShieldCheck, CircleCheck, RotateCcw, Settings, GraduationCap, CodeXml, MessagesSquare, CircleAlert, CalendarDays, Pencil} from 'lucide-react-native';
-const glyphs = {layers:Layers, jobs:Layers, applications:BriefcaseBusiness, network:Users, resume:FileText, profile:UserRound, prep:GraduationCap, code:CodeXml, conversation:MessagesSquare, pin:MapPin, arrow:ArrowUpRight, next:ArrowRight, x:X, check:Check, filter:SlidersHorizontal, back:ChevronLeft, chevron:ChevronRight, bell:Bell, plus:Plus, upload:Upload, more:MoreHorizontal, sparkles:Sparkles, bookmark:Bookmark, search:Search, logout:LogOut, clock:Clock, mail:Mail, shield:ShieldCheck, done:CircleCheck, retry:RotateCcw, settings:Settings, alert:CircleAlert, calendar:CalendarDays};
+import {Layers, BriefcaseBusiness, Users, FileText, UserRound, MapPin, ArrowUpRight, ArrowRight, X, Check, SlidersHorizontal, ChevronLeft, ChevronRight, Bell, Plus, Upload, MoreHorizontal, Sparkles, Bookmark, Search, LogOut, Clock, Mail, ShieldCheck, CircleCheck, RotateCcw, Settings, GraduationCap, CodeXml, MessagesSquare, CircleAlert, CalendarDays, Pencil, Mic, Play, Pause, Shuffle, Sprout, MessageCircle, ArrowLeft, CirclePlus, CirclePlay, FileQuestionMark} from 'lucide-react-native';
+const glyphs = {mic:Mic,play:Play,pause:Pause,shuffle:Shuffle,sprout:Sprout,chat:MessageCircle,return:ArrowLeft,"add-session":CirclePlus,"continue-session":CirclePlay,"question-file":FileQuestionMark,layers:Layers, jobs:Layers, applications:BriefcaseBusiness, network:Users, resume:FileText, profile:UserRound, prep:GraduationCap, code:CodeXml, conversation:MessagesSquare, pin:MapPin, arrow:ArrowUpRight, next:ArrowRight, x:X, check:Check, filter:SlidersHorizontal, back:ChevronLeft, chevron:ChevronRight, bell:Bell, plus:Plus, upload:Upload, more:MoreHorizontal, sparkles:Sparkles, bookmark:Bookmark, search:Search, logout:LogOut, clock:Clock, mail:Mail, shield:ShieldCheck, done:CircleCheck, retry:RotateCcw, settings:Settings, alert:CircleAlert, calendar:CalendarDays};
 glyphs.edit = Pencil;
 export function Icon({name,size=22,color='#64748B'}) {return React.createElement(glyphs[name] || Layers,{size,color,strokeWidth:1.8});}
 export const apiBase = () => globalThis.__JAC_API_BASE_URL__ || Constants.expoConfig?.extra?.apiBaseUrl || 'http://127.0.0.1:8000';
 let token='', generation=0;
+// Shared UI owns the live session; legacy native helpers borrow its current credentials.
+let borrowed=null;
+export function borrowSession(next){generation++;borrowed=next;}
+const currentToken=()=>borrowed?borrowed.token():token;
+const currentBase=()=>borrowed?borrowed.origin:apiBase();
 let pushToken='', pushAttempt=0;
 let notifyChain=Promise.resolve();
 const sessionKey='stack.session.v1';
 const cacheDir=()=>Files.cacheDirectory+'stack-resumes/';
 async function request(path,body,authenticated=true) {
-  const epoch=generation, controller=new AbortController();
+  const epoch=generation,session=currentToken(),origin=currentBase(), controller=new AbortController();
   const timer=setTimeout(()=>controller.abort(),20000);
   try {
-    const r=await fetch(apiBase()+path,{method:'POST',headers:{'Content-Type':'application/json',...(authenticated&&token?{Authorization:'Bearer '+token}:{})},body:JSON.stringify(body),signal:controller.signal});
+    const r=await fetch(origin+path,{method:'POST',headers:{'Content-Type':'application/json',...(authenticated&&session?{Authorization:'Bearer '+session}:{})},body:JSON.stringify(body),signal:controller.signal});
     const json=await r.json();
-    if(epoch!==generation) throw new Error('Session changed. Please try again.');
+    if(epoch!==generation||session!==currentToken()||origin!==currentBase()) throw new Error('Session changed. Please try again.');
     if(!r.ok || json.ok===false) {
       const message=json.error?.message || json.detail || 'Request failed. Please try again.';
       const error=new Error(typeof message==='string'?message:'Check your details and try again.'); error.status=r.status; throw error;
@@ -185,7 +190,8 @@ export function Lifecycle({onRefresh,onOpen}){
 const browserStreams=new Set();
 function openBrowserStream(id,onEvent,onState){
   const observed=generation;
-  const close=createBrowserStream({id,origin:apiBase(),authorization:'Bearer '+token,isCurrent:()=>observed===generation,onEvent,onState});
+  const viewerToken=currentToken(),viewerOrigin=currentBase();
+  const close=createBrowserStream({id,origin:viewerOrigin,authorization:'Bearer '+viewerToken,isCurrent:()=>observed===generation&&viewerToken===currentToken()&&viewerOrigin===currentBase(),onEvent,onState});
   browserStreams.add(close);return()=>{close();browserStreams.delete(close);};
 }
 export function AgentBrowser({id,task,requestBrowser=rpc,onChanged}) {
@@ -257,10 +263,10 @@ export async function uploadResumeFile(endpoint, file, onProgress=()=>{}) {
   } else {
     json=await new Promise((resolve,reject)=>{
       const xhr=new XMLHttpRequest();
-      xhr.open('POST',apiBase()+'/function/'+endpoint);
+      xhr.open('POST',currentBase()+'/function/'+endpoint);
       xhr.timeout=20000;
       xhr.setRequestHeader('Content-Type','application/json');
-      if(token)xhr.setRequestHeader('Authorization','Bearer '+token);
+      if(currentToken())xhr.setRequestHeader('Authorization','Bearer '+currentToken());
       xhr.upload.onprogress=event=>{
         if(epoch!==generation)return;
         onProgress({status:'uploading',loaded:event.loaded,total:event.total,

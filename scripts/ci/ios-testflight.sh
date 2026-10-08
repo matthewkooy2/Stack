@@ -64,6 +64,9 @@ node native/build-config.js --check
 ./scripts/jac install --no-npm
 ./scripts/jac setup mobile
 cp native/package.json native/package-lock.json native/app.config.js native/build-config.js .jac/mobile-rn/
+cp native/app-icon.png .jac/mobile-rn/
+mkdir -p .jac/mobile-rn/modules
+cp -R native/modules/stack-speech .jac/mobile-rn/modules/
 (
   cd .jac/mobile-rn
   npm ci --no-audit --no-fund

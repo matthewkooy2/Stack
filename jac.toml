@@ -37,6 +37,7 @@ watchdog = "==6.0.0"
 # Preserve the Python-backed execution of migrated backend helpers.
 [placement.pins]
 "agents.*" = "server"
+"mobile.prototype.Views" = "client"
 
 [apps.Stack]
 kind = "service"

@@ -1,5 +1,7 @@
-import from "@jac/mobui" { View, Text, Pressable, ScrollView, Modal, Switch, KeyboardAvoidingView, ActivityIndicator }
-import from "./device.js" { Icon, authenticate, authenticateGoogle, cancelGoogleSignIn, restoreSession, rpc, signOut, errorText, isUnauthorized, shortDate, dateTime, tomorrow, later, pickResume, previewResume, reconcileNotifications, Lifecycle, SwipeSurface, DateField, PDFView, openSettings, confirmDelete, openJobLink, persistSwipe, uploadResumeFile, uploadProgressText, ResumeProcessing }
+import from .prototype.Views { templates }
+import from "./prototype/app.js" { RootFrame, CombinedScreen, ReviewBridge, ReviewLegacyContent, ReviewModal }
+import from "@jac/mobui" { View, Text, Pressable, ScrollView, Switch, KeyboardAvoidingView, ActivityIndicator }
+import from "./device.js" { Icon, authenticate, restoreSession, rpc, signOut, errorText, isUnauthorized, shortDate, dateTime, tomorrow, later, pickResume, previewResume, reconcileNotifications, Lifecycle, SwipeSurface, DateField, PDFView, openSettings, confirmDelete, openJobLink, persistSwipe, uploadResumeFile, uploadProgressText, ResumeProcessing }
 import from .theme { s }
 import from .components.UI { Button, Field, Chip, Empty, Logo }
 import from .components.Prep { Prep }
@@ -11,6 +13,10 @@ import from .components.ResumeRecords { ResumeRecords }
 import from .components.BulletBank { BulletBank }
 import from .components.ResumeFormat { ResumeFormat }
 import from .components.TailoredResumes { TailoredResumes }
+import from .components.Access { Welcome, StackAccess }
+import from "./auth-marks.js" { authenticateSocial }
+import from "./device.js" { realAuthEnabled, liveData, authenticateProvider, cancelGoogleSignIn, recoverGoogleAccount }
+import from .components.AuthAccount { AuthAccount, InvitationGate }
 
 def _find(items: list[dict[str, any]], id: str) -> dict[str, any] {
     for item in items { if item["id"]==id { return item; } }
@@ -29,13 +35,14 @@ def _preferenceForm(p: dict[str, any]) -> dict[str, any] {
         "salary_min":str(x["salary_min"]) if x["salary_min"] else "","salary_period":x["salary_period"],"exclude_companies":_joined(x["exclude_companies"]),"exclude_terms":_joined(x["exclude_terms"]),"soft":x["soft"]};
 }
 
-def:pub app -> JsxElement {
+def StackApp -> JsxElement {
     has logged: bool = False, starting: bool = True, busy: bool = False, refreshing: bool = False,
-        pendingSwipes: int = 0, revision: int = 0, signup: bool = True, googlePending: bool = False, sessionReady: bool = False, username: str = "", password: str = "", invite: str = "", error: str = "", notice: str = "",
+        pendingSwipes: int = 0, revision: int = 0, signup: bool = True, username: str = "", password: str = "", invite: str = "", error: str = "", notice: str = "",
         state: dict[str, any] = {}, tab: str = "Jobs", modal: str = "", selected: str = "", applicationFilter: str = "All", networkFilter: str = "Discover",
         name: str = "", role: str = "", location: str = "United States", mode: str = "Any", notifications: bool = True, graduation: str = "", availableFrom: str = "", prefs: dict[str, any] = {}, profileRevision: int = 0,
         notes: str = "", draft: str = "", rename: str = "", pdfUri: str = "", reminderId: str = "", reminderTitle: str = "", reminderDue: float = 0.0, targetType: str = "", targetId: str = "", returnModal: str = "", pendingOpen: dict[str, any] = {},
-        uploadProgress: dict[str, any] = {}, hubPage: str = "Needs you", hubTask: str = "", hubOpenings: int = 0, savedJob: str = "";
+        uploadProgress: dict[str, any] = {}, hubPage: str = "Needs you", hubTask: str = "", hubOpenings: int = 0, savedJob: str = "", accessPage: str = "welcome",
+        sessionReady: bool = False, googlePending: bool = False, googleInfo: dict[str, any] = {};
 
     def profileFields(source: dict[str, any] = {}) -> None {
         p=(source if source else state)["profile"]; name=p["name"]; role=p["role"]; location=p["location"]; mode=p["mode"]; notifications=p["notifications"];graduation=p.get("graduation_month","");availableFrom=p.get("available_from","");prefs=_preferenceForm(p);
@@ -43,7 +50,7 @@ def:pub app -> JsxElement {
     async def logout -> None {
         busy=True;
         try { await signOut(); } except Exception as e { error=errorText(e); busy=False; return; }
-        logged=False;sessionReady=False; state={}; modal=""; password=""; username=""; tab="Jobs"; pdfUri=""; notice=""; error=""; pendingOpen={}; busy=False;
+        logged=False; sessionReady=False; googleInfo={}; state={}; modal=""; password=""; username=""; tab="Jobs"; pdfUri=""; notice=""; error=""; pendingOpen={}; busy=False;accessPage="welcome";
     }
     def openRecord(kind: str, id: str) -> None {
         selected=id; error=""; notice="";
@@ -112,6 +119,7 @@ def:pub app -> JsxElement {
         busy=False;
     }
     async def completeLogin -> None {
+        googleInfo=await rpc("auth_google_status",{});
         if invite { await rpc("agent_accept_invite",{"invite":invite});invite=""; }
         admission=await rpc("agent_admission",{});
         if not admission.get("admitted") { error="Enter your beta invitation to continue.";return; }
@@ -119,21 +127,30 @@ def:pub app -> JsxElement {
         if len(pendingOpen)>0 { notificationOpen(pendingOpen); }
     }
     async def acceptInvitation -> None {
-        busy=True;error="";
+        if busy { return; } busy=True;error="";
         try { await completeLogin(); } except Exception as e { error=errorText(e); }
         busy=False;
     }
-    async def googleLogin(link: bool = False) -> None {
-        if busy { return; }
-        busy=True;googlePending=True;error="";
+    async def socialLogin(provider: str, link: bool = False) -> None {
+        if busy { return; } busy=True;error="";googlePending=realAuthEnabled and provider=="google";
         try {
-            result=await authenticateGoogle("",link);sessionReady=True;
-            if link { notice="Google sign-in is linked to this Stack account."; }
-            await completeLogin();
+            result=await authenticateProvider(provider,link);
+            if result {
+                password="";
+                sessionReady=True;await completeLogin();
+                if link { notice="Google sign-in is linked to this Stack account."; }
+            }
         } except Exception as e { error=errorText(e); }
         busy=False;googlePending=False;
     }
-    async def cancelGoogle -> None { await cancelGoogleSignIn(); }
+    async def recoverAccount(oldUsername: str, oldPassword: str) -> None {
+        if busy { return; } busy=True;error="";
+        try {
+            await recoverGoogleAccount(oldUsername,oldPassword);revision+=1;logged=False;state={};modal="";sessionReady=True;
+            await completeLogin();notice="Google is linked to your original account." if liveData else "Google is linked to your original account. This UI still uses demo feature data.";
+        } except Exception as e { error=errorText(e); }
+        busy=False;
+    }
     async def mutate(endpoint: str, args: dict[str, any], close: bool = True, ask: bool = False) -> None {
         if busy { return; } revision=revision+1; busy=True; error=""; notice="";
         try {
@@ -187,100 +204,57 @@ def:pub app -> JsxElement {
         if not error { profileRevision=profileRevision+1; }
     }
 
-    <KeyboardAvoidingView style={s.screen} behavior="padding">
+    # Additional destinations used by Prep; existing tab navigation stays the same.
+    def prepAwareNavigate(next: str) -> None {
+        if next=="Agents" { openAgents("Activity"); }
+        elif next=="features" { openAgents("Features"); }
+        elif next=="resume-bank" { modal="Experience bank"; }
+        elif next[0:5]=="task:" { openTask(next[5:]); }
+        else { tab=next; }
+    }
+
+    async def reviewNavigate(screen: str) -> None {
+        if screen in ["welcome","signup","signin"] {
+            if logged { await logout(); }
+            accessPage="welcome" if screen=="welcome" else "stack"; signup=screen!="signin"; error="";
+        } else {
+            if realAuthEnabled and not logged { error="Sign in before reviewing demo screens.";return; }
+            if not logged { await socialLogin("google"); }
+            modal="";
+            if screen in ["Jobs","Applications","Network","Resume","Prep"] { tab=screen; }
+            elif screen=="Edit profile" { editProfile(); }
+            elif screen[0:7]=="Agents:" { openAgents(screen[7:]); }
+            else { modal=screen; }
+        }
+    }
+
+    <View style={s.screen if logged and len(state)>0 else s.accessScreen}>
+        <ReviewBridge screen={modal or tab if logged else ("welcome" if accessPage=="welcome" else ("signup" if signup else "signin"))} onNavigate={reviewNavigate}/>
         <Lifecycle onRefresh={refresh} onOpen={notificationOpen}/>
-        {<View style={[s.empty,{flex:1,justifyContent:"center"}]}><Text style={s.brand}>stack</Text><ActivityIndicator color="#3765E8"/><Button label="Cancel pending Google sign-in" onPress={cancelGoogle} secondary={True}/></View> if starting else (
-        <ScrollView contentContainerStyle={s.auth} keyboardShouldPersistTaps="handled">
-            <View style={s.authLogo}><Icon name="layers" color="white" size={35}/></View>
-            <View style={{gap:13}}><Text style={s.eyebrow}>A LITTLE MOMENTUM. A BIG NEXT STEP.</Text><Text style={s.authTitle}>Your next chapter{"\n"}starts here.</Text><Text style={s.body}>Find your people. Find your fit. Make your move.</Text></View>
-            <View style={{gap:15}}><Text style={s.heading}>{"Create your Stack" if signup else "Welcome back"}</Text>
-                {<View style={{gap:12}}><Button label="Continue with Google" onPress={lambda { googleLogin(); }} disabled={busy}/><Text style={s.small}>Google sign-in uses your basic identity. Gmail and Calendar are optional. Already use Stack? Sign in with your password and link Google from Profile to keep your data.</Text><Field label="Username" value={username} onChange={lambda (v: str) { username=v; }}/><Field label="Password" value={password} onChange={lambda (v: str) { password=v; }} secret={True}/></View> if not sessionReady else <Text style={s.body}>You are signed in. Accept your invitation to open Stack.</Text>}
-                <Field label="Beta invitation (first visit)" value={invite} onChange={lambda (v: str) { invite=v; }}/>
-                {<Text style={s.errorText}>{error}</Text> if error else <View/>}
-                <Button label={"Just a moment…" if busy else ("Accept invitation" if sessionReady else ("Get started" if signup else "Sign in"))} onPress={acceptInvitation if sessionReady else login} disabled={busy} icon="next"/>
-                {<Button label="Cancel Google sign-in" onPress={cancelGoogle} secondary={True}/> if googlePending else <View/>}
-                {<Button label="Use another account" onPress={logout} secondary={True}/> if sessionReady else <View/>}
-                <Pressable onPress={lambda { signup=not signup; error=""; }} accessibilityRole="button"><Text style={[s.body,{textAlign:"center",color:"#3765E8"}]}>{"Already have an account? Sign in" if signup else "New here? Create an account"}</Text></Pressable>
-            </View>
-            <Text style={[s.small,{textAlign:"center"}]}>Development preview · Real job discovery{"\n"}Real accounts. Your resume stays private.\nJob data is for your personal search; do not redistribute provider datasets.</Text>
-        </ScrollView> if not logged else (
-        <View style={{flex:1}}>
-            {<View style={s.error}><Text style={s.errorText}>{error}</Text><Pressable onPress={lambda { error=""; refresh(); }}><Text style={[s.errorText,{fontWeight:"700",marginTop:5}]}>Retry</Text></Pressable></View> if error else <View/>}
-            {<Pressable style={s.notice} onPress={lambda { notice=""; }}><Text style={s.noticeText}>{notice}</Text></Pressable> if notice else <View/>}
-            {<View style={s.empty}><ActivityIndicator/><Text style={s.body}>Connecting to your Stack…</Text><Button label="Retry connection" onPress={refresh}/><Button label="Sign out" onPress={logout} secondary={True}/></View> if len(state)==0 else (
-            <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-                <Text style={s.eyebrow}>LET’S MAKE THIS YOUR YEAR</Text><Text style={s.title}>A little about you.</Text><Text style={s.body}>We’ll use this to shape your job search. You can change it anytime.</Text>
-                <Field label="Your name" value={name} onChange={lambda (v: str) { name=v; }}/><Field label="Target role" value={role} onChange={lambda (v: str) { role=v; }} placeholder="Separate several roles with commas"/><Field label="Expected graduation (YYYY-MM)" value={graduation} onChange={lambda (v: str) { graduation=v; }} placeholder="2027-05"/><Field label="Available full-time from (YYYY-MM)" value={availableFrom} onChange={lambda (v: str) { availableFrom=v; }} placeholder="Optional"/><Field label="Location" value={location} onChange={lambda (v: str) { location=v; }} placeholder="City and state, a state, or United States"/>
-                <MatchInputs value={prefs} onChange={lambda (v: dict[str, any]) { prefs=v; }}/>
-                <Button label="Find my next chapter" onPress={saveProfile} disabled={busy} icon="next"/>
-            </ScrollView> if not state["profile"]["onboarded"] else (
-            <View style={{flex:1}}>
-                <View style={[s.between,{paddingHorizontal:24,paddingTop:13,paddingBottom:12}]}><View style={s.row}><Icon name="layers" size={26} color="#3765E8"/><Text style={s.brand}>stack</Text></View><View style={s.row}><AgentBadge summary={state.get("agents",{})} onPress={lambda { openAgents("Needs you" if state.get("agents",{}).get("attention",0)>0 else "Activity"); }}/><Pressable accessibilityLabel="Open profile" style={[s.avatar,{width:38,height:38,borderRadius:13,backgroundColor:"#E9EFFC"}]} onPress={lambda { modal="Profile"; error=""; }}><Text style={[s.avatarText,{fontSize:14}]}>{state["profile"]["name"][0:1].upper()}</Text></Pressable></View></View>
-                <ScrollView style={s.grow} contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-                    {[<View key={"saved-"+a["id"]} style={s.savedCard} accessibilityLiveRegion="polite">
-                        <View style={s.row}><Icon name="done" color="#167867"/><Text style={[s.heading,{flex:1}]}>Saved to Applications</Text></View>
-                        <Text style={s.body}>{a["job"]["title"]+" · "+a["job"]["company"]}</Text>
-                        <Text style={s.small}>{"Sample job. Agents work on real saved jobs." if a["demo"] else "Nothing was sent to the employer. Want agent help? It is optional, and anything outbound waits for your approval."}</Text>
-                        {<AgentLaunch application={a} runs={state.get("agents",{}).get("runs",[])} features={state.get("agents",{}).get("features",[])} onOpenTask={openTask} onNavigate={navigate} compact={True}/> if not a["demo"] else <View/>}
-                        <View style={s.wrap}><Chip label="View application" onPress={lambda { openRecord("application",a["id"]); }}/><Chip label="Done" onPress={lambda { savedJob=""; }}/></View>
-                    </View> for a in state["applications"] if tab=="Jobs" and a["job_id"]==savedJob]}
-                    {<View key={"jobs-"+str(profileRevision)}><Discovery decisions={state["decisions"]} saved={state.get("saved_search",{})} profile={state["profile"]} onSwipe={trackJob} disabled={busy}/></View> if tab=="Jobs" else <View/>}
-                    {(
-                        <View style={{gap:20}}><View style={{gap:7}}><Text style={s.eyebrow}>ONE STEP CLOSER</Text><Text style={s.title}>Your momentum.</Text><Text style={s.body}>Every opportunity, in one place.</Text></View>
-                            <View style={s.row}><View style={s.stat}><Text style={s.statValue}>{str(len(state["applications"]))}</Text><Text style={s.small}>Applications</Text></View><View style={s.stat}><Text style={s.statValue}>{str(len([a for a in state["applications"] if a["status"]=="Interview"]))}</Text><Text style={s.small}>Interviews</Text></View><View style={s.stat}><Text style={s.statValue}>{str(len([r for r in state["reminders"] if not r["done"]]))}</Text><Text style={s.small}>Follow-ups</Text></View></View>
-                            <ScrollView horizontal={True} showsHorizontalScrollIndicator={False} contentContainerStyle={{gap:8}}>{[<Chip key={f} label={f} active={applicationFilter==f} onPress={lambda { applicationFilter=f; }}/> for f in ["All","Ready to apply","Queued","Preparing","Submitted","Interview","Rejected"]]}</ScrollView>
-                            {[<Pressable key={a["id"]} onPress={lambda { openRecord("application",a["id"]); }} style={s.card} accessibilityRole="button">
-                                <View style={s.between}><View style={s.row}><Logo job={a["job"]}/><View style={s.grow}><Text style={s.strong}>{a["job"]["company"]}</Text><Text style={s.small}>{shortDate(a["created_at"])}</Text></View></View><Icon name="chevron" size={18}/></View>
-                                <Text style={s.heading}>{a["job"]["title"]}</Text><View style={s.between}><Chip label={a["status"]+(" · Demo" if a["demo"] else "")} active={True}/><Text style={s.small}>View activity</Text></View>
-                                {[<Text key={t["id"]} style={[s.small,{color:"#A4540F" if t["attention"] else "#3765E8",fontWeight:"700"}]}>{"✦ "+t["title"]+" · "+runLabel(t)}</Text> for t in runsFor(state.get("agents",{}).get("runs",[]),a["id"],["application","jobs","resume"])[0:1]]}
-                            </Pressable> for a in state["applications"] if applicationFilter=="All" or a["status"]==applicationFilter]}
-                            {<Empty title="Room for your next move." text="Swipe right on a job to save it here." icon="applications"/> if len([a for a in state["applications"] if applicationFilter=="All" or a["status"]==applicationFilter])==0 else <View/>}
-                        </View>
-                    ) if tab=="Applications" else <View/>}
-                    {(
-                        <View style={{gap:20}}><View style={{gap:7}}><Text style={s.eyebrow}>PEOPLE OPEN DOORS</Text><Text style={s.title}>Start a conversation.</Text><Text style={s.body}>A few thoughtful connections can go a long way.</Text></View>
-                            <View style={s.row}>{[<Chip key={f} label={f} active={networkFilter==f} onPress={lambda { networkFilter=f; }}/> for f in ["Discover","Saved"]]}</View>
-                            <NetworkAgent runs={state.get("agents",{}).get("runs",[])} features={state.get("agents",{}).get("features",[])} onOpenTask={openTask} onNavigate={navigate}/><View style={s.mutedBox}><Text style={s.small}>Sample people below are fictional examples, separate from your real contacts. Stack never messages them.</Text></View>
-                            {[<Pressable key={c["id"]} style={s.card} accessibilityRole="button" onPress={lambda { openRecord("contact",c["id"]); }}>
-                                <View style={s.row}><View style={[s.avatar,{backgroundColor:_find(state["people"],c["person_id"])["color"]}]}><Text style={s.avatarText}>{_find(state["people"],c["person_id"])["initials"]}</Text></View><View style={s.grow}><Text style={s.heading}>{_find(state["people"],c["person_id"])["name"]}</Text><Text style={s.small}>{_find(state["people"],c["person_id"])["role"]}</Text><Text style={s.small}>{_find(state["people"],c["person_id"])["company"]}</Text></View><Icon name={"bookmark" if c["saved"] else "arrow"} color="#3765E8" size={20}/></View>
-                                <Text style={s.body}>{_find(state["people"],c["person_id"])["reason"]}</Text><Chip label={_find(state["people"],c["person_id"])["signal"]} active={True}/>
-                            </Pressable> for c in state["contacts"] if networkFilter=="Discover" or c["saved"]]}
-                            {<Empty title="Your circle starts here." text="Save someone from Discover to keep them close." icon="network"/> if networkFilter=="Saved" and len([c for c in state["contacts"] if c["saved"]])==0 else <View/>}
-                        </View>
-                    ) if tab=="Network" else <View/>}
-                    {(
-                        <View style={{gap:20}}><View style={{gap:7}}><Text style={s.eyebrow}>PUT YOUR BEST SELF FORWARD</Text><Text style={s.title}>Your story, on paper.</Text><Text style={s.body}>One home for your experience and potential.</Text></View>
-                            <View style={{gap:4}}><Text style={s.label}>YOUR UPLOADS</Text><Text style={s.small}>Resumes you uploaded. Stack reads them and never changes them.</Text></View>
-                            {<Text accessibilityLiveRegion="polite" style={s.small}>{uploadProgressText(uploadProgress)}</Text> if uploadProgress else <View/>}
-                            <Pressable style={[s.card,{borderStyle:"dashed",borderColor:"#B9CAEE",alignItems:"center",paddingVertical:27}]} onPress={upload} disabled={busy} accessibilityRole="button" accessibilityLabel="Upload PDF resume"><View style={[s.avatar,{backgroundColor:"#EDF2FF"}]}><Icon name="upload" color="#3765E8"/></View><Text style={s.heading}>Add your resume</Text><Text style={s.small}>Choose a PDF from Files · up to 10 MB</Text></Pressable>
-                            {[<View key={r["id"]} style={s.card}><View style={s.row}><Icon name="resume" size={29} color="#3765E8"/><View style={s.grow}><Text style={s.strong}>{r["name"]}</Text><Text style={s.small}>{shortDate(r["created_at"])} · Private PDF</Text></View><Pressable accessibilityLabel="Manage resume" style={s.iconButton} onPress={lambda { selected=r["id"]; rename=r["name"]; modal="Manage resume"; }}><Icon name="more"/></Pressable></View>{<Chip label="Default resume" active={True}/> if state["selected_resume"]==r["id"] else <View/>}<Button label="Preview resume" onPress={lambda { preview(r["id"]); }} secondary={True} disabled={busy}/><Button label="Review details" secondary={True} onPress={lambda { extractFacts(r["id"]); }}/><ResumeFormat resume={r} onChanged={lambda (next: dict[str, any]) { state=next; }}/></View> for r in state["resumes"]]}
-                            <BulletBank onChanged={lambda (next: dict[str, any]) { state=next; }}/>
-                            <TailoredResumes items={state.get("tailored_resumes",[])} onChanged={lambda (next: dict[str, any]) { state=next; }}/>
-                            <ResumeAgents applications={state["applications"]} runs={state.get("agents",{}).get("runs",[])} features={state.get("agents",{}).get("features",[])} onOpenTask={openTask} onNavigate={navigate} resumes={state["resumes"]} onChanged={lambda (next: dict[str, any]) { state=next; }}/>
-                            <View style={s.hero}><View style={s.row}><Icon name="sparkles" color="#3765E8"/><Text style={s.heading}>A resume for the role.</Text></View><Text style={s.body}>See how a tailored version could highlight the right experience.</Text><Button label="Explore a sample" secondary={True} onPress={lambda { modal="Tailoring preview"; }}/><Text style={s.small}>Demo preview. Your uploaded PDF is never modified.</Text></View>
-                        </View>
-                    ) if tab=="Resume" else <View/>}
-                    {<Prep owner={state.get("user_id","")} runs={state.get("agents",{}).get("runs",[])} features={state.get("agents",{}).get("features",[])} onOpenTask={openTask} onNavigate={navigate}/> if tab=="Prep" else <View/>}
-                </ScrollView>
-                <View style={s.tabBar}>{[<Pressable key={t} accessibilityRole="tab" accessibilityLabel={t} accessibilityState={{"selected":tab==t}} style={s.tab} onPress={lambda { tab=t; notice=""; }}><Icon name={t.lower()} size={23} color={"#3765E8" if tab==t else "#8E9BB0"}/><Text style={[s.tabText,s.tabActive if tab==t else {}]}>{t}</Text></Pressable> for t in ["Network","Applications","Jobs","Resume","Prep"]]}</View>
-            </View>
-            ))}
-        </View>
+        {<View style={{padding:8,backgroundColor:"#EEF2FC"}}><Text style={s.small}>Real account sign-in · Demo feature data</Text></View> if realAuthEnabled and not liveData else <View/>}
+        {<Button label="Cancel Google sign-in" secondary={True} onPress={cancelGoogleSignIn}/> if googlePending or (starting and realAuthEnabled) else <View/>}
+        {<View style={[s.empty,{flex:1,justifyContent:"center"}]}><Text style={s.brand}>stack</Text><ActivityIndicator color="#3765E8"/></View> if starting else (
+        (<InvitationGate value={invite} onChange={lambda (v: str) { invite=v; }} onSubmit={acceptInvitation} onSignOut={logout} busy={busy} error={error} info={googleInfo} onRecover={recoverAccount}/> if sessionReady else (<Welcome onStack={lambda { accessPage="stack";error=""; }} onProvider={socialLogin} busy={busy} error={error}/> if accessPage=="welcome" else <StackAccess username={username} password={password} invite={invite} signup={signup} busy={busy} error={error} onUsername={lambda (v: str) { username=v; }} onPassword={lambda (v: str) { password=v; }} onInvite={lambda (v: str) { invite=v; }} onSubmit={login} onToggle={lambda { signup=not signup;error=""; }} onBack={lambda { accessPage="welcome";password="";error=""; }}/>)) if not logged else (
+        <CombinedScreen screen={tab} templates={templates} onNavigate={prepAwareNavigate} onProfile={lambda { modal="Profile"; }}/>
         ))}
-        <Modal visible={bool(modal)} animationType="slide" presentationStyle="pageSheet" onRequestClose={lambda { if not busy { modal=""; } }}>
+        <ReviewModal visible={bool(modal)} animationType="slide" presentationStyle="pageSheet" onRequestClose={lambda { if not busy { modal=""; } }}>
             <KeyboardAvoidingView style={s.screen} behavior="padding">
                 <View style={s.modalHeader}><Pressable accessibilityLabel="Close details" style={s.iconButton} disabled={busy} onPress={lambda { modal=returnModal if modal=="Reminder" else ""; error=""; }}><Icon name="back"/></Pressable><Text style={[s.heading,{flex:1}]}>{modal}</Text>{<ActivityIndicator color="#3765E8"/> if busy else <View/>}</View>
                 {<View style={s.error}><Text style={s.errorText}>{error}</Text></View> if error else <View/>}
                 {<View style={s.notice}><Text style={s.noticeText}>{notice}</Text></View> if notice else <View/>}
                 {<PDFView uri={pdfUri}/> if modal=="PDF preview" else (
                 <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+                    <ReviewLegacyContent>
+                    {<Button label="Your experience bank" secondary={True} icon="resume" onPress={lambda { modal="Experience bank"; }}/> if modal=="Profile" else <View/>}
+                    {<AuthAccount info={googleInfo} busy={busy} pending={googlePending} onLink={lambda { socialLogin("google",True); }} onCancel={cancelGoogleSignIn} onRecover={recoverAccount}/> if realAuthEnabled and modal=="Profile" else <View/>}
                     {<AgentHub key={"hub-"+str(hubOpenings)} summary={state.get("agents",{})} features={state.get("agents",{}).get("features",[])} applications={state.get("applications",[])} initialPage={hubPage} initialTask={hubTask} onNavigate={navigate}/> if modal=="Agents" and len(state)>0 else <View/>}
+                    {<BulletBank onChanged={lambda (next: dict[str, any]) { state=next; }}/> if modal=="Experience bank" else <View/>}
                     {<ResumeRecords id={selected} onChanged={lambda (next: dict[str, any]) { state=next; }}/> if modal=="Resume details" else <View/>}
                     {(
                         <View style={{gap:20}}><View style={s.card}><View style={s.row}><View style={[s.avatar,{backgroundColor:"#E8EFFE",width:65,height:65}]}><Text style={[s.avatarText,{fontSize:25}]}>{state["profile"]["name"][0:1].upper()}</Text></View><View style={s.grow}><Text style={s.heading}>{state["profile"]["name"]}</Text><Text style={s.body}>{state["profile"]["role"]}</Text></View></View><Text style={s.body}>{state["profile"]["location"]} · {state["profile"]["mode"]}</Text><Button label="Edit profile & preferences" onPress={editProfile} secondary={True}/></View>
                             <Text style={s.heading}>Your agent connection.</Text><Text style={s.strong}>{state.get("agents",{}).get("model_provider",{}).get("provider","Not configured")}</Text><Text style={s.small}>{state.get("agents",{}).get("model_provider",{}).get("message","")}</Text><Button label="Agents: features, rules and activity" secondary={True} onPress={lambda { openAgents("Features"); }}/>
-                            <View style={s.mutedBox}><View style={s.row}><Icon name="shield" size={19}/><Text style={s.strong}>Your space stays yours.</Text></View><Text style={s.small}>Account data and PDFs are stored on your Mac during development. Model requests share the selected task context with your configured provider.</Text></View>
-                            <Text style={s.small}>Link Google sign-in to keep using this Stack account and its saved data.</Text><Button label="Link Google sign-in" onPress={lambda { googleLogin(True); }} secondary={True} disabled={busy}/>{<Button label="Cancel Google sign-in" onPress={cancelGoogle} secondary={True}/> if googlePending else <View/>}<Button label="iPhone notification settings" onPress={openSettings} secondary={True} icon="bell"/><Button label="Sign out" onPress={logout} secondary={True} disabled={busy} icon="logout"/><Text style={[s.small,{textAlign:"center"}]}>Stack 0.1 · Built for your next chapter</Text>
+                            <View style={s.mutedBox}><View style={s.row}><Icon name="shield" size={19}/><Text style={s.strong}>Your space stays yours.</Text></View><Text style={s.small}>{"Your resumes, applications, contacts and practice are saved to your Stack account. Nothing is sent to an employer, a contact or a model provider unless you approve it." if liveData else "This prototype stores mock data on this device. Agent actions are simulated; no employer, email service, or model provider is contacted."}</Text></View>
+                            <Button label="iPhone notification settings" onPress={openSettings} secondary={True} icon="bell"/><Button label="Sign out" onPress={logout} secondary={True} disabled={busy} icon="logout"/><Text style={[s.small,{textAlign:"center"}]}>Stack 0.1 · Built for your next chapter</Text>
                         </View>
                     ) if modal=="Profile" and len(state)>0 else <View/>}
                     {<View style={{gap:19}}><Field label="Your name" value={name} onChange={lambda (v: str) { name=v; }}/><Field label="Target role" value={role} onChange={lambda (v: str) { role=v; }} placeholder="Separate several roles with commas"/><Field label="Expected graduation (YYYY-MM)" value={graduation} onChange={lambda (v: str) { graduation=v; }} placeholder="2027-05"/><Field label="Available full-time from (YYYY-MM)" value={availableFrom} onChange={lambda (v: str) { availableFrom=v; }} placeholder="Optional"/><Field label="Location" value={location} onChange={lambda (v: str) { location=v; }} placeholder="City and state, a state, or United States"/><MatchInputs value={prefs} onChange={lambda (v: dict[str, any]) { prefs=v; }}/><View style={s.between}><Text style={s.strong}>Reminder notifications</Text><Switch value={notifications} onValueChange={lambda (v: bool) { notifications=v; }}/></View><Button label="Save preferences" onPress={saveProfile} disabled={busy}/></View> if modal=="Edit profile" else <View/>}
@@ -304,8 +278,11 @@ def:pub app -> JsxElement {
                         </View>
                     ) for c in state.get("contacts",[]) if modal=="Contact" and c["id"]==selected]}
                     {<View style={{gap:13}}><Text style={s.heading}>Follow-ups</Text>{[<View key={r["id"]} style={s.card}><Text style={s.strong}>{r["title"]}</Text><Text style={s.body}>{"Completed" if r["done"] else dateTime(r["due_at"])}</Text><View style={s.wrap}>{<Chip label="Complete" onPress={lambda { mutate("change_reminder",{"id":r["id"],"action":"complete"},False); }}/> if not r["done"] else <View/>}<Chip label="Reschedule" onPress={lambda { editReminder(r); }}/><Chip label="Delete" onPress={lambda { mutate("change_reminder",{"id":r["id"],"action":"delete"},False); }}/></View></View> for r in state.get("reminders",[]) if r["target_id"]==selected]}</View> if modal in ["Application","Contact"] else <View/>}
+                </ReviewLegacyContent>
                 </ScrollView>)}
             </KeyboardAvoidingView>
-        </Modal>
-    </KeyboardAvoidingView>
+        </ReviewModal>
+    </View>
 }
+
+def:pub app -> JsxElement { return <RootFrame><StackApp/></RootFrame>; }

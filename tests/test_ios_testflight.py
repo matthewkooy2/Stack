@@ -34,10 +34,11 @@ class TestFlightScript(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         for name in ('scripts/ci/ios-testflight.sh', 'native/app.config.js', 'native/build-config.js',
-                     'native/package.json', 'native/package-lock.json'):
+                     'native/package.json', 'native/package-lock.json', 'native/app-icon.png'):
             target = self.root / name
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(ROOT / name, target)
+        shutil.copytree(ROOT / 'native/modules', self.root / 'native/modules')
         (self.root / 'native/Podfile.lock').write_text('PODS:\n  - ExpoModulesCore\n\nSPEC CHECKSUMS:\n  ExpoModulesCore: ' + 'a' * 40 + '\n')
         (self.root / '.jac/mobile-rn/ios').mkdir(parents=True)
         (self.root / 'bin').mkdir()

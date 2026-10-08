@@ -184,6 +184,8 @@ PODS:
     - ExpoModulesCore
   - ExpoAudio (57.0.5):
     - ExpoModulesCore
+  - ExpoClipboard (57.0.0):
+    - ExpoModulesCore
   - ExpoDocumentPicker (57.0.2):
     - ExpoModulesCore
   - ExpoDomWebView (57.0.1):
@@ -2480,6 +2482,8 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - StackSpeech (0.1.0):
+    - ExpoModulesCore
   - Yoga (0.0.0)
 
 DEPENDENCIES:
@@ -2494,6 +2498,7 @@ DEPENDENCIES:
   - expo-dev-menu-interface (from `../node_modules/expo-dev-menu-interface/ios`)
   - ExpoAsset (from `../node_modules/expo-asset/ios`)
   - ExpoAudio (from `../node_modules/expo-audio/ios`)
+  - ExpoClipboard (from `../node_modules/expo-clipboard/ios`)
   - ExpoDocumentPicker (from `../node_modules/expo-document-picker/ios`)
   - "ExpoDomWebView (from `../node_modules/@expo/dom-webview/ios`)"
   - ExpoFileSystem (from `../node_modules/expo-file-system/ios/ExpoFileSystem.podspec`)
@@ -2591,6 +2596,7 @@ DEPENDENCIES:
   - RNScreens (from `../node_modules/react-native-screens`)
   - RNSVG (from `../node_modules/react-native-svg`)
   - RNWorklets (from `../node_modules/react-native-worklets`)
+  - StackSpeech (from `../modules/stack-speech/ios`)
   - Yoga (from `../node_modules/react-native/ReactCommon/yoga`)
 
 EXTERNAL SOURCES:
@@ -2616,6 +2622,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-asset/ios"
   ExpoAudio:
     :path: "../node_modules/expo-audio/ios"
+  ExpoClipboard:
+    :path: "../node_modules/expo-clipboard/ios"
   ExpoDocumentPicker:
     :path: "../node_modules/expo-document-picker/ios"
   ExpoDomWebView:
@@ -2809,6 +2817,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native-svg"
   RNWorklets:
     :path: "../node_modules/react-native-worklets"
+  StackSpeech:
+    :path: "../modules/stack-speech/ios"
   Yoga:
     :path: "../node_modules/react-native/ReactCommon/yoga"
 
@@ -2824,13 +2834,14 @@ SPEC CHECKSUMS:
   expo-dev-menu-interface: 7a59e803916fbfd1b96c75ff91ea8dddac7e722f
   ExpoAsset: a917b756b2e4fe12cef1ac3bca5fd849ddb2b919
   ExpoAudio: edc9230b788be6f65238a53907d5c176b57a7ce0
+  ExpoClipboard: 67d46a8be4a50ec610c7b2f4966c0475aec6d969
   ExpoDocumentPicker: fe03a24855e39af0f9b5aee17e7eb4813f6e44a6
   ExpoDomWebView: beaec034e51bd028428b98bb1f2633ab79c6d095
   ExpoFileSystem: 28778f942725170102f7c6cf4dee05a526ddacd0
   ExpoFont: f8198a952ba2ff53c9b393b5269ea435f232cfc3
   ExpoKeepAwake: 72af0b3be3615e59bc819d26061ff4e06b155ee0
   ExpoLogBox: 80957303325cd4439137765c90a87d7f22aaf2ff
-  ExpoModulesCore: 83cebffbbed2025ca7014072630603f03e306be6
+  ExpoModulesCore: 3ee1009608e4acdae3696cff4564a30414b84a5e
   ExpoModulesJSI: 383849017851b1ebacbd78cfaa32b18b6152585e
   ExpoModulesWorklets: 8c9a7e3572a420e3e7f93f98453da9c9175edf88
   ExpoModulesWorkletsAdapter: 06948bf7cd8f2946f78f69a4c872863abca3d42f
@@ -2920,6 +2931,7 @@ SPEC CHECKSUMS:
   RNScreens: 7118cd7715c226856125b5bece3c4d9abec90356
   RNSVG: 6cae8d4082913be2eb43eaec2a456222c42195ed
   RNWorklets: 43af89f696342f91118a2f1f3a879056e2f47331
+  StackSpeech: 0778d06d67aa0125596c7de64d299442584efdd6
   Yoga: 18b74b3ade30bebc1904004dfaceae1dd02a330a
 
 PODFILE CHECKSUM: 583b41833c89bb482c8fc09263f1019d932adbde

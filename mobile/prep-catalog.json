@@ -1,0 +1,187 @@
+[
+  {
+    "id": "project",
+    "track": "Behavioral",
+    "topic": "Ownership",
+    "title": "Tell your project story",
+    "minutes": 5,
+    "prompt": "Tell me about a project you are proud of. What did you personally contribute, what tradeoff did you make, and what did you learn?",
+    "languages": [],
+    "hints": [
+      "Use Situation, Task, Action, Result.",
+      "Distinguish your work from the team\u2019s work."
+    ]
+  },
+  {
+    "id": "disagreement",
+    "track": "Behavioral",
+    "topic": "Collaboration",
+    "title": "Work through disagreement",
+    "minutes": 5,
+    "prompt": "Tell me about a disagreement with a teammate. How did you listen, gather evidence, and reach a decision?",
+    "languages": [],
+    "hints": [
+      "Explain the shared goal without assigning blame."
+    ]
+  },
+  {
+    "id": "setback",
+    "track": "Behavioral",
+    "topic": "Growth",
+    "title": "Learn from a setback",
+    "minutes": 5,
+    "prompt": "Describe a mistake, how you responded, and a concrete change you made afterward.",
+    "languages": [],
+    "hints": [
+      "Choose a real example; a useful lesson does not require invented metrics."
+    ]
+  },
+  {
+    "id": "project-2",
+    "track": "Behavioral",
+    "topic": "Ownership",
+    "title": "Tell your project story",
+    "minutes": 5,
+    "prompt": "Tell me about a time you took ownership of a problem without being asked.",
+    "languages": [],
+    "hints": [
+      "Use Situation, Task, Action, Result.",
+      "Distinguish your work from the team\u2019s work."
+    ]
+  },
+  {
+    "id": "project-3",
+    "track": "Behavioral",
+    "topic": "Ownership",
+    "title": "Tell your project story",
+    "minutes": 5,
+    "prompt": "Describe a difficult tradeoff you made on a project. What was the outcome?",
+    "languages": [],
+    "hints": [
+      "Use Situation, Task, Action, Result.",
+      "Distinguish your work from the team\u2019s work."
+    ]
+  },
+  {
+    "id": "project-4",
+    "track": "Behavioral",
+    "topic": "Ownership",
+    "title": "Tell your project story",
+    "minutes": 5,
+    "prompt": "Tell me about a project where you had to prioritize under a deadline.",
+    "languages": [],
+    "hints": [
+      "Use Situation, Task, Action, Result.",
+      "Distinguish your work from the team\u2019s work."
+    ]
+  },
+  {
+    "id": "project-5",
+    "track": "Behavioral",
+    "topic": "Ownership",
+    "title": "Tell your project story",
+    "minutes": 5,
+    "prompt": "Describe how you measured whether your work made a difference.",
+    "languages": [],
+    "hints": [
+      "Use Situation, Task, Action, Result.",
+      "Distinguish your work from the team\u2019s work."
+    ]
+  },
+  {
+    "id": "disagreement-2",
+    "track": "Behavioral",
+    "topic": "Collaboration",
+    "title": "Work through disagreement",
+    "minutes": 5,
+    "prompt": "Tell me about a time you changed your mind after listening to a teammate.",
+    "languages": [],
+    "hints": [
+      "Explain the shared goal without assigning blame."
+    ]
+  },
+  {
+    "id": "disagreement-3",
+    "track": "Behavioral",
+    "topic": "Collaboration",
+    "title": "Work through disagreement",
+    "minutes": 5,
+    "prompt": "Describe how you helped a team move forward when people disagreed.",
+    "languages": [],
+    "hints": [
+      "Explain the shared goal without assigning blame."
+    ]
+  },
+  {
+    "id": "disagreement-4",
+    "track": "Behavioral",
+    "topic": "Collaboration",
+    "title": "Work through disagreement",
+    "minutes": 5,
+    "prompt": "Tell me about a time you gave difficult feedback to a teammate.",
+    "languages": [],
+    "hints": [
+      "Explain the shared goal without assigning blame."
+    ]
+  },
+  {
+    "id": "disagreement-5",
+    "track": "Behavioral",
+    "topic": "Collaboration",
+    "title": "Work through disagreement",
+    "minutes": 5,
+    "prompt": "Describe a time you worked with someone whose approach differed from yours.",
+    "languages": [],
+    "hints": [
+      "Explain the shared goal without assigning blame."
+    ]
+  },
+  {
+    "id": "setback-2",
+    "track": "Behavioral",
+    "topic": "Growth",
+    "title": "Learn from a setback",
+    "minutes": 5,
+    "prompt": "Tell me about a time your first approach failed. What did you change?",
+    "languages": [],
+    "hints": [
+      "Choose a real example; a useful lesson does not require invented metrics."
+    ]
+  },
+  {
+    "id": "setback-3",
+    "track": "Behavioral",
+    "topic": "Growth",
+    "title": "Learn from a setback",
+    "minutes": 5,
+    "prompt": "Describe a time you received difficult feedback and acted on it.",
+    "languages": [],
+    "hints": [
+      "Choose a real example; a useful lesson does not require invented metrics."
+    ]
+  },
+  {
+    "id": "setback-4",
+    "track": "Behavioral",
+    "topic": "Growth",
+    "title": "Learn from a setback",
+    "minutes": 5,
+    "prompt": "Tell me about a missed deadline. How did you respond?",
+    "languages": [],
+    "hints": [
+      "Choose a real example; a useful lesson does not require invented metrics."
+    ]
+  },
+  {
+    "id": "setback-5",
+    "track": "Behavioral",
+    "topic": "Growth",
+    "title": "Learn from a setback",
+    "minutes": 5,
+    "prompt": "Describe a skill you struggled to learn and how you made progress.",
+    "languages": [],
+    "hints": [
+      "Choose a real example; a useful lesson does not require invented metrics."
+    ]
+  }
+]

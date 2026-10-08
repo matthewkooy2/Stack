@@ -18,7 +18,7 @@ module.exports = () => {
   return {
     name:'Stack', slug:'stack', version:'0.1.0', orientation:'portrait', userInterfaceStyle:'light',
     // Prebuild writes this literally into CFBundleVersion; Xcode build settings cannot override it.
-    ios:{supportsTablet:false,bundleIdentifier:'com.matthewkooy.stack',...(buildNumber ? {buildNumber} : {}),infoPlist:development ? {
+    ios:{icon:'./app-icon.png',supportsTablet:false,bundleIdentifier:'com.matthewkooy.stack',...(buildNumber ? {buildNumber} : {}),infoPlist:development ? {
       NSLocalNetworkUsageDescription:'Connect to your Mac for Stack development.',
       NSAppTransportSecurity:{NSAllowsArbitraryLoads:true,NSAllowsLocalNetworking:true},
     } : {}},

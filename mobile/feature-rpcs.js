@@ -1,0 +1,20 @@
+// The signed-in functions the public gateway publishes (agents/gateway.jac PERSONAL). tests/live-contract.cjs
+// keeps this list identical to the gateway, so the app can neither miss nor invent an endpoint.
+export const FEATURE_RPCS=new Set(`
+  interview_create interview_get interview_answer interview_correct interview_continue interview_sessions resume_save_records agent_notification_status resume_bank resume_bank_save resume_bank_delete resume_bank_select
+
+  bootstrap save_profile save_timeline swipe save_application mark_application_submitted
+  select_application_resume save_contact upload_resume read_resume change_resume save_reminder change_reminder
+  search_jobs get_job save_search reset_search import_job_url get_import_status source_status agent_settings
+  agent_save_facts agent_save_policy agent_activity agent_run agent_cancel agent_respond agent_traces
+  agent_feedback agent_reconcile agent_contacts agent_save_contact agent_stop_contact agent_import_contacts
+  agent_events agent_resolve_event agent_google_start agent_google_finish agent_disconnect agent_export
+  agent_start agent_extract_resume resume_save_details agent_browser agent_browser_control
+  agent_browser_subscribe prep_live prep_progress prep_for_application prep_catalog prep_sessions prep_create
+  prep_get prep_save account_export account_delete agent_model_logs agent_linkedin_profile agent_linkedin_start
+  agent_features agent_approve agent_retry agent_dismiss resume_transfer_complete retry_resume_processing
+  upload_resume_source use_resume_template read_resume_source read_tailored_resume check_tailored_resume
+  score_resume delete_tailored_resume agent_continue_tailoring transcription_upload transcription_list
+  transcription_get transcription_audio transcription_action transcription_transfer_complete
+  transcription_retry_setup agent_register_push agent_remove_push agent_admission
+`.split(/\s+/).filter(Boolean));

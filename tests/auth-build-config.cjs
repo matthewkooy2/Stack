@@ -1,0 +1,12 @@
+const assert = require('node:assert/strict');
+const {settings} = require('../scripts/auth-build-config.cjs');
+const release = {STACK_BUILD_MODE:'release', STACK_API_URL:'https://stack.example.com'};
+assert.deepEqual(settings(release), {mode:'google-test', data:'live', origin:release.STACK_API_URL});
+assert.throws(() => settings({...release, STACK_AUTH_MODE:'mock'}), /Release builds require/);
+assert.throws(() => settings({...release, STACK_DATA_MODE:'mock'}), /Release builds require/);
+assert.throws(() => settings({...release, STACK_AUTH_API_URL:'https://other.example.com'}), /must use STACK_API_URL/);
+assert.throws(() => settings({STACK_BUILD_MODE:'release'}), /explicit STACK_API_URL/);
+assert.throws(() => settings({...release, STACK_API_URL:'http://localhost:8000'}), /HTTPS/);
+assert.deepEqual(settings({}), {mode:'mock', data:'mock'});
+assert.deepEqual(settings({STACK_AUTH_MODE:'google-test', STACK_DATA_MODE:'live', STACK_AUTH_API_URL:release.STACK_API_URL}), {mode:'google-test', data:'live', origin:release.STACK_API_URL});
+console.log('PASS release authentication: real accounts and live data, one validated API origin, mock builds rejected.');

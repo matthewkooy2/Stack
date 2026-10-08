@@ -127,16 +127,87 @@ async function feedbackTests(){
  }finally{globalThis.fetch=originalFetch;if(ui)await act(async()=>ui.unmount());}
  console.log('PASS Agent Feedback: rating/note required, failed-save draft retained, output-linked request, saved confirmation.');
 }
-async function resumeUnavailableTests(){
- const {ResumeUnavailable}=load(path.join(root,'.jac/mobile-rn/jac-src/mobile/components/ResumeUnavailable.js'));
- let ui;
+async function resumeFieldSizingTests(){
+ const {ResumeField}=load(path.join(root,'.jac/mobile-rn/jac-src/mobile/components/ResumeReview.js'));
+ let ui,changed='';
+ const make=value=>React.createElement(ResumeField,{label:'Resume details',value,onChange:value=>{changed=value;},disabled:false});
  try{
-  await act(async()=>{ui=renderer.create(React.createElement(ResumeUnavailable));});
-  assert.match(JSON.stringify(ui.toJSON()),/temporarily unavailable/);
-  assert.match(JSON.stringify(ui.toJSON()),/PDF remains saved/);
-  assert.equal(ui.root.findAll(n=>n.type==='TextInput').length,0);
+  for(const value of ['A long school name that wraps when the available field width is narrow','First line\nSecond line\nThird line\n','Short','']){
+   await act(async()=>{if(ui)ui.update(make(value));else ui=renderer.create(make(value));});
+   const mirror=ui.root.findAll(n=>n.type==='Text')[0],input=ui.root.findAll(n=>n.type==='TextInput')[0];
+   const flat=style=>Object.assign({},...([style].flat()));
+   assert.equal(mirror.props.children,(value||'Not found')+'\u200b');
+   assert.equal(mirror.props.accessible,false);assert.equal(mirror.props.accessibilityElementsHidden,true);
+   assert.equal(flat(mirror.props.style).height,undefined);assert.equal(mirror.props.numberOfLines,undefined);
+   assert.equal(input.props.onContentSizeChange,undefined,'Initial sizing must not depend on an input event');
+   assert.equal(input.props.multiline,true);assert.equal(input.props.scrollEnabled,false);assert.equal(flat(input.props.style).height,'100%');
+   for(const key of ['fontSize','lineHeight','letterSpacing','padding','includeFontPadding'])assert.equal(flat(input.props.style)[key],flat(mirror.props.style)[key]);
+   await act(async()=>input.props.onChangeText('Edited\nvalue'));assert.equal(changed,'Edited\nvalue');
+  }
  }finally{if(ui)await act(async()=>ui.unmount());}
- console.log('PASS paused resume details: clear status, preserved upload, no editable parser fields.');
+ console.log('PASS resume field sizing: initial wrapping, explicit/trailing newlines, value changes, accessible editing, no fixed-height/event dependency.');
+}
+async function resumeReviewTests(){
+ const username='resume_ui_'+Date.now(),password='Resume-review-test-123';
+ const {ResumeReview}=load(path.join(root,'.jac/mobile-rn/jac-src/mobile/components/ResumeReview.js'));
+ let ui;const originalFetch=globalThis.fetch;
+ await device.authenticate(username,password,true);
+ try{
+  const state=await device.rpc('upload_resume',{name:'Candidate.pdf',content:fs.readFileSync(path.join(root,'tests/fixtures/openresume-laverne.pdf')).toString('base64')});
+  const id=state.resumes[0].id;
+  await act(async()=>{ui=renderer.create(React.createElement(ResumeReview,{resumeId:id}));await pause();});
+  const button=label=>ui.root.findAll(n=>n.type==='Pressable'&&n.props.accessibilityLabel===label)[0];
+  const field=label=>ui.root.findAll(n=>n.type==='TextInput'&&n.props.accessibilityLabel===label)[0];
+  for(let i=0;i<100&&!field('Profile Name');i++)await act(async()=>{await new Promise(r=>setTimeout(r,100));});
+  assert.ok(field('Profile Name'),JSON.stringify(ui.toJSON()));assert.equal(field('Profile Name').props.value,'Leo Leopard');assert.ok(!field('Education School'));
+  await act(async()=>{button('Education').props.onPress();});assert.match(field('Education School').props.value,/University of La Verne/);
+  await act(async()=>{button('Work experience 1').props.onPress();});
+  assert.ok(ui.root.findAll(n=>n.type==='Text'&&n.props.children==='\u2022').length,'Parsed descriptions must show bullet markers');
+  await act(async()=>{button('Edit Work experience 1 Descriptions').props.onPress();});
+  const originalDescriptions=field('Work experience 1 Descriptions').props.value;
+  assert.ok(originalDescriptions.trim(),'Sample PDF supplies a description item');
+  await act(async()=>{field('Work experience 1 Descriptions').props.onChangeText(originalDescriptions+'\nAdded resume bullet');});
+  await act(async()=>{button('Finish editing Work experience 1 Descriptions').props.onPress();});
+  assert.ok(!field('Work experience 1 Descriptions'));assert.match(JSON.stringify(ui.toJSON()),/Added resume bullet/);
+  await act(async()=>{field('Profile Name').props.onChangeText('Reviewed Candidate');});
+  globalThis.fetch=async()=>{throw new Error('Network request failed');};
+  await act(async()=>{await button('Save draft').props.onPress();});assert.equal(field('Profile Name').props.value,'Reviewed Candidate');assert.match(JSON.stringify(ui.toJSON()),/Cannot reach Stack/);
+  globalThis.fetch=originalFetch;
+  await act(async()=>{await button('Save draft').props.onPress();});assert.match(JSON.stringify(ui.toJSON()),/Draft saved/);
+  const draft=await device.rpc('agent_settings');assert.ok(draft.facts.length);assert.ok(draft.facts.every(f=>!f.verified));
+  const reloaded=await device.rpc('agent_extract_resume',{id});
+  assert.equal(reloaded.sections.flatMap(s=>s.fields).find(f=>f.key==='workExperiences.0.descriptions').value,originalDescriptions+'\nAdded resume bullet');
+  await act(async()=>{button('Add experience').props.onPress();});assert.ok(field('Work experience 3 Company'));
+  await act(async()=>{field('Work experience 3 Company').props.onChangeText('Added Employer');});
+  await act(async()=>{await button('Confirm resume details').props.onPress();});assert.match(JSON.stringify(ui.toJSON()),/Resume details confirmed/);
+  const facts=(await device.rpc('agent_settings')).facts;assert.ok(facts.every(f=>f.verified));assert.ok(facts.some(f=>f.value.includes('Added Employer')));
+  assert.equal(button('Confirm resume details').props.disabled,true);
+  await act(async()=>{button('View extracted text').props.onPress();});assert.match(JSON.stringify(ui.toJSON()),/ON CAMPUS INVOLVEMENT/);
+ }finally{
+  globalThis.fetch=originalFetch;if(ui)await act(async()=>ui.unmount());
+  await device.rpc('account_delete',{username,password});await device.signOut();
+ }
+ console.log('PASS resume review: real PDF parser, section toggles, editable field/value rows, offline draft retention, unconfirmed draft, add experience, one-step confirmation, source text.');
+}
+async function resumeBulletTests(){
+ const {ResumeBulletField}=load(path.join(root,'.jac/mobile-rn/jac-src/mobile/components/ResumeReview.js'));
+ let ui,changed;
+ const make=(value,disabled=false)=>React.createElement(ResumeBulletField,{label:'Details',value,disabled,onChange:value=>{changed=value;}});
+ const button=label=>ui.root.findAll(n=>n.type==='Pressable'&&n.props.accessibilityLabel===label)[0];
+ const text=()=>ui.root.findAll(n=>n.type==='Text').map(n=>n.props.children);
+ try{
+  await act(async()=>{ui=renderer.create(make('First item\n\n\u2022 Already marked\nLong item that wraps without becoming another bullet\n'));});
+  assert.equal(text().filter(t=>t==='\u2022').length,3);assert.ok(text().includes('Already marked'));assert.ok(!text().includes('\u2022 Already marked'));
+  assert.equal(changed,undefined,'Displaying bullets must not modify stored contents');
+  await act(async()=>button('Edit Details').props.onPress());
+  const input=()=>ui.root.findAll(n=>n.type==='TextInput')[0];
+  assert.match(input().props.value,/\u2022 Already marked/);
+  await act(async()=>input().props.onChangeText('Updated\nAnother item'));assert.equal(changed,'Updated\nAnother item');
+  await act(async()=>ui.update(make(changed)));await act(async()=>button('Finish editing Details').props.onPress());
+  assert.equal(text().filter(t=>t==='\u2022').length,2);assert.ok(text().includes('Updated'));
+  await act(async()=>ui.update(make('',true)));assert.ok(text().includes('Not found'));assert.equal(button('Edit Details').props.disabled,true);assert.ok(!text().includes('\u2022'));
+ }finally{if(ui)await act(async()=>ui.unmount());}
+ console.log('PASS resume bullet display: item boundaries, wrapping structure, blanks, existing markers, unchanged storage, edit/preview, disabled state.');
 }
 async function screenTests(){
  // Reuse the actual adapter, with only lifecycle timing replaced by explicit test refreshes.
@@ -188,7 +259,7 @@ async function screenTests(){
  for(let i=0;i<50&&!/Saved to Applications/.test(text());i++)await act(async()=>{await pause();});
  assert.match(text(),/Saved to Applications/);assert.match(text(),/Nothing was sent to the employer/);
  assert.equal((await device.rpc('bootstrap',{})).agents.runs.length,0);
- assert.ok(labelled(/^Explain my fit/).length&&!labelled(/^Prepare & apply/).length&&button('Build interview plan'));
+ assert.ok(labelled(/^Explain my fit/).length&&labelled(/^Prepare & apply/).length&&button('Build interview plan'));
  assert.equal(labelled(/^Agents: 0 active, 0 need you$/).length,1);
  await press('Build interview plan');await until(/practice sessions to Prep/);
  await press('Applications');assert.match(text(),/UI Test Employer/);
@@ -216,15 +287,15 @@ async function agentScreenTests({ui,text,button,press,field,input,tick,labelled,
  // Uses a dedicated test API config (never a real one) to bind this account to a local provider;
  // the test plays the worker, so no model, browser, or email is contacted.
  const config=process.env.STACK_TEST_AGENT_CONFIG,owner=(await device.rpc('bootstrap',{})).user_id;
- fs.writeFileSync(config,JSON.stringify({provider:'codex-cli',local_cli_owner:owner,local_cli_daily_limit:20,action_daily_limits:{send_email:5}}));
+ fs.writeFileSync(config,JSON.stringify({provider:'codex-cli',local_cli_owner:owner,local_cli_daily_limit:20,action_daily_limits:{browser_fill:5,send_email:5}}));
  const finish=(work,result)=>agentWorker('agent_finish',{id:work.id,owner:work.owner,lease:work.lease,result});
  const openBadge=async()=>{const badge=labelled(/^Agents: /)[0];assert.ok(badge,'Agents header entry');await act(async()=>{await badge.props.onPress();await new Promise(r=>setTimeout(r,60));});};
  try{
   await press('Jobs');await openBadge();assert.match(text(),/Your agents\./);assert.match(text(),/No tasks are running/);await press('Needs you');assert.match(text(),/Nothing needs you right now/);
-  await press('Features');for(const title of ['Networking & follow-ups','Resume tailoring','Job-fit analysis','Profile suggestions','Interview coaching','Code practice runs','Live interviews','Email tracking','Calendar assistant'])assert.ok(text().includes(title),title);
+  await press('Features');for(const title of ['Application assistant','Networking & follow-ups','Resume tailoring','Job-fit analysis','Profile suggestions','Interview coaching','Code practice runs','Live interviews','Email tracking','Calendar assistant'])assert.ok(text().includes(title),title);
   assert.match(text(),/Meanwhile: /);assert.match(text(),/Your control: /);
   await press('Rules');await act(async()=>{ui.root.findAll(n=>n.type==='Switch')[0].props.onValueChange(true);});
-  await press('Model');await press('Send Email');await field('Allowed destination domains','jobs.smartrecruiters.com, example.com');
+  await press('Model');await press('Browser Fill');await press('Send Email');await field('Allowed destination domains','jobs.smartrecruiters.com, example.com');
   await tick();assert.equal(input('Allowed destination domains').props.value,'jobs.smartrecruiters.com, example.com','Refresh must keep unsaved rules');
   await press('Save standing permissions · unsaved changes');assert.match(text(),/Standing permissions saved/);
   await press('Facts');await field('Fact name','email');await field('Your answer','ui-tester@example.com');await press('Save confirmed fact');assert.match(text(),/ui-tester@example.com/);
@@ -248,23 +319,42 @@ async function agentScreenTests({ui,text,button,press,field,input,tick,labelled,
   await press('Don’t do this · cancel task');assert.match(text(),/Cancelled. Nothing was shared/);
   assert.ok((await agentWorker('agent_claim')).idle);await press('Close details');
 
-  // Application tracking remains manual; the independent fit workflow still works.
+  // Application: explicit start; answers and documents are reviewed before anything is shared.
   await press('Applications');
   const card=ui.root.findAll(n=>n.type==='Pressable'&&n.props.accessibilityRole==='button'&&!n.props.accessibilityLabel&&JSON.stringify(n.findAllByType('Text').map(t=>t.props.children)).includes('UI Test Employer'))[0];
-  await act(async()=>{card.props.onPress();});assert.match(text(),/Agent help/);
-  assert.ok(!labelled(/^Prepare & apply/).length);
-  assert.ok(button('Open application page')&&button('Mark as submitted'));
-  await press('Explain my fit');
-  work=await agentWorker('agent_claim');assert.equal(work.step,'fit');
-  await finish(work,{artifact:{summary:'Clear timeline match.',strengths:['Graduation window matches'],gaps:[],unknowns:[],evidence:[]}});
-  await tick();assert.ok((await agentWorker('agent_claim')).idle);
-  await press('Close details');
+  await act(async()=>{card.props.onPress();});assert.match(text(),/Agent help/);assert.match(text(),/approve submission separately/);
+  await press('Prepare & apply');assert.match(text(),/Prepare & apply started/);
+  work=await agentWorker('agent_claim');assert.equal(work.step,'inspect');
+  await finish(work,{artifact:{adapter:'lever',schema_hash:'s',fields:[{label:'Email',type:'email',tag:'input',key:'email',required:true,name:'email',id:'email',options:[],value:''},{label:'Resume',type:'file',tag:'input',key:'answer:resume',required:true,name:'resume',id:'resume',options:[],value:''}]}});
+  work=await agentWorker('agent_claim');assert.equal(work.step,'fit');await finish(work,{artifact:{summary:'Clear timeline match.',strengths:['Graduation window matches'],gaps:[],unknowns:[],evidence:[]}});
+  const blank=fs.readFileSync(path.join(root,'tests/fixtures/blank.pdf')).toString('base64');
+  const change={id:'s0.e0.b0',kind:'rewrite',where:'Experience · Clinic',before:'Completed rotations.',after:'Completed clinical rotations.',reason:'Listing asks for clinical work.'};
+  work=await agentWorker('agent_claim');assert.equal(work.step,'tailor');await finish(work,{artifact:{summary:'Leads with clinical work',changes:[change],rejected:[],dropped:[],notes:[],plan:{},source_digest:'d',format:'latex',tex:'',final:false,evidence:[],pdf:{name:'Tailored resume.pdf',content:blank,pages:1,diff:'+ Clinical rotations'}}});
+  assert.ok((await agentWorker('agent_claim')).idle,'Resume changes must wait for review');
+  await tick();await press('Open task Prepare & apply · Needs your review');
+  await until(/Review your tailored resume for UI Test Employer/);assert.match(text(),/CHANGES · 1 OF 1 KEPT/);assert.match(text(),/Step 4 of 6/);
+  await press('Apply the changes I kept');assert.match(text(),/Approved/);
+  work=await agentWorker('agent_claim');assert.equal(work.step,'approve_resume');
+  await finish(work,{artifact:{summary:'Applied 1 of 1 changes.',tailor:{final:true,pdf:{name:'Tailored resume.pdf',content:blank,pages:1,diff:'+ Clinical rotations'}}}});
+  assert.ok((await agentWorker('agent_claim')).idle,'Fill must wait for review');
+  await press('Back to tasks');await tick();assert.match(text(),/Prepare & apply · Needs your review/);
+  await press('Open task Prepare & apply · Needs your review');
+  await until(/ANSWERS STACK WILL ENTER/);assert.match(text(),/Email: ui-tester@example.com/);assert.match(text(),/Tailored resume.pdf/);assert.match(text(),/Step 5 of 6/);
+  await press('Preview the resume that will be uploaded');assert.ok(ui.root.findAll(n=>n.type==='PDF').length);await press('Close preview');
+  await press('Approve sharing these answers');assert.match(text(),/Approved/);
+  work=await agentWorker('agent_claim');assert.equal(work.step,'fill');
+  await finish(work,{needs_input:true,message:'Complete these missing application answers.',requests:[{key:'answer:start',label:'Earliest start date'}]});
+  await tick();await until(/STACK NEEDS YOUR ANSWERS/);await field('Earliest start date','June 2027');
+  await tick();assert.equal(input('Earliest start date').props.value,'June 2027');
+  await press('Save answers and resume');assert.match(text(),/resumes automatically/);
+  assert.equal((await device.rpc('agent_activity',{})).attention,0);
+  await press('Back to tasks');await press('Close details');
  } finally {
   fs.writeFileSync(config,'{}');
   // Leave the shared worker queue empty for suites that claim the next global task.
   for(const run of (await device.rpc('agent_activity',{})).runs)if(!['completed','cancelled','failed'].includes(run.status))await device.rpc('agent_cancel',{id:run.id}).catch(()=>{});
  }
- console.log('PASS agent screens: header counts, feature guide, rules draft kept on refresh, facts, contact save without outreach, outreach review/edit persistence/cancel, manual application tracking and standalone job-fit analysis.');
+ console.log('PASS agent screens: header counts, feature guide, rules draft kept on refresh, facts, contact save without outreach, outreach review/edit persistence/cancel, application review of answers and documents, PDF preview, approval, answer requests.');
 }
 async function tailoringScreenTests(){
  const calls=[],refreshers=new Set();let opened='',confirmed=false,failSave=true,failUpload=true,ui;
@@ -294,7 +384,7 @@ async function tailoringScreenTests(){
    if(!run.resume_id){run={...run,resume_id:'resume',resume_name:'Candidate.pdf'};throw new Error('Upload the LaTeX for Candidate.pdf to tailor it.');}
    run={...run,status:'queued',needs_resume_review:false};return run;
   }
-  if(name==='score_resume'){assert.equal(args.application_id,'application');throw new Error('PDF-only scoring is temporarily unavailable. Upload your LaTeX source to score this resume.');}
+  if(name==='score_resume'){assert.equal(args.application_id,'application');return {application_id:'application',resume_name:'Candidate.pdf',source:'pdf',score:scoreAfter};}
   if(name==='agent_approve'){assert.equal(args.step,'approve_resume');assert.equal(args.review_hash,'h1');assert.deepEqual(args.edits,{rejected:['s1.e0.b0']});const {review:_done,...rest}=run;run={...rest,status:'queued'};return run;}
   throw new Error('Unexpected RPC '+name);
  };
@@ -307,8 +397,8 @@ async function tailoringScreenTests(){
  const agents=ready=>React.createElement(ResumeAgents,{applications:[job(ready)],runs:[],features,onOpenTask:id=>{opened=id;},onNavigate:()=>{},resumes,onChanged:()=>{}});
  // A PDF-only resume asks for its LaTeX right under the job; no task starts.
  await act(async()=>{ui=renderer.create(agents(false));});assert.match(text(),/needs its LaTeX/);
- // PDF-only scoring reports its temporary unavailability.
- await press('Score my resume');assert.match(text(),/PDF-only scoring is temporarily unavailable/);
+ // Any saved job can be scored without a model, even before tailoring.
+ await press('Score my resume');assert.match(text(),/SCORE FOR THIS JOB · YOUR PDF/);assert.match(text(),/Job match: 55/);assert.match(text(),/Missing required: Kubernetes/);
  await press('Tailor for this job');assert.match(text(),/Add the LaTeX for Candidate.pdf/);assert.ok(!calls.some(c=>c.name==='agent_start'));
  await act(async()=>{ui.update(agents(true));});await act(async()=>{ui.unmount();ui=renderer.create(agents(true));});
  await press('Tailor for this job');assert.equal(opened,'tailor');
@@ -325,10 +415,11 @@ async function tailoringScreenTests(){
  await press('Upload LaTeX (.tex or Overleaf .zip)');assert.match(text(),/Undefined control sequence/);assert.equal(continued(),0);
  failUpload=false;await press('Upload LaTeX (.tex or Overleaf .zip)');assert.equal(run.status,'queued');assert.equal(continued(),1);
  assert.match(text(),/Tailoring started/);assert.doesNotMatch(text(),/ONE STEP BEFORE TAILORING/);
- // The retired PDF-to-template path cannot be entered from the tailoring UI.
+ // Without a LaTeX file, confirming the parsed details builds Jake's template, then the same task continues.
  resumes=pdfOnly;run={...run,status:'needs_input',needs_resume_review:true};await act(async()=>{for(const tick of refreshers)await tick();await pause();});
- assert.match(text(),/Building a template from PDF details is temporarily unavailable/);
- assert.ok(!calls.some(c=>c.name==='agent_extract_resume'||c.name==='resume_save_details'||c.name==='use_resume_template'));
+ await press("No LaTeX file? Build one from Jake's template");assert.match(text(),/Profile/);
+ await press('Confirm and continue tailoring');assert.match(text(),/Could not save details/);assert.equal(continued(),1);assert.ok(!calls.some(c=>c.name==='use_resume_template'));
+ failSave=false;await press('Confirm and continue tailoring');assert.ok(confirmed);assert.equal(run.status,'queued');assert.equal(continued(),2);
  const original='Original '.repeat(220)+'ORIGINAL END',tailored='Tailored '.repeat(220)+'TAILORED END';
  const changes=[{id:'s1.e0.b0',kind:'rewrite',where:'Experience · Analyst',before:'Built a **tool**.',after:'Built an analysis **tool** for finance.',reason:'Matches the listing.'},
   {id:'omit:s2.e1',kind:'omit',where:'Projects · Game',before:'Game',after:'',reason:'Unrelated to finance.'}];
@@ -359,7 +450,7 @@ async function tailoringScreenTests(){
  await press('Preview tailored resume');assert.equal(ui.root.findByType('PDF').props.uri,'cache/tailored.pdf');assert.doesNotMatch(text(),/TAILORED END/);
  await press('Close preview');assert.equal(ui.root.findAllByType('PDF').length,0);assert.match(text(),/Your tailored resume/);
  await act(async()=>ui.unmount());
- console.log('PASS tailoring screens: LaTeX upload resumes after compilation; PDF detail building and PDF-only scoring unavailable; per-change review, rejection persistence, approval, final PDF and source preview.');
+ console.log('PASS tailoring screens: opens task, other LaTeX resume offered, inline LaTeX upload continues only after it compiles, inline structured review, save failure does not resume, explicit confirmation resumes, per-change review with reject kept through refresh, approval sends rejections, final result with LaTeX, comparison text, PDF preview and return.');
 }
 
 // End to end against a real API and agent worker (see docs/RESUME_TAILORING.md): the real screens, a real
@@ -404,7 +495,7 @@ async function tailoringEndToEnd(){
  const firstTitle=(await device.rpc('bootstrap',{})).applications.find(a=>!a.demo).job.title;
 
  await press('Resume');
- pick('tests/fixtures/synthetic-resume.pdf','Candidate.pdf');await press('Upload PDF resume');await until(/Candidate.pdf/,20,'PDF uploaded');
+ pick('tests/fixtures/openresume-laverne.pdf','Candidate.pdf');await press('Upload PDF resume');await until(/Candidate.pdf/,20,'PDF uploaded');
  assert.match(text(),/TAILORING FORMAT/);assert.match(text(),/No LaTeX yet/);assert.ok(buttons('Upload LaTeX (.tex or Overleaf .zip)').length,'Resume card offers a LaTeX upload');
  assert.match(text(),/Upload the LaTeX for Candidate.pdf/,'Readiness names the missing LaTeX');assert.doesNotMatch(text(),/"Ready"/,'Tailoring is not shown as ready');
  assert.match(text(),/Resume: Candidate.pdf · needs its LaTeX/);step('PDF only: readiness and the job both say LaTeX is needed');
@@ -444,8 +535,16 @@ async function tailoringEndToEnd(){
  // The approved resume is saved under Resume → Tailored resumes, labelled with its job and checked by the parser.
  await press('Open Tailored resumes');await until(/Tailored for E2E Employer/,20,'Tailored resume listed on arrival');
  assert.match(visible(),/YOUR UPLOADS/);assert.match(visible(),/Tailored for E2E Employer/);assert.ok(visible().includes(firstTitle),'Saved job title shown');
- assert.match(visible(),/PDF parser checks are temporarily unavailable/);
-
+ // The fixture's own layout makes OpenResume miss its Education heading; tailoring must add no new issues.
+ await until(/(Parses well|No new parser issues) · \d+ of \d+ checks/,30,'Parser finds no issues caused by tailoring');
+ await press('Parser check');assert.match(visible(),/WHAT THE OPENRESUME PARSER READ/);
+ const parserRows=visible().split('WHAT THE OPENRESUME PARSER READ | ')[1].split(' | Stack compares what the parser reads')[0].split(' | ');
+ assert.ok(parserRows.some(t=>t.startsWith('✓ ')),'Parser rows shown');
+ for(const row of parserRows.filter(t=>t.startsWith('✕ ')))assert.match(row,/also in your original upload/,'Only pre-existing issues: '+row);
+ assert.match(visible(),/✓ Experience: Harbor Logistics — \d+ of \d+ bullets read/);assert.match(visible(),/✓ Technical Skills — Every skill line read/);
+ const firstSaved=(await device.rpc('bootstrap',{})).tailored_resumes;assert.equal(firstSaved.length,1);assert.equal(firstSaved[0].run_id,run.id);
+ assert.ok(firstSaved[0].score.after.match!=null,'Saved resume keeps its score');assert.match(visible(),/SCORE FOR THIS JOB/);
+ step('saved to Tailored resumes for its job; parser check '+firstSaved[0].parse.passed+'/'+firstSaved[0].parse.total);
 
  // A task that paused because its resume lost its LaTeX (as when a preview switch replaced the data) is fixed from the task.
  const workerPid=Number(process.env.STACK_E2E_WORKER_PID);assert.ok(workerPid,'Set STACK_E2E_WORKER_PID');
@@ -466,9 +565,9 @@ async function tailoringEndToEnd(){
  await until(/Review your tailored resume/,600,'Paused task continued to a proposal');step('paused task: LaTeX uploaded from the task, tailoring continued');
  await press('Apply the changes I kept');await until(/Preview tailored resume/,300,'Final PDF built');
  const resumed=await device.rpc('agent_run',{id:pausedRun.id});assert.equal(resumed.status,'completed');assert.equal(resumed.artifacts.tailor.pdf.pages,1);
- // Saved resumes explicitly report that parser checks are unavailable.
+ // The parser check finishes just after the task completes.
  let both=[];for(let i=0;i<30;i++){both=(await device.rpc('bootstrap',{})).tailored_resumes;if(both.length===2&&both.every(x=>x.parse.checks))break;await new Promise(r=>setTimeout(r,1000));}
- assert.equal(both.length,2);assert.ok(both.every(x=>x.parse.available===false&&x.parse.total===0),JSON.stringify(both.map(x=>x.parse)));
+ assert.equal(both.length,2);assert.ok(both.every(x=>x.parse.compared_to_original&&x.parse.new_issues===0),JSON.stringify(both.map(x=>x.parse)));
  assert.equal(new Set(both.map(x=>x.job_title)).size,2,'Second job saved separately');
  console.log('PASS tailoring end to end: both paths, '+(done.subscription_calls+resumed.subscription_calls)+' model calls, one-page PDFs from your LaTeX.');
 }
@@ -618,7 +717,7 @@ async function linkedinWebTests(){
  await act(async()=>ui.unmount());
  console.log('PASS LinkedIn web: login, Network entry, task start, direct typing with ordered Enter, no uploads, resume, findings/rewrites, closed handoff.');
 }
-(async()=>{if(process.env.STACK_TEST_REMOVAL_UI==='1'){await resumeUnavailableTests();await tailoringScreenTests();await uploadLifecycleTests();return;}if(process.env.STACK_TEST_UPLOAD_UI==='1'){await uploadLifecycleTests();await tailoringScreenTests();return;}if(process.env.STACK_TEST_LINKEDIN_UI==='1'){await browserKeyboardTests();await linkedinScreenTests();return;}if(process.env.STACK_TEST_LINKEDIN_WEB==='1'){await linkedinWebTests();return;}if(process.env.STACK_TEST_TAILOR_E2E==='1'){await tailoringEndToEnd();return;}if(process.env.STACK_TEST_TAILOR_UI==='1'){await tailoringScreenTests();return;}try{await notificationTests();await gestureTests();await feedbackTests();await resumeUnavailableTests();await screenTests();}finally{await worker('discovery_manage',{id:fixtureSource,action:'purge'}).catch(()=>{});}})().catch(e=>{console.error(e);process.exitCode=1;});
+(async()=>{if(process.env.STACK_TEST_UPLOAD_UI==='1'){await uploadLifecycleTests();await tailoringScreenTests();return;}if(process.env.STACK_TEST_LINKEDIN_UI==='1'){await browserKeyboardTests();await linkedinScreenTests();return;}if(process.env.STACK_TEST_LINKEDIN_WEB==='1'){await linkedinWebTests();return;}if(process.env.STACK_TEST_TAILOR_E2E==='1'){await tailoringEndToEnd();return;}if(process.env.STACK_TEST_TAILOR_UI==='1'){await tailoringScreenTests();return;}try{await notificationTests();await gestureTests();await feedbackTests();await resumeReviewTests();await resumeFieldSizingTests();await resumeBulletTests();await screenTests();}finally{await worker('discovery_manage',{id:fixtureSource,action:'purge'}).catch(()=>{});}})().catch(e=>{console.error(e);process.exitCode=1;});
 
 async function uploadLifecycleTests(){
  const originalXHR=globalThis.XMLHttpRequest,originalFetch=globalThis.fetch;

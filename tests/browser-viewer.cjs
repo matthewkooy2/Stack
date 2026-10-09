@@ -82,4 +82,83 @@ async function viewerTests(){
  await act(async()=>{press('Close');});assert.equal(closed,1);assert.equal(requests.length,7,'closing never stops or resumes a task');
  await act(async()=>{root.unmount();});
 }
-(async()=>{await streamTests();await viewerTests();console.log('Native stream and shared viewer tests passed.');})().catch(e=>{console.error(e);process.exitCode=1;});
+
+async function controlFeedbackTests(){
+ let root,receive,state,pending;
+ const requests=[];
+ const openStream=(id,onEvent,onState)=>{
+  receive=onEvent;state=onState;return()=>{};
+ };
+ const requestBrowser=(name,args)=>{
+  requests.push({name,args});
+  return new Promise((resolve,reject)=>{pending={resolve,reject,args};});
+ };
+ await act(async()=>{
+  root=renderer.create(React.createElement(BrowserViewer,{
+   id:'feedback-run',requestBrowser,openStream
+  }));
+ });
+ const button=label=>root.root.findByProps({accessibilityLabel:label});
+ await act(async()=>{button('Open browser').props.onPress();});
+ await act(async()=>{
+  state('connected');
+  receive({
+   control:{mode:'agent',generation:0,instance:'feedback-worker',sequence:0},
+   server_time:Date.now()/1000,observed_at:Date.now()/1000
+  });
+ });
+
+ const cases=[
+  ['take','Take control','Taking control…'],
+  ['resume','Resume agent','Resuming agent…'],
+  ['stop','Stop task','Stopping task…']
+ ];
+ for(const [action,label,loading] of cases){
+  for(const fail of [true,false]){
+   const before=requests.length;
+   const handler=button(label).props.onPress;
+   let first,duplicate;
+   await act(async()=>{
+    first=handler();
+    duplicate=handler();
+   });
+   assert.equal(requests.length,before+1,'duplicate taps send one request');
+   assert.equal(pending.args.action,action);
+   assert.equal(button(loading).props.disabled,true);
+   assert.deepEqual(button(loading).props.accessibilityState,{
+    disabled:true,busy:true
+   });
+   assert.ok(root.root.findAllByType('Text').some(
+    node=>node.props.children===loading
+   ),'pending action is visible');
+
+   await act(async()=>{
+    if(fail)pending.reject(new Error('Synthetic control failure'));
+    else pending.resolve({control:{
+     mode:action==='take'?'user':action==='resume'?'agent':'stopped',
+     generation:pending.args.generation+1,
+     instance:'feedback-worker',
+     controller:action==='take'?pending.args.controller:'',
+     sequence:0
+    }});
+    await Promise.all([first,duplicate]);
+   });
+   assert.equal(root.root.findAllByProps({
+    accessibilityLabel:loading
+   }).length,0,'pending label clears after settlement');
+   if(fail){
+    assert.equal(button(label).props.disabled,false,'failed action can be retried');
+    assert.ok(root.root.findAllByType('Text').some(
+     node=>node.props.children==='Synthetic control failure'
+    ),'failure is visible');
+   }else{
+    assert.equal(root.root.findAllByProps({
+     accessibilityRole:'alert'
+    }).length,0,'successful retry clears the error');
+   }
+  }
+ }
+ await act(async()=>{root.unmount();});
+}
+
+(async()=>{await streamTests();await viewerTests();await controlFeedbackTests();console.log('Native stream and shared viewer tests passed.');})().catch(e=>{console.error(e);process.exitCode=1;});

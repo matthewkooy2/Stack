@@ -13,6 +13,7 @@ struct ApplicationAgentSection: View {
     @State private var task: TaskTarget?
     @State private var showInterview = false
     @State private var offerPrep = false
+    @State private var showPrepPlan = false
 
     private struct Action: Identifiable {
         let kind: String
@@ -74,14 +75,13 @@ struct ApplicationAgentSection: View {
             StackButton(label: "Mock interview for this role", icon: "chat", kind: .secondary) { showInterview = true }
             MessageLine(text: message, isError: false).fadeSwitch(!message.isEmpty)
             if offerPrep {
-                Chip(label: "Open Prep") {
-                    NotificationCenter.default.post(name: .stackNavigate, object: nil, userInfo: ["destination": "prep"])
-                }
+                Chip(label: "Open Prep for this role") { showPrepPlan = true }
             }
             MessageLine(text: error).fadeSwitch(!error.isEmpty)
         }
         .sheet(item: $task) { AgentTaskSheet(taskID: $0.id).environment(store) }
         .sheet(isPresented: $showInterview) { InterviewView(initialApplicationID: application.id).environment(store) }
+        .sheet(isPresented: $showPrepPlan) { ApplicationPrepPlanView(application: application).environment(store) }
     }
 
     private func start(_ kind: String) async {

@@ -21,6 +21,9 @@ struct NetworkAgentSection: View {
     @State private var relationship = ""
     @State private var sourceURL = ""
     @State private var importText = ""
+    @State private var followupLimit = "0"
+    @State private var followupDays = "7"
+    @State private var policyLoaded = false
 
     private var feature: AgentFeature? { store.account.feature("networking") }
 
@@ -40,6 +43,16 @@ struct NetworkAgentSection: View {
             if loaded, contacts.isEmpty { Text("No contacts yet.").font(Typeface.caption).foregroundStyle(Palette.muted) }
             if adding { form } else {
                 StackButton(label: "Add a contact", icon: "add-session", kind: .secondary) { adding = true }
+            }
+            Card(spacing: 10) {
+                Text("Follow-up timing").font(Typeface.option).foregroundStyle(Palette.icon)
+                Text("Set how many follow-ups may be drafted and the days between them. Sending still follows your review and standing permissions.")
+                    .font(Typeface.caption).foregroundStyle(Palette.muted)
+                StackField(label: "Follow-ups per contact (0–3)", text: $followupLimit, keyboard: .numberPad)
+                StackField(label: "Days between follow-ups", text: $followupDays, keyboard: .numberPad)
+                StackButton(label: "Save follow-up timing", kind: .secondary, disabled: working || !policyLoaded) {
+                    Task { await saveFollowupPolicy() }
+                }
             }
         }
         .task { await load() }
@@ -109,9 +122,37 @@ struct NetworkAgentSection: View {
     }
 
     private func load() async {
-        do { contacts = try await store.call("agent_contacts")["contacts"].array }
+        do {
+            contacts = try await store.call("agent_contacts")["contacts"].array
+            if !policyLoaded {
+                let policy = try await store.call("agent_settings")["policy"]
+                followupLimit = String(policy["followup_limit"].int)
+                followupDays = policy["followup_days"].isNull ? "7" : String(policy["followup_days"].int)
+                policyLoaded = true
+            }
+        }
         catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
         loaded = true
+    }
+
+    private func saveFollowupPolicy() async {
+        guard !working else { return }
+        guard let limit = Int(followupLimit), (0...3).contains(limit), let days = Int(followupDays), (3...30).contains(days) else {
+            error = "Use 0–3 follow-ups and 3–30 days between them."
+            return
+        }
+        let generation = store.sessionGeneration
+        working = true
+        defer { working = false }
+        do {
+            var policy = try await store.call("agent_settings")["policy"]
+            guard generation == store.sessionGeneration else { throw CancellationError() }
+            policy["followup_limit"] = .number(Double(limit))
+            policy["followup_days"] = .number(Double(days))
+            try await store.call("agent_save_policy", ["policy": policy])
+            error = ""
+            notice = "Follow-up timing saved."
+        } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
     }
 
     @discardableResult

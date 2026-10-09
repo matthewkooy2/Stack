@@ -413,7 +413,7 @@ struct AgentHubView: View {
             "daily_limits": ["send_email": .number(Double(limit)), "calendar_write": .number(Double(limit))],
             "expires_at": .number(Date().timeIntervalSince1970 + 30 * 86_400),
             "followup_limit": .number(Double(count)),
-            "followup_days": 7,
+            "followup_days": settings["policy"]["followup_days"].isNull ? .number(7) : settings["policy"]["followup_days"],
             "analyze_top_matches": .bool(analyzeTop),
         ]
         await perform("agent_save_policy", ["policy": policy], done: "Standing permissions saved for 30 days.")

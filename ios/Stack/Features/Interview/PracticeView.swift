@@ -3,6 +3,8 @@ import SwiftUI
 /// Technical practice: save answers and code, run tests, and get focused coaching.
 @MainActor
 struct PracticeView: View {
+    var initialSessionID = ""
+    var applicationID = ""
     @Environment(AppStore.self) private var store
 
     @State private var problems: [PrepQuestion] = []
@@ -17,6 +19,9 @@ struct PracticeView: View {
     @State private var message = ""
     @State private var web = ""
     @State private var taskID: TaskTarget?
+    @State private var openedInitial = false
+    @State private var practiceStarted = Date()
+    @State private var showGuide = false
 
     @Environment(\.openURL) private var openURL
 
@@ -43,13 +48,19 @@ struct PracticeView: View {
                 SectionLabel(text: "Continue a session")
                 ForEach(Array(sessions.enumerated()), id: \.offset) { _, row in
                     let language = row["data"]["language"].string
-                    OptionRow(label: row["data"]["problem_id"].string + (language.isEmpty ? "" : " · \(language)"), icon: "code", disabled: busy) {
+                    OptionRow(label: row["data"]["problem_id"].string + (language.isEmpty ? "" : " · \(language)") + (row["data"]["elapsed_seconds"].int > 0 ? " · Practiced" : ""), icon: "code", disabled: busy) {
                         Task { await resume(row["id"].string) }
                     }
                 }
             }
         }
-        .task { await reload() }
+        .task {
+            await reload()
+            if !openedInitial, !initialSessionID.isEmpty {
+                openedInitial = true
+                await resume(initialSessionID)
+            }
+        }
         .task(id: current["id"].string) {
             while !Task.isCancelled, !current["id"].string.isEmpty {
                 try? await Task.sleep(for: .milliseconds(1500))
@@ -113,6 +124,20 @@ struct PracticeView: View {
     private var editor: some View {
         VStack(alignment: .leading, spacing: 12) {
             if let problem { Text(problem.prompt).font(Typeface.body).foregroundStyle(Palette.text) }
+            TimelineView(.periodic(from: practiceStarted, by: 1)) { context in
+                Text("Practice time: " + recordingClock(max(0, context.date.timeIntervalSince(practiceStarted))))
+                    .font(Typeface.caption).foregroundStyle(Palette.muted)
+            }
+            StackButton(label: showGuide ? "Hide approach guide" : "Show approach guide", kind: .secondary) { showGuide.toggle() }
+            if showGuide {
+                let guide = PracticeGuides.forQuestion(data["problem_id"].string)
+                ForEach(guide["steps"].strings, id: \.self) { Text($0).font(Typeface.body).foregroundStyle(Palette.text) }
+                Text(guide["guide"].string).font(Typeface.body).foregroundStyle(Palette.text)
+                Text(guide["check"].string).font(Typeface.caption).foregroundStyle(Palette.muted)
+                if guide.object.isEmpty, let problem {
+                    ForEach(problem.hints, id: \.self) { Text($0).font(Typeface.body).foregroundStyle(Palette.text) }
+                }
+            }
             StackField(label: "Explain your approach", text: Binding(get: { answer }, set: { answer = $0; dirty = true }), multiline: true)
             if hasLanguage {
                 StackField(label: "Your code", text: Binding(get: { code }, set: { code = $0; dirty = true }),
@@ -121,6 +146,7 @@ struct PracticeView: View {
             StackField(label: "Practice notes", text: Binding(get: { notes }, set: { notes = $0; dirty = true }), multiline: true)
             if dirty { Text("Unsaved changes").font(Typeface.caption).foregroundStyle(Palette.muted) }
             StackButton(label: "Save practice", disabled: busy) { Task { await save(kind: "") } }
+            StackButton(label: "Finish practice", icon: "check", disabled: busy) { Task { await save(kind: "done") } }
             if hasLanguage {
                 StackButton(label: "Save and run tests", kind: .secondary, disabled: busy || codeFeature?.state == "unavailable") {
                     Task { await save(kind: "code") }
@@ -162,6 +188,7 @@ struct PracticeView: View {
     // MARK: Actions
 
     private func seed(from row: JSON) {
+        if current["id"] != row["id"] { practiceStarted = Date(); showGuide = false }
         current = row
         let data = row["data"]
         answer = data["answer"].string
@@ -173,9 +200,9 @@ struct PracticeView: View {
     private func reload() async {
         do {
             let catalog = try await store.prep.catalog()
-            problems = catalog.filter { $0.track.lowercased() != "behavioral" }
+            problems = applicationID.isEmpty ? catalog.filter { $0.track.lowercased() != "behavioral" } : catalog
             let rows = try await store.call("prep_sessions")["sessions"].array
-            sessions = rows.filter { $0["data"]["canvas"][PrepCodec.marker].isNull }
+            sessions = rows.filter { $0["data"]["canvas"][PrepCodec.marker].isNull && (applicationID.isEmpty ? $0["data"]["application_id"].string.isEmpty : $0["data"]["application_id"].string == applicationID) }
             let settings = try await store.call("agent_settings")
             web = settings["web_url"].string
         } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
@@ -187,7 +214,7 @@ struct PracticeView: View {
         error = ""
         defer { busy = false }
         do {
-            seed(from: try await store.call("prep_create", ["problem_id": .string(id), "language": .string(language)]))
+            seed(from: try await store.call("prep_create", ["problem_id": .string(id), "language": .string(language), "application_id": .string(applicationID)]))
             await reload()
         } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
     }
@@ -217,9 +244,15 @@ struct PracticeView: View {
             value["answer"] = .string(answer)
             value["code"] = .string(code)
             value["notes"] = .string(notes)
+            if kind == "done" {
+                value["elapsed_seconds"] = .number(min(86400, value["elapsed_seconds"].double + max(1, Date().timeIntervalSince(practiceStarted).rounded())))
+            }
             let saved = try await store.call("prep_save", ["id": current["id"], "revision": current["revision"], "data": value])
             seed(from: saved)
-            if kind.isEmpty {
+            if kind == "done" {
+                message = "Practice completed and saved."
+                current = [:]
+            } else if kind.isEmpty {
                 message = "Practice saved. Continue on either device."
             } else {
                 let result = try await store.call("agent_start", ["kind": .string(kind), "target_id": current["id"]])
@@ -232,10 +265,29 @@ struct PracticeView: View {
     /// Picks up test results and coaching while keeping unsaved edits.
     private func pollResults() async {
         guard !busy, !current["id"].string.isEmpty else { return }
+        let sessionID = current["id"].string
+        let generation = store.sessionGeneration
         do {
-            let result = try await store.call("prep_get", ["id": current["id"]])
+            let result = try await store.call("prep_get", ["id": .string(sessionID)])
+            guard !busy, current["id"].string == sessionID, generation == store.sessionGeneration else { return }
             current["feedback"] = result["feedback"]
             current["results"] = result["results"]
-        } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
+        } catch {
+            if current["id"].string == sessionID, generation == store.sessionGeneration, !(error is CancellationError) {
+                self.error = error.localizedDescription
+            }
+        }
+    }
+}
+
+private enum PracticeGuides {
+    static let rows: [JSON] = {
+        guard let url = Bundle.main.url(forResource: "prep-guides", withExtension: "json"),
+              let data = try? Data(contentsOf: url), let json = try? JSONDecoder().decode(JSON.self, from: data) else { return [] }
+        return json.array
+    }()
+    static func forQuestion(_ id: String) -> JSON {
+        let editorialID = id == "debug-endpoint" ? "debugging" : id
+        return rows.first { $0["id"].string == editorialID } ?? [:]
     }
 }

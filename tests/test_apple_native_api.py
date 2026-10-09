@@ -49,19 +49,28 @@ class NativeAppleAPI(unittest.TestCase):
                     token = header+'.'+payload+'.'+apple.b64(signature)
                     return dict(state=challenge['state'],identity_token=token,authorization_code='fixture-code')
                 def finish(name, args):
-                    with patch.object(apple,'provider',return_value={
+                    with patch.object(client._server.module.apple_auth,'provider',return_value={
                         'id_token':args['identity_token'],'refresh_token':'fixture-private-refresh'}):
                         return rpc(name,args)
                 # Private endpoints retain runtime authentication.
                 for name in ('auth_apple_link_begin','auth_apple_delete_begin','account_delete_apple'):
                     response = client.post('/function/'+name,json={})
                     self.assertFalse(response.ok)
+                # Prepared applications isolate Python helpers in their own
+                # namespace. Bind transport/crypto fixtures to the RPC's module.
+                service = client._server.module.apple_auth
+                for attribute, value in [('configuration',cfg),('signing_key',key.public_key()),
+                                         ('client_secret','fixture-client-secret')]:
+                    fixture = patch.object(service,attribute,return_value=value)
+                    fixture.start()
+                    self.addCleanup(fixture.stop)
                 registered = client.register_user('fixture-apple-existing','Fixture-password-123')
                 self.assertTrue(registered.ok)
                 client.set_auth_token(registered.data['token'])
                 original = rpc('bootstrap')['user_id']
                 rpc('save_profile',{'name':'Preserved Apple marker','role':'Engineer','location':'United States','mode':'Any','notifications':False})
                 challenge = rpc('auth_apple_link_begin',{'username':'fixture-apple-existing','password':'Fixture-password-123'})
+                self.assertTrue(challenge['ok'],challenge)
                 args = proof(challenge)
                 linked = finish('auth_apple_link_finish',args)
                 self.assertTrue(linked['ok'],linked)
@@ -70,7 +79,7 @@ class NativeAppleAPI(unittest.TestCase):
                 self.assertEqual(rpc('bootstrap')['profile']['name'],'Preserved Apple marker')
                 # Reproduce a pinned-runtime lookup/document split, then repair
                 # it with the real PostgreSQL schema before issuing a session.
-                manager, _, db = apple.runtime()
+                manager, _, db = service.runtime()
                 uid = manager.validate_jwt_token(linked['token'])
                 db.rows("""UPDATE identity_users SET doc=jsonb_set(doc,'{identities}',
                     (SELECT jsonb_agg(x) FROM jsonb_array_elements(doc->'identities') x
@@ -100,8 +109,8 @@ class NativeAppleAPI(unittest.TestCase):
                 def provider(path, form):
                     calls.append(path)
                     return {'id_token':args['identity_token'],'refresh_token':'fresh-fixture-refresh'} if path == '/auth/token' else {}
-                with patch.object(apple,'provider',side_effect=provider), \
-                     patch('agents.worker.browser_call',return_value={}):
+                with patch.object(client._server.module.apple_auth,'provider',side_effect=provider), \
+                     patch.object(client._server.module.browser_worker,'browser_call',return_value={}):
                     self.assertTrue(rpc('account_delete_apple',args)['deleted'])
                 self.assertEqual(calls,['/auth/token','/auth/revoke','/auth/revoke'])
                 self.assertFalse(client.login('fixture-apple-existing','Fixture-password-123').ok)

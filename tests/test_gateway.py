@@ -31,6 +31,19 @@ class Gateway(unittest.TestCase):
         try:
             with patch.object(gateway, 'upstream', side_effect=upstream):
                 self.assertEqual(request('/function/agent_features'), 403)
+                # Ownership-confirmed deletion remains available before admission
+                # and after a partial cleanup; Jac still requires private auth.
+                self.assertEqual(request('/function/account_delete'), 200)
+                self.assertEqual(request('/function/account_delete_apple'), 200)
+                for endpoint in gateway.APPLE_PUBLIC | gateway.APPLE_PRIVATE:
+                    gateway._rates.clear()
+                    self.assertEqual(request('/function/' + endpoint), 200)
+                self.assertEqual(request('/sso/apple/begin'), 404)
+                gateway._rates.clear()
+                for _ in range(20):
+                    self.assertEqual(request('/function/auth_apple_begin'), 200)
+                self.assertEqual(request('/function/auth_apple_begin'), 429)
+                gateway._rates.clear()
                 for endpoint in sorted(gateway.PERSONAL):
                     self.assertEqual(request('/function/' + endpoint, True), 200, endpoint)
                 for endpoint in ['agent_claim', 'agent_finish', 'agent_authorize', 'agent_worker_resume_source', 'agent_model_log', 'agent_upgrade_workflows', 'resume_processing_claim', 'resume_processing_stage', 'resume_processing_finish', 'transcription_processing_claim', 'transcription_processing_progress', 'transcription_processing_finish','transcription_processing_runtime']:

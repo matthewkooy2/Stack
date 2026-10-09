@@ -30,6 +30,8 @@ agent_register_push agent_remove_push agent_notification_status agent_admission 
     );
     IDENTITY = {'/user/register', '/user/login'};
     SSO = {'/sso/google/begin', '/sso/google/finish', '/sso/google/poll'};
+    APPLE_PUBLIC = {'auth_apple_begin','auth_apple_finish'};
+    APPLE_PRIVATE = {'auth_apple_link_begin','auth_apple_link_finish','auth_apple_delete_begin','account_delete_apple'};
     BASE = os.environ.get('STACK_WORKER_API', 'http://127.0.0.1:8000');
     _rate_lock = threading.Lock();
     _rates = {};
@@ -147,6 +149,7 @@ class Handler(SimpleHTTPRequestHandler) {
             and (path not in SSO)
             and path != '/browser/stream'
             and (function not in PERSONAL)
+            and (function not in APPLE_PUBLIC | APPLE_PRIVATE)
             and (function != 'agent_accept_invite')
         ) {
             self.send_error(404);
@@ -168,7 +171,7 @@ class Handler(SimpleHTTPRequestHandler) {
                         del _rates[key];
                     }
                 }
-                auth_limited=path in IDENTITY or (path in SSO and path!='/sso/google/poll');
+                auth_limited=path in IDENTITY or function in APPLE_PUBLIC | APPLE_PRIVATE or (path in SSO and path!='/sso/google/poll');
                 key = (address, now, 'sso-poll' if path=='/sso/google/poll' else auth_limited);
                 _rates[key] = _rates.get(key, 0) + 1;
                 if (_rates[key] > (20 if auth_limited else 300)) {
@@ -178,7 +181,7 @@ class Handler(SimpleHTTPRequestHandler) {
             }
             body = self.rfile.read(length);
             authorization = self.headers.get('Authorization', '');
-            if ((function in PERSONAL and function!='agent_admission') or path == '/browser/stream' or (path=='/sso/google/begin' and authorization)) {
+            if ((function in PERSONAL and function not in {'agent_admission','account_delete'}) or path == '/browser/stream' or (path=='/sso/google/begin' and authorization)) {
                 (status, admission) = upstream(
                     '/function/agent_admission', b'{}', authorization
                 );

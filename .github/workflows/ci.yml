@@ -91,7 +91,7 @@ jobs:
             python: test_interview.py test_local_models.py test_stories_api.py
             jac: ''
           - suite: accounts
-            python: test_push_notifications.py
+            python: test_push_notifications.py test_apple_native_api.py
             jac: tests/google_signin_tests.jac tests/google_signin_gateway_tests.jac
     env:
       JAC_DB_SCRATCH: '1'

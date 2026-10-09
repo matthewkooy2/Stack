@@ -1,5 +1,7 @@
 name: Stack
 options:
+  xcodeVersion: "15.4"
+  projectFormat: xcode15_3
   bundleIdPrefix: com.matthewkooy
   deploymentTarget:
     iOS: "17.0"

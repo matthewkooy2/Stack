@@ -22,7 +22,10 @@ struct LocalDraftUITestScene: View {
         .environment(store)
         .environment(\.accessibilityReduceMotion, ProcessInfo.processInfo.arguments.contains("--reduce-motion-preview"))
         .onAppear { store.phase = .ready }
-        .sheet(isPresented: $showProfiles) { PublicProfilesView().environment(store) }
+        .sheet(isPresented: $showProfiles) {
+            PublicProfilesView().environment(store)
+                .environment(\.accessibilityReduceMotion, ProcessInfo.processInfo.arguments.contains("--reduce-motion-preview"))
+        }
         .sheet(isPresented: $showRewrites) {
             ZStack {
                 Palette.page.ignoresSafeArea()
@@ -31,6 +34,7 @@ struct LocalDraftUITestScene: View {
                     LinkedInRewriteEditor(taskID: "offline-test-task", rewrites: rewrites)
                 }
             }.environment(store)
+                .environment(\.accessibilityReduceMotion, ProcessInfo.processInfo.arguments.contains("--reduce-motion-preview"))
         }
     }
 }

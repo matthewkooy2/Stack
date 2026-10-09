@@ -1,0 +1,54 @@
+name: Stack
+options:
+  bundleIdPrefix: com.matthewkooy
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.2.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # Override this build setting in Xcode or pass STACK_API_URL=https://... to xcodebuild.
+    STACK_API_URL: "http://127.0.0.1:8000"
+targets:
+  Stack:
+    type: application
+    platform: iOS
+    sources:
+      - path: Stack
+    info:
+      path: Stack/Info.plist
+      properties:
+        CFBundleDisplayName: Stack
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        ITSAppUsesNonExemptEncryption: false
+        StackAPIBaseURL: $(STACK_API_URL)
+        NSMicrophoneUsageDescription: Stack records your spoken interview answers so you can review them and get coaching.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.matthewkooy.stack.swift
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+  StackTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: StackTests
+    dependencies:
+      - target: Stack
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  Stack:
+    build:
+      targets:
+        Stack: all
+    test:
+      targets:
+        - StackTests

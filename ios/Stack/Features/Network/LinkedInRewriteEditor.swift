@@ -54,7 +54,7 @@ struct LinkedInRewriteEditor: View {
                         disabled: !review.canApprove || review.approved) { review.approve() }
             if let text = review.approvedText {
                 StackButton(label: "Copy approved rewrites", kind: .secondary) {
-                    guard store.phase == .ready else { return }
+                    guard generation == store.sessionGeneration, store.phase == .ready else { return }
                     UIPasteboard.general.string = text
                     copied = true
                 }
@@ -62,6 +62,7 @@ struct LinkedInRewriteEditor: View {
             if copied { Text("Copied. Apply the text on LinkedIn when you're ready.").font(Typeface.caption).foregroundStyle(Palette.muted) }
         }
         .onAppear {
+            guard store.phase == .ready else { return }
             generation = store.sessionGeneration
             if let saved = store.rewriteDrafts[taskID], saved.source == rewrites { review = saved.review }
             else { store.rewriteDrafts[taskID] = SavedRewriteReview(source: rewrites, review: review) }

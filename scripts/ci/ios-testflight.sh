@@ -120,6 +120,16 @@ if [[ "$BUILT_NUMBER" != "$STACK_BUILD_NUMBER" ]]; then
   exit 1
 fi
 
+python3 - "$APP/Info.plist" <<'PY'
+import plistlib
+import sys
+
+with open(sys.argv[1], 'rb') as source:
+    info = plistlib.load(source)
+if info.get('ITSAppUsesNonExemptEncryption') is not False:
+    raise SystemExit('Release archive must declare ITSAppUsesNonExemptEncryption as Boolean false.')
+PY
+
 if [[ "$MODE" == validate ]]; then
   echo "Unsigned release archive $STACK_BUILD_NUMBER validated; skipped signing and upload."
   exit 0

@@ -13,3 +13,4 @@
 # Verified Swift view identifier false positive; exact historical occurrences only.
 db3991e052123b88d2685a854de41553e8ba2877:ios/Stack/Features/Agents/TaskDetailView.swift:linkedin-client-id:482
 cf593118943e801d60f0954737708b244423352a:.gitleaksignore:linkedin-client-id:13
+1716daadd9746ba34e51c4f1f73d9e1ab3948e27:ios/Stack/Features/Agents/TaskDetailView.swift:linkedin-client-id:487

@@ -39,4 +39,3 @@ struct LocalDraftUITestScene: View {
     }
 }
 #endif
-

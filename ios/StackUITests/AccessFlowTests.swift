@@ -90,4 +90,3 @@ final class AccessFlowTests: XCTestCase {
         capture("keyboard-validation")
     }
 }
-

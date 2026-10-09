@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 IOS = ROOT / "ios"
-SOURCES = sorted((IOS / "Stack").rglob("*.swift")) + sorted((IOS / "StackTests").rglob("*.swift"))
+SOURCES = sorted((IOS / "Stack").rglob("*.swift")) + sorted((IOS / "StackTests").rglob("*.swift")) + sorted((IOS / "StackUITests").rglob("*.swift"))
 PAIRS = {")": "(", "]": "[", "}": "{"}
 
 

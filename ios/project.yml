@@ -46,6 +46,16 @@ targets:
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
+  StackUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: StackUITests
+    dependencies:
+      - target: Stack
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
 schemes:
   Stack:
     build:
@@ -54,3 +64,4 @@ schemes:
     test:
       targets:
         - StackTests
+        - StackUITests

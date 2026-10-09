@@ -31,7 +31,7 @@ enum RecordingStore {
 
     static func exists(owner: String, clientID: String) -> URL? {
         guard !clientID.isEmpty, let url = try? url(owner: owner, clientID: clientID),
-              let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? nil,
+              let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
               size > 44 else { return nil }
         return url
     }

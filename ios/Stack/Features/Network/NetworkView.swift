@@ -79,6 +79,7 @@ struct NetworkView: View {
     }
 }
 
+@MainActor
 private struct ContactDetailView: View {
     let recordID: String
     @Environment(AppStore.self) private var store

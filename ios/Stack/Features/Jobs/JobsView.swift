@@ -159,9 +159,9 @@ struct JobsView: View {
 
     private func stamp(for width: CGFloat) -> some View {
         let saving = width > 0
-        return Text(saving ? "SAVE" : "PASS")
+        let label: Text = Text(saving ? "SAVE" : "PASS")
             .font(Font.system(.headline, design: .rounded).weight(.heavy))
-            .foregroundStyle(saving ? Palette.success : Palette.danger)
+        return label.foregroundStyle(saving ? Palette.success : Palette.danger)
             .padding(.horizontal, 12).padding(.vertical, 6)
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(saving ? Palette.success : Palette.danger, lineWidth: 2))
             .rotationEffect(.degrees(saving ? -10 : 10))

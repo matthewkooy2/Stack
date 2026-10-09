@@ -45,7 +45,10 @@ final class AccessFlowTests: XCTestCase {
         username.typeText("ab")
         let password = app.secureTextFields["Password"]
         XCTAssertTrue(password.exists)
-        app.swipeUp()
+        // A whole-screen swipe starts over the keyboard rather than the scrollable form.
+        app.scrollViews.firstMatch.swipeUp()
+        let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.keyboards.firstMatch)
+        XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
         let submit = app.buttons["Sign in"]
         let visible = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == true"), object: submit)
         XCTAssertEqual(XCTWaiter.wait(for: [visible], timeout: 5), .completed)

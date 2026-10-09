@@ -46,7 +46,9 @@ final class AccessFlowTests: XCTestCase {
         let password = app.secureTextFields["Password"]
         XCTAssertTrue(password.exists)
         app.swipeUp()
-        XCTAssertTrue(app.buttons["Sign in"].isHittable)
+        let submit = app.buttons["Sign in"]
+        let visible = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == true"), object: submit)
+        XCTAssertEqual(XCTWaiter.wait(for: [visible], timeout: 5), .completed)
         app.buttons["Sign in"].tap()
         XCTAssertTrue(app.staticTexts["Use a username of at least 3 characters and a password of at least 8."].waitForExistence(timeout: 5))
         capture("keyboard-validation")

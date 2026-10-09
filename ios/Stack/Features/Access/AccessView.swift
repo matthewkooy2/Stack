@@ -92,7 +92,7 @@ struct AccessView: View {
         }
         .frame(minHeight: geometry.size.height, alignment: .topLeading)
         }
-        .scrollDismissesKeyboard(.interactively)
+        .scrollDismissesKeyboard(.immediately)
         .scrollIndicators(.hidden)
         }
     }

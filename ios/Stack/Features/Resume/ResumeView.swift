@@ -2,6 +2,7 @@ import SwiftUI
 import PDFKit
 import UniformTypeIdentifiers
 
+@MainActor
 struct ResumeView: View {
     @Environment(AppStore.self) private var store
     var onProfile: () -> Void
@@ -137,6 +138,7 @@ struct PDFPreview: Identifiable {
     let data: Data
 }
 
+@MainActor
 struct PDFSheet: View {
     let preview: PDFPreview
     @Environment(\.dismiss) private var dismiss
@@ -173,6 +175,7 @@ struct PDFKitView: UIViewRepresentable {
     func updateUIView(_ view: PDFView, context: Context) {}
 }
 
+@MainActor
 struct ManageResumeSheet: View {
     let resume: ResumeItem
     @Environment(AppStore.self) private var store

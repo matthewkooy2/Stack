@@ -3,6 +3,7 @@ import PDFKit
 import UniformTypeIdentifiers
 
 /// A full-height sheet: close button, display title and scrolling content in the shared page style.
+@MainActor
 struct SheetPage<Content: View>: View {
     let title: String
     var subtitle: String = ""
@@ -30,6 +31,7 @@ struct SheetPage<Content: View>: View {
 }
 
 /// The store's current error and notice, faded in and out.
+@MainActor
 struct StoreMessages: View {
     @Environment(AppStore.self) private var store
 
@@ -41,6 +43,7 @@ struct StoreMessages: View {
     }
 }
 
+@MainActor
 struct SectionLabel: View {
     let text: String
 
@@ -54,6 +57,7 @@ struct SectionLabel: View {
     }
 }
 
+@MainActor
 struct ToggleRow: View {
     let label: String
     @Binding var isOn: Bool
@@ -66,6 +70,7 @@ struct ToggleRow: View {
     }
 }
 
+@MainActor
 struct StatusPill: View {
     enum Tone { case attention, active, done, quiet }
 
@@ -102,6 +107,7 @@ struct StatusPill: View {
 }
 
 /// A scrollable block of selectable text, such as LaTeX source or extracted resume text.
+@MainActor
 struct CodeBlock: View {
     let text: String
 

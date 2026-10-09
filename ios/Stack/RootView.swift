@@ -20,6 +20,7 @@ enum StackTab: String, CaseIterable, Identifiable {
     }
 }
 
+@MainActor
 struct RootView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(AppStore.self) private var store
@@ -59,6 +60,7 @@ struct RootView: View {
 }
 
 /// The five destinations, with a cream bar whose selection glides between items.
+@MainActor
 struct MainTabs: View {
     @Environment(AppStore.self) private var store
     @State private var selection: StackTab = .jobs

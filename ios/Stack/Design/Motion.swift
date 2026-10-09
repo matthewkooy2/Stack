@@ -46,6 +46,7 @@ struct StageEntrance: ViewModifier {
 }
 
 /// Wraps a page so that changing `key` replays its entrance from the direction of travel.
+@MainActor
 struct Stage<Key: StageKey, Content: View>: View {
     let key: Key
     var step: Int = 0
@@ -179,6 +180,7 @@ struct FadeSwitch: ViewModifier {
 // MARK: - Looping states
 
 /// A soft disc behind an icon; while active, a ring expands from it (recording, working).
+@MainActor
 struct Halo<Content: View>: View {
     var active = false
     var size: CGFloat = 88

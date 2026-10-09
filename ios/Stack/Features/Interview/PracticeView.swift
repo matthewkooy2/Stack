@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// Technical practice: save answers and code, run tests, and get focused coaching.
+@MainActor
 struct PracticeView: View {
     @Environment(AppStore.self) private var store
 

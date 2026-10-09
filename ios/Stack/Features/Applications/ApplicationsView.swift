@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct ApplicationsView: View {
     @Environment(AppStore.self) private var store
     var onProfile: () -> Void
@@ -64,6 +65,7 @@ struct ApplicationsView: View {
     }
 }
 
+@MainActor
 struct ApplicationDetailView: View {
     let applicationID: String
     @Environment(AppStore.self) private var store
@@ -164,6 +166,7 @@ struct ApplicationDetailView: View {
     }
 }
 
+@MainActor
 struct ReminderSheet: View {
     @Binding var title: String
     @Binding var due: Date

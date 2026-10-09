@@ -73,6 +73,7 @@ enum ApplicationCalendar {
     }
 }
 
+@MainActor
 struct ApplicationCalendarView: View {
     @Environment(AppStore.self) private var store
     @Environment(\.openURL) private var openURL

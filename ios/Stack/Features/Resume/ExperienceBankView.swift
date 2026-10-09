@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// Experience beyond the current resume. Only facts you confirm can be reused when tailoring.
+@MainActor
 struct ExperienceBankView: View {
     @Environment(AppStore.self) private var store
 

@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// A deck of roles. Drag a card right to save it, left to pass; the buttons do the same.
+@MainActor
 struct JobsView: View {
     @Environment(AppStore.self) private var store
     @Environment(\.accessibilityReduceMotion) var reduceMotion
@@ -159,7 +160,7 @@ struct JobsView: View {
     private func stamp(for width: CGFloat) -> some View {
         let saving = width > 0
         return Text(saving ? "SAVE" : "PASS")
-            .font(.system(.headline, design: .rounded).weight(.heavy))
+            .font(Font.system(.headline, design: .rounded).weight(.heavy))
             .foregroundStyle(saving ? Palette.success : Palette.danger)
             .padding(.horizontal, 12).padding(.vertical, 6)
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(saving ? Palette.success : Palette.danger, lineWidth: 2))
@@ -292,6 +293,7 @@ struct JobsView: View {
     }
 }
 
+@MainActor
 struct JobCard: View {
     let job: Job
 
@@ -333,6 +335,7 @@ struct JobCard: View {
     }
 }
 
+@MainActor
 struct JobDetailView: View {
     let job: Job
     @Environment(AppStore.self) private var store

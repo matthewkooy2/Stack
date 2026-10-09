@@ -238,6 +238,7 @@ final class RemoteBrowserModel {
 }
 
 /// The collapsed entry in a task: one button that opens the live browser full screen.
+@MainActor
 struct BrowserEntryView: View {
     let id: String
     let task: JSON
@@ -252,6 +253,7 @@ struct BrowserEntryView: View {
     }
 }
 
+@MainActor
 struct RemoteBrowserView: View {
     let id: String
     let task: JSON

@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// Background work the server does for a resume (PDF parsing, LaTeX compilation), with retry.
+@MainActor
 struct ProcessingStatusView: View {
     let resumeID: String
     var kind = "pdf"
@@ -88,6 +89,7 @@ extension View {
 }
 
 /// Tailoring edits LaTeX, so a resume that is only a PDF gets its LaTeX here and then continues.
+@MainActor
 struct LatexSetupView: View {
     let resume: ResumeItem
     let others: [ResumeItem]

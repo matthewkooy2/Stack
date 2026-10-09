@@ -6,6 +6,7 @@ private struct Connection: Identifiable, Hashable {
     var id: String { record.id }
 }
 
+@MainActor
 struct NetworkView: View {
     @Environment(AppStore.self) private var store
     var onProfile: () -> Void

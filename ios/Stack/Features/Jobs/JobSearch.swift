@@ -42,6 +42,7 @@ enum JobSheet: String, Identifiable {
 }
 
 /// Role, sort, timeline and source chips above the deck.
+@MainActor
 struct JobSearchBar: View {
     let search: JobSearch
     @Binding var sheet: JobSheet?
@@ -75,6 +76,7 @@ struct JobSearchBar: View {
     }
 }
 
+@MainActor
 struct JobFiltersSheet: View {
     let search: JobSearch
     let onApply: (String, JSON) async -> Void
@@ -223,6 +225,7 @@ struct JobFiltersSheet: View {
     }
 }
 
+@MainActor
 struct JobTimelineSheet: View {
     @Environment(AppStore.self) private var store
     @State private var graduation: String
@@ -259,6 +262,7 @@ struct JobTimelineSheet: View {
     }
 }
 
+@MainActor
 struct JobSourcesSheet: View {
     @Environment(AppStore.self) private var store
     @State private var sources: [JSON] = []
@@ -295,6 +299,7 @@ struct JobSourcesSheet: View {
     }
 }
 
+@MainActor
 struct JobImportSheet: View {
     @Environment(AppStore.self) private var store
     let onQueued: (String) -> Void

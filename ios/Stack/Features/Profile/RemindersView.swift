@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// Follow-up reminders for applications and contacts: edit, complete or delete.
+@MainActor
 struct RemindersView: View {
     @Environment(AppStore.self) private var store
 

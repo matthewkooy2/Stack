@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// Resume-side agents: scoring and tailoring for a saved job, and profile suggestions.
+@MainActor
 struct ResumeAgentsSection: View {
     let onOpenTask: (String) -> Void
     let onNavigate: (String) -> Void

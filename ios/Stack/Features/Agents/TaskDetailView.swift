@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// One agent task: context, progress, what it needs from you, review, recovery and results.
+@MainActor
 struct TaskDetailView: View {
     let id: String
     var webURL = ""
@@ -410,6 +411,7 @@ struct TaskDetailView: View {
 }
 
 /// One proposed resume change. `onToggle` is nil outside the review, where the choice is only shown.
+@MainActor
 struct ChangeRow: View {
     let change: JSON
     let rejected: Bool
@@ -450,6 +452,7 @@ struct ChangeRow: View {
     }
 }
 
+@MainActor
 struct DroppedList: View {
     let dropped: [JSON]
 
@@ -465,6 +468,7 @@ struct DroppedList: View {
 }
 
 /// A named result of a task, in a readable form.
+@MainActor
 struct ArtifactView: View {
     let name: String
     let value: JSON
@@ -577,6 +581,7 @@ struct ArtifactView: View {
     }
 }
 
+@MainActor
 struct TailoredResultView: View {
     let value: JSON
     let onPreview: (JSON) -> Void
@@ -644,6 +649,7 @@ struct TailoredResultView: View {
 }
 
 /// A task paused before tailoring because its resume has no LaTeX. The fix happens here, then it continues.
+@MainActor
 struct TailorBlocker: View {
     let run: JSON
     let onNavigate: (String) -> Void

@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// Account sheet: profile and matching preferences, sign-in, agents, follow-ups and sign-out.
+@MainActor
 struct ProfileView: View {
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss

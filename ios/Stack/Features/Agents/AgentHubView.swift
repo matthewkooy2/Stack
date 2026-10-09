@@ -17,6 +17,7 @@ extension Notification.Name {
 }
 
 /// Agents center: attention, activity, feature guide, email and calendar, standing rules and facts.
+@MainActor
 struct AgentHubView: View {
     var initialPage: AgentPage = .needsYou
     var initialTask = ""
@@ -420,6 +421,7 @@ struct AgentHubView: View {
 }
 
 /// A task opened directly, from an application or a notification.
+@MainActor
 struct AgentTaskSheet: View {
     let taskID: String
     @Environment(AppStore.self) private var store

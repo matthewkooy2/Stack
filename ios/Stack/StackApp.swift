@@ -2,6 +2,7 @@ import SwiftUI
 import UserNotifications
 
 @main
+@MainActor
 struct StackApp: App {
     @UIApplicationDelegateAdaptor(StackAppDelegate.self) private var delegate
     @State private var store = AppStore()

@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Record an answer, send it to the transcription worker, review and correct the transcript.
 /// Used by mock interviews; `onUse` hands a reviewed transcript back to the caller.
+@MainActor
 struct TranscriptionPanel: View {
     var onUse: ((String, String) -> Void)?
     var disabled = false

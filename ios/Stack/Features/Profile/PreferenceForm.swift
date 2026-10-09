@@ -49,6 +49,7 @@ struct PreferenceForm: Equatable {
 }
 
 /// Wrapping row of single- or multi-select chips.
+@MainActor
 struct ChoiceChips: View {
     let options: [String]
     let isSelected: (String) -> Bool
@@ -66,6 +67,7 @@ struct ChoiceChips: View {
 }
 
 /// Matching inputs shared by profile editing and job search.
+@MainActor
 struct MatchInputsView: View {
     @Binding var form: PreferenceForm
     var showStage = true

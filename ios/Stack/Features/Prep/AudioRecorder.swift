@@ -206,6 +206,7 @@ final class AnswerPlayer: NSObject, AVAudioPlayerDelegate {
     }
 }
 
+@MainActor
 struct AnswerPlayback: View {
     let url: URL
     var isActive = true

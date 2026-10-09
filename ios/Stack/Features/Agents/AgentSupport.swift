@@ -59,6 +59,7 @@ enum AgentDrafts {
     static func removeAll() { drafts = [:] }
 }
 
+@MainActor
 struct TaskRow: View {
     let run: JSON
     let onOpen: () -> Void
@@ -105,6 +106,7 @@ struct TaskRow: View {
 }
 
 /// One agent: what it is, whether it is ready, what it needs and how to fix what is missing.
+@MainActor
 struct FeatureCardView: View {
     let feature: AgentFeature
     let onAction: (String) -> Void
@@ -152,6 +154,7 @@ struct FeatureCardView: View {
 extension FeatureCheck: Identifiable { var id: String { key } }
 
 /// The two resume scores (job match and quality), before to after when tailoring.
+@MainActor
 struct ScoreCardView: View {
     let after: JSON
     var before: JSON = [:]
@@ -230,6 +233,7 @@ struct ScoreCardView: View {
 }
 
 /// Rating and note for an agent's output.
+@MainActor
 struct AgentFeedbackForm: View {
     let runID: String
     let outputVersion: String

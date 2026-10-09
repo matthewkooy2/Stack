@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// Your real contacts. Saving never sends; outreach starts only on request and waits for review.
+@MainActor
 struct NetworkAgentSection: View {
     let onOpenTask: (String) -> Void
     let onNavigate: (String) -> Void
@@ -70,7 +71,8 @@ struct NetworkAgentSection: View {
                 StackButton(label: "Select for outreach", kind: .secondary, disabled: working) {
                     var next = contact
                     next["selected"] = true
-                    Task { await perform("agent_save_contact", ["id": .string(id), "data": next], done: "Selected. Nothing was sent.") }
+                    let selectedContact = next
+                    Task { await perform("agent_save_contact", ["id": .string(id), "data": selectedContact], done: "Selected. Nothing was sent.") }
                 }
             }
             if selected, !stopped {
@@ -145,6 +147,7 @@ struct NetworkAgentSection: View {
 }
 
 /// LinkedIn profile review: save the URL and target role, then start a review task.
+@MainActor
 struct LinkedInProfileCard: View {
     let onOpenTask: (String) -> Void
     let onNavigate: (String) -> Void

@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// Welcome, then sign in or create an account. Moves between the two with the shared stage motion.
+@MainActor
 struct AccessView: View {
     @Environment(AppStore.self) private var store
 
@@ -96,6 +97,7 @@ struct AccessView: View {
 }
 
 /// Shown when the account is signed in but has not been admitted to the beta.
+@MainActor
 struct InvitationView: View {
     @Environment(AppStore.self) private var store
     @State private var code = ""
@@ -122,6 +124,7 @@ struct InvitationView: View {
 }
 
 /// Google sign-in state for the account: link Google, or keep an original Stack account.
+@MainActor
 struct GoogleAccountCard: View {
     @Environment(AppStore.self) private var store
     @State private var username = ""

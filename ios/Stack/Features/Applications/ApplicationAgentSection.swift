@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Contextual agent help for one saved application, with live task status. Nothing starts until the
 /// person chooses it, and nothing is sent without approval.
+@MainActor
 struct ApplicationAgentSection: View {
     let application: Application
 

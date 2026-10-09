@@ -45,6 +45,7 @@ enum Glyph {
     }
 }
 
+@MainActor
 struct GlyphView: View {
     let name: String
     var size: CGFloat = 22
@@ -59,6 +60,7 @@ struct GlyphView: View {
 }
 
 /// The primary action: a cream button. `dark` is the filled brown variant, `secondary` a quiet text link.
+@MainActor
 struct StackButton: View {
     enum Kind { case primary, secondary, dark }
 
@@ -106,6 +108,7 @@ struct StackButton: View {
 }
 
 /// A large tappable row with an icon and a chevron.
+@MainActor
 struct OptionRow: View {
     let label: String
     var icon: String = ""
@@ -139,6 +142,7 @@ struct OptionRow: View {
 }
 
 /// A hairline-separated row for lists on the page background (the Prep home rows).
+@MainActor
 struct ListRow<Trailing: View>: View {
     let label: String
     var icon: String = ""
@@ -174,6 +178,7 @@ extension ListRow where Trailing == AnyView {
     }
 }
 
+@MainActor
 struct BackButton: View {
     var label = "Back"
     var disabled = false
@@ -191,6 +196,7 @@ struct BackButton: View {
     }
 }
 
+@MainActor
 struct Card<Content: View>: View {
     var tint: Color = Palette.surface
     var spacing: CGFloat = 16
@@ -204,6 +210,7 @@ struct Card<Content: View>: View {
     }
 }
 
+@MainActor
 struct Chip: View {
     let label: String
     var selected = false
@@ -225,6 +232,7 @@ struct Chip: View {
     }
 }
 
+@MainActor
 struct Avatar: View {
     let initials: String
     var tint: Color = Palette.halo
@@ -240,6 +248,7 @@ struct Avatar: View {
     }
 }
 
+@MainActor
 struct StackField: View {
     let label: String
     @Binding var text: String
@@ -275,6 +284,7 @@ struct StackField: View {
 }
 
 /// A calm inline message for errors and notices; fades rather than snaps.
+@MainActor
 struct MessageLine: View {
     let text: String
     var isError = true
@@ -289,6 +299,7 @@ struct MessageLine: View {
 }
 
 /// Screen title with the account button, used at the top of each tab.
+@MainActor
 struct ScreenHeader: View {
     let title: String
     var subtitle: String = ""
@@ -322,6 +333,7 @@ struct ScreenHeader: View {
     }
 }
 
+@MainActor
 struct EmptyNote: View {
     let icon: String
     let title: String
@@ -342,6 +354,7 @@ struct EmptyNote: View {
 }
 
 /// Standard scrolling page with the shared margins and entrance.
+@MainActor
 struct Page<Content: View>: View {
     @ViewBuilder var content: () -> Content
 

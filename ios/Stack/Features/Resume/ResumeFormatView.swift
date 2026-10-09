@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// How tailored versions of one resume are formatted: the person's own LaTeX, or a built-in template.
+@MainActor
 struct ResumeFormatView: View {
     let resume: ResumeItem
     @Environment(AppStore.self) private var store
@@ -127,6 +128,7 @@ struct ResumeFormatView: View {
 }
 
 /// Resumes Stack tailored for saved jobs, kept apart from uploads.
+@MainActor
 struct TailoredResumesSection: View {
     @Environment(AppStore.self) private var store
     @State private var preview: PDFPreview?

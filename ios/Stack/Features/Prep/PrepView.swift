@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 struct PrepView: View {
     var isActive = true
     @Environment(AppStore.self) private var store
@@ -418,6 +419,7 @@ struct PrepView: View {
 }
 
 /// The multi-line answer field.
+@MainActor
 struct AnswerEditor: View {
     @Binding var text: String
     let placeholder: String
@@ -444,6 +446,7 @@ enum PrepTool: String, Identifiable {
 
 /// Practice beyond the behavioral workflow: job-specific mock interviews, technical exercises and
 /// recording with transcription.
+@MainActor
 struct PrepToolsSheet: View {
     @State private var showInterview = false
     @State private var showPractice = false

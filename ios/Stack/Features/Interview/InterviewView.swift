@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// A job-specific mock interview: choose a saved role, review each answer, get local coaching.
+@MainActor
 struct InterviewView: View {
     var initialApplicationID = ""
 

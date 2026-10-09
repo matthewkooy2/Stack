@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Review of what Stack read from a resume. Section review edits the parsed fields; records review
 /// (older imports) edits each extracted line. Original uploads stay unchanged.
+@MainActor
 struct ResumeDetailsView: View {
     let resume: ResumeItem
     var onConfirmed: (() async -> Void)?

@@ -20,11 +20,11 @@ struct LocalDraftUITestScene: View {
             }
         }
         .environment(store)
-        .environment(\.accessibilityReduceMotion, ProcessInfo.processInfo.arguments.contains("--reduce-motion-preview"))
+        .transaction { if ProcessInfo.processInfo.arguments.contains("--disable-draft-animations") { $0.animation = nil; $0.disablesAnimations = true } }
         .onAppear { store.phase = .ready }
         .sheet(isPresented: $showProfiles) {
             PublicProfilesView().environment(store)
-                .environment(\.accessibilityReduceMotion, ProcessInfo.processInfo.arguments.contains("--reduce-motion-preview"))
+                .transaction { if ProcessInfo.processInfo.arguments.contains("--disable-draft-animations") { $0.animation = nil; $0.disablesAnimations = true } }
         }
         .sheet(isPresented: $showRewrites) {
             ZStack {
@@ -34,8 +34,9 @@ struct LocalDraftUITestScene: View {
                     LinkedInRewriteEditor(taskID: "offline-test-task", rewrites: rewrites)
                 }
             }.environment(store)
-                .environment(\.accessibilityReduceMotion, ProcessInfo.processInfo.arguments.contains("--reduce-motion-preview"))
+                .transaction { if ProcessInfo.processInfo.arguments.contains("--disable-draft-animations") { $0.animation = nil; $0.disablesAnimations = true } }
         }
     }
 }
 #endif
+

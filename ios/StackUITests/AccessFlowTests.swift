@@ -2,23 +2,23 @@ import XCTest
 
 @MainActor
 final class AccessFlowTests: XCTestCase {
-    func testOfflineLocalDraftEditingWithReducedMotion() {
+    func testOfflineLocalDraftEditingWithAnimationsDisabled() {
         let app = XCUIApplication()
-        app.launchArguments = ["--local-draft-ui-test", "--reduce-motion-preview"]
+        app.launchArguments = ["--local-draft-ui-test", "--disable-draft-animations"]
         app.launch()
         XCTAssertTrue(app.buttons["Public profiles"].waitForExistence(timeout: 10))
         for _ in 0..<2 {
             app.buttons["Public profiles"].tap()
             XCTAssertTrue(app.staticTexts["Public profiles"].waitForExistence(timeout: 5))
             app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Headline")).firstMatch.tap()
-            let draft = app.descendants(matching: .any)["Draft"]
+            let draft = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ AND (elementType == %d OR elementType == %d)", "Draft", XCUIElement.ElementType.textField.rawValue, XCUIElement.ElementType.textView.rawValue)).firstMatch
             XCTAssertTrue(draft.waitForExistence(timeout: 5))
             draft.tap()
             draft.typeText("Testing my profile")
             app.scrollViews.firstMatch.swipeUp()
             app.buttons["Save draft"].tap()
             XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Testing my profile")).firstMatch.waitForExistence(timeout: 5))
-            capture("public-profile-local-draft-reduced-motion")
+            capture("public-profile-local-draft-animation-disabled")
             app.buttons["Close"].tap()
         }
         app.buttons["LinkedIn rewrites"].tap()
@@ -28,7 +28,7 @@ final class AccessFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["Copy approved rewrites"].waitForExistence(timeout: 5))
         app.buttons["Copy approved rewrites"].tap()
         XCTAssertTrue(app.staticTexts["Copied. Apply the text on LinkedIn when you're ready."].waitForExistence(timeout: 5))
-        capture("linkedin-approved-local-rewrites-reduced-motion")
+        capture("linkedin-approved-local-rewrites-animation-disabled")
         app.scrollViews.firstMatch.swipeDown()
         app.buttons["Close"].tap()
         app.buttons["LinkedIn rewrites"].tap()
@@ -90,3 +90,4 @@ final class AccessFlowTests: XCTestCase {
         capture("keyboard-validation")
     }
 }
+

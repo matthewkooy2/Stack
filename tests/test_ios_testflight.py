@@ -21,8 +21,10 @@ if [ "$action" = archive ] && [ "${STACK_TEST_NO_BUNDLE:-}" != 1 ]; then
   app="$archive/Products/Applications/Stack.app"
   mkdir -p "$app"
   echo bundled > "$app/main.jsbundle"
-  printf '<plist version="1.0"><dict><key>CFBundleVersion</key><string>%s</string></dict></plist>' \\
-    "${STACK_TEST_BUNDLE_VERSION:-$STACK_BUILD_NUMBER}" > "$app/Info.plist"
+  encryption="<key>ITSAppUsesNonExemptEncryption</key>${STACK_TEST_ENCRYPTION_XML:-<false/>}"
+  if [ "${STACK_TEST_ENCRYPTION_XML:-}" = missing ]; then encryption=; fi
+  printf '<plist version="1.0"><dict><key>CFBundleVersion</key><string>%s</string>%s</dict></plist>' \\
+    "${STACK_TEST_BUNDLE_VERSION:-$STACK_BUILD_NUMBER}" "$encryption" > "$app/Info.plist"
 fi
 if [ "$action" = export ]; then mkdir -p "$export"; echo ipa > "$export/Stack.ipa"; fi
 '''
@@ -101,6 +103,17 @@ class TestFlightScript(unittest.TestCase):
         self.assertIn("CFBundleVersion '1', expected '41.2'", result.stderr)
         self.assertEqual(len(self.commands('xcodebuild')), 1)
         self.assertEqual(self.commands('xcrun'), [])
+
+    def test_invalid_encryption_declaration_prevents_export_and_upload(self):
+        for mode in ('upload', 'validate'):
+            for value in ('missing', '<true/>', '<string>false</string>', '<integer>0</integer>'):
+                with self.subTest(mode=mode, value=value):
+                    self.log.unlink(missing_ok=True)
+                    result = self.run_script(STACK_TESTFLIGHT_MODE=mode, STACK_TEST_ENCRYPTION_XML=value)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn('ITSAppUsesNonExemptEncryption as Boolean false', result.stderr)
+                    self.assertEqual(len(self.commands('xcodebuild')), 1)
+                    self.assertEqual(self.commands('xcrun'), [])
 
     def test_stale_archive_cannot_satisfy_missing_bundle(self):
         stale = self.ci/'Stack.xcarchive/Products/Applications/Stack.app'

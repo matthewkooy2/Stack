@@ -1,0 +1,68 @@
+name: Stack SwiftUI app
+# A separate route for the native Swift rebuild in ios/. It signs and uploads nothing, and the Expo app,
+# the TestFlight workflow and the `CI passed` gate do not depend on it.
+on:
+  pull_request:
+    paths:
+      - 'ios/**'
+      - 'mobile/feature-rpcs.js'
+      - 'scripts/ci/ios-swift.sh'
+      - 'scripts/ci/ios-swift-static.py'
+      - 'tests/test_ios_swift_static.py'
+      - '.github/workflows/ios-swift.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - 'mobile/feature-rpcs.js'
+      - 'scripts/ci/ios-swift.sh'
+      - 'scripts/ci/ios-swift-static.py'
+      - 'tests/test_ios_swift_static.py'
+      - '.github/workflows/ios-swift.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ios-swift-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  static:
+    name: Swift structure and backend contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Check delimiters, types and published backend functions
+        run: python3 -m unittest discover -s tests -p test_ios_swift_static.py -v
+      - name: Check the Swift sources
+        run: bash scripts/ci/ios-swift.sh static
+
+  build-and-test:
+    name: Build and unit tests (Xcode)
+    needs: static
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Build and test for the simulator
+        env:
+          # The API origin is only compiled into Info.plist; tests use stubbed transport.
+          STACK_API_URL: https://stack.invalid
+        run: bash scripts/ci/ios-swift.sh test
+      - name: Keep the result bundle
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ios-swift-results-${{ github.run_number }}
+          path: .jac/ci-ios-swift/*.xcresult
+          if-no-files-found: ignore
+          retention-days: 7

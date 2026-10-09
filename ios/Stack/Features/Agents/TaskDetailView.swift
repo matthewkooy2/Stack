@@ -278,7 +278,7 @@ struct TaskDetailView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Results").font(Typeface.title).foregroundStyle(Palette.ink)
                 ForEach(artifacts.keys.sorted(), id: \.self) { name in
-                    ArtifactView(name: name, value: artifacts[name] ?? [:]) { showPDF($0) }
+                    ArtifactView(name: name, value: artifacts[name] ?? [:], taskID: id) { showPDF($0) }
                 }
             }
             if !run["output_version"].string.isEmpty {
@@ -472,6 +472,7 @@ struct DroppedList: View {
 struct ArtifactView: View {
     let name: String
     let value: JSON
+    let taskID: String
     let onPreview: (JSON) -> Void
 
     private static let eyebrows = [
@@ -567,12 +568,7 @@ struct ArtifactView: View {
                 }
                 .padding(.vertical, 6)
             }
-            ForEach(Array(value["rewrites"].array.enumerated()), id: \.offset) { _, item in
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Suggested \(item["section"].string)").font(Typeface.body.weight(.semibold)).foregroundStyle(Palette.ink)
-                    Text(item["text"].string).font(Typeface.body).foregroundStyle(Palette.text).textSelection(.enabled)
-                }
-            }
+            LinkedInRewriteEditor(taskID: taskID, rewrites: value["rewrites"].array).id(value["rewrites"])
             lines("To strengthen this: ", value["questions"].strings)
             Text(value["limitations"].string).font(Typeface.caption).foregroundStyle(Palette.muted)
             Text("Sections not read: \(value["unread_sections"].strings.joined(separator: ", "))").font(Typeface.caption).foregroundStyle(Palette.muted)

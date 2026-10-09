@@ -9,11 +9,23 @@ struct StackApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("--local-draft-ui-test") {
+                LocalDraftUITestScene()
+            } else {
+                mainScene
+            }
+            #else
+            mainScene
+            #endif
+        }
+    }
+
+    private var mainScene: some View {
+        RootView()
                 .environment(store)
                 .tint(Palette.dark)
                 .task { await store.start() }
-        }
     }
 }
 

@@ -25,6 +25,10 @@ The default simulator build is unsigned and uses a distinct bundle identifier (`
 The separately authorized beta upload route overrides this to the existing Stack App Store bundle
 (`com.matthewkooy.stack`) and version `0.2.0`, so testers can select the Swift candidate in TestFlight.
 It leaves the Expo source and its `0.1.0` release route intact.
+Installing the Swift build replaces the installed Expo build on that device because they share the
+existing Stack bundle. Swift upload is manual-only: dispatch `Swift candidate TestFlight` on approved
+`main` with `upload_native=true`, after review and release coordination. The environment's existing
+branch protections remain intact; merging to main can also trigger the existing backend release gate.
 
 CI: `.github/workflows/ios-swift.yml` runs the static checks on Ubuntu and the Xcode build and unit
 tests on `macos-14`. It is separate from `ci.yml`: it is not part of the `CI passed` gate and does not
@@ -60,11 +64,12 @@ touch the TestFlight workflow.
 - Responses for a session that has ended are dropped (`AppStore.call`, `sessionGeneration`), and
   notifications are scoped to the signed-in account.
 
+- Public-profile drafts are local to the signed-in session; sign-out clears them. LinkedIn suggestions
+  can be edited, selected, approved and copied. Neither feature publishes text to an external profile.
+
 ## Not ported
 
 - Apple sign-in (not connected on any current client or on the backend).
-- Local LinkedIn rewrite selection/edit/approval/copy and public-profile draft tools. The real
-  LinkedIn agent review is present; those additional local tools still need migration.
 - On-device speech transcripts from the native Stack Speech module. Audio is transcribed by the
   server worker; `transcription_upload` is called without `local_transcript`.
 - Push registration (`agent_register_push`, `agent_remove_push`). The backend sends through Expo push

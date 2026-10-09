@@ -25,6 +25,9 @@ final class AppStore {
     var pendingInvite = ""
     /// A record a tapped notification asked to open; the owning tab consumes it.
     var pendingOpen: [String: String] = [:]
+    /// Session-only public-profile drafts; never written to an external profile.
+    var profileDrafts: [String: String] = [:]
+    var rewriteDrafts: [String: SavedRewriteReview] = [:]
     /// Overridable so tests can drive the Google handoff without UIKit.
     var openExternalURL: (URL) async -> Bool = { await UIApplication.shared.open($0) }
     var isForeground: () -> Bool = { UIApplication.shared.applicationState == .active }
@@ -126,6 +129,8 @@ final class AppStore {
         googleInfo = [:]
         pendingInvite = ""
         pendingOpen = [:]
+        profileDrafts = [:]
+        rewriteDrafts = [:]
         AgentDrafts.removeAll()
         if phase == .ready {
             UNUserNotificationCenter.current().removeAllPendingNotificationRequests()

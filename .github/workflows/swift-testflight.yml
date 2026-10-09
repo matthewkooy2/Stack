@@ -1,14 +1,17 @@
 name: Swift candidate TestFlight
 on:
-  push:
-    branches: [feat/swiftui-ios-rebuild]
   workflow_dispatch:
+    inputs:
+      upload_native:
+        description: Upload the reviewed Swift beta to the existing Stack TestFlight app
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
   native-upload:
-    # This explicit marker starts the native gate; signing/upload remain behind successful tests.
-    if: github.repository == 'matthewkooy2/Stack' && github.ref == 'refs/heads/feat/swiftui-ios-rebuild' && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[swift-testflight]'))
+    # The protected environment already permits main; Expo remains the default release route.
+    if: github.repository == 'matthewkooy2/Stack' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.upload_native
     runs-on: xcode-27
     environment: stack-testflight
     timeout-minutes: 60

@@ -14,6 +14,7 @@ struct NetworkView: View {
     @State private var showSavedOnly = false
     @State private var selected: Connection?
     @State private var task: TaskTarget?
+    @State private var showPublicProfiles = false
 
     private func navigate(_ action: String) {
         NotificationCenter.default.post(name: .stackNavigate, object: nil, userInfo: ["destination": action])
@@ -63,6 +64,7 @@ struct NetworkView: View {
                 }
             }
             NetworkAgentSection(onOpenTask: { task = TaskTarget(id: $0) }, onNavigate: navigate)
+            ListRow(label: "Public profiles", icon: "profile", detail: "Draft your LinkedIn, GitHub and portfolio story") { showPublicProfiles = true }
         }
         .refreshable { await store.refresh() }
         .task(id: store.pendingOpen) {
@@ -76,6 +78,7 @@ struct NetworkView: View {
             ContactDetailView(recordID: connection.record.id).environment(store)
         }
         .sheet(item: $task) { target in AgentTaskSheet(taskID: target.id).environment(store) }
+        .sheet(isPresented: $showPublicProfiles) { PublicProfilesView().environment(store) }
     }
 }
 

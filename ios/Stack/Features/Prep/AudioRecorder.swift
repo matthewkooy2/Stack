@@ -152,9 +152,10 @@ final class AudioRecorder: NSObject, AVAudioRecorderDelegate {
         ) { [weak self] note in
             let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
             guard raw == AVAudioSession.InterruptionType.began.rawValue else { return }
+            guard let recording = self else { return }
             Task { @MainActor in
-                guard let self, let saved = self.stop() else { return }
-                self.onAutoStop?(saved.clientID, saved.url)
+                guard let saved = recording.stop() else { return }
+                recording.onAutoStop?(saved.clientID, saved.url)
             }
         }
     }

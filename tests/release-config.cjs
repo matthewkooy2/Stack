@@ -35,6 +35,7 @@ try {
     }};
     vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../native/app.config.js'), 'utf8'), sandbox);
     const config = sandbox.module.exports();
+    assert.equal(config.ios.config.usesNonExemptEncryption, false);
     const inlinePlugins = config.plugins.filter(plugin => typeof plugin === 'function');
     assert.equal(inlinePlugins.length, 1, 'Expected the notification capabilities plugin');
     return {config, native:inlinePlugins[0](config)};

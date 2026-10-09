@@ -50,8 +50,9 @@ export function browserTaskStatus(task={},now=Date.now()/1000) {
 }
 
 export function BrowserViewer({id,task={},requestBrowser,openStream,onChanged}) {
-  const [open,setOpen]=useState(false),[frame,setFrame]=useState(null),[control,setControl]=useState({mode:'agent',generation:0}),[connection,setConnection]=useState('connecting'),[error,setError]=useState(''),[busy,setBusy]=useState(false),[age,setAge]=useState(Infinity);
+  const [open,setOpen]=useState(false),[frame,setFrame]=useState(null),[control,setControl]=useState({mode:'agent',generation:0}),[connection,setConnection]=useState('connecting'),[error,setError]=useState(''),[busy,setBusy]=useState(false),[pendingAction,setPendingAction]=useState(''),[age,setAge]=useState(Infinity);
   const keyboard=useRef(null),input=useRef(''),flushTimer=useRef(null),chain=useRef(Promise.resolve()),sequence=useRef(0),epoch=useRef(0),alive=useRef(false),stopStream=useRef(null),receipt=useRef(null),layout=useRef({width:1,height:1}),local=useRef(null),safe=useRef(true);
+  const actionPending=useRef(false);
   const controller=useRef('viewer-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2));
   const [now,setNow]=useState(()=>Date.now()/1000);
   const taskStatus=browserTaskStatus(task.id===id?task:{},Math.max(now,Date.now()/1000));
@@ -102,7 +103,8 @@ export function BrowserViewer({id,task={},requestBrowser,openStream,onChanged}) 
   };
   const flush=()=>{clearTimeout(flushTimer.current);const text=input.current;input.current='';keyboard.current?.clear();if(text)send({type:'text',text});};
   const action=async name=>{
-    if(busy)return;setBusy(true);setError('');
+    if(actionPending.current)return;
+    actionPending.current=true;setBusy(true);setPendingAction(name);setError('');
     try {
       if(name==='resume'){flush();await chain.current;if(!safe.current)throw new Error('Reconnect to confirm your last input before resuming.');}
       else {epoch.current++;input.current='';keyboard.current?.clear();}
@@ -112,7 +114,7 @@ export function BrowserViewer({id,task={},requestBrowser,openStream,onChanged}) 
       if(name!=='stop'||result.control?.mode==='stopped')onChanged?.();
       if(name==='stop'&&!result.control)setConnection('stopping');
     }catch(e){setError(e.message||'Control could not be confirmed. Reconnect before continuing.');}
-    finally{setBusy(false);}
+    finally{actionPending.current=false;setBusy(false);setPendingAction('');}
   };
   const point=(x,y)=>{
     const value=frame;if(!value)return null;
@@ -131,8 +133,9 @@ export function BrowserViewer({id,task={},requestBrowser,openStream,onChanged}) 
       else{const p=point(gesture.current.x,gesture.current.y);if(p){send({type:'click',...p});keyboard.current?.focus();}}
     },onPanResponderTerminationRequest:()=>false,
   });
-  const button=(label,handler,disabled=false,danger=false)=>React.createElement(Pressable,{accessibilityRole:'button',accessibilityLabel:label,onPress:handler,disabled,style:{paddingVertical:13,paddingHorizontal:18,borderRadius:24,backgroundColor:disabled?'#E5E7EB':danger?'#FEE2E2':'#111827'}},React.createElement(Text,{style:{color:disabled?'#6B7280':danger?'#B91C1C':'white',fontWeight:'600'}},label));
-  const status=control.mode==='pausing'?'Pausing agent…':control.mode==='stopping'?'Stopping task…':control.mode==='stopped'?'Task stopped':connection==='unavailable'?'Browser unavailable':connection==='unconfirmed'||!safe.current?'Input unconfirmed':connection!=='connected'?'Reconnecting…':age>=5000?'Waiting for a fresh view…':owned?'You have control':control.mode==='user'?'Another viewer has control':'Agent has browser control';
+  const button=(label,handler,disabled=false,danger=false,processing=false)=>React.createElement(Pressable,{accessibilityRole:'button',accessibilityLabel:label,accessibilityState:{disabled,busy:processing},onPress:handler,disabled,style:{paddingVertical:13,paddingHorizontal:18,borderRadius:24,backgroundColor:disabled?'#E5E7EB':danger?'#FEE2E2':'#111827'}},React.createElement(Text,{style:{color:disabled?'#6B7280':danger?'#B91C1C':'white',fontWeight:'600'}},label));
+  const pendingLabel={take:'Taking control…',resume:'Resuming agent…',stop:'Stopping task…'}[pendingAction];
+  const status=pendingLabel|| (control.mode==='pausing'?'Pausing agent…':control.mode==='stopping'?'Stopping task…':control.mode==='stopped'?'Task stopped':connection==='unavailable'?'Browser unavailable':connection==='unconfirmed'||!safe.current?'Input unconfirmed':connection!=='connected'?'Reconnecting…':age>=5000?'Waiting for a fresh view…':owned?'You have control':control.mode==='user'?'Another viewer has control':'Agent has browser control');
   return React.createElement(View,{style:{gap:10}},
     button('Open browser',()=>setOpen(true)),
     React.createElement(Modal,{visible:open,animationType:'slide',presentationStyle:'fullScreen',onRequestClose:()=>setOpen(false)},
@@ -155,7 +158,7 @@ export function BrowserViewer({id,task={},requestBrowser,openStream,onChanged}) 
           onKeyPress:e=>{if(e.nativeEvent.key==='Backspace'){if(input.current)input.current=input.current.slice(0,-1);else send({type:'key',key:'Backspace'});}},onSubmitEditing:()=>{flush();send({type:'key',key:'Enter'});}}),
         owned?React.createElement(View,{style:{flexDirection:'row',gap:8}},button('Keyboard',()=>keyboard.current?.focus(),!canInput),button('Tab',()=>{flush();send({type:'key',key:'Tab'});},!canInput),button('Enter',()=>{flush();send({type:'key',key:'Enter'});},!canInput)):null,
         React.createElement(View,{style:{flexDirection:'row',justifyContent:'center',gap:10}},
-          owned&&safe.current?button('Resume agent',()=>action('resume'),busy||connection!=='connected'||!safe.current):button('Take control',()=>action('take'),busy||connection!=='connected'||!['agent','user'].includes(control.mode)),
-          button('Stop task',()=>action('stop'),busy||['stopping','stopped'].includes(control.mode),true)),
+          owned&&safe.current?button(pendingAction==='resume'?'Resuming agent…':'Resume agent',()=>action('resume'),busy||connection!=='connected'||!safe.current,false,pendingAction==='resume'):button(pendingAction==='take'?'Taking control…':'Take control',()=>action('take'),busy||connection!=='connected'||!['agent','user'].includes(control.mode),false,pendingAction==='take'),
+          button(pendingAction==='stop'?'Stopping task…':'Stop task',()=>action('stop'),busy||['stopping','stopped'].includes(control.mode),true,pendingAction==='stop')),
         !['connected','stopped'].includes(connection)||age>=5000?button('Reconnect',()=>{epoch.current++;input.current='';keyboard.current?.clear();connect();},busy):null)));
 }

@@ -10,3 +10,5 @@
 129d9aeb23a7f57c352526f57cb81dfef25d23c1:deploy/pc-host/reviewed-backend-reconciliation.json:generic-api-key:73
 129d9aeb23a7f57c352526f57cb81dfef25d23c1:deploy/pc-host/reviewed-backend-reconciliation.json:generic-api-key:177
 129d9aeb23a7f57c352526f57cb81dfef25d23c1:deploy/pc-host/reviewed-backend-reconciliation.json:generic-api-key:184
+# Verified Swift switch case linkedin_review: linkedInReview is a view identifier, not a LinkedIn client ID.
+db3991e052123b88d2685a854de41553e8ba2877:ios/Stack/Features/Agents/TaskDetailView.swift:linkedin-client-id:482

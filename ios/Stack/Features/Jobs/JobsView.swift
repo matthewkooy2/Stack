@@ -5,6 +5,7 @@ import SwiftUI
 struct JobsView: View {
     @Environment(AppStore.self) private var store
     @Environment(\.accessibilityReduceMotion) var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     var onProfile: () -> Void
 
     @State var jobs: [Job] = []
@@ -20,6 +21,9 @@ struct JobsView: View {
     @State var started = false
     @State var importID = ""
     @State var banner = ""
+    @State private var pendingDecision: (job: Job, save: Bool, generation: Int)?
+    @State private var undoTimer: Task<Void, Never>?
+    @State private var leavingID: String?
 
     private var deck: [Job] {
         let decided = store.account.decidedJobIDs
@@ -32,6 +36,14 @@ struct JobsView: View {
                 .padding(.horizontal, Spacing.page)
                 .reveal(0)
             JobSearchBar(search: search, sheet: $sheet, onUseProfile: { Task { await resetSearch() } })
+            if let pending = pendingDecision {
+                HStack {
+                    Text(pending.save ? "Saved \(pending.job.title)" : "Passed \(pending.job.title)")
+                        .font(Typeface.caption).foregroundStyle(Palette.muted).lineLimit(2)
+                    Spacer()
+                    Chip(label: "Undo") { undoDecision() }
+                }.padding(.horizontal, Spacing.page)
+            }
             if !loadError.isEmpty || !banner.isEmpty || !search.notices.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     MessageLine(text: loadError).fadeSwitch(!loadError.isEmpty && deck.first != nil)
@@ -46,6 +58,8 @@ struct JobsView: View {
         .padding(.top, 8)
         .task { await start() }
         .task(id: importID) { await watchImport() }
+        .onDisappear { commitDecision() }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { commitDecision() } }
         .onReceive(NotificationCenter.default.publisher(for: .stackProfileSaved)) { _ in
             Task { await load(refresh: false) }
         }
@@ -166,7 +180,7 @@ struct JobsView: View {
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(saving ? Palette.success : Palette.danger, lineWidth: 2))
             .rotationEffect(.degrees(saving ? -10 : 10))
             .padding(22)
-            .opacity(min(abs(width) / 110, 1))
+            .opacity(min(Double(abs(width)) / 110.0, 1.0))
     }
 
     private func swipe(_ job: Job) -> some Gesture {
@@ -180,10 +194,13 @@ struct JobsView: View {
     }
 
     private func decide(_ job: Job, save: Bool) {
-        guard !hidden.contains(job.id) else { return }
+        guard !hidden.contains(job.id), leavingID == nil else { return }
+        commitDecision()
+        leavingID = job.id
         let generation = store.sessionGeneration
         withAnimation(reduceMotion ? nil : Motion.ease(0.26)) { drag = CGSize(width: save ? 700 : -700, height: 40) }
         Task {
+            defer { leavingID = nil }
             try? await Task.sleep(for: .milliseconds(reduceMotion ? 0 : 230))
             guard generation == store.sessionGeneration, store.phase == .ready, !Task.isCancelled else { return }
             var reset = Transaction()
@@ -192,8 +209,37 @@ struct JobsView: View {
                 hidden.insert(job.id)
                 drag = .zero
             }
-            let saved = await store.swipe(jobID: job.id, save: save)
-            if !saved { withAnimation(Motion.release) { _ = hidden.remove(job.id) } }
+            pendingDecision = (job, save, generation)
+            if scenePhase != .active { commitDecision(); return }
+            undoTimer = Task {
+                do { try await Task.sleep(for: .milliseconds(2400)) } catch { return }
+                guard !Task.isCancelled else { return }
+                commitDecision()
+            }
+        }
+    }
+
+    private func undoDecision() {
+        guard let pending = pendingDecision else { return }
+        undoTimer?.cancel()
+        undoTimer = nil
+        pendingDecision = nil
+        withAnimation(reduceMotion ? nil : Motion.release) { _ = hidden.remove(pending.job.id) }
+    }
+
+    private func commitDecision() {
+        guard let pending = pendingDecision else { return }
+        pendingDecision = nil
+        undoTimer?.cancel()
+        undoTimer = nil
+        guard pending.generation == store.sessionGeneration, store.phase == .ready else { return }
+        Task {
+            let saved = await store.swipe(jobID: pending.job.id, save: pending.save)
+            guard pending.generation == store.sessionGeneration else { return }
+            if !saved {
+                withAnimation(reduceMotion ? nil : Motion.release) { _ = hidden.remove(pending.job.id) }
+                loadError = store.error.isEmpty ? "This decision was not saved. Please try again." : store.error
+            }
         }
     }
 
@@ -208,6 +254,7 @@ struct JobsView: View {
     }
 
     private func applySearch(query: String, filters: JSON) async {
+        commitDecision()
         do {
             let stored = try await store.call("save_search", ["query": .string(query), "filters": filters])
             search.query = stored["query"].string
@@ -222,6 +269,7 @@ struct JobsView: View {
 
     private func resetSearch() async {
         guard !loading else { return }
+        commitDecision()
         do {
             try await store.call("reset_search")
             search.query = ""

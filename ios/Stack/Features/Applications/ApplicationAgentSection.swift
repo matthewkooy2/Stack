@@ -26,12 +26,14 @@ struct ApplicationAgentSection: View {
                text: "Strengths, gaps and unknowns, quoted from the listing and your confirmed facts. Nothing leaves Stack."),
         Action(kind: "resume", label: "Tailor my resume",
                text: "Rewords, reorders and trims your LaTeX resume to one page for this job, in your format. You keep or reject every change."),
+        Action(kind: "application", label: "Prepare & apply",
+               text: "Prepares this application for your review. Filling and submitting each require your separate approval."),
         Action(kind: "plan", label: "Build interview plan",
                text: "Adds practice sessions to Prep based on this job. No model needed."),
     ]
 
     private var started: [JSON] {
-        store.account.runViews.filter { $0["target_id"].string == application.id && ["jobs", "resume"].contains($0["kind"].string) }
+        store.account.runViews.filter { $0["target_id"].string == application.id && ["jobs", "resume", "application"].contains($0["kind"].string) }
     }
 
     var body: some View {
@@ -96,7 +98,7 @@ struct ApplicationAgentSection: View {
                 offerPrep = true
             } else {
                 let result = try await store.call("agent_start", ["kind": .string(kind), "target_id": .string(application.id)])
-                if kind == "resume" { task = TaskTarget(id: result["id"].string) }
+                if kind == "resume" || kind == "application" { task = TaskTarget(id: result["id"].string) }
                 else { message = "\(result["title"].string) started. Progress appears below and in Agents." }
             }
         } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }

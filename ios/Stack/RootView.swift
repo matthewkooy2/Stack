@@ -144,7 +144,7 @@ struct MainTabs: View {
         case .applications: ApplicationsView(onProfile: { showProfile = true }, onNavigate: { selection = $0 })
         case .network: NetworkView(onProfile: { showProfile = true })
         case .resume: ResumeView(onProfile: { showProfile = true })
-        case .prep: PrepView(isActive: selection == .prep && !showProfile)
+        case .prep: PrepView(isActive: selection == .prep && !showProfile && agentTask == nil)
         }
     }
 }

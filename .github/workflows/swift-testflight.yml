@@ -7,7 +7,7 @@ permissions:
   contents: read
 jobs:
   native-upload:
-    # This explicit marker is only added after the current candidate passes unsigned native CI.
+    # This explicit marker starts the native gate; signing/upload remain behind successful tests.
     if: github.repository == 'matthewkooy2/Stack' && github.ref == 'refs/heads/feat/swiftui-ios-rebuild' && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[swift-testflight]'))
     runs-on: xcode-27
     environment: stack-testflight
@@ -25,6 +25,9 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.22.0'
       - name: Validate private configuration and prepare existing key
         env:
           ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
@@ -50,6 +53,8 @@ jobs:
         run: brew install xcodegen
       - name: Test, archive, validate and upload native candidate
         run: bash scripts/ci/ios-swift-testflight.sh
+      - name: Confirm exact native beta processing
+        run: node scripts/ci/ios-swift-processing.cjs
       - name: Remove private key
         if: always()
         run: rm -f "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8"

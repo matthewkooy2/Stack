@@ -21,8 +21,10 @@ Or by hand: `cd ios && xcodegen generate && open Stack.xcodeproj`, then set the 
 build setting in Xcode (or pass `STACK_API_URL=https://...` to `xcodebuild`).
 
 `STACK_API_URL` (default `http://127.0.0.1:8000`) becomes the `StackAPIBaseURL` Info.plist key.
-The build is unsigned and uses a distinct bundle identifier (`com.matthewkooy.stack.swift`) so it
-cannot replace the Expo build on a device.
+The default simulator build is unsigned and uses a distinct bundle identifier (`com.matthewkooy.stack.swift`).
+The separately authorized beta upload route overrides this to the existing Stack App Store bundle
+(`com.matthewkooy.stack`) and version `0.2.0`, so testers can select the Swift candidate in TestFlight.
+It leaves the Expo source and its `0.1.0` release route intact.
 
 CI: `.github/workflows/ios-swift.yml` runs the static checks on Ubuntu and the Xcode build and unit
 tests on `macos-14`. It is separate from `ci.yml`: it is not part of the `CI passed` gate and does not
@@ -61,6 +63,8 @@ touch the TestFlight workflow.
 ## Not ported
 
 - Apple sign-in (not connected on any current client or on the backend).
+- Local LinkedIn rewrite selection/edit/approval/copy and public-profile draft tools. The real
+  LinkedIn agent review is present; those additional local tools still need migration.
 - On-device speech transcripts from the native Stack Speech module. Audio is transcribed by the
   server worker; `transcription_upload` is called without `local_transcript`.
 - Push registration (`agent_register_push`, `agent_remove_push`). The backend sends through Expo push

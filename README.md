@@ -148,3 +148,9 @@ python3 tests/persistence.py verify
 ```
 
 See [the phone checklist](docs/PHONE_TESTING.md) for physical-device acceptance and [implementation notes](docs/IMPLEMENTATION.md) for beta workarounds and verification limits.
+
+## Dependency security
+
+Pull requests and daily GitHub Actions runs audit npm and Python dependencies.
+Backend deployment waits for the same checks. See [Security CI](docs/SECURITY_CI.md)
+for scope, exception policy, Dependabot updates and required branch protection.

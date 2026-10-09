@@ -94,6 +94,14 @@ node tests/dependency-native.cjs /tmp/stack-dependency-export
 
 `--no-bytecode` makes this inspection export readable; it does not change the
 production release launcher. `npm audit` still exits nonzero for the two scoped
-exceptions. Scheduled vulnerability CI and exception-expiry enforcement remain
-tracked in [notes #11](https://github.com/matthewkooy2/notes/issues/11); this review
-does not claim that ongoing scanning is already implemented.
+exceptions. Continuous vulnerability CI and exception-expiry enforcement follow the work
+tracked in [notes #11](https://github.com/matthewkooy2/notes/issues/11).
+
+Continuous checks are now defined in [Security CI](SECURITY_CI.md), including
+PR audits, daily scans, bounded exception enforcement and a deployment gate.
+They become active when the workflow change reaches the default branch.
+
+The first continuous scan on 2026-10-06 detected
+[GHSA-68fv-2mgg-jv7q](https://github.com/advisories/GHSA-68fv-2mgg-jv7q)
+in the native lockfile. Updating only `source-map-js` from 1.2.1 to 1.2.2
+clears this new high-severity finding without adding an exception.

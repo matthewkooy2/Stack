@@ -13,7 +13,12 @@ concurrency:
   group: stack-production-backend
   cancel-in-progress: false
 jobs:
+  security:
+    uses: ./.github/workflows/dependency-security.yml
+    permissions:
+      contents: read
   deploy:
+    needs: security
     # Enable format 3 only after the attended host migration documented below.
     # A fork PR from a branch named main also reports head_branch main, so require
     # a push in this repository rather than trusting the branch name alone.

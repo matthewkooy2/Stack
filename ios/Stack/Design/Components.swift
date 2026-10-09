@@ -271,6 +271,7 @@ struct StackField: View {
                 }
             }
             .font(Typeface.body)
+            .accessibilityLabel(label)
             .foregroundStyle(Palette.text)
             .keyboardType(keyboard)
             .textInputAutocapitalization(autocapitalization)

@@ -58,6 +58,8 @@ struct AccessView: View {
     }
 
     private var form: some View {
+        GeometryReader { geometry in
+        ScrollView {
         VStack(alignment: .leading, spacing: Spacing.stack) {
             BackButton { go(.welcome) }.disabled(store.busy)
             Text(step == .signUp ? "Create your account" : "Welcome back")
@@ -87,6 +89,11 @@ struct AccessView: View {
             StackButton(label: step == .signUp ? "Already have an account? Sign in" : "New here? Create an account",
                         kind: .secondary, disabled: store.busy) { go(step == .signUp ? .signIn : .signUp) }
             if store.busy { ProgressView().tint(Palette.muted).frame(maxWidth: .infinity) }
+        }
+        .frame(minHeight: geometry.size.height, alignment: .topLeading)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .scrollIndicators(.hidden)
         }
     }
 

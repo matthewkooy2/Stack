@@ -175,5 +175,29 @@ class Evaluation(unittest.TestCase):
             self.assertEqual(heldout[key], [], key)
 
 
+class ScopedSoftwareSearch(unittest.TestCase):
+    def test_stated_level_is_independent_of_other_unknown_details(self):
+        filters = {'levels': ['Entry-level'], 'confirmed_level': True, 'modes': ['Remote']}
+        c = criteria({}, 'Software engineer', filters)
+        junior = job('Junior Software Engineer')
+        result = evaluate(junior, c)
+        self.assertFalse(result['excluded'])
+        self.assertEqual(result['verdict'], 'uncertain')  # Work arrangement remains unknown.
+        for title in ('Fry Cook', 'Senior Software Engineer', 'Software Engineer Intern', 'Software Engineer'):
+            self.assertTrue(evaluate(job(title), c)['excluded'], title)
+        permissive = criteria({}, 'Software engineer', {**filters, 'confirmed_level': False})
+        self.assertFalse(evaluate(job('Software Engineer'), permissive)['excluded'])
+
+    def test_junior_title_never_confirms_graduation_year(self):
+        junior = job('Junior Software Engineer', description='New graduates welcome.')
+        filters = {'levels': ['Entry-level'], 'confirmed_level': True}
+        profile = {'graduation_month': '2027-05'}
+        self.assertFalse(evaluate(junior, criteria(profile, 'Software engineer', filters))['excluded'])
+        self.assertTrue(evaluate(junior, criteria(profile, 'Software engineer', {**filters, 'timeline': 'confirmed'}))['excluded'])
+        missing_date = criteria({}, 'Software engineer', {**filters, 'timeline': 'confirmed'})
+        self.assertTrue(missing_date['notices'])
+        self.assertTrue(evaluate(junior, missing_date)['excluded'])
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=1)

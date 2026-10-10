@@ -148,6 +148,7 @@ class Handler(SimpleHTTPRequestHandler) {
             (path not in IDENTITY)
             and (path not in SSO)
             and path != '/browser/stream'
+            and path != '/auth/apple/notifications'
             and (function not in PERSONAL)
             and (function not in APPLE_PUBLIC | APPLE_PRIVATE)
             and (function != 'agent_accept_invite')
@@ -157,7 +158,7 @@ class Handler(SimpleHTTPRequestHandler) {
         }
         try {
             length = int(self.headers.get('Content-Length', 0));
-            if not (0 < length <= 15000000) {
+            if not (0 < length <= (20000 if path=='/auth/apple/notifications' else 15000000)) {
                 self.send_error(413);
                 return;
             }
@@ -181,6 +182,26 @@ class Handler(SimpleHTTPRequestHandler) {
             }
             body = self.rfile.read(length);
             authorization = self.headers.get('Authorization', '');
+            if path == '/auth/apple/notifications' {
+                notice=json.loads(body);
+                if not isinstance(notice,dict) or set(notice)!={'payload'} or not isinstance(notice['payload'],str) { self.send_error(400);return; }
+                (notice_status,notice_raw)=upstream('/function/auth_apple_notification',json.dumps(notice).encode());
+                result=json.loads(notice_raw).get('data',{}).get('result',{});
+                self.send_response(200 if notice_status==200 and result.get('ok') else (400 if notice_status==200 and result.get('code')=='APPLE_INVALID' else 503));
+                self.end_headers();return;
+            }
+            # Deletion has its own fresh Apple proof/password confirmation and
+            # must recover even when a saved grant/session epoch is unusable.
+            if authorization and path not in IDENTITY and function not in APPLE_PUBLIC | {'auth_apple_delete_begin','account_delete_apple','account_delete'} {
+                token=authorization.removeprefix('Bearer ');
+                (session_status,session_raw)=upstream('/function/auth_apple_session',json.dumps({'token':token}).encode(),authorization);
+                session_result=json.loads(session_raw).get('data',{}).get('result',{});
+                if session_status!=200 or not session_result.get('ok') {
+                    self.send_response(401 if session_status==401 or session_result.get('code')=='APPLE_REVOKED' else 503);
+                    self.send_header('Content-Type','application/json');self.end_headers();
+                    self.wfile.write(b'{"ok":false,"error":{"message":"Your session could not be verified. Sign in again or retry shortly."}}');return;
+                }
+            }
             if ((function in PERSONAL and function not in {'agent_admission','account_delete'}) or path == '/browser/stream' or (path=='/sso/google/begin' and authorization)) {
                 (status, admission) = upstream(
                     '/function/agent_admission', b'{}', authorization

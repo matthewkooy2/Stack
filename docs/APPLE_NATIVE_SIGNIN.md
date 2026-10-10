@@ -22,6 +22,10 @@ safe `error` string. No provider tokens or Apple subject appear in responses.
 | `auth_apple_delete_begin` | Existing Stack session | Same challenge, bound to account root |
 | `account_delete_apple` | Same session: `state`, `identity_token`, `authorization_code` | `deleted:true` after revocation/cleanup |
 
+The gateway also exposes `POST /auth/apple/notifications` with Apple's exact
+`{"payload":"<signed JWT>"}` body. Its private upstream `auth_apple_session`
+preflight is internal and cannot be called through the public function allowlist.
+
 Set `ASAuthorizationAppleIDRequest.nonce` to the nonce exactly as returned (it
 is already SHA256), and `request.state` to the returned state. Request
 `.fullName` and `.email`; format the initial `credential.fullName` as optional
@@ -113,8 +117,11 @@ separately approved operational action. Do not bulk clear locks or grants.
    `getCredentialState(forUserID:)`/revocation notification to clear local Apple
    sessions when authorization is revoked; do not persist Apple ID tokens as
    Stack sessions. Provider server-to-server event handling and periodic grant
-   validation are a separate activation requirement for prompt remote revocation
-   of already-issued long-lived Stack sessions.
+   validation are implemented as described below. Register the notification URL
+   on the same approved HTTPS API origin, ending `/auth/apple/notifications`, in
+   the primary App ID's Sign in with Apple configuration. This live registration
+   also needs explicit approval. Signed-device acceptance follows an approved
+   test deployment; it is not a prerequisite for merging disabled code.
 7. Coordinate merge/backend rollout with the parent because main CI can deploy
    the existing backend. No production deployment or merge is authorized here.
 
@@ -128,6 +135,41 @@ suite and gateway tests. Independent review covers claim validation, replay,
 identity conflicts, persistence failures, partial Jac writes and deletion races.
 Windows test success does not constitute Xcode verification; native checks run
 in the separate unsigned Mac CI workflow.
+
+## Remote revocation and session policy
+
+Apple-issued Stack JWTs carry a signed `stack_apple` epoch. Google/password
+sessions keep Jac's ordinary claims. The public gateway checks every authenticated
+product, admission, browser stream and Google linking request through the private
+preflight before forwarding it. Keep the Jac writer on loopback; exposing it
+directly would bypass gateway enforcement. A revoked or mismatched Apple epoch
+returns 401. Configuration/storage/provider outages fail closed with 503 and do
+not clear otherwise valid sessions. Confirmed refresh `invalid_grant` rotates the
+epoch; other provider failures never infer consent revocation.
+
+Active Apple sessions validate their saved refresh grant when its last successful
+exchange is at least 24 hours old. The returned identity must match the stored
+subject and exact audience. There is no network refresh on every product call.
+Signed server notifications provide prompt revocation between daily checks.
+RS256 signature, issuer, audience, issuance time, event subject/type/time and
+notification ID are validated. Notifications older than 30 days fail closed;
+older replayed events cannot revoke a newer authorization. Retry lock/configuration
+or storage failures with 503; only conclusively invalid payloads receive 400.
+Notification bodies are capped at 20KB before reading them.
+
+Durable hashed-subject revocation watermarks cover events arriving before first
+account mapping, failed user-lock acquisition, and proof exchanged before account
+deletion. Preflight and reauthorization reconcile these watermarks under shared
+locks, so a new grant cannot revive an old session epoch. Deletion records a
+tombstone before removing the identity. Apple `account-deleted` revokes Apple
+sessions; it does not automatically delete an independent Stack account or its
+Google/password identities. Email events record forwarding status in lifecycle
+metadata without using email as an account identity.
+
+Owner deletion routes bypass the Apple grant/epoch preflight so a missing grant
+can recover with fresh Apple proof. Jac's signed session/root ownership and the
+fresh-proof or password confirmation remain required. No product API exemption
+is added. Provider outages preserve the account for a retry.
 
 ## Native build and session behavior
 

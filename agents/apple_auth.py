@@ -12,10 +12,11 @@ import re
 import secrets
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, HTTPRedirectHandler, build_opener
+from urllib.error import HTTPError
 from typing import Any
 
 from cryptography.fernet import Fernet
@@ -90,14 +91,24 @@ def provider(path, form=None):
     request = Request(ISSUER + path, data=body,
                       headers={"Content-Type": "application/x-www-form-urlencoded"})
     try:
-        with build_opener(NoRedirect()).open(request, timeout=15) as response:
+        try:
+            response = build_opener(NoRedirect()).open(request, timeout=15)
+        except HTTPError as error:
+            response = error
+        with response:
             raw = response.read(65537)
             if len(raw) > 65536:
                 raise AppleError()
             value = json.loads(raw, object_pairs_hook=object_pairs) if raw else {}
-            if not isinstance(value, dict) or value.get("error"):
+            if response.status == 400 and isinstance(value, dict) and value.get("error") == "invalid_grant" and form and form.get("grant_type") == "refresh_token":
+                raise AppleError("APPLE_REVOKED", "Apple authorization has expired. Sign in again.")
+            if not isinstance(value, dict) or value.get("error") or response.status != 200:
                 raise AppleError()
             return value
+    except AppleError as error:
+        if error.code == "APPLE_REVOKED":
+            raise
+        raise AppleError("APPLE_UNAVAILABLE", "Apple sign-in is temporarily unavailable.") from None
     except Exception:
         # HTTP bodies, request URLs and low-level exceptions can contain secrets.
         raise AppleError("APPLE_UNAVAILABLE", "Apple sign-in is temporarily unavailable.") from None
@@ -126,7 +137,7 @@ def signing_key(kid):
         return _keys[kid]
 
 
-def verify(token, audience, nonce=None):
+def verify(token, audience, nonce=None, notification=False):
     try:
         if not isinstance(token, str) or len(token) > 16384:
             raise AppleError()
@@ -142,9 +153,13 @@ def verify(token, audience, nonce=None):
         now = time.time()
         if claims.get("iss") != ISSUER or claims.get("aud") != audience:
             raise AppleError()
-        for field in ("exp", "iat"):
+        for field in (("iat",) if notification else ("exp", "iat")):
             if type(claims.get(field)) not in (int, float):
                 raise AppleError()
+        if notification:
+            if not now - 2592000 <= claims["iat"] <= now + 30:
+                raise AppleError()
+            return claims
         if not now < claims["exp"] <= now + 86400 or not now - 600 <= claims["iat"] <= now + 30:
             raise AppleError()
         if claims["exp"] <= claims["iat"]:
@@ -221,7 +236,8 @@ def begin(action: str = "login", owner: str = "", username: str = "", password: 
             raise AppleError()
         nonce = hashlib.sha256(secrets.token_bytes(32)).hexdigest()
         state = store.create_token(user_id, PURPOSE, 300, json.dumps({
-            "nonce": nonce, "audience": cfg["STACK_APPLE_CLIENT_ID"], "action": action, "owner": owner}))
+            "nonce": nonce, "audience": cfg["STACK_APPLE_CLIENT_ID"], "action": action, "owner": owner,
+            "started_at": time.time()}))
         return {"ok": True, "state": state, "nonce": nonce, "expires_in": 300}
     except AppleError as error:
         return failure(error)
@@ -257,6 +273,7 @@ def _proof(state, identity_token, authorization_code, action, owner):
     # Exchange id_token may omit nonce; if included it must still match.
     if "nonce" in exchanged and exchanged["nonce"] != challenge["nonce"]:
         raise AppleError()
+    claims["_stack_started_at"] = challenge["started_at"]
     return cfg, manager, db, record, claims, payload["refresh_token"]
 
 
@@ -267,6 +284,9 @@ def finish(state: str, identity_token: str, authorization_code: str, name: str =
         cfg, manager, db, record, claims, refresh = _proof(state, identity_token, authorization_code, action, owner)
         subject = claims["sub"]
         with identity_lock(db, "subject:" + subject):
+            watermark = read_state(db, "subject:" + hashlib.sha256(subject.encode()).hexdigest())
+            if min(claims["iat"], claims["_stack_started_at"]) <= watermark.get("revoked_at", 0):
+                raise AppleError("APPLE_REVOKED", "Start a new Apple sign-in to authorize this account.")
             existing = manager.get_user_by_sso("apple", subject)
             user_id = record["user_id"] if action == "link" else (existing or {}).get("user_id", "")
             if existing and existing["user_id"] != user_id:
@@ -296,8 +316,17 @@ def _finish_user(cfg, manager, db, user_id, subject, refresh, claims, name, exis
     lookups = db.rows("SELECT external_id FROM sso_lookups WHERE provider='apple' AND user_id=:u", {"u":user_id})
     if any(x[0] != subject for x in lookups) or any(x.get("platform") == "apple" and x.get("external_id") != subject for x in accounts):
         raise AppleError("APPLE_CONFLICT", "This Stack account already has an Apple account connected.")
-    sealed = Fernet(cfg["STACK_CONNECTION_KEY"].encode()).encrypt(json.dumps({
-        "refresh_token": refresh, "subject": subject, "client_id": cfg["STACK_APPLE_CLIENT_ID"]}).encode()).decode()
+    lifecycle = read_state(db, user_id)
+    watermark = read_state(db, "subject:" + hashlib.sha256(subject.encode()).hexdigest())
+    if watermark.get("revoked_at", 0) > lifecycle.get("revoked_at", 0):
+        invalidate_sessions(db, user_id, lifecycle, watermark["revoked_at"])
+    if min(claims["iat"], claims["_stack_started_at"]) <= lifecycle.get("revoked_at", 0):
+        raise AppleError("APPLE_REVOKED", "Start a new Apple sign-in to authorize this account.")
+    lifecycle.setdefault("epoch", secrets.token_urlsafe(32))
+    lifecycle["revoked"] = False
+    grant = {"refresh_token": refresh, "subject": subject, "client_id": cfg["STACK_APPLE_CLIENT_ID"],
+             "authorized_at": claims["iat"], "checked_at": time.time()}
+    sealed = seal_grant(cfg, grant)
     try:
         # Persist first: a failed grant write must not link an existing account.
         db.rows("""INSERT INTO kv_state (key,value,expires_at) VALUES (:k,:v,'infinity')
@@ -343,7 +372,8 @@ def _finish_user(cfg, manager, db, user_id, subject, refresh, claims, name, exis
     profile["apple"] = apple
     if not manager.update_user_fields(user_id, {"profile": profile}):
         raise AppleError()
-    return {"ok": True, "token": manager.create_jwt_token(user_id),
+    write_state(db, user_id, lifecycle)
+    return {"ok": True, "token": apple_session_token(manager, user_id, lifecycle["epoch"]),
             "username": manager.get_username(user_id) or ""}
 
 
@@ -361,8 +391,24 @@ def deletion_guard(user_id, fresh=""):
     manager, _, db = runtime()
     # Shared with sign-in/linking; hold through provider revocation, graph cleanup
     # and identity deletion so another callback cannot replace the revoked grant.
-    with identity_lock(db, "user:" + user_id):
+    lookups = db.rows("SELECT external_id FROM sso_lookups WHERE provider='apple' AND user_id=:u", {"u":user_id})
+    subjects = {row[0] for row in lookups}
+    with ExitStack() as locks:
+        for subject in sorted(subjects):
+            locks.enter_context(identity_lock(db, "subject:" + subject))
+        locks.enter_context(identity_lock(db, "user:" + user_id))
+        locked_lookups = db.rows("SELECT external_id FROM sso_lookups WHERE provider='apple' AND user_id=:u", {"u":user_id})
+        if {row[0] for row in locked_lookups} != subjects:
+            raise AppleError("APPLE_CONFLICT", "An Apple request is already in progress. Please try again.")
         revoke_user(user_id, manager=manager, db=db, fresh=fresh)
+        now = time.time()
+        for subject in subjects:
+            key = "subject:" + hashlib.sha256(subject.encode()).hexdigest()
+            watermark = read_state(db, key)
+            watermark["revoked_at"] = max(now, watermark.get("revoked_at", 0))
+            write_state(db, key, watermark)
+        if subjects:
+            invalidate_sessions(db, user_id, read_state(db,user_id), now)
         yield
 
 
@@ -396,3 +442,145 @@ def revoke_user(user_id, cfg=None, manager=None, db=None, fresh=None):
 def forget_grant(user_id):
     _, _, db = runtime()
     db.rows("DELETE FROM kv_state WHERE key=:k", {"k": "stack-apple-grant:" + user_id})
+
+
+def read_state(db, user_id):
+    rows = db.rows("SELECT value FROM kv_state WHERE key=:k", {"k":"stack-apple-state:" + user_id})
+    return json.loads(rows[0][0]) if rows else {}
+
+
+def write_state(db, user_id, state):
+    db.rows("""INSERT INTO kv_state (key,value,expires_at) VALUES (:k,:v,'infinity')
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value,expires_at=EXCLUDED.expires_at""",
+        {"k":"stack-apple-state:" + user_id,"v":json.dumps(state)})
+
+
+def seal_grant(cfg, grant):
+    return Fernet(cfg["STACK_CONNECTION_KEY"].encode()).encrypt(json.dumps(grant).encode()).decode()
+
+
+def sign_session(claims):
+    from jaclang.server.identity.config import signing_secret, signing_algorithm
+    from jaclang.server.serving.authcrypt import jwt_encode
+    return jwt_encode(claims, signing_secret(), algorithm=signing_algorithm())
+
+
+def apple_session_token(manager, user_id, epoch):
+    # Keep Jac's standard claims/TTL; the signed marker cannot be supplied by a
+    # client and distinguishes Apple sessions from Google/password sessions.
+    claims = manager.get_jwt_claims(manager.create_jwt_token(user_id))
+    if not claims or claims.get("sub") != user_id:
+        raise AppleError()
+    claims["stack_apple"] = epoch
+    return sign_session(claims)
+
+
+def invalidate_sessions(db, user_id, state, revoked_at):
+    state.update(epoch=secrets.token_urlsafe(32), revoked=True,
+                 revoked_at=max(state.get("revoked_at", 0), revoked_at))
+    write_state(db, user_id, state)
+
+
+def session_status(token: str, owner: str) -> dict[str, Any]:
+    """Internal gateway preflight. No provider material is returned to clients."""
+    try:
+        manager, _, db = runtime()
+        detail = manager.validate_jwt_token_detail(token)
+        uid = detail.get("user_id")
+        if detail.get("status") != "ok" or not uid or manager.get_root_id(uid) != owner:
+            raise AppleError("APPLE_REVOKED", "Sign in again.")
+        claims = manager.get_jwt_claims(token)
+        if not claims:
+            raise AppleError("APPLE_REVOKED", "Sign in again.")
+        if "stack_apple" not in claims:
+            return {"ok":True}  # Existing Google/password sessions are unchanged.
+        cfg = configuration(require_enabled=False)
+        with identity_lock(db, "user:" + uid):
+            state = read_state(db, uid)
+            if state.get("revoked") or not isinstance(claims["stack_apple"], str) or not hmac.compare_digest(claims["stack_apple"], state.get("epoch", "")):
+                raise AppleError("APPLE_REVOKED", "Apple authorization has expired. Sign in again.")
+            rows = db.rows("SELECT value FROM kv_state WHERE key=:k", {"k":"stack-apple-grant:" + uid})
+            if not rows:
+                raise AppleError("APPLE_UNAVAILABLE", "Apple session could not be checked. Try again.")
+            grant = json.loads(Fernet(cfg["STACK_CONNECTION_KEY"].encode()).decrypt(rows[0][0].encode()))
+            if grant["client_id"] != cfg["STACK_APPLE_CLIENT_ID"]:
+                raise AppleError()
+            watermark = read_state(db, "subject:" + hashlib.sha256(grant["subject"].encode()).hexdigest())
+            if watermark.get("revoked_at", 0) >= grant.get("authorized_at", 0):
+                invalidate_sessions(db, uid, state, watermark["revoked_at"])
+                raise AppleError("APPLE_REVOKED", "Apple authorization has expired. Sign in again.")
+            if time.time() - grant.get("checked_at", 0) >= 86400:
+                try:
+                    payload = provider("/auth/token", {"client_id":cfg["STACK_APPLE_CLIENT_ID"],
+                        "client_secret":client_secret(cfg),"grant_type":"refresh_token",
+                        "refresh_token":grant["refresh_token"]})
+                except AppleError as error:
+                    if error.code == "APPLE_REVOKED":
+                        invalidate_sessions(db, uid, state, time.time())
+                    raise
+                refreshed = verify(payload.get("id_token"), cfg["STACK_APPLE_CLIENT_ID"])
+                if refreshed["sub"] != grant["subject"]:
+                    raise AppleError()
+                if "refresh_token" in payload:
+                    if not isinstance(payload["refresh_token"], str) or not payload["refresh_token"]:
+                        raise AppleError()
+                    grant["refresh_token"] = payload["refresh_token"]
+                grant["checked_at"] = time.time()
+                db.rows("UPDATE kv_state SET value=:v WHERE key=:k",
+                    {"k":"stack-apple-grant:" + uid,"v":seal_grant(cfg,grant)})
+        return {"ok":True}
+    except AppleError as error:
+        return failure(error)
+    except Exception:
+        return failure(AppleError("APPLE_UNAVAILABLE", "Apple session could not be checked. Try again."))
+
+
+def notification(payload: str) -> dict[str, Any]:
+    try:
+        cfg = configuration(require_enabled=False)
+        claims = verify(payload, cfg["STACK_APPLE_CLIENT_ID"], notification=True)
+        events = claims.get("events")
+        if isinstance(events, str):
+            events = json.loads(events, object_pairs_hook=object_pairs)
+        if not isinstance(events, dict) or events.get("type") not in {"consent-revoked","account-deleted","email-enabled","email-disabled"}:
+            raise AppleError()
+        subject, event_time = events.get("sub"), events.get("event_time")
+        if not isinstance(claims.get("jti"), str) or not 1 <= len(claims["jti"]) <= 255 or not isinstance(subject, str) or not 1 <= len(subject) <= 255:
+            raise AppleError()
+        if type(event_time) not in (int, float) or not claims["iat"] - 2592000 <= event_time <= claims["iat"] + 30:
+            raise AppleError()
+        manager, _, db = runtime()
+        with identity_lock(db, "subject:" + subject):
+            subject_key = "subject:" + hashlib.sha256(subject.encode()).hexdigest()
+            watermark = read_state(db, subject_key)
+            if events["type"] in {"consent-revoked","account-deleted"} and event_time > watermark.get("revoked_at", 0):
+                watermark["revoked_at"] = event_time
+                write_state(db, subject_key, watermark)
+            user = manager.get_user_by_sso("apple", subject)
+            if not user:
+                return {"ok":True}
+            with identity_lock(db, "user:" + user["user_id"]):
+                apply_notification(cfg, db, user["user_id"], events, event_time)
+        # Apple account deletion revokes Apple sessions, not the independent
+        # Stack account or its Google/password identities. No automatic merging.
+        return {"ok":True}
+    except AppleError as error:
+        return failure(error)
+    except Exception:
+        return failure(AppleError("APPLE_UNAVAILABLE", "Apple notification could not be processed."))
+
+
+def apply_notification(cfg, db, uid, events, event_time):
+    state = read_state(db, uid)
+    if events["type"] in {"consent-revoked","account-deleted"}:
+        if event_time > state.get("revoked_at", 0):
+            rows = db.rows("SELECT value FROM kv_state WHERE key=:k", {"k":"stack-apple-grant:" + uid})
+            grant = json.loads(Fernet(cfg["STACK_CONNECTION_KEY"].encode()).decrypt(rows[0][0].encode())) if rows else {}
+            if event_time >= grant.get("authorized_at", 0):
+                invalidate_sessions(db, uid, state, event_time)
+            else:
+                state["revoked_at"] = event_time
+                write_state(db, uid, state)
+    elif event_time > state.get("email_event_at", 0):
+        state.update(email_event_at=event_time, email_forwarding=events["type"] == "email-enabled")
+        write_state(db, uid, state)

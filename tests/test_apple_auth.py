@@ -1,6 +1,7 @@
 """Offline Apple boundary checks with ephemeral RSA keys and synthetic identities."""
 import copy
 import json
+import io
 import time
 import unittest
 from unittest.mock import patch
@@ -106,6 +107,12 @@ class Manager:
     def get_username(self, uid):
         return self.users[uid]['username']
 
+    def get_jwt_claims(self, token):
+        return dict(sub=self.tokens[-1],iat=time.time(),exp=time.time()+3600)
+
+    def validate_jwt_token_detail(self, token):
+        return dict(status='ok',user_id=self.tokens[-1])
+
 
 class AppleTests(unittest.TestCase):
     @classmethod
@@ -122,6 +129,7 @@ class AppleTests(unittest.TestCase):
                         patch.object(apple, 'runtime', return_value=(self.manager, self.store, self.db)),
                         patch.object(apple, 'signing_key', return_value=self.key.public_key()),
                         patch.object(apple, 'client_secret', return_value='fixture-secret')]
+        self.patches.append(patch.object(apple, 'sign_session', return_value='stack-jwt-fixture'))
         for item in self.patches:
             item.start()
             self.addCleanup(item.stop)
@@ -145,6 +153,197 @@ class AppleTests(unittest.TestCase):
         token = self.jwt(changes)
         with patch.object(apple, 'provider', return_value={'id_token': token, 'refresh_token': 'private-fixture-grant'}):
             return apple.finish(self.state, token, 'fixture-code', name, action, owner)
+
+    def lifecycle_session(self, marker=True):
+        uid = self.manager.tokens[-1]
+        claims = dict(sub=uid)
+        if marker:
+            claims['stack_apple'] = apple.read_state(self.db,uid)['epoch']
+        return uid, claims
+
+    def status(self, uid, claims):
+        with patch.object(self.manager,'get_jwt_claims',return_value=claims):
+            return apple.session_status('fixture-session',self.manager.get_root_id(uid))
+
+    def notice(self, event='consent-revoked', event_time=None, changes=None):
+        now = int(time.time())
+        values = dict(exp=None,sub=None,jti='fixture-event',events=dict(type=event,sub='fixture-subject',
+            event_time=now if event_time is None else event_time))
+        values.update(changes or {})
+        return apple.notification(self.jwt(values))
+
+    def test_signed_notification_revokes_only_apple_sessions_and_survives_replay(self):
+        self.begin(); self.assertTrue(self.finish()['ok'])
+        uid, claims = self.lifecycle_session()
+        self.assertTrue(self.status(uid,claims)['ok'])
+        self.assertTrue(self.notice()['ok'])
+        self.assertEqual(self.status(uid,claims)['code'],'APPLE_REVOKED')
+        epoch = apple.read_state(self.db,uid)['epoch']
+        self.assertTrue(self.notice()['ok'])
+        self.assertEqual(apple.read_state(self.db,uid)['epoch'],epoch)
+        self.assertTrue(self.status(uid,dict(sub=uid))['ok'])
+        self.assertIn(uid,self.manager.users)
+
+    def test_event_before_first_identity_mapping_prevents_session_issuance(self):
+        self.begin()
+        token = self.jwt()
+        def exchange(path, form):
+            self.assertTrue(self.notice()['ok'])
+            return dict(id_token=token,refresh_token='fixture-grant')
+        with patch.object(apple,'provider',side_effect=exchange):
+            self.assertEqual(apple.finish(self.state,token,'code')['code'],'APPLE_REVOKED')
+        self.assertEqual(self.manager.tokens,[])
+        self.assertEqual(set(self.manager.users),{'old'})
+
+    def test_valid_notification_lock_contention_is_retryable(self):
+        self.begin(); self.assertTrue(self.finish()['ok'])
+        with apple.identity_lock(self.db,'subject:fixture-subject'):
+            self.assertEqual(self.notice()['code'],'APPLE_CONFLICT')
+        self.assertTrue(self.notice()['ok'])
+
+    def test_notification_watermark_blocks_access_when_user_lock_delays_epoch_update(self):
+        self.begin(); self.assertTrue(self.finish()['ok'])
+        uid, claims = self.lifecycle_session()
+        with apple.identity_lock(self.db,'user:'+uid):
+            self.assertEqual(self.notice()['code'],'APPLE_CONFLICT')
+        self.assertEqual(self.status(uid,claims)['code'],'APPLE_REVOKED')
+        self.assertTrue(self.notice()['ok'])
+
+    def test_reauthorization_reconciles_pending_subject_revocation_without_reviving_old_tokens(self):
+        self.begin(); self.assertTrue(self.finish()['ok'])
+        uid, old = self.lifecycle_session()
+        with apple.identity_lock(self.db,'user:'+uid):
+            self.assertEqual(self.notice()['code'],'APPLE_CONFLICT')
+        self.begin(); self.assertTrue(self.finish({'iat':int(time.time())+2})['ok'])
+        _, new = self.lifecycle_session()
+        self.assertEqual(self.status(uid,old)['code'],'APPLE_REVOKED')
+        self.assertTrue(self.status(uid,new)['ok'])
+
+    def test_proof_exchanged_before_deletion_cannot_create_a_replacement_root(self):
+        self.begin(); self.assertTrue(self.finish()['ok'])
+        uid = self.manager.tokens[-1]
+        self.begin()
+        token = self.jwt({'iat':int(time.time())+20})
+        original = apple._proof
+        def delayed_proof(*args):
+            proof = original(*args)
+            with apple.deletion_guard(uid):
+                self.manager.delete_user(uid)
+                apple.forget_grant(uid)
+            return proof
+        with patch.object(apple,'provider',return_value=dict(id_token=token,refresh_token='fixture-refresh')), \
+             patch.object(apple,'_proof',side_effect=delayed_proof):
+            self.assertEqual(apple.finish(self.state,token,'fixture-code')['code'],'APPLE_REVOKED')
+        self.assertEqual(set(self.manager.users),{'old'})
+        self.assertEqual(len(self.manager.tokens),1)
+
+    def test_deletion_retries_if_link_changes_before_its_user_lock(self):
+        original_rows = self.db.rows
+        queries = []
+        def rows(sql,args):
+            result = original_rows(sql,args)
+            if 'sso_lookups' in sql:
+                queries.append(sql)
+                if len(queries) == 1:
+                    self.manager.links['new-subject'] = 'old'
+            return result
+        with patch.object(self.db,'rows',side_effect=rows), patch.object(apple,'provider') as transport:
+            with self.assertRaises(apple.AppleError) as caught:
+                with apple.deletion_guard('old'):
+                    self.fail('Deletion must retry after an overlapping link.')
+            self.assertEqual(caught.exception.code,'APPLE_CONFLICT')
+            transport.assert_not_called()
+        self.assertIn('old',self.manager.users)
+
+    def test_stale_notification_does_not_revoke_fresh_authorization(self):
+        self.begin(); self.assertTrue(self.finish()['ok'])
+        uid, claims = self.lifecycle_session()
+        self.assertTrue(self.notice(event_time=int(time.time())-100)['ok'])
+        self.assertTrue(self.status(uid,claims)['ok'])
+
+    def test_reauthorization_preserves_root_and_rejects_old_epoch(self):
+        self.begin(); self.assertTrue(self.finish()['ok'])
+        uid, old = self.lifecycle_session()
+        self.assertTrue(self.notice()['ok'])
+        self.begin(); self.assertTrue(self.finish({'iat':int(time.time())+2})['ok'])
+        new_uid, new = self.lifecycle_session()
+        self.assertEqual(uid,new_uid)
+        self.assertEqual(self.status(uid,old)['code'],'APPLE_REVOKED')
+        self.assertTrue(self.status(uid,new)['ok'])
+        self.assertTrue(self.notice()['ok'])
+        self.assertTrue(self.status(uid,new)['ok'])
+
+    def test_notification_signature_audience_time_and_schema_fail_closed(self):
+        self.begin(); self.assertTrue(self.finish()['ok'])
+        uid, claims = self.lifecycle_session()
+        for changes in [dict(aud='other-app'),dict(iss='https://other.example'),dict(iat=int(time.time())+100),
+                        dict(jti=''),dict(events={'type':'consent-revoked','sub':'fixture-subject','event_time':'invalid'})]:
+            self.assertFalse(self.notice(changes=changes)['ok'])
+        token = self.jwt(dict(exp=None,jti='x',events={}))
+        self.assertFalse(apple.notification(token[:-2]+'aa')['ok'])
+        self.assertTrue(self.status(uid,claims)['ok'])
+
+    def test_email_notifications_do_not_revoke_and_apply_in_event_order(self):
+        self.begin(); self.assertTrue(self.finish()['ok'])
+        uid, claims = self.lifecycle_session()
+        self.assertTrue(self.notice('email-disabled')['ok'])
+        self.assertTrue(self.notice('email-enabled',int(time.time())-1)['ok'])
+        self.assertFalse(apple.read_state(self.db,uid)['email_forwarding'])
+        self.assertTrue(self.status(uid,claims)['ok'])
+
+    def age_grant(self, uid):
+        grant = json.loads(Fernet(self.cfg['STACK_CONNECTION_KEY'].encode()).decrypt(
+            self.db.values['stack-apple-grant:'+uid].encode()))
+        grant['checked_at'] = time.time()-86401
+        self.db.values['stack-apple-grant:'+uid] = apple.seal_grant(self.cfg,grant)
+
+    def test_refresh_validation_runs_at_most_daily_and_checks_subject(self):
+        self.begin(); self.assertTrue(self.finish()['ok'])
+        uid, claims = self.lifecycle_session(); self.age_grant(uid)
+        with patch.object(apple,'provider',return_value={'id_token':self.jwt()}) as transport:
+            self.assertTrue(self.status(uid,claims)['ok'])
+            self.assertTrue(self.status(uid,claims)['ok'])
+            self.assertEqual(transport.call_count,1)
+            self.assertEqual(transport.call_args.args[1]['grant_type'],'refresh_token')
+        self.age_grant(uid)
+        with patch.object(apple,'provider',return_value={'id_token':self.jwt({'sub':'other-subject'})}):
+            self.assertFalse(self.status(uid,claims)['ok'])
+
+    def test_definitive_refresh_revocation_invalidates_sessions_but_outage_does_not(self):
+        self.begin(); self.assertTrue(self.finish()['ok'])
+        uid, claims = self.lifecycle_session(); self.age_grant(uid)
+        with patch.object(apple,'provider',side_effect=apple.AppleError('APPLE_UNAVAILABLE','Try again.')):
+            self.assertEqual(self.status(uid,claims)['code'],'APPLE_UNAVAILABLE')
+        self.assertFalse(apple.read_state(self.db,uid)['revoked'])
+        with patch.object(apple,'provider',side_effect=apple.AppleError('APPLE_REVOKED','Sign in again.')) as transport:
+            self.assertEqual(self.status(uid,claims)['code'],'APPLE_REVOKED')
+            self.assertEqual(self.status(uid,claims)['code'],'APPLE_REVOKED')
+            self.assertEqual(transport.call_count,1)
+        self.assertTrue(self.status(uid,dict(sub=uid))['ok'])
+
+    def test_session_claim_and_owner_mismatch_cannot_bypass_revocation(self):
+        self.begin(); self.assertTrue(self.finish()['ok'])
+        uid, claims = self.lifecycle_session()
+        self.assertEqual(self.status(uid,dict(sub=uid,stack_apple='forged'))['code'],'APPLE_REVOKED')
+        with patch.object(self.manager,'get_jwt_claims',return_value=claims):
+            self.assertEqual(apple.session_status('fixture-session','wrong-root')['code'],'APPLE_REVOKED')
+
+    def test_provider_only_classifies_definitive_refresh_invalid_grant_as_revocation(self):
+        from urllib.error import HTTPError
+        from unittest.mock import Mock
+        for status, error, grant_type, expected in [
+            (400,'invalid_grant','refresh_token','APPLE_REVOKED'),
+            (400,'invalid_client','refresh_token','APPLE_UNAVAILABLE'),
+            (500,'invalid_grant','refresh_token','APPLE_UNAVAILABLE'),
+            (400,'invalid_grant','authorization_code','APPLE_UNAVAILABLE')]:
+            response = HTTPError(apple.ISSUER+'/auth/token',status,'fixture',{},
+                io.BytesIO(json.dumps({'error':error}).encode()))
+            opener = Mock(); opener.open.side_effect=response
+            with patch.object(apple,'build_opener',return_value=opener):
+                with self.assertRaises(apple.AppleError) as caught:
+                    apple.provider('/auth/token',{'grant_type':grant_type,'refresh_token':'private-fixture'})
+                self.assertEqual(caught.exception.code,expected)
+                self.assertNotIn('private-fixture',str(caught.exception))
 
     def test_new_and_returning_identity_keep_root_and_optional_name(self):
         self.begin()

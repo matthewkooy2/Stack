@@ -40,10 +40,10 @@ class NativeAppleAPI(unittest.TestCase):
                     response = client.post('/function/'+name,json=args or {})
                     self.assertTrue(response.ok, response.text)
                     return response.data['result']
-                def proof(challenge, subject='fixture-apple-subject'):
+                def proof(challenge, subject='fixture-apple-subject', issued=None):
                     header = apple.b64(json.dumps({'alg':'RS256','kid':'fixture-key'}).encode())
                     payload = apple.b64(json.dumps(dict(iss=apple.ISSUER,aud=cfg['STACK_APPLE_CLIENT_ID'],
-                        sub=subject,nonce=challenge['nonce'],iat=int(time.time()),exp=int(time.time())+300,
+                        sub=subject,nonce=challenge['nonce'],iat=int(time.time()) if issued is None else issued,exp=int(time.time())+300,
                         email='fixture@privaterelay.appleid.com',email_verified='true',is_private_email='true')).encode())
                     signature = key.sign((header+'.'+payload).encode(),padding.PKCS1v15(),hashes.SHA256())
                     token = header+'.'+payload+'.'+apple.b64(signature)
@@ -80,6 +80,7 @@ class NativeAppleAPI(unittest.TestCase):
                 client.set_auth_token(linked['token'])
                 self.assertEqual(rpc('bootstrap')['user_id'],original)
                 self.assertEqual(rpc('bootstrap')['profile']['name'],'Preserved Apple marker')
+                self.assertTrue(rpc('auth_apple_session',{'token':linked['token']})['ok'])
                 # Reproduce a pinned-runtime lookup/document split, then repair
                 # it with the real PostgreSQL schema before issuing a session.
                 manager, _, db = service.runtime()
@@ -99,6 +100,37 @@ class NativeAppleAPI(unittest.TestCase):
                 self.assertEqual(rpc('bootstrap')['user_id'],original)
                 # Fresh proof cannot delete another account's root.
                 service = bind_service()  # reload replaces the prepared helper namespace
+                # Signed Apple event invalidates the Apple-marked session epoch
+                # in durable storage while preserving this root's password JWT.
+                event_time = int(time.time())
+                header = apple.b64(json.dumps({'alg':'RS256','kid':'fixture-key'}).encode())
+                payload = apple.b64(json.dumps(dict(iss=apple.ISSUER,aud=cfg['STACK_APPLE_CLIENT_ID'],
+                    iat=event_time,jti='fixture-notification',events=dict(type='consent-revoked',
+                    sub='fixture-apple-subject',event_time=event_time))).encode())
+                signature = key.sign((header+'.'+payload).encode(),padding.PKCS1v15(),hashes.SHA256())
+                notice = header+'.'+payload+'.'+apple.b64(signature)
+                self.assertTrue(rpc('auth_apple_notification',{'payload':notice})['ok'])
+                self.assertEqual(rpc('auth_apple_session',{'token':result['token']})['code'],'APPLE_REVOKED')
+                client.set_auth_token(registered.data['token'])
+                self.assertTrue(rpc('auth_apple_session',{'token':registered.data['token']})['ok'])
+                self.assertEqual(rpc('bootstrap')['user_id'],original)
+                client.clear_auth()
+                result = finish('auth_apple_finish',proof(rpc('auth_apple_begin'),issued=event_time+2))
+                self.assertTrue(result['ok'],result)
+                client.set_auth_token(result['token'])
+                self.assertTrue(rpc('auth_apple_session',{'token':result['token']})['ok'])
+                self.assertTrue(rpc('auth_apple_notification',{'payload':notice})['ok'])
+                self.assertTrue(rpc('auth_apple_session',{'token':result['token']})['ok'])
+                # A due daily refresh check rotates epochs only for a definitive
+                # invalid_grant and does not invalidate the root/password login.
+                manager, _, db = service.runtime()
+                grant_row = db.rows('SELECT value FROM kv_state WHERE key=:k',{'k':'stack-apple-grant:'+uid})
+                grant = json.loads(Fernet(cfg['STACK_CONNECTION_KEY'].encode()).decrypt(grant_row[0][0].encode()))
+                grant['checked_at'] = time.time()-86401
+                db.rows('UPDATE kv_state SET value=:v WHERE key=:k',
+                    {'k':'stack-apple-grant:'+uid,'v':service.seal_grant(cfg,grant)})
+                with patch.object(service,'provider',side_effect=service.AppleError('APPLE_REVOKED','Sign in again.')):
+                    self.assertEqual(rpc('auth_apple_session',{'token':result['token']})['code'],'APPLE_REVOKED')
                 other = client.register_user('fixture-apple-other','Fixture-password-456')
                 client.set_auth_token(other.data['token'])
                 challenge = rpc('auth_apple_delete_begin')

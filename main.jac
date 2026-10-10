@@ -49,6 +49,12 @@ import agents.interview as interview_flow;
 import agents.apple_auth as apple_auth;
 
 # Native Apple proof stays separate from Jac's browser Apple provider.
+def:priv auth_apple_session(token: str) -> dict[str, any] {
+    return apple_auth.session_status(token,jid(root));
+}
+def:pub auth_apple_notification(payload: str) -> dict[str, any] {
+    return apple_auth.notification(payload);
+}
 def:pub auth_apple_begin() -> dict[str, any] {
     return apple_auth.begin();
 }

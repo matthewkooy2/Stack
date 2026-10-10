@@ -18,6 +18,9 @@ struct ProfileView: View {
     @State var showAgents = false
     @State var showReminders = false
     @State var showBank = false
+    @State private var modelSettings: JSON = .null
+    @State private var modelBusy = false
+    @State private var modelError = ""
 
     private var changed: Bool {
         let a = store.account
@@ -65,6 +68,29 @@ struct ProfileView: View {
                     Task { await save() }
                 }
 
+                Card(tint: Palette.surfaceRaised, spacing: 10) {
+                    Text("Agent model").font(Typeface.section).foregroundStyle(Palette.ink)
+                    Text("Applies to new agent tasks across Prep, resumes, jobs, applications and network. Live voice uses its separate connection.")
+                        .font(Typeface.caption).foregroundStyle(Palette.muted)
+                    ForEach(["codex-cli", "local"], id: \.self) { choice in
+                        let option = modelSettings["model_options"].array.first { $0["selection"].string == choice } ?? .null
+                        Button {
+                            Task { await selectModel(choice) }
+                        } label: {
+                            HStack {
+                                Image(systemName: modelSettings["model_selection"].string == choice ? "checkmark.circle.fill" : "circle")
+                                Text(choice == "codex-cli" ? "Codex CLI" : "Local model")
+                                Spacer()
+                            }
+                        }
+                        .disabled(modelBusy || modelSettings.isNull)
+                        Text(option["message"].string).font(Typeface.caption).foregroundStyle(Palette.muted)
+                    }
+                    if !modelError.isEmpty {
+                        Text(modelError).font(Typeface.caption).foregroundStyle(Palette.text)
+                    }
+                }
+
                 StoreMessages()
 
                 GoogleAccountCard()
@@ -96,6 +122,7 @@ struct ProfileView: View {
             }
         }
         .onAppear(perform: seed)
+        .task { await loadModel() }
         .sheet(isPresented: $showAgents) { AgentHubView().environment(store) }
         .sheet(isPresented: $showReminders) { RemindersView().environment(store) }
         .sheet(isPresented: $showBank) { ExperienceBankView().environment(store) }
@@ -121,6 +148,21 @@ struct ProfileView: View {
         notifications = a.notificationsOn
         preferences = PreferenceForm(a.preferences)
         seeded = true
+    }
+
+    private func loadModel() async {
+        do { modelSettings = try await store.call("agent_settings") }
+        catch { modelError = error.localizedDescription }
+    }
+
+    private func selectModel(_ selection: String) async {
+        modelBusy = true
+        modelError = ""
+        defer { modelBusy = false }
+        do {
+            modelSettings = try await store.call("agent_save_model", ["selection": .string(selection)])
+            await store.refresh()
+        } catch { modelError = error.localizedDescription }
     }
 
     private func save() async {

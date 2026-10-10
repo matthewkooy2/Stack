@@ -7,6 +7,23 @@ permissions, and external-action controls remain the authority for every provide
 Local CLIs generate structured proposals with tools disabled. They do not run the
 application browser, send email, or execute practice code.
 
+## App model selection
+
+The native account Settings screen saves one choice, Codex CLI or Local model,
+for all new agent tasks: Prep/interview coaching, resumes, job fit, applications,
+network, profile and LinkedIn work. The preference belongs to the signed-in
+account. Existing tasks retain their captured choice; changing the setting does
+not interrupt them. Live voice retains its separate connection.
+
+The private operator configuration may supply `model_options.codex-cli` (model)
+and `model_options.local` (provider, installed model, private local model URL,
+and local inference limits). See `deploy/agent-config.example.json`. Choosing a
+model never writes deployment configuration, credentials or URLs. Existing
+Codex account ownership and daily request limits remain enforced. Local supports
+Ollama or LM Studio; without an installed model configuration Settings explains
+that Local is unavailable. Runtime sign-in, model/service errors appear on the
+task; no provider fallback or model installation occurs.
+
 ## Installed local models
 
 The general worker can use installed local instruction models for job fit,

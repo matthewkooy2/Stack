@@ -125,6 +125,88 @@ final class GoogleSignInTests: XCTestCase {
         XCTAssertNoThrow(try GoogleSignIn.validate(valid))
     }
 
+    func testAcceptsLiveFormEncodedScopesWithoutRewritingTheProviderURL() throws {
+        let live = valid.replacingOccurrences(of: "%20", with: "+")
+        XCTAssertEqual(try GoogleSignIn.validate(live).absoluteString, live)
+        XCTAssertEqual(try GoogleSignIn.validate(valid.replacingOccurrences(of: "openid%20email", with: "openid+email")).absoluteString,
+                       valid.replacingOccurrences(of: "openid%20email", with: "openid+email"))
+    }
+
+    func testFormDecodingStillRejectsLiteralPlusBroaderAndDuplicateScopes() {
+        XCTAssertThrowsError(try GoogleSignIn.validate(valid.replacingOccurrences(of: "%20", with: "%2B")))
+        let broad = valid.replacingOccurrences(of: "openid%20email%20profile", with: "openid+email+profile+gmail")
+        XCTAssertThrowsError(try GoogleSignIn.validate(broad))
+        XCTAssertThrowsError(try GoogleSignIn.validate(valid + "&%73cope=email"))
+    }
+
+    @MainActor
+    func testLiveShapedBeginPendingPollAndTokenCompleteWithoutCredentials() async throws {
+        let api = APIClient(origin: URL(string: "https://google-handoff.example.invalid")!, session: stubSession())
+        let google = GoogleSignIn(api: api)
+        google.cancel()
+        StubProtocol.seen = []
+        defer { google.cancel(); api.forget(); StubProtocol.handler = nil }
+        let live = valid.replacingOccurrences(of: "%20", with: "+")
+        var polls = 0
+        StubProtocol.handler = { request in
+            XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+            var data = request.httpBody ?? Data()
+            if let stream = request.httpBodyStream {
+                stream.open()
+                defer { stream.close() }
+                var buffer = [UInt8](repeating: 0, count: 1024)
+                while stream.hasBytesAvailable {
+                    let count = stream.read(&buffer, maxLength: buffer.count)
+                    guard count > 0 else { break }
+                    data.append(contentsOf: buffer.prefix(count))
+                }
+            }
+            let body = try JSONDecoder().decode(JSON.self, from: data)
+            if request.url?.path == "/sso/google/begin" {
+                XCTAssertEqual(body["mode"].string, "native")
+                return (200, try JSONEncoder().encode(JSON.object(["ok": true, "data": ["ok": true, "poll": "fixture-poll", "url": .string(live)]])))
+            }
+            XCTAssertEqual(request.url?.path, "/sso/google/poll")
+            XCTAssertEqual(body["poll"].string, "fixture-poll")
+            polls += 1
+            let result: JSON = polls == 1 ? ["ok": false, "token": "", "error": ""] : ["ok": true, "token": "fixture-session"]
+            return (200, try JSONEncoder().encode(JSON.object(["ok": true, "data": result])))
+        }
+        var opened = false
+        let handoff = try await google.begin(invite: "", link: false) { url in
+            XCTAssertEqual(url.absoluteString, live)
+            opened = true
+            return true
+        }
+        XCTAssertTrue(opened)
+        XCTAssertEqual(google.pending()?.poll, handoff.poll)
+        let token = try await google.wait(for: handoff, isActive: { true })
+        XCTAssertEqual(token, "fixture-session")
+        XCTAssertEqual(polls, 2)
+        XCTAssertNil(google.pending())
+    }
+
+    @MainActor
+    func testRealProviderFailureStopsPollingAndClearsPending() async throws {
+        let api = APIClient(origin: URL(string: "https://google-denied.example.invalid")!, session: stubSession())
+        let google = GoogleSignIn(api: api)
+        google.cancel()
+        defer { google.cancel(); api.forget(); StubProtocol.handler = nil }
+        StubProtocol.handler = { request in
+            let result: JSON = request.url?.path == "/sso/google/begin"
+                ? ["ok": true, "poll": "fixture-poll", "url": .string(self.valid)]
+                : ["ok": false, "error": "provider denied"]
+            return (200, try JSONEncoder().encode(JSON.object(["ok": true, "data": result])))
+        }
+        let handoff = try await google.begin(invite: "", link: false, open: { _ in true })
+        do {
+            _ = try await google.wait(for: handoff, isActive: { true })
+            XCTFail("provider failure must stop polling")
+        } catch GoogleSignInError.failed {
+            XCTAssertNil(google.pending())
+        }
+    }
+
     func testRejectsOtherHostsSchemesAndPorts() {
         XCTAssertThrowsError(try GoogleSignIn.validate(valid.replacingOccurrences(of: "accounts.google.com", with: "evil.example")))
         XCTAssertThrowsError(try GoogleSignIn.validate(valid.replacingOccurrences(of: "https:", with: "http:")))
@@ -306,6 +388,51 @@ final class AppStoreSessionTests: XCTestCase {
         XCTAssertEqual(store.phase, .admission)
         XCTAssertFalse(store.account.isLoaded)
         await store.signOut()
+    }
+
+    func testGoogleHandoffAdoptsSessionAndLoadsTheSameAccountThroughAdmission() async {
+        let store = store()
+        store.google.cancel()
+        let url = "https://accounts.google.com/o/oauth2/v2/auth?scope=openid+email+profile&code_challenge_method=S256&state=fixture"
+        var polls = 0
+        var opened = false
+        store.openExternalURL = { provider in
+            XCTAssertEqual(provider.absoluteString, url)
+            opened = true
+            return true
+        }
+        StubProtocol.handler = { request in
+            let path = request.url?.path ?? ""
+            if path.hasPrefix("/sso/google/") {
+                XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+                let result: JSON
+                if path == "/sso/google/begin" {
+                    result = ["ok": true, "poll": "fixture-poll", "url": .string(url)]
+                } else {
+                    polls += 1
+                    result = polls == 1 ? ["ok": false, "error": ""] : ["ok": true, "token": "google-session"]
+                }
+                return (200, try JSONEncoder().encode(JSON.object(["ok": true, "data": result])))
+            }
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer google-session")
+            switch path {
+            case "/function/auth_google_status": return (200, envelope(["username": "sam", "google": true]))
+            case "/function/agent_admission": return (200, envelope(["admitted": true]))
+            case "/function/bootstrap": return (200, envelope(["user_id": "existing-root", "profile": ["name": "Sam"]]))
+            default: return (404, Data(#"{"ok":false}"#.utf8))
+            }
+        }
+        await store.signInWithGoogle()
+        XCTAssertTrue(opened)
+        XCTAssertEqual(polls, 2)
+        XCTAssertEqual(store.api.token, "google-session")
+        XCTAssertEqual(store.phase, .ready)
+        XCTAssertEqual(store.account.userID, "existing-root")
+        XCTAssertTrue(store.googleInfo["google"].bool)
+        XCTAssertFalse(store.googlePending)
+        XCTAssertTrue(store.error.isEmpty)
+        await store.signOut()
+        StubProtocol.handler = nil
     }
 
     func testPersonalCallsAreRefusedBeforeSignIn() async {

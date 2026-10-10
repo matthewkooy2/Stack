@@ -51,7 +51,12 @@ final class GoogleSignIn {
         guard components.scheme == "https", components.host == "accounts.google.com",
               components.path == "/o/oauth2/v2/auth", components.user == nil, components.password == nil,
               components.port == nil else { throw GoogleSignInError.invalidURL }
-        let items = components.queryItems ?? []
+        // OAuth query parameters use form encoding. Foundation leaves literal + intact;
+        // decode those as spaces before percent decoding, preserving an encoded literal %2B.
+        // Validate the decoded query without rewriting the provider URL opened by Safari.
+        var formQuery = components
+        formQuery.percentEncodedQuery = components.percentEncodedQuery?.replacingOccurrences(of: "+", with: "%20")
+        let items = formQuery.queryItems ?? []
         let scopes = items.filter { $0.name == "scope" }
         guard scopes.count == 1,
               (scopes[0].value ?? "").split(separator: " ").map(String.init).sorted() == ["email", "openid", "profile"],
@@ -113,7 +118,7 @@ final class GoogleSignIn {
                         clearPending()
                         return result["token"].string
                     }
-                    if !result["error"].isNull {
+                    if !result["error"].string.isEmpty {
                         clearPending()
                         throw GoogleSignInError.failed
                     }

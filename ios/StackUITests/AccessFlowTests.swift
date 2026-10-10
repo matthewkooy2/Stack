@@ -30,7 +30,10 @@ final class AccessFlowTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Copied. Apply the text on LinkedIn when you're ready."].waitForExistence(timeout: 5))
         capture("linkedin-approved-local-rewrites-animation-disabled")
         app.scrollViews.firstMatch.swipeDown()
-        app.buttons["Close"].tap()
+        // A downward swipe can dismiss this sheet when its content is already at the top.
+        // Both the gesture and Close are valid exits; require the host before reopening.
+        if app.buttons["Close"].exists { app.buttons["Close"].tap() }
+        XCTAssertTrue(app.buttons["LinkedIn rewrites"].waitForExistence(timeout: 5))
         app.buttons["LinkedIn rewrites"].tap()
         app.scrollViews.firstMatch.swipeUp()
         XCTAssertTrue(app.buttons["Copy approved rewrites"].waitForExistence(timeout: 5))

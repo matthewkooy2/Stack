@@ -34,8 +34,9 @@ with open(sys.argv[1], 'rb') as source:
     info = plistlib.load(source)
 expected = {'CFBundleIdentifier': 'com.matthewkooy.stack', 'CFBundleShortVersionString': '0.2.0',
             'CFBundleVersion': sys.argv[2], 'StackAPIBaseURL': sys.argv[3]}
-if any(info.get(key) != value for key, value in expected.items()):
-    raise SystemExit('Native archive identity, version or API configuration does not match this run.')
+mismatched = [key for key, value in expected.items() if info.get(key) != value]
+if mismatched:
+    raise SystemExit('Native archive configuration does not match this run: ' + ', '.join(mismatched))
 if info.get('ITSAppUsesNonExemptEncryption') is not False:
     raise SystemExit('Native archive must declare non-exempt encryption as Boolean false.')
 origin = urlsplit(sys.argv[3])

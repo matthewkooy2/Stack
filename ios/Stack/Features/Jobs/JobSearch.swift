@@ -16,6 +16,12 @@ struct JobSearch: Equatable {
         graduation = result["timeline_preferences"]["graduation_month"].string
     }
 
+    /// Takes the account's saved query and filters, so a profile edit that cleared an override is not resent.
+    mutating func adopt(saved: JSON) {
+        query = saved["query"].string
+        filters = saved["filters"].isNull ? [:] : saved["filters"]
+    }
+
     var notices: [String] { criteria["notices"].strings }
 
     /// Confirmed-timeline search with no saved graduation month: nothing can be confirmed yet.

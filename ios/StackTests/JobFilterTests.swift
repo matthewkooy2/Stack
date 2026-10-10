@@ -201,4 +201,35 @@ final class JobFilterTests: XCTestCase {
         gate.endLoad()
         XCTAssertFalse(gate.busy)
     }
+
+    func testAdoptingRefreshedAccountSearchDropsClearedOverridesAndKeepsTheRest() {
+        var value = search(query: "Nurse", filters: ["any_role": true, "sort": "newest", "levels": ["Senior"], "future_key": 3])
+        // Backend cleared query and any_role after the profile role changed; unrelated overrides remain.
+        value.adopt(saved: ["query": "", "filters": ["sort": "newest", "levels": ["Senior"], "future_key": 3]])
+        XCTAssertEqual(value.query, "")
+        XCTAssertTrue(value.filters["any_role"].isNull)
+        XCTAssertEqual(value.filters["sort"].string, "newest")
+        XCTAssertEqual(value.filters["levels"].strings, ["Senior"])
+        XCTAssertEqual(value.filters["future_key"].int, 3)
+        XCTAssertFalse(value.active.contains { $0.id == "any_role" || $0.id == "query" })
+    }
+
+    func testAdoptingAMissingSavedSearchClearsEverything() {
+        var value = search(query: "Nurse", filters: ["sort": "newest"])
+        value.adopt(saved: .null)
+        XCTAssertEqual(value.query, "")
+        XCTAssertEqual(value.filters, [:])
+        XCTAssertFalse(value.hasOverrides)
+    }
+
+    func testProfileSavedReloadWaitsForGateThenRunsOnce() {
+        var gate = JobRequestGate()
+        XCTAssertTrue(gate.beginLoad())
+        // The notification handler cannot claim the gate while the older load is in flight.
+        XCTAssertFalse(gate.beginSave())
+        gate.endLoad()
+        XCTAssertTrue(gate.beginSave())
+        gate.endSave()
+        XCTAssertTrue(gate.beginLoad())
+    }
 }

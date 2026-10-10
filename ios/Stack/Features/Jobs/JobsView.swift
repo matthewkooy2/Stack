@@ -64,7 +64,7 @@ struct JobsView: View {
         .onDisappear { commitDecision() }
         .onChange(of: scenePhase) { _, phase in if phase != .active { commitDecision() } }
         .onReceive(NotificationCenter.default.publisher(for: .stackProfileSaved)) { _ in
-            Task { await load(refresh: false) }
+            Task { await profileSaved() }
         }
         .sheet(item: $detail) { job in JobDetailView(job: job).environment(store) }
         .sheet(item: $sheet) { value in
@@ -257,9 +257,7 @@ struct JobsView: View {
     private func start() async {
         guard !started else { return }
         started = true
-        search.query = store.account.savedSearch["query"].string
-        search.filters = store.account.savedSearch["filters"]
-        if search.filters.isNull { search.filters = [:] }
+        search.adopt(saved: store.account.savedSearch)
         await load(refresh: true)
     }
 
@@ -272,13 +270,24 @@ struct JobsView: View {
         return gate.beginSave()
     }
 
+    /// A profile edit may have cleared saved overrides (a changed role drops the query and any_role).
+    /// Waits for any request, adopts the account's refreshed saved search, then reloads from page one.
+    private func profileSaved() async {
+        guard await beginSave() else { return }
+        commitDecision()
+        search.adopt(saved: store.account.savedSearch)
+        nextCursor = ""
+        gate.endSave()
+        await load(refresh: false)
+    }
+
     private func applySearch(query: String, filters: JSON) async {
         guard await beginSave() else { return }
         commitDecision()
         do {
             let stored = try await store.call("save_search", ["query": .string(query), "filters": filters])
-            search.query = stored["query"].string
-            search.filters = stored["filters"].isNull ? [:] : stored["filters"]
+            search.adopt(saved: stored)
+            store.account.raw["saved_search"] = ["query": .string(search.query), "filters": search.filters]
             nextCursor = ""
             jobs = []
             hidden = []
@@ -296,8 +305,8 @@ struct JobsView: View {
         commitDecision()
         do {
             try await store.call("reset_search")
-            search.query = ""
-            search.filters = [:]
+            search.adopt(saved: [:])
+            store.account.raw["saved_search"] = ["query": "", "filters": [:]]
             nextCursor = ""
             jobs = []
             hidden = []

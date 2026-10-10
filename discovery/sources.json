@@ -133,5 +133,95 @@
     "url": "https://careers.smartrecruiters.com/HMGroup",
     "approved": true,
     "policy": "Verified official public Posting API; US feed."
+  },
+  {
+    "id": "greenhouse:datadog",
+    "name": "Datadog",
+    "board": "datadog",
+    "domain": "datadoghq.com",
+    "sector": "Technology",
+    "adapter": "greenhouse",
+    "approved": true
+  },
+  {
+    "id": "greenhouse:figma",
+    "name": "Figma",
+    "board": "figma",
+    "domain": "figma.com",
+    "sector": "Technology",
+    "adapter": "greenhouse",
+    "approved": true
+  },
+  {
+    "id": "greenhouse:robinhood",
+    "name": "Robinhood",
+    "board": "robinhood",
+    "domain": "robinhood.com",
+    "sector": "Technology",
+    "adapter": "greenhouse",
+    "approved": true
+  },
+  {
+    "id": "greenhouse:discord",
+    "name": "Discord",
+    "board": "discord",
+    "domain": "discord.com",
+    "sector": "Technology",
+    "adapter": "greenhouse",
+    "approved": true
+  },
+  {
+    "id": "greenhouse:mongodb",
+    "name": "MongoDB",
+    "board": "mongodb",
+    "domain": "mongodb.com",
+    "sector": "Technology",
+    "adapter": "greenhouse",
+    "approved": true
+  },
+  {
+    "id": "greenhouse:duolingo",
+    "name": "Duolingo",
+    "board": "duolingo",
+    "domain": "duolingo.com",
+    "sector": "Technology",
+    "adapter": "greenhouse",
+    "approved": true
+  },
+  {
+    "id": "greenhouse:pinterest",
+    "name": "Pinterest",
+    "board": "pinterest",
+    "domain": "pinterest.com",
+    "sector": "Technology",
+    "adapter": "greenhouse",
+    "approved": true
+  },
+  {
+    "id": "greenhouse:affirm",
+    "name": "Affirm",
+    "board": "affirm",
+    "domain": "affirm.com",
+    "sector": "Technology",
+    "adapter": "greenhouse",
+    "approved": true
+  },
+  {
+    "id": "greenhouse:asana",
+    "name": "Asana",
+    "board": "asana",
+    "domain": "asana.com",
+    "sector": "Technology",
+    "adapter": "greenhouse",
+    "approved": true
+  },
+  {
+    "id": "greenhouse:vercel",
+    "name": "Vercel",
+    "board": "vercel",
+    "domain": "vercel.com",
+    "sector": "Technology",
+    "adapter": "greenhouse",
+    "approved": true
   }
 ]

@@ -12,7 +12,8 @@ struct JobsView: View {
     @State var loaded = false
     @State var loadError = ""
     @State private var nextCursor = ""
-    @State private var loading = false
+    /// One search save or deck load at a time, so a slow older response cannot overwrite a newer search.
+    @State private var gate = JobRequestGate()
     @State var drag: CGSize = .zero
     @State var hidden: Set<String> = []
     @State var detail: Job?
@@ -35,7 +36,9 @@ struct JobsView: View {
             ScreenHeader(title: "Jobs", subtitle: deck.isEmpty ? "" : "\(deck.count) to review", onProfile: onProfile)
                 .padding(.horizontal, Spacing.page)
                 .reveal(0)
-            JobSearchBar(search: search, sheet: $sheet, onUseProfile: { Task { await resetSearch() } })
+            JobSearchBar(search: search, sheet: $sheet, disabled: gate.busy,
+                         onChange: { query, filters in Task { await applySearch(query: query, filters: filters) } },
+                         onReset: { Task { await resetSearch() } })
             if let pending = pendingDecision {
                 HStack {
                     Text(pending.save ? "Saved \(pending.job.title)" : "Passed \(pending.job.title)")
@@ -61,7 +64,7 @@ struct JobsView: View {
         .onDisappear { commitDecision() }
         .onChange(of: scenePhase) { _, phase in if phase != .active { commitDecision() } }
         .onReceive(NotificationCenter.default.publisher(for: .stackProfileSaved)) { _ in
-            Task { await load(refresh: false) }
+            Task { await profileSaved() }
         }
         .sheet(item: $detail) { job in JobDetailView(job: job).environment(store) }
         .sheet(item: $sheet) { value in
@@ -124,13 +127,16 @@ struct JobsView: View {
                     title: emptyTitle,
                     message: emptyMessage
                 )
+                if search.missingGraduation {
+                    StackButton(label: "Set graduation", icon: "clock") { sheet = .timeline }
+                }
                 if !nextCursor.isEmpty {
-                    StackButton(label: "Load more roles", icon: "refresh", disabled: loading) {
+                    StackButton(label: "Load more roles", icon: "refresh", disabled: gate.busy) {
                         Task { await load(refresh: false, more: true) }
                     }
                 }
                 HStack(spacing: Spacing.option) {
-                    StackButton(label: "Refresh jobs", icon: "refresh", kind: .secondary, disabled: loading) {
+                    StackButton(label: "Refresh jobs", icon: "refresh", kind: .secondary, disabled: gate.busy) {
                         Task { await load(refresh: true) }
                     }
                     StackButton(label: "Import a job link", icon: "link", kind: .secondary) { sheet = .importLink }
@@ -143,6 +149,7 @@ struct JobsView: View {
 
     private var emptyTitle: String {
         if !loadError.isEmpty { return "Could not load roles" }
+        if search.missingGraduation { return "Add your graduation month" }
         if !nextCursor.isEmpty { return "More roles to review" }
         if search.filters["timeline"].string == "confirmed" { return "No confirmed timeline matches." }
         return "You are all caught up"
@@ -150,6 +157,9 @@ struct JobsView: View {
 
     private var emptyMessage: String {
         if !loadError.isEmpty { return loadError }
+        if search.missingGraduation {
+            return "Confirmed timeline matches compare listings with your graduation month, so none can be confirmed yet. Set it, or choose Hide timeline mismatches in Filters to include unclear listings."
+        }
         if !nextCursor.isEmpty { return "Continue to the next page of verified roles." }
         if search.filters["timeline"].string == "confirmed" {
             return "Many listings lack a clear graduation window. Add your graduation date, or choose Hide timeline mismatches to include unclear listings."
@@ -247,38 +257,65 @@ struct JobsView: View {
     private func start() async {
         guard !started else { return }
         started = true
-        search.query = store.account.savedSearch["query"].string
-        search.filters = store.account.savedSearch["filters"]
-        if search.filters.isNull { search.filters = [:] }
+        search.adopt(saved: store.account.savedSearch)
         await load(refresh: true)
     }
 
+    /// Waits for any in-flight request, then claims the gate. Nothing suspends between the check and the claim.
+    private func beginSave() async -> Bool {
+        while gate.busy {
+            if Task.isCancelled { return false }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return gate.beginSave()
+    }
+
+    /// A profile edit may have cleared saved overrides (a changed role drops the query and any_role).
+    /// Waits for any request, adopts the account's refreshed saved search, then reloads from page one.
+    private func profileSaved() async {
+        guard await beginSave() else { return }
+        commitDecision()
+        search.adopt(saved: store.account.savedSearch)
+        nextCursor = ""
+        gate.endSave()
+        await load(refresh: false)
+    }
+
     private func applySearch(query: String, filters: JSON) async {
+        guard await beginSave() else { return }
         commitDecision()
         do {
             let stored = try await store.call("save_search", ["query": .string(query), "filters": filters])
-            search.query = stored["query"].string
-            search.filters = stored["filters"].isNull ? [:] : stored["filters"]
+            search.adopt(saved: stored)
+            store.account.raw["saved_search"] = ["query": .string(search.query), "filters": search.filters]
             nextCursor = ""
             jobs = []
             hidden = []
             sheet = nil
+            gate.endSave()
             await load(refresh: true)
-        } catch { if !(error is CancellationError) { loadError = error.localizedDescription } }
+        } catch {
+            gate.endSave()
+            if !(error is CancellationError) { loadError = error.localizedDescription }
+        }
     }
 
     private func resetSearch() async {
-        guard !loading else { return }
+        guard await beginSave() else { return }
         commitDecision()
         do {
             try await store.call("reset_search")
-            search.query = ""
-            search.filters = [:]
+            search.adopt(saved: [:])
+            store.account.raw["saved_search"] = ["query": "", "filters": [:]]
             nextCursor = ""
             jobs = []
             hidden = []
+            gate.endSave()
             await load(refresh: true)
-        } catch { if !(error is CancellationError) { loadError = error.localizedDescription } }
+        } catch {
+            gate.endSave()
+            if !(error is CancellationError) { loadError = error.localizedDescription }
+        }
     }
 
     /// Follows an imported link until the server has verified it or given up.
@@ -307,12 +344,11 @@ struct JobsView: View {
     }
 
     func load(refresh: Bool, more: Bool = false) async {
-        guard !loading, store.phase == .ready else { return }
+        guard store.phase == .ready, gate.beginLoad() else { return }
         let generation = store.sessionGeneration
-        loading = true
         loadError = ""
         var pages = 0
-        defer { loading = false }
+        defer { gate.endLoad() }
         repeat {
             pages += 1
             let continuing = more || pages > 1

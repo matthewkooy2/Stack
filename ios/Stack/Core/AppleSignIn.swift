@@ -13,8 +13,16 @@ final class AppleSignIn: NSObject, ASAuthorizationControllerDelegate, ASAuthoriz
         var name: String = ""
     }
     struct Result { let response: JSON; let user: String }
+    struct SessionStorage {
+        var read: (String) -> String?
+        var write: (String, String) -> Void
+        var remove: (String) -> Void
+        static let keychain = SessionStorage(read: { Keychain.read(account: $0) },
+            write: { Keychain.write($0, account: $1) }, remove: { Keychain.delete(account: $0) })
+    }
     typealias Authorize = (String, String, UIWindow) async throws -> Proof
     let api: APIClient
+    private let sessions: SessionStorage
     var authorize: Authorize?
     var credentialState: (String) async throws -> ASAuthorizationAppleIDProvider.CredentialState = { user in
         try await withCheckedThrowingContinuation { continuation in
@@ -33,7 +41,10 @@ final class AppleSignIn: NSObject, ASAuthorizationControllerDelegate, ASAuthoriz
     static var enabled: Bool {
         (Bundle.main.object(forInfoDictionaryKey: "StackAppleSignInEnabled") as? NSString)?.boolValue ?? false
     }
-    init(api: APIClient) { self.api = api }
+    init(api: APIClient, sessions: SessionStorage = .keychain) {
+        self.api = api
+        self.sessions = sessions
+    }
 
     func perform(begin: String = "auth_apple_begin", finish: String = "auth_apple_finish",
                  arguments: JSON = [:], window: UIWindow) async throws -> Result {
@@ -124,13 +135,13 @@ final class AppleSignIn: NSObject, ASAuthorizationControllerDelegate, ASAuthoriz
         guard api.hasSession else { return }
         let value = ["user": user, "session": fingerprint()]
         if let data = try? JSONEncoder().encode(value), let string = String(data: data, encoding: .utf8) {
-            Keychain.write(string, account: sessionAccount)
+            sessions.write(string, sessionAccount)
         }
     }
-    func forget() { Keychain.delete(account: sessionAccount) }
+    func forget() { sessions.remove(sessionAccount) }
     var hasAppleSession: Bool { savedUser() != nil }
     private func savedUser() -> String? {
-        guard api.hasSession, let saved = Keychain.read(account: sessionAccount),
+        guard api.hasSession, let saved = sessions.read(sessionAccount),
               let data = saved.data(using: .utf8), let value = try? JSONDecoder().decode([String: String].self, from: data),
               value["session"] == fingerprint() else { return nil }
         return value["user"]

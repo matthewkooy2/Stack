@@ -23,6 +23,10 @@ private func appleRequestJSON(_ request: URLRequest) throws -> JSON {
 final class AppleSignInTests: XCTestCase {
     private let state = String(repeating: "s", count: 43)
     private let nonce = String(repeating: "a", count: 64)
+    private func memorySessions() -> AppleSignIn.SessionStorage {
+        var values: [String: String] = [:]
+        return .init(read: { values[$0] }, write: { values[$1] = $0 }, remove: { values.removeValue(forKey: $0) })
+    }
     private func client() -> APIClient {
         let api = APIClient(origin: URL(string: "https://apple-\(UUID().uuidString).invalid")!, session: stubSession())
         api.forget()
@@ -136,7 +140,7 @@ final class AppleSignInTests: XCTestCase {
     }
 
     func testRevocationIsScopedToTheExactAppleSession() async {
-        let api = client(), apple = AppleSignIn(api: client())
+        let api = client(), apple = AppleSignIn(api: client(), sessions: memorySessions())
         defer { api.forget(); apple.api.forget(); apple.forget() }
         apple.api.adopt(token: "apple-session")
         apple.remember(user: "apple-user")
@@ -149,7 +153,7 @@ final class AppleSignInTests: XCTestCase {
     }
 
     func testOfflineCredentialCheckPreservesSession() async {
-        let api = client(), apple = AppleSignIn(api: client())
+        let api = client(), apple = AppleSignIn(api: client(), sessions: memorySessions())
         defer { api.forget(); apple.api.forget(); apple.forget() }
         apple.api.adopt(token: "apple-session")
         apple.remember(user: "apple-user")

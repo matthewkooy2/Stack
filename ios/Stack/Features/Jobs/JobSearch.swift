@@ -231,30 +231,34 @@ struct JobSearchBar: View {
             .disabled(disabled)
             .padding(.horizontal, Spacing.page)
             if search.hasOverrides {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(search.active) { item in
-                            Button {
-                                let next = search.removing(item.id)
-                                onChange(next.query, next.filters)
-                            } label: {
-                                Text("\(item.label)  ✕")
-                                    .font(Typeface.caption).foregroundStyle(Palette.text)
-                                    .padding(.horizontal, 12).padding(.vertical, 7)
-                                    .overlay(Capsule().stroke(Palette.rule, lineWidth: 1))
+                // Chips scroll; Reset stays pinned so it is never pushed off-screen.
+                HStack(spacing: 8) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(search.active) { item in
+                                Button {
+                                    let next = search.removing(item.id)
+                                    onChange(next.query, next.filters)
+                                } label: {
+                                    Text("\(item.label)  ✕")
+                                        .font(Typeface.caption).foregroundStyle(Palette.text)
+                                        .padding(.horizontal, 12).padding(.vertical, 7)
+                                        .overlay(Capsule().stroke(Palette.rule, lineWidth: 1))
+                                }
+                                .buttonStyle(.tap(scale: 0.95, dim: 1))
+                                .accessibilityLabel("Remove filter \(item.label)")
+                                .disabled(disabled)
                             }
-                            .buttonStyle(.tap(scale: 0.95, dim: 1))
-                            .accessibilityLabel("Remove filter \(item.label)")
-                            .disabled(disabled)
                         }
-                        Button("Reset", action: onReset)
-                            .disabled(disabled)
-                            .font(Typeface.caption.weight(.semibold))
-                            .foregroundStyle(Palette.dark)
-                            .accessibilityLabel("Reset filters to profile")
                     }
-                    .padding(.horizontal, Spacing.page)
+                    Button("Reset", action: onReset)
+                        .font(Typeface.caption.weight(.semibold))
+                        .foregroundStyle(Palette.dark)
+                        .fixedSize()
+                        .disabled(disabled)
+                        .accessibilityLabel("Reset filters to profile")
                 }
+                .padding(.horizontal, Spacing.page)
             }
         }
     }
@@ -277,21 +281,24 @@ struct JobFilterDraft: Equatable {
     var datedOnly = false
     var age = "Any"
 
-    /// Starts from the effective search: profile defaults plus this search's overrides.
+    /// Starts from the effective search: a saved override wins, otherwise the criteria the server returned.
+    /// Saved keys must not fall back to defaults when criteria is absent, or saving would overwrite them.
     init(search: JobSearch) {
         let c = search.criteria
         let f = search.filters
+        func value(_ key: String) -> JSON { f[key].isNull ? c[key] : f[key] }
         anyRole = f["any_role"].bool
-        query = anyRole ? "" : c["roles"].string
-        location = c["location"].string
-        modes = c["modes"].strings
-        types = c["employment_types"].strings
-        levels = c["levels"].strings
-        if c["salary_min"].double > 0 { minimum = c["salary_min"].string }
-        if !c["salary_period"].string.isEmpty { period = c["salary_period"].string }
-        confirmedOnly = c["confirmed_only"].bool
+        let saved = search.query.trimmingCharacters(in: .whitespaces)
+        query = anyRole ? "" : (saved.isEmpty ? c["roles"].string : saved)
+        location = value("location").string
+        modes = value("modes").strings
+        types = value("employment_types").strings
+        levels = value("levels").strings
+        if value("salary_min").double > 0 { minimum = value("salary_min").string }
+        if !value("salary_period").string.isEmpty { period = value("salary_period").string }
+        confirmedOnly = value("confirmed_only").bool
         confirmedLevel = f["confirmed_level"].bool
-        if !c["timeline"].string.isEmpty { timeline = c["timeline"].string }
+        if !value("timeline").string.isEmpty { timeline = value("timeline").string }
         if !f["occupation"].string.isEmpty { occupation = f["occupation"].string }
         if f["posted_days"].int > 0 { age = String(f["posted_days"].int) }
         datedOnly = f["has_posting_date"].bool

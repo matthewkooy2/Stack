@@ -56,6 +56,9 @@ class ActivationTests(unittest.TestCase):
         command = activation.service_command('employer:example')
         self.assertEqual(command[-3:], ['--once', '--source', 'employer:example'])
         self.assertIn('--property=RuntimeMaxSec=180', command)
+        self.assertEqual(command[command.index('--backend')+1], 'python')
+        unit = (Path(__file__).parents[1] / 'deploy/stack-discovery.service').read_text()
+        self.assertIn('run --backend python --no-serve scripts/discovery-worker.jac', unit)
 
     def exercise_activation(self, apply=False, batch='gh: 12 listings', fail_start=False):
         with tempfile.TemporaryDirectory() as folder, ExitStack() as mocks:

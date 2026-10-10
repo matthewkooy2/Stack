@@ -20,7 +20,7 @@ import from core.agents { _demo_status }
 import from core.automation {
     AgentMemory, AgentAction, AgentNotification, AgentPushDevice, AgentTicket, AgentRun, AgentContact, AgentConnection, AgentEvent, AgentAdmission, AgentInterview, PrepSession,
     _agent_access, _agent_memory, _agent_summary, _agent_start, _agent_fresh, _agent_system, _agent_owner, _owned_run, _agent_leased, _run_view, _steps, agent_upgrade_workflows,
-    agent_settings, agent_report, agent_admission, agent_register_push, agent_remove_push, agent_notification_claim, agent_notification_begin, agent_notification_finish, agent_notification_status, agent_save_facts, agent_save_policy, agent_activity, agent_run, agent_cancel, agent_respond, agent_reconcile,
+    agent_settings, agent_save_model, agent_report, agent_admission, agent_register_push, agent_remove_push, agent_notification_claim, agent_notification_begin, agent_notification_finish, agent_notification_status, agent_save_facts, agent_save_policy, agent_activity, agent_run, agent_cancel, agent_respond, agent_reconcile,
     agent_contacts, agent_save_contact, agent_stop_contact, agent_import_contacts, agent_events, agent_claim, agent_model_log, agent_model_logs, agent_authorize, _agent_complete, agent_worker_connection, agent_approve, agent_retry, agent_dismiss, agent_trace, agent_traces, agent_feedback,
     agent_invite, agent_accept_invite, agent_google_start, agent_google_finish, agent_disconnect, agent_export,
     prep_progress, prep_live, agent_live_claim, agent_live_check, agent_live_finish, prep_catalog, prep_sessions, prep_create, prep_get, prep_save
@@ -768,7 +768,7 @@ def:priv agent_start(kind: str, target_id: str) -> dict[str, any] {
         } elif kind in ["prep","code"] {
             for p in [root -->][?:PrepSession] {
                 if jid(p)==target_id {
-                    if p.data.get("mode")=="interview" { return {"error":"Use the local Qwen interview controls for this session."}; }
+                    if p.data.get("mode")=="interview" { return {"error":"Use the interview controls for this session."}; }
                     context={"session":p.data,"session_revision":p.revision,"problem":problem(str(p.data["problem_id"])),"test_results":[r for r in p.results if r["revision"]==p.revision]};
                     for a in [root -->][?:Application] { if jid(a)==p.data.get("application_id") { context["job"]=_application_job(a); } }
                     return _agent_start(kind,target_id,context,str(p.revision));
@@ -1129,7 +1129,7 @@ def _features() -> list[dict[str, any]] {
     default_resume=_owned_resume(_settings().selected_resume);resumes=[r for r in [root -->][?:Resume] if r.review.get("kind")!=BANK_KIND];
     if default_resume is None and len(resumes)==1 { default_resume=resumes[0]; }
     return feature_status({
-        "now":time.time(),"policy":m.policy,"model":model_status(jid(root)),"google_scopes":scopes,
+        "now":time.time(),"policy":m.policy,"model":model_status(jid(root),m.model_selection),"google_scopes":scopes,
         "google_client":bool(os.environ.get("GOOGLE_CLIENT_ID","")) and os.environ.get("GOOGLE_REDIRECT_URI","").startswith("https://"),
         "browser":bool(os.environ.get("STACK_BROWSER_URL","")) and bool(os.environ.get("STACK_BROWSER_TOKEN","")),
         "sandbox":bool(os.environ.get("STACK_SANDBOX_URL","")) or c["sandbox_available"],"voice_error":voice_error,"web_url":c["web_url"],

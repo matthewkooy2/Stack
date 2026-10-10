@@ -29,6 +29,33 @@ class Providers(unittest.TestCase):
         self.path.write_text(json.dumps(changes))
         return contracts.config()
 
+    def test_explicit_choices_are_private_configured_and_do_not_change_default(self):
+        self.configure(provider='codex-cli', model='', local_cli_owner='alice', local_cli_daily_limit=5,
+                       model_options={'local': {'provider':'lmstudio', 'model':'fixture-local', 'local_model_url':'http://127.0.0.1:1234'}})
+        self.assertEqual(contracts.config('local')['model'], 'fixture-local')
+        self.assertEqual(contracts.config('local')['provider'], 'lmstudio')
+        self.assertEqual(contracts.config('codex-cli')['model'], '')
+        self.assertEqual(contracts.config()['provider'], 'codex-cli')
+        self.assertTrue(contracts.model_status('alice', 'local')['configured'])
+        self.assertFalse(contracts.model_status('bob', 'codex-cli')['configured'])
+        with self.assertRaises(ValueError): contracts.config('https://untrusted.invalid')
+
+    def test_unconfigured_local_is_visible_without_fallback(self):
+        for options in ({}, {'local': {'provider':'openai','model':'cloud'}}, {'local': {'model':'unknown'}}):
+            self.configure(provider='codex-cli', model='', model_options=options)
+            status = contracts.model_status('alice', 'local')
+            self.assertFalse(status['configured'])
+            self.assertEqual(status['provider'], 'ollama')
+            self.assertIn('installed local model', status['message'])
+
+    def test_codex_interview_accepts_complete_raw_plain_text(self):
+        c = self.configure(provider='codex-cli', local_cli_owner='alice', local_cli_daily_limit=5)
+        text = '{broken JSON. Useful coaching without scores.'
+        with patch.object(local_cli, 'generate', return_value={'text':text}):
+            for step in ('coach','interview_turn','interview_coach'):
+                result = provider.generate(step, {'interview':{'turns':[]}}, c)
+                self.assertEqual(result['artifact']['text'], text)
+
     def test_default_api_remains_disabled(self):
         self.assertFalse(contracts.model_status('owner')['configured'])
         self.assertEqual(contracts.config()['provider'], 'openai')

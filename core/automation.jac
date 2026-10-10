@@ -22,7 +22,7 @@ import from agents.browser_control { BROWSER_ERROR_MESSAGE, sanitize_browser_dia
 import agents.interview as interview;
 import from jaclang.server.identity.app_tokens { token_create, token_peek, token_consume }
 
-node AgentMemory { has facts: list[dict[str, any]] = [], policy: dict[str, any] = {}, revision: int = 0, admitted: bool = False, deleted: bool = False; }
+node AgentMemory { has facts: list[dict[str, any]] = [], policy: dict[str, any] = {}, revision: int = 0, admitted: bool = False, deleted: bool = False, model_selection: str = ""; }
 node AgentRun {
     has kind: str, target_id: str, context: dict[str, any], created_at: float,
         key: str, status: str = "queued", index: int = 0, updated_at: float = 0.0,
@@ -32,7 +32,7 @@ node AgentRun {
         provider: str = "", subscription_calls: int = 0,
         trace_attempt: str = "", requested_model: str = "", stage_started_at: float = 0.0,
         approvals: dict[str, any] = {}, review: dict[str, any] = {}, dismissed: bool = False;
-    has workflow_version: int = 1, upgrade_pending: bool = False;
+    has workflow_version: int = 1, upgrade_pending: bool = False, model_selection: str = "";
 }
 node AgentTrace { has run_id: str, attempt: str, step: str, event: str, at: float, data: dict[str, any]; }
 node AgentFeedback { has run_id: str, output_version: str, rating: str, note: str, at: float, snapshot: dict[str, any]; }
@@ -152,15 +152,24 @@ def _agent_summary() -> dict[str, any] {
     shown=[r for r in ordered if _needs_attention(r)]+[r for r in ordered[:30] if not _needs_attention(r)];
     runs=[_run_view(r) for r in shown];
     attention=len([r for r in ordered if _needs_attention(r)]);
-    return {"enabled":m.policy.get("enabled",False),"needs_input":attention,"attention":attention,"active":len([r for r in ordered if r.status in ACTIVE]),"runs":runs,"paid_configured":config()["monthly_cents"]>0,"model_provider":model_status(jid(root)),"admitted":m.admitted or not config()["invite_only"],"expires_at":m.policy.get("expires_at",0)};
+    return {"enabled":m.policy.get("enabled",False),"needs_input":attention,"attention":attention,"active":len([r for r in ordered if r.status in ACTIVE]),"runs":runs,"paid_configured":config()["monthly_cents"]>0,"model_provider":model_status(jid(root),m.model_selection),"admitted":m.admitted or not config()["invite_only"],"expires_at":m.policy.get("expires_at",0)};
 }
 def:priv agent_admission() -> dict[str, any] {
     try { _agent_access();return {"admitted":True}; } except ValueError { return {"admitted":False}; }
 }
 def:priv agent_settings() -> dict[str, any] {
     _agent_access();m=_agent_memory();
-    return {"account_id":jid(root),"facts":m.facts,"policy":m.policy,"revision":m.revision,"connections":[{"id":jid(c),"provider":c.provider,"state":c.state,"scopes":c.scopes} for c in [root -->][?:AgentConnection]],"web_url":config()["web_url"],"activity":_agent_summary()};
+    return {"account_id":jid(root),"model_selection":m.model_selection or ("local" if config()["provider"] in LOCAL_PROVIDERS else "codex-cli" if config()["provider"]=="codex-cli" else ""),"model_options":[{"selection":choice,**model_status(jid(root),choice)} for choice in ["codex-cli","local"]],"facts":m.facts,"policy":m.policy,"revision":m.revision,"connections":[{"id":jid(c),"provider":c.provider,"state":c.state,"scopes":c.scopes} for c in [root -->][?:AgentConnection]],"web_url":config()["web_url"],"activity":_agent_summary()};
 }
+def:priv agent_save_model(selection: str) -> dict[str, any] {
+    _agent_access();
+    if selection not in ["codex-cli","local"] { return {"error":"Choose Codex CLI or Local model."}; }
+    with _catalog_lock {
+        _agent_fresh();m=_agent_memory();m.model_selection=selection;commit();
+    }
+    return agent_settings();
+}
+
 def:priv agent_save_facts(facts: list[dict[str, any]]) -> dict[str, any] {
     _agent_access();
     try { validated=validate_facts(facts); } except ValueError as e { return {"error":str(e)}; }
@@ -222,7 +231,7 @@ def _agent_start(kind: str, target_id: str, context: dict[str, any], nonce: str 
     m=_agent_memory();context={**context,"facts":context_facts(m.facts,context),"prompt_version":VERSION};
     key=digest([kind,target_id,nonce or ("once" if kind=="network" else context)]);
     for old in [root -->][?:AgentRun] { if old.key==key { return _run_view(old,True); } }
-    r=root ++> AgentRun(workflow_version=2,kind=kind,target_id=target_id,context=context,created_at=time.time(),updated_at=time.time(),key=key,policy_revision=m.revision);
+    r=root ++> AgentRun(workflow_version=2,kind=kind,target_id=target_id,context=context,model_selection=m.model_selection,created_at=time.time(),updated_at=time.time(),key=key,policy_revision=m.revision);
     ticket=root.shared ++> AgentTicket(owner=jid(root),run_id=jid(r));
     JacRuntime.allow_root(ticket,UUID(jid(root.shared)),AccessLevel.WRITE); # jac:ignore[E1053]
     if persist { commit(); }
@@ -297,7 +306,7 @@ def:pub agent_claim(token: str) -> dict[str, any] {
                 r.index=0;r.artifacts={};step=_steps(r)[0];
             }
             r.context["facts"]=current_facts;
-            reservation=0;c=config();
+            reservation=0;c=config(r.model_selection);
             if step=="tailor" and not _tailor_ready(r.context) {
                 r.status="needs_input";r.requests=[];r.updated_at=now;t.state="needs_input";
                 r.message="Upload a resume before tailoring." if not r.context.get("resume_id") else "Review and confirm this resume's imported records or add its LaTeX before tailoring.";
@@ -318,7 +327,6 @@ def:pub agent_claim(token: str) -> dict[str, any] {
                 }
                 if step=="linkedin_scan" { authorize(m.policy,"model");model_access(c,t.owner); }
                 if step in PAID {
-                    if step in interview.STEPS { interview.local_qwen(c); }
                     authorize(m.policy,"model");model_access(c,t.owner);
                     if c["provider"] in CLI_PROVIDERS {
                         commit();day=time.strftime("%Y-%m-%d",time.gmtime());
@@ -339,7 +347,7 @@ def:pub agent_claim(token: str) -> dict[str, any] {
             r.status="running";r.lease=secrets.token_urlsafe(32);r.lease_until=now+180;r.attempts+=1;r.updated_at=now;r.message="Working on "+step;t.state="running";
             r.trace_attempt=str(uuid4());r.requested_model=c["model"] or "provider default";r.stage_started_at=time.time();
             _trace(r,"stage_start",{"provider":c["provider"],"requested_model":r.requested_model,"attempt_number":r.attempts,"prompt_version":r.context.get("prompt_version"),"context":r.context if capture_enabled() else {"content_capture":False}});
-            commit();return {"id":jid(r),"owner":t.owner,"lease":r.lease,"step":step,"context":r.context,"artifacts":r.artifacts,"reservation_cents":reservation,"provider_config_hash":digest(c)};
+            commit();return {"id":jid(r),"owner":t.owner,"lease":r.lease,"step":step,"context":r.context,"artifacts":r.artifacts,"reservation_cents":reservation,"provider_config_hash":digest(c),"model_selection":r.model_selection};
         }
         commit();return {"idle":True};
     }
@@ -862,7 +870,7 @@ def:priv prep_live(id: str) -> dict[str, any] {
         sessions=[p for p in [root -->][?:PrepSession] if jid(p)==id];
         if not sessions { return {"error":"Practice session not found."}; }
         p=sessions[0];
-        if p.data.get("mode")=="interview" { return {"error":"This interview uses local recording and Qwen analysis. Live voice is not enabled."}; }
+        if p.data.get("mode")=="interview" { return {"error":"This interview uses recorded answers and agent coaching. Live voice is not enabled."}; }
         context={"session":p.data,"problem":problem(str(p.data["problem_id"])),"results":p.results[-3:]};
         for old in [root -->][?:AgentRun] {
             if old.kind=="live" and old.target_id==id and old.status in ["waiting","running"] {
@@ -876,7 +884,7 @@ def:priv prep_live(id: str) -> dict[str, any] {
             if g.cents+reservation>c["monthly_cents"] or u.cents+reservation>c["user_monthly_cents"] { _agent_owner(owner);return {"error":"The live interview exceeds the available budget."}; }
             g.cents+=reservation;u.cents+=reservation;commit();_agent_owner(owner);
             context["voice_settings"]=settings;
-            ticket=secrets.token_urlsafe(32);r=root ++> AgentRun(workflow_version=2,kind="live",target_id=id,context=context,created_at=time.time(),updated_at=time.time(),key=digest(ticket),ticket_hash=digest(ticket),status="waiting",message="Ready to start live interview",lease_until=time.time()+60,cost_cents=reservation);
+            ticket=secrets.token_urlsafe(32);r=root ++> AgentRun(workflow_version=2,kind="live",target_id=id,context=context,model_selection=m.model_selection,created_at=time.time(),updated_at=time.time(),key=digest(ticket),ticket_hash=digest(ticket),status="waiting",message="Ready to start live interview",lease_until=time.time()+60,cost_cents=reservation);
             commit();return {"id":jid(r),"owner":owner,"ticket":ticket,"url":settings["url"],"reserved_cents":reservation};
         } except ValueError as e { _agent_owner(owner);return {"error":str(e)}; }
     }

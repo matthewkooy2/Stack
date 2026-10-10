@@ -72,7 +72,7 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
         return {'artifact': contact_source(context['contact'])};
     }
     if (step in ('fit', 'tailor', 'draft', 'coach', 'profile', 'linkedin_review', 'story', 'interview_turn', 'interview_coach')) {
-        c = config();
+        c = config(work.get("model_selection", ""));
         if (work.get('provider_config_hash') != digest(c)) {
             return {
                 'needs_input': True,

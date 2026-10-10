@@ -1,5 +1,6 @@
 """Disposable persisted Jobs searches: role/level scope, timelines and pagination."""
 import os
+import sys
 from pathlib import Path
 import tempfile
 import time
@@ -10,7 +11,6 @@ if os.environ.get('JAC_DB_URL'):
     raise RuntimeError('Jobs verification requires disposable embedded data; unset JAC_DB_URL.')
 os.environ['JAC_DB_SCRATCH'] = '1'
 from jaclang.testing.testing import JacTestClient
-from core import catalog
 from discovery.normalize import normalize, digest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,9 +29,15 @@ class JobsFeedAPI(unittest.TestCase):
         self.client.set_auth_token(self.token)
         self.rpc('bootstrap')
         # Test worker boundary only; never read a real collector token or production graph.
-        gate = patch.object(catalog, '_worker_allowed', return_value=True)
-        gate.start()
-        self.addCleanup(gate.stop)
+        # JacTestClient prepares a namespaced application module distinct from ordinary
+        # Python imports. Patch that loaded test module, rather than an unused alias.
+        catalogs = [module for name, module in list(sys.modules.items())
+                    if name.endswith('core.catalog') and hasattr(module, '_worker_allowed')]
+        self.assertTrue(catalogs, 'Prepared catalog test module must be loaded')
+        for module in catalogs:
+            gate = patch.object(module, '_worker_allowed', return_value=True)
+            gate.start()
+            self.addCleanup(gate.stop)
         self.url = 'https://example.com/jobs-fixture'
         self.source = 'career:' + digest(self.url)
         self.rpc('import_job_url', {'url': self.url})

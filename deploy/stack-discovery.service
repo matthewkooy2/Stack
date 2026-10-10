@@ -1,12 +1,19 @@
 [Unit]
 Description=Stack catalog discovery worker
 After=stack-api.service
+Wants=stack-api.service
 
 [Service]
 User=stack
+Group=stack
 WorkingDirectory=/opt/stack
 EnvironmentFile=/etc/stack/discovery.env
 Environment=STACK_JAC_BIN=/usr/local/bin/jac
+Environment=HOME=/var/lib/stack
+Environment=XDG_CACHE_HOME=/var/lib/stack/.cache
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=JAC_SCHEMA_REPAIR=detect
 ExecStart=/opt/stack/scripts/jac run --no-serve scripts/discovery-worker.jac
 Restart=on-failure
 RestartSec=5
@@ -15,7 +22,8 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/stack/.jac
+InaccessiblePaths=/var/lib/stack-codex
+ReadWritePaths=/opt/stack/.jac /var/lib/stack/.cache
 
 [Install]
 WantedBy=multi-user.target

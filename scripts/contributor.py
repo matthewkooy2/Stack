@@ -379,6 +379,8 @@ def tests(root):
                  'test_model_logs.py', 'test_stories.py', 'test_bullet_bank.py', 'test_interview_contract.py'):
         execute(root, [str(root / 'scripts/jac'), 'run', '--no-serve', 'tests/' + path], env)
     execute(root, [sys.executable, '-m', 'unittest', 'discover', '-s', 'deploy/startup', '-p', 'test_startup.py'], env)
+    for path in ('test_discovery_activation.py', 'test_discovery_lifecycle.py'):
+        execute(root, [sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', '-p', path], env)
     execute(root, [str(root / 'scripts/jac'), 'test', 'tests/provider_workflow_tests.jac', 'tests/provider_transport_tests.jac'], env)
     for path in ('test_web_model_permission.cjs', 'google_signin_clients.cjs', 'auth-build-config.cjs', 'native-session.cjs', 'live-contract.cjs', 'live-mapping.cjs', 'prep-session-compat.cjs'):
         execute(root, ['node', 'tests/' + path], env)

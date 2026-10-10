@@ -4,6 +4,7 @@ Run as root after deploying the reviewed source. Default is read-only preflight.
 --apply installs/enables the unit after a bounded batch for --source succeeds.
 """
 import argparse
+from contextlib import nullcontext
 import fcntl
 import hashlib
 import json
@@ -17,6 +18,7 @@ ROOT = Path('/opt/stack')
 UNIT = 'stack-discovery.service'
 DEST = Path('/etc/systemd/system') / UNIT
 ENV = Path('/etc/stack/discovery.env')
+LOCK = Path('/var/lib/stack-release/deploy.lock')
 
 
 def run(args, timeout=30):
@@ -42,6 +44,7 @@ def service_command(source):
             '--property=Group=stack', '--property=WorkingDirectory=/opt/stack',
             '--property=EnvironmentFile=/etc/stack/discovery.env',
             '--property=RuntimeMaxSec=180',
+            '--property=UMask=0077',
             '--property=NoNewPrivileges=true', '--property=PrivateTmp=true',
             '--property=ProtectSystem=strict', '--property=ProtectHome=true',
             '--property=InaccessiblePaths=/var/lib/stack-codex',
@@ -80,10 +83,13 @@ def main():
     args = parser.parse_args()
     assert os.geteuid() == 0, 'Run preflight as root to inspect private file metadata'
     # Share the production promoter's lock; keep it held through activation.
-    lock = None
-    if args.apply:
-        lock = Path('/var/lib/stack-release/deploy.lock').open('r+')
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    with (LOCK.open('r+') if args.apply else nullcontext()) as lock:
+        if lock is not None:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        activate(args)
+
+
+def activate(args):
     assert not ROOT.is_symlink() and not DEST.is_symlink()
     account = pwd.getpwnam('stack')
     assert account.pw_uid != 0
@@ -106,6 +112,7 @@ def main():
     if not args.apply:
         return
     assert args.source, '--apply requires an existing public --source for bounded refresh'
+    assert not DEST.exists(), 'Existing unit activation state requires separate review'
     validate_source(args.source)
     installed = False
     try:

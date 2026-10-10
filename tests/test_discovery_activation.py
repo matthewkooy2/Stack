@@ -22,16 +22,31 @@ class ActivationTests(unittest.TestCase):
             self.assertFalse(activation.refreshed(text, 'gh'))
 
     def test_rejects_nonpublic_or_unapproved_source(self):
-        for raw in ('{"adapter":"adzuna","approved":true}',
-                    '{"adapter":"greenhouse","approved":false}',
-                    '{"adapter":"career","approved":true,"renderer":"playwright"}'):
+        for raw in ('[{"adapter":"adzuna","approved":true}]',
+                    '[{"adapter":"greenhouse","approved":false}]',
+                    '[{"adapter":"career","approved":true,"renderer":"playwright"}]'):
             with patch.object(activation, 'run', return_value=raw):
                 with self.assertRaises(AssertionError):
                     activation.validate_source('configured-source')
 
     def test_accepts_existing_public_source(self):
-        with patch.object(activation, 'run', return_value='{"adapter":"greenhouse","approved":true}'):
+        with patch.object(activation, 'run', return_value='[{"adapter":"greenhouse","approved":true}]'):
             activation.validate_source('employer:example')
+
+    def test_duplicate_graph_source_keys_are_all_validated(self):
+        raw = '[{"adapter":"greenhouse","approved":true},{"adapter":"greenhouse","approved":true}]'
+        with patch.object(activation, 'run', return_value=raw):
+            activation.validate_source('greenhouse:stripe')
+        raw = '[{"adapter":"greenhouse","approved":true},{"adapter":"adzuna","approved":true}]'
+        with patch.object(activation, 'run', return_value=raw):
+            with self.assertRaises(AssertionError):
+                activation.validate_source('greenhouse:stripe')
+
+    def test_missing_source_is_rejected(self):
+        for raw in ('null', '[]'):
+            with patch.object(activation, 'run', return_value=raw):
+                with self.assertRaises(AssertionError):
+                    activation.validate_source('missing')
 
     def test_source_is_not_shell_or_sql(self):
         with patch.object(activation, 'run') as run:

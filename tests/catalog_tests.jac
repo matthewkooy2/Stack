@@ -17,6 +17,25 @@ test "reading a SmartRecruiters listing preserves its application and identity" 
 }
 
 glob counters: dict[str, catalog.Usage] = {};
+
+test "duplicate source keys complete the exact claimed lease" {
+    sid="greenhouse:duplicate-lease-fixture";
+    config={"adapter":"greenhouse","name":"Duplicate lease fixture"};
+    first=root.shared ++> catalog.JobSource(key=sid,config=config,lease="unrelated",status="collecting");
+    claimed=root.shared ++> catalog.JobSource(key=sid,config=config,lease="claimed",status="collecting");
+    with patch.object(catalog,"_worker_allowed",return_value=True),patch.object(catalog,"_fresh",return_value=None),patch.object(catalog,"commit",return_value=None) {
+        result=catalog.discovery_complete("fixture",sid,"claimed",{"complete":True});
+        assert result.get("saved") is True;
+        assert claimed.lease=="" and claimed.status=="ready" and claimed.last_success>0;
+        assert first.lease=="unrelated" and first.last_success==0;
+        assert catalog.discovery_complete("fixture",sid,"claimed",{}).get("error")=="Lease expired or already completed.";
+        claimed.lease="unrelated";
+        assert catalog.discovery_complete("fixture",sid,"unrelated",{}).get("error")=="Lease expired or already completed.";
+        assert first.lease=="unrelated" and claimed.lease=="unrelated";
+        assert catalog.discovery_complete("fixture",sid,"",{}).get("error")=="Lease expired or already completed.";
+    }
+    del first;del claimed;
+}
 def fake_usage(key: str) -> catalog.Usage {
     if key not in counters { counters[key]=catalog.Usage(key=key); }
     return counters[key];

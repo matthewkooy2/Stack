@@ -78,7 +78,8 @@ struct JobsView: View {
             switch value {
             case .filters:
                 JobFiltersSheet(search: search) { query, filters in
-                    await applySearch(reserveChange(), query: query, filters: filters)
+                    let event = reserveChange()
+                    return { await applySearch(event, query: query, filters: filters) }
                 }
                     .environment(store)
             case .timeline:

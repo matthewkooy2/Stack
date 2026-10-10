@@ -335,14 +335,16 @@ struct JobFilterDraft: Equatable {
 @MainActor
 struct JobFiltersSheet: View {
     let search: JobSearch
-    let onApply: (String, JSON) async -> Void
+    /// Called synchronously at the tap, so the caller can fix its place in line and account before any task starts.
+    /// It returns the work to run.
+    let onApply: (String, JSON) -> () async -> Void
     private let baseline: JobFilterDraft
 
     @State private var draft: JobFilterDraft
     @State private var working = false
     @State private var showMore = false
 
-    init(search: JobSearch, onApply: @escaping (String, JSON) async -> Void) {
+    init(search: JobSearch, onApply: @escaping (String, JSON) -> () async -> Void) {
         self.search = search
         self.onApply = onApply
         let start = JobFilterDraft(search: search)
@@ -386,8 +388,9 @@ struct JobFiltersSheet: View {
                 if showMore { more }
                 StackButton(label: "Show opportunities", disabled: working) {
                     working = true
+                    let apply = onApply(draft.anyRole ? "" : draft.query, draft.filters(over: search.filters, from: baseline))
                     Task {
-                        await onApply(draft.anyRole ? "" : draft.query, draft.filters(over: search.filters, from: baseline))
+                        await apply()
                         working = false
                     }
                 }

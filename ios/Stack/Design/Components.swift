@@ -226,6 +226,7 @@ struct Chip: View {
             .animation(Motion.fadeAnimation, value: selected)
         if let action {
             Button(action: action) { chip }.buttonStyle(.tap(scale: 0.95, dim: 1)).accessibilityLabel(label)
+                .accessibilityAddTraits(selected ? .isSelected : [])
         } else {
             chip
         }

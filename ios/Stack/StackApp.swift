@@ -12,6 +12,8 @@ struct StackApp: App {
             #if DEBUG
             if ProcessInfo.processInfo.arguments.contains("--local-draft-ui-test") {
                 LocalDraftUITestScene()
+            } else if ProcessInfo.processInfo.arguments.contains("--job-filters-ui-test") {
+                JobFiltersUITestScene()
             } else {
                 mainScene
             }

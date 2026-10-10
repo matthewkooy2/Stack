@@ -61,14 +61,19 @@ def service_command(source):
 
 def validate_source(source):
     assert re.fullmatch(r'[A-Za-z0-9_.:/-]+', source), 'Invalid source ID'
-    query = ("SELECT props->'archetype'->'config' FROM anchors WHERE "
+    query = ("SELECT json_agg(props->'archetype'->'config') FROM anchors WHERE "
              "arch_type='JobSource' AND props->'archetype'->>'key'='" + source + "';")
-    raw = run(['runuser', '-u', 'postgres', '--', 'psql', '-X', '-w', '-qAt',
+    raw = run(['runuser', '-u', 'postgres', '--', 'env',
+               'PGOPTIONS=-c default_transaction_read_only=on', 'psql', '-X', '-w', '-qAt',
                '-v', 'ON_ERROR_STOP=1', '-d', 'stack', '-c', query])
-    config = json.loads(raw)
-    assert config.get('approved') and config.get('renderer') != 'playwright'
-    assert config.get('adapter') in ('greenhouse', 'lever', 'ashby', 'smartrecruiters',
-                                     'career', 'html', 'rss'), 'Initial refresh must use a public source'
+    configs = json.loads(raw)
+    assert isinstance(configs, list) and configs, 'Configured source not found'
+    # Different graph roots can retain the same source key. Accept only when
+    # every matching record passes the public-source guard; never pick a row.
+    for config in configs:
+        assert config.get('approved') is True and config.get('renderer') != 'playwright'
+        assert config.get('adapter') in ('greenhouse', 'lever', 'ashby', 'smartrecruiters',
+                                         'career', 'html', 'rss'), 'Initial refresh must use a public source'
 
 
 def refreshed(output, source):

@@ -46,8 +46,10 @@ struct JobFiltersUITestScene: View {
         .sheet(item: $sheet) { value in
             if value == .filters {
                 JobFiltersSheet(search: search) { query, filters in
-                    save(query: query, filters: filters)
-                    sheet = nil
+                    {
+                        save(query: query, filters: filters)
+                        sheet = nil
+                    }
                 }
                 .environment(store)
             } else {

@@ -8,12 +8,7 @@ struct JobsView: View {
     @Environment(\.scenePhase) private var scenePhase
     var onProfile: () -> Void
 
-    @State var jobs: [Job] = []
-    @State var loaded = false
-    @State var loadError = ""
-    @State private var nextCursor = ""
-    /// One search save or deck load at a time, so a slow older response cannot overwrite a newer search.
-    @State private var gate = JobRequestGate()
+    @State private var feed = JobDeckFeed()
     @State var drag: CGSize = .zero
     @State var hidden: Set<String> = []
     @State var detail: Job?
@@ -28,7 +23,7 @@ struct JobsView: View {
 
     private var deck: [Job] {
         let decided = store.account.decidedJobIDs
-        return jobs.filter { !decided.contains($0.id) && !hidden.contains($0.id) }
+        return feed.jobs.filter { !decided.contains($0.id) && !hidden.contains($0.id) }
     }
 
     var body: some View {
@@ -36,9 +31,15 @@ struct JobsView: View {
             ScreenHeader(title: "Jobs", subtitle: deck.isEmpty ? "" : "\(deck.count) to review", onProfile: onProfile)
                 .padding(.horizontal, Spacing.page)
                 .reveal(0)
-            JobSearchBar(search: search, sheet: $sheet, disabled: gate.busy,
-                         onChange: { query, filters in Task { await applySearch(query: query, filters: filters) } },
-                         onReset: { Task { await resetSearch() } })
+            JobSearchBar(search: search, sheet: $sheet, disabled: feed.busy,
+                         onChange: { query, filters in
+                             let event = reserveChange()
+                             Task { await applySearch(event, query: query, filters: filters) }
+                         },
+                         onReset: {
+                             let event = reserveChange()
+                             Task { await resetSearch(event) }
+                         })
             if let pending = pendingDecision {
                 HStack {
                     Text(pending.save ? "Saved \(pending.job.title)" : "Passed \(pending.job.title)")
@@ -47,9 +48,9 @@ struct JobsView: View {
                     Chip(label: "Undo") { undoDecision() }
                 }.padding(.horizontal, Spacing.page)
             }
-            if !loadError.isEmpty || !banner.isEmpty || !search.notices.isEmpty {
+            if !feed.loadError.isEmpty || !banner.isEmpty || !search.notices.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    MessageLine(text: loadError).fadeSwitch(!loadError.isEmpty && deck.first != nil)
+                    MessageLine(text: feed.loadError).fadeSwitch(!feed.loadError.isEmpty && deck.first != nil)
                     MessageLine(text: banner, isError: false).fadeSwitch(!banner.isEmpty)
                     ForEach(search.notices, id: \.self) { MessageLine(text: $0) }
                 }
@@ -61,16 +62,25 @@ struct JobsView: View {
         .padding(.top, 8)
         .task { await start() }
         .task(id: importID) { await watchImport() }
-        .onDisappear { commitDecision() }
+        .onDisappear {
+            commitDecision()
+            feed.cancel()
+        }
+        .onChange(of: store.sessionGeneration) { _, _ in resetForSession() }
+        .onChange(of: store.phase) { _, phase in if phase != .ready { resetForSession() } }
         .onChange(of: scenePhase) { _, phase in if phase != .active { commitDecision() } }
         .onReceive(NotificationCenter.default.publisher(for: .stackProfileSaved)) { _ in
-            Task { await profileSaved() }
+            let event = reserveChange()
+            Task { await profileSaved(event) }
         }
         .sheet(item: $detail) { job in JobDetailView(job: job).environment(store) }
         .sheet(item: $sheet) { value in
             switch value {
             case .filters:
-                JobFiltersSheet(search: search) { query, filters in await applySearch(query: query, filters: filters) }
+                JobFiltersSheet(search: search) { query, filters in
+                    let event = reserveChange()
+                    return { await applySearch(event, query: query, filters: filters) }
+                }
                     .environment(store)
             case .timeline:
                 JobTimelineSheet(graduation: store.account.graduationMonth, availableFrom: store.account.availableFrom) {
@@ -93,7 +103,7 @@ struct JobsView: View {
 
     @ViewBuilder
     private var content: some View {
-        if !loaded {
+        if !feed.loaded {
             VStack { ProgressView().tint(Palette.muted) }.frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let top = deck.first {
             VStack(spacing: 20) {
@@ -130,13 +140,13 @@ struct JobsView: View {
                 if search.missingGraduation {
                     StackButton(label: "Set graduation", icon: "clock") { sheet = .timeline }
                 }
-                if !nextCursor.isEmpty {
-                    StackButton(label: "Load more roles", icon: "refresh", disabled: gate.busy) {
+                if !feed.nextCursor.isEmpty {
+                    StackButton(label: "Load more roles", icon: "refresh", disabled: feed.busy) {
                         Task { await load(refresh: false, more: true) }
                     }
                 }
                 HStack(spacing: Spacing.option) {
-                    StackButton(label: "Refresh jobs", icon: "refresh", kind: .secondary, disabled: gate.busy) {
+                    StackButton(label: "Refresh jobs", icon: "refresh", kind: .secondary, disabled: feed.busy) {
                         Task { await load(refresh: true) }
                     }
                     StackButton(label: "Import a job link", icon: "link", kind: .secondary) { sheet = .importLink }
@@ -148,19 +158,19 @@ struct JobsView: View {
     }
 
     private var emptyTitle: String {
-        if !loadError.isEmpty { return "Could not load roles" }
+        if !feed.loadError.isEmpty { return "Could not load roles" }
         if search.missingGraduation { return "Add your graduation month" }
-        if !nextCursor.isEmpty { return "More roles to review" }
+        if !feed.nextCursor.isEmpty { return "More roles to review" }
         if search.filters["timeline"].string == "confirmed" { return "No confirmed timeline matches." }
         return "You are all caught up"
     }
 
     private var emptyMessage: String {
-        if !loadError.isEmpty { return loadError }
+        if !feed.loadError.isEmpty { return feed.loadError }
         if search.missingGraduation {
             return "Confirmed timeline matches compare listings with your graduation month, so none can be confirmed yet. Set it, or choose Hide timeline mismatches in Filters to include unclear listings."
         }
-        if !nextCursor.isEmpty { return "Continue to the next page of verified roles." }
+        if !feed.nextCursor.isEmpty { return "Continue to the next page of verified roles." }
         if search.filters["timeline"].string == "confirmed" {
             return "Many listings lack a clear graduation window. Add your graduation date, or choose Hide timeline mismatches to include unclear listings."
         }
@@ -248,74 +258,65 @@ struct JobsView: View {
             guard pending.generation == store.sessionGeneration else { return }
             if !saved {
                 withAnimation(reduceMotion ? nil : Motion.release) { _ = hidden.remove(pending.job.id) }
-                loadError = store.error.isEmpty ? "This decision was not saved. Please try again." : store.error
+                feed.loadError = store.error.isEmpty ? "This decision was not saved. Please try again." : store.error
             }
         }
     }
 
     /// Applies the saved search (profile defaults plus its overrides) and queues collection once.
+    /// Coming back after the view was torn down only reloads when nothing was ever shown.
     private func start() async {
-        guard !started else { return }
+        if started {
+            if !feed.loaded { await load(refresh: false) }
+            return
+        }
         started = true
         search.adopt(saved: store.account.savedSearch)
         await load(refresh: true)
     }
 
-    /// Waits for any in-flight request, then claims the gate. Nothing suspends between the check and the claim.
-    private func beginSave() async -> Bool {
-        while gate.busy {
-            if Task.isCancelled { return false }
-            try? await Task.sleep(for: .milliseconds(50))
-        }
-        return gate.beginSave()
+    /// Called synchronously from the user's event, so the place in line and the account it belongs to are both
+    /// fixed before any task starts. A task that begins after the session changed is rejected by the feed.
+    private func reserveChange() -> JobChangeEvent {
+        JobChangeEvent(ticket: feed.reserveChange(), generation: store.sessionGeneration)
+    }
+
+    /// Another account or a signed-out session must never keep paging or showing the previous deck.
+    private func resetForSession() {
+        feed.invalidate(clearing: true)
+        hidden = []
     }
 
     /// A profile edit may have cleared saved overrides (a changed role drops the query and any_role).
-    /// Waits for any request, adopts the account's refreshed saved search, then reloads from page one.
-    private func profileSaved() async {
-        guard await beginSave() else { return }
+    /// Paging stops at once; the account's refreshed saved search is adopted when the gate is free.
+    private func profileSaved(_ event: JobChangeEvent) async {
         commitDecision()
-        search.adopt(saved: store.account.savedSearch)
-        nextCursor = ""
-        gate.endSave()
-        await load(refresh: false)
+        await feed.change(ticket: event.ticket, refresh: false, clearing: false, isCurrent: { isCurrent(event.generation) }, makeSource: { makeSource() },
+                          accepted: { search.adopt(saved: store.account.savedSearch) })
     }
 
-    private func applySearch(query: String, filters: JSON) async {
-        guard await beginSave() else { return }
+    private func applySearch(_ event: JobChangeEvent, query: String, filters: JSON) async {
         commitDecision()
-        do {
-            let stored = try await store.call("save_search", ["query": .string(query), "filters": filters])
+        var stored: JSON = .null
+        await feed.change(ticket: event.ticket, refresh: true, clearing: true, isCurrent: { isCurrent(event.generation) }, makeSource: { makeSource() },
+                          save: { stored = try await store.call("save_search", ["query": .string(query), "filters": filters]) },
+                          accepted: {
             search.adopt(saved: stored)
             store.account.raw["saved_search"] = ["query": .string(search.query), "filters": search.filters]
-            nextCursor = ""
-            jobs = []
             hidden = []
             sheet = nil
-            gate.endSave()
-            await load(refresh: true)
-        } catch {
-            gate.endSave()
-            if !(error is CancellationError) { loadError = error.localizedDescription }
-        }
+        })
     }
 
-    private func resetSearch() async {
-        guard await beginSave() else { return }
+    private func resetSearch(_ event: JobChangeEvent) async {
         commitDecision()
-        do {
-            try await store.call("reset_search")
+        await feed.change(ticket: event.ticket, refresh: true, clearing: true, isCurrent: { isCurrent(event.generation) }, makeSource: { makeSource() },
+                          save: { try await store.call("reset_search") },
+                          accepted: {
             search.adopt(saved: [:])
             store.account.raw["saved_search"] = ["query": "", "filters": [:]]
-            nextCursor = ""
-            jobs = []
             hidden = []
-            gate.endSave()
-            await load(refresh: true)
-        } catch {
-            gate.endSave()
-            if !(error is CancellationError) { loadError = error.localizedDescription }
-        }
+        })
     }
 
     /// Follows an imported link until the server has verified it or given up.
@@ -335,7 +336,7 @@ struct JobsView: View {
                     return
                 }
             } catch {
-                if !(error is CancellationError) { loadError = error.localizedDescription }
+                if !(error is CancellationError) { feed.loadError = error.localizedDescription }
                 importID = ""
                 return
             }
@@ -343,38 +344,36 @@ struct JobsView: View {
         }
     }
 
-    func load(refresh: Bool, more: Bool = false) async {
-        guard store.phase == .ready, gate.beginLoad() else { return }
-        let generation = store.sessionGeneration
-        loadError = ""
-        var pages = 0
-        defer { gate.endLoad() }
-        repeat {
-            pages += 1
-            let continuing = more || pages > 1
-            do {
-                let result = try await store.api.call("search_jobs", [
-                    "query": .string(search.query),
-                    "filters": search.filters,
-                    "refresh": .bool(refresh && pages == 1),
-                    "cursor": .string(continuing ? nextCursor : ""),
-                ])
-                guard generation == store.sessionGeneration, store.phase == .ready, !Task.isCancelled else { return }
-                let incoming = result["jobs"].array.map(Job.init)
-                withAnimation(reduceMotion ? nil : Motion.fadeAnimation) {
-                    jobs = continuing ? jobs + incoming.filter { incomingJob in !jobs.contains { $0.id == incomingJob.id } } : incoming
-                }
-                nextCursor = result["next_cursor"].string
-                search.apply(result)
-            } catch is CancellationError { return }
-            catch {
-                if generation == store.sessionGeneration { loadError = error.localizedDescription }
-                break
-            }
-            // Keep a few cards ahead without waiting for the person to ask for the next page.
-        } while !nextCursor.isEmpty && deck.count < 5 && pages < 6
-        loaded = true
+    private func isCurrent(_ generation: Int) -> Bool {
+        generation == store.sessionGeneration && store.phase == .ready
     }
+
+    /// Captures the search as it is now, so a page can never be requested with filters that were replaced mid-flight.
+    private func makeSource() -> JobDeckSource {
+        let generation = store.sessionGeneration
+        let query = search.query, filters = search.filters
+        return JobDeckSource(
+            fetch: { [store] cursor, refresh in
+                try await store.api.call("search_jobs", [
+                    "query": .string(query), "filters": filters, "refresh": .bool(refresh), "cursor": .string(cursor),
+                ])
+            },
+            deckCount: { deck.count },
+            isCurrent: { isCurrent(generation) },
+            received: { search.apply($0) },
+            animate: { change in withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { change() } })
+    }
+
+    func load(refresh: Bool, more: Bool = false) async {
+        guard store.phase == .ready else { return }
+        await feed.load(refresh: refresh, more: more, source: makeSource())
+    }
+}
+
+/// A search or profile change as the person made it: its queue ticket and the session it belongs to.
+struct JobChangeEvent {
+    let ticket: Int
+    let generation: Int
 }
 
 @MainActor

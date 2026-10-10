@@ -42,6 +42,11 @@ struct AccessView: View {
             Spacer()
             MessageLine(text: store.error).fadeSwitch(!store.error.isEmpty)
             VStack(spacing: Spacing.option) {
+                if AppleSignIn.enabled {
+                    AppleAccountButton(disabled: store.busy || store.googlePending) { window in
+                        Task { await store.signInWithApple(window: window) }
+                    }.frame(height: 48)
+                }
                 OptionRow(label: store.googlePending ? "Waiting for Google…" : "Continue with Google", icon: "link",
                           disabled: store.googlePending || store.busy, showsChevron: false) {
                     Task { await store.signInWithGoogle() }
@@ -122,11 +127,52 @@ struct InvitationView: View {
                     GoogleAccountCard().reveal(4)
                 }
                 StackButton(label: "Sign out", kind: .secondary, disabled: store.busy) { Task { await store.signOut() } }
+                if AppleSignIn.enabled || store.apple.hasAppleSession { AppleAccountCard() }
             }
             .padding(.horizontal, Spacing.page)
             .padding(.vertical, 24)
         }
         .scrollIndicators(.hidden)
+    }
+}
+
+/// Explicit account linking and fresh Apple proof for deletion, including before beta admission.
+@MainActor
+struct AppleAccountCard: View {
+    @Environment(AppStore.self) private var store
+    @State private var username = ""
+    @State private var password = ""
+    @State private var deletionWindow: UIWindow?
+    @State private var confirmDeletion = false
+    var body: some View {
+        Card(spacing: 12) {
+            Text("Apple sign-in").font(Typeface.section)
+            if AppleSignIn.enabled {
+            Text("To link Apple to this account, confirm its Stack credentials. Matching email addresses never combine accounts.")
+                .font(Typeface.caption).foregroundStyle(Palette.muted)
+            StackField(label: "Stack username", text: $username, keyboard: .asciiCapable, autocapitalization: .never)
+            StackField(label: "Stack password", text: $password, secure: true)
+            AppleAccountButton(disabled: store.busy || store.googlePending || username.isBlank || password.isEmpty) { window in
+                Task {
+                    await store.signInWithApple(window: window, link: true, username: username, password: password)
+                    password = ""
+                }
+            }.frame(height: 48)
+            }
+            Text("Delete your Stack account with fresh Apple confirmation. This removes saved Stack data and revokes its Apple grant.")
+                .font(Typeface.caption).foregroundStyle(Palette.muted)
+            AppleAccountButton(disabled: store.busy || store.googlePending) { window in
+                deletionWindow = window
+                confirmDeletion = true
+            }.frame(height: 48).accessibilityLabel("Confirm account deletion with Apple")
+        }
+        .alert("Delete your Stack account?", isPresented: $confirmDeletion) {
+            Button("Delete account", role: .destructive) {
+                if let window = deletionWindow { Task { await store.deleteWithApple(window: window) } }
+                deletionWindow = nil
+            }
+            Button("Cancel", role: .cancel) { deletionWindow = nil }
+        } message: { Text("Your saved Stack data will be permanently removed after Apple confirms this account.") }
     }
 }
 

@@ -13,6 +13,9 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     # Override this build setting in Xcode or pass STACK_API_URL=https://... to xcodebuild.
     STACK_API_URL: "http://127.0.0.1:8000"
+    # Opt in only after the reviewed App ID/provisioning and backend activation gates.
+    STACK_APPLE_SIGN_IN_ENABLED: "NO"
+    STACK_APPLE_ENTITLEMENTS: ""
 targets:
   Stack:
     type: application
@@ -30,12 +33,14 @@ targets:
           - UIInterfaceOrientationPortrait
         ITSAppUsesNonExemptEncryption: false
         StackAPIBaseURL: $(STACK_API_URL)
+        StackAppleSignInEnabled: $(STACK_APPLE_SIGN_IN_ENABLED)
         NSMicrophoneUsageDescription: Stack records your spoken interview answers so you can review them and get coaching.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.matthewkooy.stack.swift
+        CODE_SIGN_ENTITLEMENTS: $(STACK_APPLE_ENTITLEMENTS)
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
   StackTests:

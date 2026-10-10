@@ -25,7 +25,7 @@ test "Google sign-in gateway permits only PKCE endpoints and retains admission c
             gateway._rates.clear();server=ThreadingHTTPServer(('127.0.0.1',0),gateway.Handler);
             thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start();base='http://127.0.0.1:'+str(server.server_port);
             try {
-                with patch.object(gateway,'upstream',return_value=(200,b'{"data":{"ok":true}}')) as upstream {
+                with patch.object(gateway,'upstream',return_value=(200,b'{"data":{"ok":true,"result":{"ok":true}}}')) as upstream {
                     for path in ['/sso/google/begin','/sso/google/finish','/sso/google/poll'] {
                         (status,headers,body)=request(base,path,{'fixture':True});assert status==200;
                         assert headers['Cache-Control']=='no-store' and headers['Referrer-Policy']=='no-referrer';

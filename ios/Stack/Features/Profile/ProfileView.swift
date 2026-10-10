@@ -98,6 +98,7 @@ struct ProfileView: View {
                 StoreMessages()
 
                 GoogleAccountCard()
+                if AppleSignIn.enabled || store.apple.hasAppleSession { AppleAccountCard() }
 
                 Card(tint: Palette.surfaceRaised, spacing: 10) {
                     HStack(spacing: 10) {

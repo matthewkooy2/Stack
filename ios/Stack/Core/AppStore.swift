@@ -13,6 +13,7 @@ final class AppStore {
     let api: APIClient
     let prep: PrepTransport
     let google: GoogleSignIn
+    let apple: AppleSignIn
 
     var phase: Phase = .starting
     var account = AccountState()
@@ -42,6 +43,7 @@ final class AppStore {
         self.api = api
         self.prep = PrepTransport(api: api)
         self.google = GoogleSignIn(api: api)
+        self.apple = AppleSignIn(api: api)
     }
 
     // MARK: Session
@@ -52,6 +54,7 @@ final class AppStore {
             return
         }
         guard api.hasSession else { phase = .signedOut; return }
+        if await apple.isRevoked() { await signOut(); return }
         await completeLogin()
     }
 
@@ -125,6 +128,8 @@ final class AppStore {
         pendingSwipes = 0
         busy = false
         google.cancel()
+        apple.cancel()
+        apple.forget()
         googlePending = false
         googleInfo = [:]
         pendingInvite = ""
@@ -148,6 +153,7 @@ final class AppStore {
 
     /// Quietly re-reads the account; used on foreground and on a timer.
     func refresh() async {
+        if await apple.isRevoked() { await signOut(); return }
         guard phase == .ready, !busy, !refreshing, pendingSwipes == 0 else { return }
         refreshing = true
         let observed = epoch
@@ -210,6 +216,48 @@ final class AppStore {
         }
         swipeChain = Task { _ = await task.value }
         return await task.value
+    }
+
+    // MARK: Apple
+
+    /// Linking requires credentials for this signed-in Stack account; emails never link accounts.
+    func signInWithApple(window: UIWindow, link: Bool = false, username: String = "", password: String = "") async {
+        guard !busy, !googlePending else { return }
+        if link { guard phase == .ready || phase == .admission else { return } }
+        let generation = sessionGeneration
+        let apiGeneration = api.sessionGeneration
+        busy = true
+        error = ""
+        defer { if generation == sessionGeneration { busy = false } }
+        do {
+            let args: JSON = link ? ["username": .string(username), "password": .string(password)] : [:]
+            let result = try await apple.perform(begin: link ? "auth_apple_link_begin" : "auth_apple_begin",
+                finish: link ? "auth_apple_link_finish" : "auth_apple_finish", arguments: args, window: window)
+            guard generation == sessionGeneration, apiGeneration == api.sessionGeneration else { return }
+            let token = result.response["token"].string
+            guard result.response["ok"].bool, !token.isEmpty else {
+                throw APIError(message: "Apple sign-in did not return a Stack session. Please retry.")
+            }
+            api.adopt(token: token)
+            apple.remember(user: result.user)
+            await completeLogin()
+        } catch is CancellationError {
+        } catch { if generation == sessionGeneration { fail(error) } }
+    }
+
+    func deleteWithApple(window: UIWindow) async {
+        guard !busy, !googlePending, phase == .ready || phase == .admission else { return }
+        let generation = sessionGeneration
+        busy = true
+        error = ""
+        defer { if generation == sessionGeneration { busy = false } }
+        do {
+            let result = try await apple.perform(begin: "auth_apple_delete_begin", finish: "account_delete_apple", window: window)
+            guard generation == sessionGeneration else { return }
+            guard result.response["deleted"].bool else { throw APIError(message: "Account deletion did not finish. Please retry.") }
+            await signOut()
+        } catch is CancellationError {
+        } catch { if generation == sessionGeneration { fail(error) } }
     }
 
     // MARK: Google

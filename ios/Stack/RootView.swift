@@ -1,4 +1,5 @@
 import SwiftUI
+import AuthenticationServices
 
 enum StackTab: String, CaseIterable, Identifiable {
     case jobs = "Jobs"
@@ -48,6 +49,9 @@ struct RootView: View {
         .transaction { if reduceMotion { $0.animation = nil; $0.disablesAnimations = true } }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await store.refresh() } }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: ASAuthorizationAppleIDProvider.credentialRevokedNotification)) { _ in
+            Task { await store.refresh() }
         }
         .task(id: store.phase) {
             guard store.phase == .ready else { return }

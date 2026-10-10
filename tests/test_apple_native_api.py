@@ -58,12 +58,15 @@ class NativeAppleAPI(unittest.TestCase):
                     self.assertFalse(response.ok)
                 # Prepared applications isolate Python helpers in their own
                 # namespace. Bind transport/crypto fixtures to the RPC's module.
-                service = client._server.module.apple_auth
-                for attribute, value in [('configuration',cfg),('signing_key',key.public_key()),
-                                         ('client_secret','fixture-client-secret')]:
-                    fixture = patch.object(service,attribute,return_value=value)
-                    fixture.start()
-                    self.addCleanup(fixture.stop)
+                def bind_service():
+                    service = client._server.module.apple_auth
+                    for attribute, value in [('configuration',cfg),('signing_key',key.public_key()),
+                                             ('client_secret','fixture-client-secret')]:
+                        fixture = patch.object(service,attribute,return_value=value)
+                        fixture.start()
+                        self.addCleanup(fixture.stop)
+                    return service
+                service = bind_service()
                 registered = client.register_user('fixture-apple-existing','Fixture-password-123')
                 self.assertTrue(registered.ok)
                 client.set_auth_token(registered.data['token'])
@@ -95,15 +98,18 @@ class NativeAppleAPI(unittest.TestCase):
                 client.set_auth_token(result['token'])
                 self.assertEqual(rpc('bootstrap')['user_id'],original)
                 # Fresh proof cannot delete another account's root.
+                service = bind_service()  # reload replaces the prepared helper namespace
                 other = client.register_user('fixture-apple-other','Fixture-password-456')
                 client.set_auth_token(other.data['token'])
                 challenge = rpc('auth_apple_delete_begin')
+                self.assertTrue(challenge['ok'],challenge)
                 self.assertIn('error',finish('account_delete_apple',proof(challenge)))
                 client.set_auth_token(result['token'])
                 # Admission is retained for product access, not owner deletion.
                 config.write_text(json.dumps({'invite_only':True}))
                 self.assertFalse(rpc('agent_admission')['admitted'])
                 challenge = rpc('auth_apple_delete_begin')
+                self.assertTrue(challenge['ok'],challenge)
                 args = proof(challenge)
                 calls = []
                 def provider(path, form):

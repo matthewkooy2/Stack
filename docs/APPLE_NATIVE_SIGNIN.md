@@ -99,7 +99,7 @@ separately approved operational action. Do not bulk clear locks or grants.
    `STACK_APPLE_ENABLED=1` only after the approved Swift patch and tests land.
    Missing configuration fails closed. Browser `scale.sso.apple` remains unset;
    no Services ID/website redirect is required for this native-only code flow.
-6. Review the native patch after PR56 lands. Run Mac CI compilation/unit/UI
+6. The native patch is based on merged PR56 (`1716daa`). Run Mac CI compilation/unit/UI
    checks, then a signed-device test with cancellation, first sign-in with name
    and relay email, returning login, explicit link conflict, unadmitted deletion,
    deletion retry and credential revocation. Use
@@ -119,8 +119,40 @@ account or persistent credential is touched. Run
 `jac check main.jac agents/gateway.jac`. Contributor offline CI includes the Apple
 suite and gateway tests. Independent review covers claim validation, replay,
 identity conflicts, persistence failures, partial Jac writes and deletion races.
-Windows test success does not constitute Xcode verification; native checks wait
-for the reviewed Swift patch and Mac CI.
+Windows test success does not constitute Xcode verification; native checks run
+in the separate unsigned Mac CI workflow.
+
+## Native build and session behavior
+
+`AppleSignIn.swift` wraps Apple's official `ASAuthorizationAppleIDButton` so
+Stack can request its challenge asynchronously before presenting the Apple sheet.
+The request passes the server's already hashed nonce unchanged and verifies the
+returned state before sending the proof. Cancellation is quiet; sign-out and
+session replacement invalidate pending results. Only the verified Stack token
+is adopted, followed by the existing `completeLogin` admission path.
+
+The initial name is optional; returning authorization need not supply it. Apple
+ID tokens/codes are not persisted on the device. The origin-scoped Keychain
+records the Apple user identifier and a SHA-256 fingerprint of its exact Stack
+session solely for credential lifecycle checks. Checks run on startup,
+foreground/refresh and Apple's revocation notification; offline errors preserve
+the session. Confirmed revocation clears it. A subsequent Google/password
+session cannot be signed out by stale Apple metadata.
+
+New login/link controls default off via `STACK_APPLE_SIGN_IN_ENABLED=NO`.
+Existing Apple sessions retain deletion access when that flag is disabled.
+After live setup approval, build with `STACK_APPLE_SIGN_IN_ENABLED=YES` and
+`STACK_APPLE_ENTITLEMENTS=Stack/StackApple.entitlements`, and the exact approved
+bundle identifier. The empty default entitlement setting preserves current
+provisioning requirements. Do not remove Apple capability from a shipped app
+while existing Apple users need native reauthorization/deletion.
+
+The signed-in account card requires that account's Stack username/password for
+explicit linking. Google-only accounts must first use the existing recovery
+path to their original Stack account; Apple-only accounts do not know the random
+internal password and instead use fresh Apple proof for deletion. The destructive
+confirmation precedes fresh proof and deletion remains available before beta
+admission. Provider revocation/cleanup failure preserves the session for retry.
 
 Primary references: [Apple token verification](https://developer.apple.com/documentation/signinwithapple/verifying-a-user),
 [native authentication](https://developer.apple.com/documentation/signinwithapple/authenticating-users-with-sign-in-with-apple),

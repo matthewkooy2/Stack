@@ -72,6 +72,10 @@ struct ProfileView: View {
                     Text("Agent model").font(Typeface.section).foregroundStyle(Palette.ink)
                     Text("Applies to new agent tasks across Prep, resumes, jobs, applications and network. Live voice uses its separate connection.")
                         .font(Typeface.caption).foregroundStyle(Palette.muted)
+                    if !modelSettings.isNull && modelSettings["model_selection"].string.isEmpty {
+                        Text("Current provider: \(store.account.modelProviderName)")
+                            .font(Typeface.caption).foregroundStyle(Palette.muted)
+                    }
                     ForEach(["codex-cli", "local"], id: \.self) { choice in
                         let option = modelSettings["model_options"].array.first { $0["selection"].string == choice } ?? .null
                         Button {

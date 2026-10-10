@@ -1129,7 +1129,7 @@ def _features() -> list[dict[str, any]] {
     default_resume=_owned_resume(_settings().selected_resume);resumes=[r for r in [root -->][?:Resume] if r.review.get("kind")!=BANK_KIND];
     if default_resume is None and len(resumes)==1 { default_resume=resumes[0]; }
     return feature_status({
-        "now":time.time(),"policy":m.policy,"model":model_status(jid(root),m.model_selection or ("local" if c["provider"] in ["ollama","lmstudio"] else "codex-cli")),"google_scopes":scopes,
+        "now":time.time(),"policy":m.policy,"model":model_status(jid(root),m.model_selection),"google_scopes":scopes,
         "google_client":bool(os.environ.get("GOOGLE_CLIENT_ID","")) and os.environ.get("GOOGLE_REDIRECT_URI","").startswith("https://"),
         "browser":bool(os.environ.get("STACK_BROWSER_URL","")) and bool(os.environ.get("STACK_BROWSER_TOKEN","")),
         "sandbox":bool(os.environ.get("STACK_SANDBOX_URL","")) or c["sandbox_available"],"voice_error":voice_error,"web_url":c["web_url"],

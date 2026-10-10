@@ -152,14 +152,14 @@ def _agent_summary() -> dict[str, any] {
     shown=[r for r in ordered if _needs_attention(r)]+[r for r in ordered[:30] if not _needs_attention(r)];
     runs=[_run_view(r) for r in shown];
     attention=len([r for r in ordered if _needs_attention(r)]);
-    return {"enabled":m.policy.get("enabled",False),"needs_input":attention,"attention":attention,"active":len([r for r in ordered if r.status in ACTIVE]),"runs":runs,"paid_configured":config()["monthly_cents"]>0,"model_provider":model_status(jid(root),m.model_selection or ("local" if config()["provider"] in LOCAL_PROVIDERS else "codex-cli")),"admitted":m.admitted or not config()["invite_only"],"expires_at":m.policy.get("expires_at",0)};
+    return {"enabled":m.policy.get("enabled",False),"needs_input":attention,"attention":attention,"active":len([r for r in ordered if r.status in ACTIVE]),"runs":runs,"paid_configured":config()["monthly_cents"]>0,"model_provider":model_status(jid(root),m.model_selection),"admitted":m.admitted or not config()["invite_only"],"expires_at":m.policy.get("expires_at",0)};
 }
 def:priv agent_admission() -> dict[str, any] {
     try { _agent_access();return {"admitted":True}; } except ValueError { return {"admitted":False}; }
 }
 def:priv agent_settings() -> dict[str, any] {
     _agent_access();m=_agent_memory();
-    return {"account_id":jid(root),"model_selection":m.model_selection or ("local" if config()["provider"] in LOCAL_PROVIDERS else "codex-cli"),"model_options":[{"selection":choice,**model_status(jid(root),choice)} for choice in ["codex-cli","local"]],"facts":m.facts,"policy":m.policy,"revision":m.revision,"connections":[{"id":jid(c),"provider":c.provider,"state":c.state,"scopes":c.scopes} for c in [root -->][?:AgentConnection]],"web_url":config()["web_url"],"activity":_agent_summary()};
+    return {"account_id":jid(root),"model_selection":m.model_selection or ("local" if config()["provider"] in LOCAL_PROVIDERS else "codex-cli" if config()["provider"]=="codex-cli" else ""),"model_options":[{"selection":choice,**model_status(jid(root),choice)} for choice in ["codex-cli","local"]],"facts":m.facts,"policy":m.policy,"revision":m.revision,"connections":[{"id":jid(c),"provider":c.provider,"state":c.state,"scopes":c.scopes} for c in [root -->][?:AgentConnection]],"web_url":config()["web_url"],"activity":_agent_summary()};
 }
 def:priv agent_save_model(selection: str) -> dict[str, any] {
     _agent_access();
@@ -231,7 +231,7 @@ def _agent_start(kind: str, target_id: str, context: dict[str, any], nonce: str 
     m=_agent_memory();context={**context,"facts":context_facts(m.facts,context),"prompt_version":VERSION};
     key=digest([kind,target_id,nonce or ("once" if kind=="network" else context)]);
     for old in [root -->][?:AgentRun] { if old.key==key { return _run_view(old,True); } }
-    r=root ++> AgentRun(workflow_version=2,kind=kind,target_id=target_id,context=context,model_selection=m.model_selection or ("local" if config()["provider"] in LOCAL_PROVIDERS else "codex-cli"),created_at=time.time(),updated_at=time.time(),key=key,policy_revision=m.revision);
+    r=root ++> AgentRun(workflow_version=2,kind=kind,target_id=target_id,context=context,model_selection=m.model_selection,created_at=time.time(),updated_at=time.time(),key=key,policy_revision=m.revision);
     ticket=root.shared ++> AgentTicket(owner=jid(root),run_id=jid(r));
     JacRuntime.allow_root(ticket,UUID(jid(root.shared)),AccessLevel.WRITE); # jac:ignore[E1053]
     if persist { commit(); }
@@ -884,7 +884,7 @@ def:priv prep_live(id: str) -> dict[str, any] {
             if g.cents+reservation>c["monthly_cents"] or u.cents+reservation>c["user_monthly_cents"] { _agent_owner(owner);return {"error":"The live interview exceeds the available budget."}; }
             g.cents+=reservation;u.cents+=reservation;commit();_agent_owner(owner);
             context["voice_settings"]=settings;
-            ticket=secrets.token_urlsafe(32);r=root ++> AgentRun(workflow_version=2,kind="live",target_id=id,context=context,model_selection=m.model_selection or ("local" if config()["provider"] in LOCAL_PROVIDERS else "codex-cli"),created_at=time.time(),updated_at=time.time(),key=digest(ticket),ticket_hash=digest(ticket),status="waiting",message="Ready to start live interview",lease_until=time.time()+60,cost_cents=reservation);
+            ticket=secrets.token_urlsafe(32);r=root ++> AgentRun(workflow_version=2,kind="live",target_id=id,context=context,model_selection=m.model_selection,created_at=time.time(),updated_at=time.time(),key=digest(ticket),ticket_hash=digest(ticket),status="waiting",message="Ready to start live interview",lease_until=time.time()+60,cost_cents=reservation);
             commit();return {"id":jid(r),"owner":owner,"ticket":ticket,"url":settings["url"],"reserved_cents":reservation};
         } except ValueError as e { _agent_owner(owner);return {"error":str(e)}; }
     }

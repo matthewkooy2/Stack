@@ -1,10 +1,11 @@
 # Native Sign in with Apple
 
-This candidate adds a disabled-by-default backend for the Swift application.
-It does not activate Jac's browser Apple provider, change Google's endpoints,
-create credentials, enable Apple capabilities, deploy, or merge. Swift wiring is
-held for the independent Swift UI PR56 to land, then reviewed against its final
-head. Expo is not a second client implementation in this change.
+This candidate adds disabled-by-default native Swift sign-in and its verified
+backend. It preserves Google's endpoints and does not activate Jac's browser
+Apple provider. The isolated branch incorporates reviewed main `612417f`
+(PR56 and PR58); its merge remains held for parent release coordination.
+No credential, live capability, deployment or production merge was performed.
+Expo is not a second client implementation in this change.
 
 ## Client contract
 
@@ -30,13 +31,13 @@ credential state. On cancellation, discard the challenge and display no failure;
 expired challenges cannot be reused. Keep state/nonce in memory for the one
 operation and clear on sign-out, origin/session change, failure or completion.
 
-Swift integration must use Apple's official `SignInWithAppleButton`. Its next
-patch adds `Core/AppleSignIn.swift` and a small `AppStore` method: capture the
-store and API session generations, begin native authorization, finish, verify
-both generations are unchanged, adopt the returned Stack token, and run the
-existing `completeLogin()` invitation/admission/bootstrap flow. A callback after
-sign-out must never adopt a token. Returning users commonly supply no name/email;
-this must not block login or erase previously captured metadata.
+Swift uses Apple's official `ASAuthorizationAppleIDButton` through
+`AppleAccountButton`, plus `Core/AppleSignIn.swift` and small `AppStore` methods.
+It captures store/API session generations, begins authorization, finishes,
+checks both generations, adopts the returned Stack token, and runs the existing
+`completeLogin()` invitation/admission/bootstrap flow. A callback after sign-out
+cannot adopt a token. Returning authorization without name/email preserves the
+previously captured metadata.
 
 Apple subject is the sole provider identity key. Verified email, including
 Hide My Email relay addresses, is metadata, never an identity lookup or merge
@@ -50,6 +51,12 @@ Deletion requires account ownership, not beta admission. A fresh Apple proof
 can recover deletion when a saved grant is missing/unreadable. Password deletion
 also revokes linked Apple grants. Provider unavailability leaves the account
 intact for retry. Product APIs retain their beta admission checks.
+Deletion enters an explicit writable Jac unit before consuming proof or revoking
+tokens: the pinned runtime can otherwise replay a newly discovered writer after
+it consumed the one-use proof. `finally` balances the unit even when transaction
+upgrade raises. Real-storage tests assert one provider exchange and balanced
+request units. A later serialization conflict can fail closed after consuming
+proof; retry starts with fresh authorization, not a reused code/challenge.
 
 ## Security boundary and persistence
 
@@ -99,7 +106,7 @@ separately approved operational action. Do not bulk clear locks or grants.
    `STACK_APPLE_ENABLED=1` only after the approved Swift patch and tests land.
    Missing configuration fails closed. Browser `scale.sso.apple` remains unset;
    no Services ID/website redirect is required for this native-only code flow.
-6. The native patch is based on merged PR56 (`1716daa`). Run Mac CI compilation/unit/UI
+6. The native patch is based on reviewed main `612417f`. Run Mac CI compilation/unit/UI
    checks, then a signed-device test with cancellation, first sign-in with name
    and relay email, returning login, explicit link conflict, unadmitted deletion,
    deletion retry and credential revocation. Use

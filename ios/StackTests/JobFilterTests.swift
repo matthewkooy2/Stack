@@ -232,4 +232,46 @@ final class JobFilterTests: XCTestCase {
         gate.endSave()
         XCTAssertTrue(gate.beginLoad())
     }
+
+    func testEntryLevelPickClearsOccupationAndAnyRoleButKeepsUnrelatedChoices() {
+        let value = search(query: "Nurse", filters: [
+            "occupation": "Registered Nurses", "any_role": true, "sort": "newest", "modes": ["Remote"],
+            "timeline": "confirmed", "confirmed_only": true, "future_key": 5,
+        ])
+        let next = value.togglingEntryLevel()
+        XCTAssertEqual(next.query, "Software engineer")
+        XCTAssertTrue(next.filters["occupation"].isNull)
+        XCTAssertTrue(next.filters["any_role"].isNull)
+        XCTAssertEqual(next.filters["levels"].strings, ["Entry-level"])
+        XCTAssertEqual(next.filters["sort"].string, "newest")
+        XCTAssertEqual(next.filters["modes"].strings, ["Remote"])
+        XCTAssertEqual(next.filters["timeline"].string, "confirmed")
+        XCTAssertTrue(next.filters["confirmed_only"].bool)
+        XCTAssertEqual(next.filters["future_key"].int, 5)
+    }
+
+    func testInternshipPickClearsOccupationAndAnyRoleAndKeepsQueryAndUnrelatedChoices() {
+        let value = search(query: "Data analyst", filters: [
+            "occupation": "Registered Nurses", "any_role": true, "sort": "newest", "location": "Austin", "future_key": 5,
+        ])
+        let next = value.togglingInternship()
+        XCTAssertEqual(next.query, "Data analyst")
+        XCTAssertTrue(next.filters["occupation"].isNull)
+        XCTAssertTrue(next.filters["any_role"].isNull)
+        XCTAssertEqual(next.filters["levels"].strings, ["Internship"])
+        XCTAssertEqual(next.filters["employment_types"].strings, ["Internship"])
+        XCTAssertEqual(next.filters["sort"].string, "newest")
+        XCTAssertEqual(next.filters["location"].string, "Austin")
+        XCTAssertEqual(next.filters["future_key"].int, 5)
+    }
+
+    func testTogglingPicksOffLeavesOccupationAndAnyRoleAlone() {
+        let internship = search(filters: ["levels": ["Internship"], "employment_types": ["Internship"], "occupation": "Software Developers"],
+                                criteria: [:])
+        XCTAssertEqual(internship.togglingInternship().filters["occupation"].string, "Software Developers")
+        let entry = search(query: "Software engineer", filters: ["levels": ["Entry-level"], "employment_types": ["Full-time"],
+                                                                   "confirmed_level": true, "occupation": "Software Developers"])
+        XCTAssertTrue(entry.entryLevelActive)
+        XCTAssertEqual(entry.togglingEntryLevel().filters["occupation"].string, "Software Developers")
+    }
 }

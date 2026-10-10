@@ -74,7 +74,8 @@ struct JobSearch: Equatable {
         next["levels"] = ["Entry-level"]
         next["employment_types"] = ["Full-time"]
         next["confirmed_level"] = true
-        next["any_role"] = .null
+        // A saved occupation or all-professions search contradicts the pick and would return nothing.
+        for key in ["any_role", "occupation"] { next[key] = .null }
         return (Self.entryQuery, next)
     }
 
@@ -86,6 +87,7 @@ struct JobSearch: Equatable {
         } else {
             next["levels"] = ["Internship"]
             next["employment_types"] = ["Internship"]
+            for key in ["any_role", "occupation"] { next[key] = .null }
         }
         return (query, next)
     }

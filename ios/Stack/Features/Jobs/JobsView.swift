@@ -32,8 +32,14 @@ struct JobsView: View {
                 .padding(.horizontal, Spacing.page)
                 .reveal(0)
             JobSearchBar(search: search, sheet: $sheet, disabled: feed.busy,
-                         onChange: { query, filters in Task { await applySearch(query: query, filters: filters) } },
-                         onReset: { Task { await resetSearch() } })
+                         onChange: { query, filters in
+                             let event = reserveChange()
+                             Task { await applySearch(event, query: query, filters: filters) }
+                         },
+                         onReset: {
+                             let event = reserveChange()
+                             Task { await resetSearch(event) }
+                         })
             if let pending = pendingDecision {
                 HStack {
                     Text(pending.save ? "Saved \(pending.job.title)" : "Passed \(pending.job.title)")
@@ -64,13 +70,16 @@ struct JobsView: View {
         .onChange(of: store.phase) { _, phase in if phase != .ready { resetForSession() } }
         .onChange(of: scenePhase) { _, phase in if phase != .active { commitDecision() } }
         .onReceive(NotificationCenter.default.publisher(for: .stackProfileSaved)) { _ in
-            Task { await profileSaved() }
+            let event = reserveChange()
+            Task { await profileSaved(event) }
         }
         .sheet(item: $detail) { job in JobDetailView(job: job).environment(store) }
         .sheet(item: $sheet) { value in
             switch value {
             case .filters:
-                JobFiltersSheet(search: search) { query, filters in await applySearch(query: query, filters: filters) }
+                JobFiltersSheet(search: search) { query, filters in
+                    await applySearch(reserveChange(), query: query, filters: filters)
+                }
                     .environment(store)
             case .timeline:
                 JobTimelineSheet(graduation: store.account.graduationMonth, availableFrom: store.account.availableFrom) {
@@ -265,6 +274,12 @@ struct JobsView: View {
         await load(refresh: true)
     }
 
+    /// Called synchronously from the user's event, so the place in line and the account it belongs to are both
+    /// fixed before any task starts. A task that begins after the session changed is rejected by the feed.
+    private func reserveChange() -> JobChangeEvent {
+        JobChangeEvent(ticket: feed.reserveChange(), generation: store.sessionGeneration)
+    }
+
     /// Another account or a signed-out session must never keep paging or showing the previous deck.
     private func resetForSession() {
         feed.invalidate(clearing: true)
@@ -273,18 +288,16 @@ struct JobsView: View {
 
     /// A profile edit may have cleared saved overrides (a changed role drops the query and any_role).
     /// Paging stops at once; the account's refreshed saved search is adopted when the gate is free.
-    private func profileSaved() async {
-        let generation = store.sessionGeneration
+    private func profileSaved(_ event: JobChangeEvent) async {
         commitDecision()
-        await feed.change(refresh: false, clearing: false, isCurrent: { isCurrent(generation) }, makeSource: { makeSource() },
+        await feed.change(ticket: event.ticket, refresh: false, clearing: false, isCurrent: { isCurrent(event.generation) }, makeSource: { makeSource() },
                           accepted: { search.adopt(saved: store.account.savedSearch) })
     }
 
-    private func applySearch(query: String, filters: JSON) async {
-        let generation = store.sessionGeneration
+    private func applySearch(_ event: JobChangeEvent, query: String, filters: JSON) async {
         commitDecision()
         var stored: JSON = .null
-        await feed.change(refresh: true, clearing: true, isCurrent: { isCurrent(generation) }, makeSource: { makeSource() },
+        await feed.change(ticket: event.ticket, refresh: true, clearing: true, isCurrent: { isCurrent(event.generation) }, makeSource: { makeSource() },
                           save: { stored = try await store.call("save_search", ["query": .string(query), "filters": filters]) },
                           accepted: {
             search.adopt(saved: stored)
@@ -294,10 +307,9 @@ struct JobsView: View {
         })
     }
 
-    private func resetSearch() async {
-        let generation = store.sessionGeneration
+    private func resetSearch(_ event: JobChangeEvent) async {
         commitDecision()
-        await feed.change(refresh: true, clearing: true, isCurrent: { isCurrent(generation) }, makeSource: { makeSource() },
+        await feed.change(ticket: event.ticket, refresh: true, clearing: true, isCurrent: { isCurrent(event.generation) }, makeSource: { makeSource() },
                           save: { try await store.call("reset_search") },
                           accepted: {
             search.adopt(saved: [:])
@@ -355,6 +367,12 @@ struct JobsView: View {
         guard store.phase == .ready else { return }
         await feed.load(refresh: refresh, more: more, source: makeSource())
     }
+}
+
+/// A search or profile change as the person made it: its queue ticket and the session it belongs to.
+struct JobChangeEvent {
+    let ticket: Int
+    let generation: Int
 }
 
 @MainActor

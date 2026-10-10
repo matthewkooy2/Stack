@@ -89,17 +89,24 @@ final class JobDeckFeed {
         prefetch = Task { [weak self] in await self?.fillAhead(after: done, mine: mine, source: source) }
     }
 
-    /// A saved-search or profile change. It supersedes paging the moment it begins, before waiting for its turn
-    /// or the server, but keeps the visible cards until the change is accepted. Changes take their turn strictly
-    /// in the order they began; a turn covers only the server write and local adoption, so the next change can
-    /// cancel this change's deck load instead of waiting for it. `save` is the server write (if any);
-    /// `accepted` adopts the new search locally.
-    func change(refresh: Bool, clearing: Bool, isCurrent: () -> Bool, makeSource: () -> JobDeckSource,
-                save: () async throws -> Void = {}, accepted: () -> Void) async {
+    /// Takes the next place in line for a saved-search or profile change, and supersedes paging at once.
+    /// Call this synchronously from the user's event, before any `Task` is spawned: task start order is not
+    /// guaranteed, so the order people acted in has to be fixed here. Every ticket must be passed to `change`,
+    /// which also removes it from the queue if the work is cancelled or the session is gone.
+    func reserveChange() -> Int {
         cancel()
         let ticket = nextTicket
         nextTicket += 1
         queue.append(ticket)
+        return ticket
+    }
+
+    /// Runs a reserved change. It keeps the visible cards until the change is accepted. Changes take their turn
+    /// strictly in ticket order; a turn covers only the server write and local adoption, so the next change can
+    /// cancel this change's deck load instead of waiting for it. `save` is the server write (if any);
+    /// `accepted` adopts the new search locally.
+    func change(ticket: Int, refresh: Bool, clearing: Bool, isCurrent: () -> Bool, makeSource: () -> JobDeckSource,
+                save: () async throws -> Void = {}, accepted: () -> Void) async {
         guard await waitForTurn(ticket, isCurrent: isCurrent) else { return }
         defer { release(ticket) }
         do {

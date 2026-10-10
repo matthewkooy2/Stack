@@ -22,18 +22,18 @@ private final class PageDesk {
 
     func requested(_ count: Int) async {
         var spins = 0
-        while requests.count < count, spins < 10_000 {
+        while requests.count < count, spins < 2_000 {
             spins += 1
-            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(5))
         }
         XCTAssertGreaterThanOrEqual(requests.count, count, "expected request \(count) to be made")
     }
 
     func wasCancelled(_ index: Int) async -> Bool {
         var spins = 0
-        while !cancelled.contains(index), spins < 10_000 {
+        while !cancelled.contains(index), spins < 2_000 {
             spins += 1
-            await Task.yield()
+            try? await Task.sleep(for: .milliseconds(5))
         }
         return cancelled.contains(index)
     }
@@ -47,7 +47,7 @@ private final class PageDesk {
     }
 
     /// Lets queued continuations run before an assertion about "nothing else happened".
-    func settle() async { for _ in 0..<50 { await Task.yield() } }
+    func settle() async { try? await Task.sleep(for: .milliseconds(150)) }
 }
 
 /// Test-owned state the feed's source closures read, so no closure refers back to the test case.
@@ -55,6 +55,7 @@ private final class PageDesk {
 private final class Screen {
     var decided: Set<String> = []
     var current = true
+    var generation = 1
     var log: [String] = []
     var onReceived: (Int) -> Void = { _ in }
     private(set) var received = 0
@@ -143,9 +144,16 @@ final class JobDeckFeedTests: XCTestCase {
 
     /// The same call the view makes for a search change: the server write, then local adoption, then a reload.
     private func startChange(_ name: String, clearing: Bool = true, refresh: Bool = true, withSave: Bool = true) -> Task<Void, Never> {
+        run(feed.reserveChange(), name, generation: screen.generation, clearing: clearing, refresh: refresh, withSave: withSave)
+    }
+
+    /// Reserving is synchronous at the "user event"; running the reserved change is a separate task whose start
+    /// order the test is free to scramble, exactly as the scheduler may.
+    private func run(_ ticket: Int, _ name: String, generation: Int = 1, clearing: Bool = true, refresh: Bool = true,
+                     withSave: Bool = true) -> Task<Void, Never> {
         spawn { [self] in
             await feed.change(
-                refresh: refresh, clearing: clearing, isCurrent: { [screen = screen!] in screen.current },
+                ticket: ticket, refresh: refresh, clearing: clearing, isCurrent: { [screen = screen!] in screen.current && screen.generation == generation },
                 makeSource: { [self] in makeSource() },
                 save: { [self] in
                     guard withSave else { return }
@@ -157,6 +165,15 @@ final class JobDeckFeedTests: XCTestCase {
     }
 
     private var ids: [String] { feed.jobs.map(\.id) }
+
+    /// Bounded wait (about 10s) for a condition that depends on the feed's own polling, with a clear failure.
+    private func eventually(_ what: String, _ condition: () -> Bool) async {
+        for _ in 0..<2_000 {
+            if condition() { return }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        XCTFail("timed out waiting for \(what)")
+    }
 
     // MARK: First page and background paging
 
@@ -367,7 +384,7 @@ final class JobDeckFeedTests: XCTestCase {
         let change = startChange("filters")
         let cancelled = await desk.wasCancelled(1)
         XCTAssertTrue(cancelled, "old prefetch is cancelled before the save returns")
-        while saves.started == 0 { await Task.yield() }
+        await eventually("a save to start") { saves.started >= 1 }
         XCTAssertEqual(ids, ["a", "b"], "visible cards stay while the save is pending")
         desk.answer(1, page(["stale"], next: ""))
         await desk.settle()
@@ -388,7 +405,7 @@ final class JobDeckFeedTests: XCTestCase {
         desk.answer(0, page(["a", "b"]))
         await load.value
         let change = startChange("filters")
-        while saves.started == 0 { await Task.yield() }
+        await eventually("a save to start") { saves.started >= 1 }
         saves.fail()
         await change.value
         XCTAssertEqual(ids, ["a", "b"])
@@ -407,7 +424,7 @@ final class JobDeckFeedTests: XCTestCase {
         XCTAssertTrue(cancelled)
         desk.answer(0, page(["old"]))
         await load.value
-        while saves.started == 0 { await Task.yield() }
+        await eventually("a save to start") { saves.started >= 1 }
         saves.fail()
         await desk.requested(2)                // the superseded first load is retried
         desk.answer(1, page(["a"]))
@@ -426,9 +443,11 @@ final class JobDeckFeedTests: XCTestCase {
         await desk.requested(2)                // prefetch for the original search
 
         let first = startChange("A")
-        while saves.started < 1 { await Task.yield() }
-        let second = startChange("B")          // B and C begin while A's write is pending
-        let third = startChange("C")
+        await eventually("save 1 to start") { saves.started >= 1 }
+        let ticketB = feed.reserveChange()     // B then C are acted on while A's write is pending...
+        let ticketC = feed.reserveChange()
+        let third = run(ticketC, "C")          // ...but C's task happens to start before B's
+        let second = run(ticketB, "B")
         await desk.settle()
         XCTAssertEqual(saves.started, 1, "queued writes wait for A")
         XCTAssertEqual(writes, ["save A"])
@@ -439,7 +458,7 @@ final class JobDeckFeedTests: XCTestCase {
         XCTAssertTrue(loadACancelled, "B cancels A's deck load instead of waiting for it")
         desk.answer(2, page(["A1"]))           // A's answer and the original prefetch arrive late
         desk.answer(1, page(["a2"]))
-        while saves.started < 2 { await Task.yield() }
+        await eventually("save 2 to start") { saves.started >= 2 }
         await desk.settle()
         XCTAssertEqual(saves.started, 2, "C must not overtake B")
         XCTAssertEqual(writes, ["save A", "accepted A", "save B"])
@@ -449,7 +468,7 @@ final class JobDeckFeedTests: XCTestCase {
         let loadBCancelled = await desk.wasCancelled(3)
         XCTAssertTrue(loadBCancelled)
         desk.answer(3, page(["B1"]))
-        while saves.started < 3 { await Task.yield() }
+        await eventually("save 3 to start") { saves.started >= 3 }
         saves.finish()                         // C accepted
         await desk.requested(5)
         desk.answer(4, page(["C1"]))
@@ -469,7 +488,7 @@ final class JobDeckFeedTests: XCTestCase {
         await load.value
 
         let first = startChange("A")
-        while saves.started < 1 { await Task.yield() }
+        await eventually("save 1 to start") { saves.started >= 1 }
         let second = startChange("B")
         let third = startChange("C")
         await desk.settle()
@@ -480,7 +499,7 @@ final class JobDeckFeedTests: XCTestCase {
         let loadACancelled = await desk.wasCancelled(1)
         XCTAssertTrue(loadACancelled)
         desk.answer(1, page(["A1"]))
-        while saves.started < 2 { await Task.yield() }
+        await eventually("save 2 to start") { saves.started >= 2 }
         saves.finish()                         // C's write
         await desk.requested(3)
         desk.answer(2, page(["C1"]))
@@ -491,13 +510,31 @@ final class JobDeckFeedTests: XCTestCase {
         XCTAssertFalse(feed.busy)
     }
 
+    func testDelayedEventFromAPreviousAccountNeverWritesAndDoesNotBlockTheQueue() async {
+        let oldTicket = feed.reserveChange()   // the person acted while signed in as account 1 (generation 1)
+        screen.generation = 2                  // the session changed before that event's task began
+        let old = run(oldTicket, "old", generation: 1)
+        let newer = startChange("new")         // account 2's own, later event (generation 2)
+        await eventually("the valid change to save") { saves.started >= 1 }
+        XCTAssertEqual(screen.log, ["save new"], "the old event must not write or adopt for the new account")
+        saves.finish()
+        await desk.requested(1)
+        desk.answer(0, page(["n1"]))
+        await old.value
+        await newer.value
+        XCTAssertEqual(screen.log, ["save new", "accepted new", "request 0"])
+        XCTAssertEqual(saves.started, 1)
+        XCTAssertEqual(ids, ["n1"])
+        XCTAssertFalse(feed.busy)
+    }
+
     func testChangeForADepartedSessionIsNotAdopted() async {
         let load = start()
         await desk.requested(1)
         desk.answer(0, page(["a"]))
         await load.value
         let change = startChange("filters")
-        while saves.started == 0 { await Task.yield() }
+        await eventually("a save to start") { saves.started >= 1 }
         screen.current = false
         saves.finish()
         await change.value

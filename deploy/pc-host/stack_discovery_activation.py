@@ -55,7 +55,7 @@ def service_command(source):
             '--setenv=PATH=/usr/local/bin:/usr/bin:/bin',
             '--setenv=PYTHONDONTWRITEBYTECODE=1',
             '--setenv=JAC_SCHEMA_REPAIR=detect',
-            '/opt/stack/scripts/jac', 'run', '--no-serve',
+            '/opt/stack/scripts/jac', 'run', '--backend', 'python', '--no-serve',
             'scripts/discovery-worker.jac', '--once', '--source', source]
 
 

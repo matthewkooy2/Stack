@@ -14,7 +14,7 @@ Environment=XDG_CACHE_HOME=/var/lib/stack/.cache
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=JAC_SCHEMA_REPAIR=detect
-ExecStart=/opt/stack/scripts/jac run --no-serve scripts/discovery-worker.jac
+ExecStart=/opt/stack/scripts/jac run --backend python --no-serve scripts/discovery-worker.jac
 Restart=on-failure
 RestartSec=5
 UMask=0077

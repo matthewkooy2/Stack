@@ -4,6 +4,7 @@ Run as root after deploying the reviewed source. Default is read-only preflight.
 --apply installs/enables the unit after a bounded batch for --source succeeds.
 """
 import argparse
+import fcntl
 import hashlib
 import json
 import os
@@ -78,6 +79,11 @@ def main():
     parser.add_argument('--source', default='', help='Existing public source ID for one bounded batch')
     args = parser.parse_args()
     assert os.geteuid() == 0, 'Run preflight as root to inspect private file metadata'
+    # Share the production promoter's lock; keep it held through activation.
+    lock = None
+    if args.apply:
+        lock = Path('/var/lib/stack-release/deploy.lock').open('r+')
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     assert not ROOT.is_symlink() and not DEST.is_symlink()
     account = pwd.getpwnam('stack')
     assert account.pw_uid != 0

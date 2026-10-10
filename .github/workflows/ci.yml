@@ -93,6 +93,9 @@ jobs:
           - suite: accounts
             python: test_push_notifications.py
             jac: tests/google_signin_tests.jac tests/google_signin_gateway_tests.jac
+          - suite: jobs
+            python: test_jobs_feed_api.py
+            jac: ''
     env:
       JAC_DB_SCRATCH: '1'
       JAC_TEST_JOBS: '0'

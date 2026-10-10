@@ -116,7 +116,7 @@ LIST_FILTERS={'modes':('Remote','Hybrid','On-site'),'levels':('Internship','Entr
 def validate_filters(query, filters) -> dict[str, Any]:
     """Search-level overrides. A key that is present overrides the profile value, even when empty."""
     if not isinstance(query,str) or len(query)>160:raise ValueError('Search must be under 160 characters.')
-    allowed={'location','country','occupation','salary_min','salary_period','posted_days','has_posting_date','sort','timeline','confirmed_only','any_role',*LIST_FILTERS,
+    allowed={'location','country','occupation','salary_min','salary_period','posted_days','has_posting_date','sort','timeline','confirmed_only','confirmed_level','any_role',*LIST_FILTERS,
       'mode','experience','employment_type'}
     if not isinstance(filters,dict) or set(filters)-allowed:raise ValueError('Unsupported filter.')
     filters=dict(filters)
@@ -129,7 +129,7 @@ def validate_filters(query, filters) -> dict[str, Any]:
     for k,v in result.items():
         if k in ('salary_min','posted_days'):
             if isinstance(v,bool) or not isinstance(v,(int,float)) or not math.isfinite(v) or v<0 or v>10000000:raise ValueError('Invalid numeric filter.')
-        elif k in ('has_posting_date','confirmed_only','any_role'):
+        elif k in ('has_posting_date','confirmed_only','confirmed_level','any_role'):
             if not isinstance(v,bool):raise ValueError('Yes/no filters must be true or false.')
         elif k=='timeline':
             if v not in ('compatible','confirmed','all'):raise ValueError('Unsupported timeline filter.')

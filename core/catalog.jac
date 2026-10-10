@@ -114,7 +114,7 @@ def _criteria(query: str, filters: dict[str, any]) -> dict[str, any] {
     return c;
 }
 def _criteria_view(c: dict[str, any]) -> dict[str, any] {
-    keys=["roles","location","modes","stage","years","education","employment_types","salary_min","salary_period","exclude_companies","exclude_terms","soft","levels","graduation_month","available_from","confirmed_only","timeline","sources","notices"];
+    keys=["roles","location","modes","stage","years","education","employment_types","salary_min","salary_period","exclude_companies","exclude_terms","soft","levels","graduation_month","available_from","confirmed_only","confirmed_level","timeline","sources","notices"];
     return {k:c[k] for k in keys};
 }
 def _enqueue(kind: str, payload: dict[str, any]) -> DiscoveryRequest {
@@ -201,7 +201,7 @@ def:priv reset_search() -> dict[str, any] {
 """Profile edits win over older search overrides of the same inputs."""
 def _drop_overrides(keys: list[str]) -> None {
     for s in [root -->][?:SavedSearch] {
-        if "roles" in keys { s.query=""; }
+        if "roles" in keys { s.query="";s.filters.pop("any_role",None); }
         s.filters={k:v for (k,v) in s.filters.items() if k not in keys and not (k=="salary_period" and "salary_min" in keys)};
     }
 }

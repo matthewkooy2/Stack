@@ -2,6 +2,23 @@ import AuthenticationServices
 import XCTest
 @testable import Stack
 
+/// URLSession may convert the submitted JSON body into a stream before URLProtocol sees it.
+private func appleRequestJSON(_ request: URLRequest) throws -> JSON {
+    var data = request.httpBody ?? Data()
+    if data.isEmpty, let stream = request.httpBodyStream {
+        stream.open()
+        defer { stream.close() }
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let count = stream.read(&buffer, maxLength: buffer.count)
+            if count < 0 { throw stream.streamError ?? URLError(.cannotDecodeContentData) }
+            if count == 0 { break }
+            data.append(contentsOf: buffer.prefix(count))
+        }
+    }
+    return try JSONDecoder().decode(JSON.self, from: data)
+}
+
 @MainActor
 final class AppleSignInTests: XCTestCase {
     private let state = String(repeating: "s", count: 43)
@@ -39,7 +56,7 @@ final class AppleSignInTests: XCTestCase {
         XCTAssertEqual(store.phase, .admission)
         XCTAssertFalse(StubProtocol.seen.contains { $0.url!.path.hasSuffix("bootstrap") })
         let finish = StubProtocol.seen.first { $0.url!.path.hasSuffix("auth_apple_finish") }!
-        let payload = try! JSONDecoder().decode(JSON.self, from: finish.httpBody!)
+        let payload = try! appleRequestJSON(finish)
         XCTAssertEqual(payload["state"].string, state)
         XCTAssertEqual(payload["authorization_code"].string, "one-use-code")
     }
@@ -92,7 +109,7 @@ final class AppleSignInTests: XCTestCase {
         let first = StubProtocol.seen.first!
         XCTAssertEqual(first.url!.path, "/function/auth_apple_link_begin")
         XCTAssertEqual(first.value(forHTTPHeaderField: "Authorization"), "Bearer original")
-        let payload = try! JSONDecoder().decode(JSON.self, from: first.httpBody!)
+        let payload = try! appleRequestJSON(first)
         XCTAssertEqual(payload["username"].string, "owner")
         XCTAssertEqual(payload["password"].string, "confirmed-password")
         XCTAssertTrue(StubProtocol.seen.contains { $0.url!.path.hasSuffix("auth_apple_link_finish") })
@@ -106,7 +123,7 @@ final class AppleSignInTests: XCTestCase {
         let previous = StubProtocol.handler!
         StubProtocol.handler = { request in
             if request.url!.path.hasSuffix("account_delete_apple") {
-                let payload = try JSONDecoder().decode(JSON.self, from: request.httpBody!)
+                let payload = try appleRequestJSON(request)
                 XCTAssertEqual(payload["name"], .null)
                 XCTAssertEqual(payload["identity_token"].string, "native-proof")
                 return (200, envelope(["deleted": true]))

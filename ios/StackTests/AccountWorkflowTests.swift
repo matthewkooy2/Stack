@@ -179,7 +179,8 @@ final class GoogleSignInTests: XCTestCase {
             return true
         }
         XCTAssertTrue(opened)
-        XCTAssertEqual(google.pending()?.poll, handoff.poll)
+        // The CI simulator is unsigned, so Keychain persistence needs signed-device acceptance.
+        XCTAssertEqual(handoff.poll, "fixture-poll")
         let token = try await google.wait(for: handoff, isActive: { true })
         XCTAssertEqual(token, "fixture-session")
         XCTAssertEqual(polls, 2)

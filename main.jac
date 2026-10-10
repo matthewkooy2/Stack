@@ -65,10 +65,15 @@ def:priv auth_apple_delete_begin() -> dict[str, any] {
     return apple_auth.begin("delete",jid(root));
 }
 def:priv account_delete_apple(state: str, identity_token: str, authorization_code: str) -> dict[str, any] {
+    # Enter a writable unit before consuming/exchanging one-use external proof.
+    # Pinned Jac otherwise discovers graph writes by replaying a read-only unit.
+    session=JacRuntime.get_context().mem;
     try {
+        session.unit_enter();
         proof=apple_auth.deletion_proof(state,identity_token,authorization_code,jid(root));
         return _delete_verified_account(str(proof["user_id"]),str(proof["refresh"]));
     } except ValueError { return {"error":"Apple account deletion could not finish. Please try again."}; }
+    finally { session.unit_exit(); }
 }
 
 def _owned_interview(id: str) -> PrepSession {
@@ -1187,9 +1192,12 @@ def:priv account_delete(username: str, password: str) -> dict[str, any] {
 }
 
 def _delete_verified_account(user_id: str, apple_fresh: str = "") -> dict[str, any] {
+    session=JacRuntime.get_context().mem;
     try {
+        session.unit_enter();
         with apple_auth.deletion_guard(user_id,apple_fresh) { return _delete_account_locked(user_id); }
     } except ValueError { return {"error":"Account authorization could not be revoked. Please try again before deleting this account."}; }
+    finally { session.unit_exit(); }
 }
 
 def _delete_account_locked(user_id: str) -> dict[str, any] {

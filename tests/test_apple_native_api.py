@@ -112,13 +112,19 @@ class NativeAppleAPI(unittest.TestCase):
                 self.assertTrue(challenge['ok'],challenge)
                 args = proof(challenge)
                 calls = []
+                sessions = []
                 def provider(path, form):
                     calls.append(path)
+                    from jaclang.runtime.runtime import JacRuntime
+                    sessions.append(JacRuntime.get_context().mem)
                     return {'id_token':args['identity_token'],'refresh_token':'fresh-fixture-refresh'} if path == '/auth/token' else {}
                 with patch.object(client._server.module.apple_auth,'provider',side_effect=provider), \
                      patch.object(client._server.module.browser_worker,'browser_call',return_value={}):
-                    self.assertTrue(rpc('account_delete_apple',args)['deleted'])
+                    deleted = rpc('account_delete_apple',args)
+                    self.assertTrue(deleted.get('deleted'), deleted)
                 self.assertEqual(calls,['/auth/token','/auth/revoke','/auth/revoke'])
+                self.assertTrue(sessions)
+                self.assertTrue(all(session.unit_depth() == 0 for session in sessions))
                 self.assertFalse(client.login('fixture-apple-existing','Fixture-password-123').ok)
                 self.assertFalse(client.post('/function/agent_admission',json={}).ok)
 

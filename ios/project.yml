@@ -26,6 +26,8 @@ targets:
       path: Stack/Info.plist
       properties:
         CFBundleDisplayName: Stack
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait

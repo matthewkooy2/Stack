@@ -117,10 +117,16 @@ separately approved operational action. Do not bulk clear locks or grants.
    `getCredentialState(forUserID:)`/revocation notification to clear local Apple
    sessions when authorization is revoked; do not persist Apple ID tokens as
    Stack sessions. Provider server-to-server event handling and periodic grant
-   validation are implemented as described below. Register the notification URL
-   on the same approved HTTPS API origin, ending `/auth/apple/notifications`, in
-   the primary App ID's Sign in with Apple configuration. This live registration
-   also needs explicit approval. Signed-device acceptance follows an approved
+   validation are implemented as described below. Notification delivery requires
+   a publicly reachable HTTPS endpoint ending `/auth/apple/notifications`;
+   private-only HTTPS is not reachable by Apple's servers. Register an approved
+   public endpoint in the primary App ID configuration only after separately
+   approved ingress deployment. Native authorization and daily server validation
+   use outbound Apple requests and do not require public ingress. A private-only
+   rollout requires an explicitly accepted up-to-24-hour server revocation delay;
+   prompt notification-based revocation requires public notification-only ingress.
+   Neither policy acceptance nor network changes are authorized by this code.
+   Signed-device acceptance follows an approved
    test deployment; it is not a prerequisite for merging disabled code.
 7. Coordinate merge/backend rollout with the parent because main CI can deploy
    the existing backend. No production deployment or merge is authorized here.
@@ -146,6 +152,12 @@ directly would bypass gateway enforcement. A revoked or mismatched Apple epoch
 returns 401. Configuration/storage/provider outages fail closed with 503 and do
 not clear otherwise valid sessions. Confirmed refresh `invalid_grant` rotates the
 epoch; other provider failures never infer consent revocation.
+
+Every fresh Apple authorization also rotates the epoch, invalidating older Apple
+sessions while preserving the same root and Google/password sessions. The epoch
+is persisted before the saved grant is replaced, so a partial metadata/identity
+failure cannot extend an older JWT's cached 24-hour validation window. Only the
+newly issued Stack JWT is usable after a successful reauthorization.
 
 Active Apple sessions validate their saved refresh grant when its last successful
 exchange is at least 24 hours old. The returned identity must match the stored

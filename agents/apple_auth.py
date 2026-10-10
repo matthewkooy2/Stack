@@ -322,12 +322,19 @@ def _finish_user(cfg, manager, db, user_id, subject, refresh, claims, name, exis
         invalidate_sessions(db, user_id, lifecycle, watermark["revoked_at"])
     if min(claims["iat"], claims["_stack_started_at"]) <= lifecycle.get("revoked_at", 0):
         raise AppleError("APPLE_REVOKED", "Start a new Apple sign-in to authorize this account.")
-    lifecycle.setdefault("epoch", secrets.token_urlsafe(32))
+    # Every fresh authorization replaces the Apple session generation. Without
+    # this, a missed revocation followed by reauthorization could renew a saved
+    # grant while keeping older Apple JWTs valid under the previous epoch.
+    lifecycle["epoch"] = secrets.token_urlsafe(32)
     lifecycle["revoked"] = False
     grant = {"refresh_token": refresh, "subject": subject, "client_id": cfg["STACK_APPLE_CLIENT_ID"],
              "authorized_at": claims["iat"], "checked_at": time.time()}
     sealed = seal_grant(cfg, grant)
     try:
+        # Publish the new epoch before replacing the grant. If a later identity
+        # or metadata write fails, the old epoch must not gain a new 24h window.
+        # The user lock prevents a preflight observing this intermediate state.
+        write_state(db, user_id, lifecycle)
         # Persist first: a failed grant write must not link an existing account.
         db.rows("""INSERT INTO kv_state (key,value,expires_at) VALUES (:k,:v,'infinity')
             ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value,expires_at=EXCLUDED.expires_at""",
@@ -372,7 +379,6 @@ def _finish_user(cfg, manager, db, user_id, subject, refresh, claims, name, exis
     profile["apple"] = apple
     if not manager.update_user_fields(user_id, {"profile": profile}):
         raise AppleError()
-    write_state(db, user_id, lifecycle)
     return {"ok": True, "token": apple_session_token(manager, user_id, lifecycle["epoch"]),
             "username": manager.get_username(user_id) or ""}
 

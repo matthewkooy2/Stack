@@ -270,8 +270,34 @@ class AppleTests(unittest.TestCase):
         self.assertEqual(uid,new_uid)
         self.assertEqual(self.status(uid,old)['code'],'APPLE_REVOKED')
         self.assertTrue(self.status(uid,new)['ok'])
+
         self.assertTrue(self.notice()['ok'])
         self.assertTrue(self.status(uid,new)['ok'])
+
+    def test_fresh_authorization_without_notification_invalidates_older_apple_session(self):
+        self.begin(); self.assertTrue(self.finish()['ok'])
+        uid, old = self.lifecycle_session()
+        root = self.manager.get_root_id(uid)
+        self.age_grant(uid)
+        self.begin(); self.assertTrue(self.finish()['ok'])
+        new_uid, new = self.lifecycle_session()
+        self.assertEqual(uid,new_uid)
+        self.assertEqual(root,self.manager.get_root_id(new_uid))
+        self.assertNotEqual(old['stack_apple'],new['stack_apple'])
+        self.assertEqual(self.status(uid,old)['code'],'APPLE_REVOKED')
+        self.assertTrue(self.status(uid,new)['ok'])
+        self.assertTrue(self.status(uid,dict(sub=uid))['ok'])
+
+    def test_failed_reauthorization_cannot_renew_an_older_session_window(self):
+        self.begin(); self.assertTrue(self.finish()['ok'])
+        uid, old = self.lifecycle_session(); self.age_grant(uid)
+        issued_before = len(self.manager.tokens)
+        self.begin()
+        with patch.object(self.manager,'update_user_fields',return_value=False):
+            self.assertFalse(self.finish()['ok'])
+        self.assertEqual(len(self.manager.tokens),issued_before)
+        self.assertEqual(self.status(uid,old)['code'],'APPLE_REVOKED')
+        self.assertTrue(self.status(uid,dict(sub=uid))['ok'])
 
     def test_notification_signature_audience_time_and_schema_fail_closed(self):
         self.begin(); self.assertTrue(self.finish()['ok'])

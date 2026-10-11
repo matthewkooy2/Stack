@@ -80,7 +80,7 @@ final class SpeechRestorationTests: XCTestCase {
         await model.openSession("session-1")
         XCTAssertEqual(model.draft, "Offline correction.")
         XCTAssertEqual(model.page, .review)
-        XCTAssertTrue(model.autosaveFailed)
+        XCTAssertTrue(model.error.contains("also changed"))
         await model.autoSave()
         XCTAssertEqual(RecordingStore.transcript(at: url)?.text, "Offline correction.")
         XCTAssertEqual(StubProtocol.seen.count, 3)

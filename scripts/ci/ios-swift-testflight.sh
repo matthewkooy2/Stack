@@ -18,13 +18,15 @@ CI_DIR="$STACK_ROOT/.jac/ci-ios-swift-upload"
 ARCHIVE="$CI_DIR/Stack.xcarchive"
 APP="$ARCHIVE/Products/Applications/Stack.app"
 mkdir -p "$CI_DIR"
-AUTH=(-allowProvisioningUpdates -authenticationKeyPath "$ASC_AUTH_KEY_PATH"
-  -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
+# Fail closed before tests/archive; the workflow restores approved assets first.
+python3 scripts/ci/ios-signing.py export-options "$CI_DIR/ExportOptions.plist"
+SIGNING=(DEVELOPMENT_TEAM="$APPLE_TEAM_ID" CODE_SIGN_STYLE=Manual
+  CODE_SIGN_IDENTITY="$IOS_SIGNING_IDENTITY" PROVISIONING_PROFILE_SPECIFIER="$IOS_PROFILE_UUID"
+  "OTHER_CODE_SIGN_FLAGS=--keychain $IOS_SIGNING_KEYCHAIN")
 bash scripts/ci/ios-swift.sh all
 xcodebuild archive -project ios/Stack.xcodeproj -scheme Stack -configuration Release \
   -destination 'generic/platform=iOS' -archivePath "$ARCHIVE" \
-  -derivedDataPath "$CI_DIR/DerivedData" "${AUTH[@]}" \
-  DEVELOPMENT_TEAM="$APPLE_TEAM_ID" CODE_SIGN_STYLE=Automatic \
+  -derivedDataPath "$CI_DIR/DerivedData" "${SIGNING[@]}" \
   PRODUCT_BUNDLE_IDENTIFIER=com.matthewkooy.stack MARKETING_VERSION=0.2.0 \
   "CURRENT_PROJECT_VERSION=$BUILD_NUMBER" "STACK_API_URL=$STACK_API_URL"
 python3 - "$APP/Info.plist" "$BUILD_NUMBER" "$STACK_API_URL" <<'PY'
@@ -46,19 +48,8 @@ if info.get('NSAppTransportSecurity', {}).get('NSAllowsArbitraryLoads'):
     raise SystemExit('Native release must not allow arbitrary network loads.')
 print('Native archive identity, version, HTTPS origin and export compliance validated.')
 PY
-cat > "$CI_DIR/ExportOptions.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>method</key><string>app-store-connect</string>
-<key>signingStyle</key><string>automatic</string>
-<key>teamID</key><string>$APPLE_TEAM_ID</string>
-<key>uploadSymbols</key><true/>
-<key>manageAppVersionAndBuildNumber</key><false/>
-</dict></plist>
-PLIST
 xcodebuild -exportArchive -archivePath "$ARCHIVE" -exportPath "$CI_DIR/export" \
-  -exportOptionsPlist "$CI_DIR/ExportOptions.plist" "${AUTH[@]}"
+  -exportOptionsPlist "$CI_DIR/ExportOptions.plist"
 IPA_PATH="$CI_DIR/export/Stack.ipa"
 [[ -s "$IPA_PATH" ]] || { echo 'Native IPA missing.' >&2; exit 1; }
 xcrun altool --upload-app --type ios --file "$IPA_PATH" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"

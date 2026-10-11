@@ -58,11 +58,13 @@ certificate with no exportable local key cannot satisfy this workflow.
    GitHub accepts the values through this page; agents receive only completion
    confirmation, never the values.
 5. Parent reviews the exact candidate and coordinates merge and one specifically
-   approved release. **The existing Expo main-push route is enabled**, so merging
-   this change can immediately start an Expo upload after preflight. Coordinate
-   the release gate before merging, not afterward. Swift upload remains an
-   explicit workflow dispatch with `upload_native=true`. Do not rerun historical
-   revisions that retain automatic provisioning.
+   approved release. Deployed main currently auto-releases Expo. The local
+   routing correction instead auto-releases Swift on matching main pushes when
+   `STACK_TESTFLIGHT_ENABLED=true`, retaining explicit Swift dispatch with
+   `upload_native=true` and restricting Expo to explicit dispatch. Merging the
+   combined change can immediately start a Swift upload. Coordinate the release
+   gate before merging, not afterward. Do not rerun historical revisions that
+   retain automatic provisioning.
 
 If the private key is missing, first have the owner inspect trusted original
 machines and approved protected backups. A `.cer` download or ASC `.p8` cannot
@@ -85,6 +87,69 @@ Verified instruction sources: [Apple keychain export](https://support.apple.com/
 [Apple App Store Connect profiles](https://developer.apple.com/help/account/provisioning-profiles/create-an-app-store-provisioning-profile/),
 [Apple CSR creation](https://developer.apple.com/help/account/certificates/create-a-certificate-signing-request/),
 and [GitHub environment-secret setup](https://docs.github.com/actions/security-guides/using-secrets-in-github-actions).
+
+## Read-only inspection task for the connected Mac
+
+Use the owner's existing authorized Mac session. Do not request account access
+changes. If the Mac is offline or unauthorized, stop at that connection blocker.
+Do not export keys, create a CSR, import identities, create/revoke certificates,
+generate profiles, open password values, or retrieve/upload Actions secret values.
+
+1. In Keychain Access > login > My Certificates, inspect candidate Apple
+   Distribution identities. Report only certificate type, name/team, validity
+   dates, fingerprint, and whether expanding the certificate shows a matching
+   private key. An existing read-only `security find-identity -v -p codesigning`
+   check can confirm which identities are valid for signing without exporting
+   keys. Do not run key extraction commands or search key contents. Inventory
+   only approved likely signing identities, not unrelated keychains/accounts.
+2. Inspect installed/downloaded `.mobileprovision` files in the standard Xcode
+   or MobileDevice provisioning-profile directories. Report only profile name,
+   UUID, expiry, platform, team, explicit application ID, distribution type,
+   capability names, and certificate fingerprints. Decode profile metadata
+   locally and select those fields; never print the full profile, certificate
+   payloads, device identifiers or any key material.
+3. Identify a usable pair: valid Apple Distribution identity with private key;
+   unexpired iOS App Store Connect profile for `com.matthewkooy.stack`, same team,
+   containing that identity's certificate. Require `get-task-allow=false`, no
+   device list or all-device enterprise flag, and compatible enabled app
+   capabilities. App ID prefix may differ from Team ID on older accounts.
+4. If an existing Apple Developer login is authorized, confirm validity and
+   profile match read-only at Certificates, Identifiers & Profiles. Otherwise
+   report portal login needed. Report certificate counts only if directly
+   observed; do not infer quota usage from an old failure.
+5. Return metadata and one outcome: reusable pair ready; identity ready/profile
+   missing; private key unavailable; expired/revoked/mismatched assets; or access
+   blocked. State the next owner action. The owner alone exports/encodes/uploads
+   protected assets using the secure handoff above. A missing private key needs
+   owner recovery or specifically approved replacement, never blind revocation.
+
+## Local routing candidate and acceptance plan
+
+The routing delta removes Expo's main `push` trigger and allows its upload job
+only on explicit dispatch with `preflight_only=false`. Swift gains main pushes
+for `ios/**`, its build/upload/processing helpers, the shared signing and ASC
+preflight helpers, and its workflow. Automatic Swift release requires the
+existing `STACK_TESTFLIGHT_ENABLED=true`; explicit native dispatch retains its
+existing `upload_native=true` approval signal. Both routes retain the same
+`stack-testflight-main` concurrency group, protected environment and cleanup.
+
+No settings are changed. With the currently enabled variable, merging the
+Swift workflow or shared signing helper will match the new trigger and attempt
+Swift release. Until secure owner handoff and release authorization are ready,
+keep the candidate local. Parent must coordinate timing, or obtain specific
+approval for a temporary release-disable setting; do not change it implicitly.
+
+Local tests evaluate the actual job conditions with fictional event contexts and
+verify source-path triggers. They reject automatic uploads on pull requests,
+feature branches, forks, and disabled/missing enable variables, and verify default
+manual inputs do not upload. After review, first release requires real macOS
+import/archive/export, exact `0.2.0` build processing confirmation, then tester
+installation of the Swift app. These checks have not run locally.
+
+Existing ASC preflight reads the legacy `0.1.0` marketing version for an advisory
+App Store version-record lookup, but verifies access to the same bundle/app and
+does not gate on that version record. Swift archive validation and processing
+confirmation explicitly require `0.2.0`; routing does not change API auth code.
 
 ## Runner lifecycle
 
@@ -119,7 +184,9 @@ Only names/update metadata were inspected; no secret values were retrieved.
 The three reusable signing secrets were absent at inspection time. A subsequent
 read-only check confirmed the non-secret `STACK_TESTFLIGHT_ENABLED` variable is
 `true`. The environment has a branch restriction but no required-reviewer rule;
-merging this patch can automatically start the Expo release after preflight.
+merging the original signing-only patch would start Expo after preflight. The
+additional local routing delta moves automatic release to Swift; neither has
+been published or merged.
 
 The delegated diagnosis reports build `1011.1` / run `38089811592` failed during
 development signing at archive, before export/upload; last success `1010.1`.
@@ -136,3 +203,9 @@ tests remain required on macOS; a signed release is gated on secure handoff and
 parent approval. No release run or signing-state mutation was performed here.
 
 Reference: [GitHub's macOS certificate/profile installation guidance](https://docs.github.com/actions/use-cases-and-examples/deploying/installing-an-apple-certificate-on-macos-runners-for-xcode-development).
+
+Subsequent owner handoff, 2026-10-11: read-only GitHub metadata confirms all three
+reusable signing secret names now exist in `stack-testflight`. Values were not
+retrieved. The owner explicitly authorized publication, merge and TestFlight;
+parent serialization and exact-head checks still precede the release-triggering
+merge. Secret presence does not establish macOS signing success.

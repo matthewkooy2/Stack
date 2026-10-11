@@ -20,23 +20,6 @@ on:
       - 'tests/asc-preflight.cjs'
       - '.github/actions/ios-toolchain/**'
       - '.github/workflows/testflight.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'mobile/**'
-      - 'native/**'
-      - 'core/**'
-      - 'jac.toml'
-      - 'scripts/jac'
-      - 'scripts/compile-mobile.jac'
-      - 'scripts/stage-mobui.cjs'
-      - 'scripts/auth-build-config.cjs'
-      - 'scripts/setup*'
-      - 'scripts/ci/ios-testflight.sh'
-      - 'scripts/ci/ios-signing.py'
-      - 'scripts/ci/asc-preflight.cjs'
-      - '.github/actions/ios-toolchain/**'
-      - '.github/workflows/testflight.yml'
   workflow_dispatch:
     inputs:
       preflight_only:
@@ -104,9 +87,9 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
   build-and-upload:
-    # Uploads require an explicit enable switch and a successful Apple preflight.
+    # Legacy Expo uploads require explicit dispatch; main pushes release Swift instead.
     needs: preflight
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.STACK_TESTFLIGHT_ENABLED == 'true' && (github.event_name != 'workflow_dispatch' || !inputs.preflight_only)
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && vars.STACK_TESTFLIGHT_ENABLED == 'true' && !inputs.preflight_only
     runs-on: xcode-27
     timeout-minutes: 60
     environment: stack-testflight

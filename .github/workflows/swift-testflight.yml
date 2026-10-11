@@ -1,5 +1,15 @@
-name: Swift candidate TestFlight
+name: Stack Swift TestFlight deployment
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'ios/**'
+      - 'scripts/ci/ios-swift.sh'
+      - 'scripts/ci/ios-swift-testflight.sh'
+      - 'scripts/ci/ios-signing.py'
+      - 'scripts/ci/ios-swift-processing.cjs'
+      - 'scripts/ci/asc-preflight.cjs'
+      - '.github/workflows/swift-testflight.yml'
   workflow_dispatch:
     inputs:
       upload_native:
@@ -10,8 +20,8 @@ permissions:
   contents: read
 jobs:
   native-upload:
-    # The protected environment already permits main; Expo remains the default release route.
-    if: github.repository == 'matthewkooy2/Stack' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.upload_native
+    # Enabled main pushes release the Swift app; manual uploads remain explicit.
+    if: github.repository == 'matthewkooy2/Stack' && github.ref == 'refs/heads/main' && ((github.event_name == 'push' && vars.STACK_TESTFLIGHT_ENABLED == 'true') || (github.event_name == 'workflow_dispatch' && inputs.upload_native))
     runs-on: xcode-27
     environment: stack-testflight
     timeout-minutes: 60

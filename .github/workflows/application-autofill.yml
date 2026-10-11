@@ -38,7 +38,12 @@ jobs:
         run: python -m unittest discover -s tests -p test_autofill.py -v
       - uses: ./.github/actions/setup-jac
       - name: Verify authenticated lifecycle and existing takeover boundaries
-        run: jac test tests/autofill_workflow_tests.jac tests/application_retirement_tests.jac tests/browser_viewer_tests.jac
+        run: |
+          set -euo pipefail
+          # Each suite owns a distinct Jac runtime; do not reuse shared-root caches after a client closes.
+          for suite in autofill_workflow_tests.jac application_retirement_tests.jac browser_viewer_tests.jac; do
+            jac test "tests/$suite"
+          done
       - name: Verify browser worker and source package
         run: |
           set -euo pipefail

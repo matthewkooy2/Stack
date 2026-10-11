@@ -23,56 +23,78 @@ struct ApplicationAgentSection: View {
     }
 
     private let actions = [
-        Action(kind: "jobs", label: "Explain my fit",
-               text: "Strengths, gaps and unknowns, quoted from the listing and your confirmed facts. Nothing leaves Stack."),
-        Action(kind: "resume", label: "Tailor my resume",
-               text: "Rewords, reorders and trims your LaTeX resume to one page for this job, in your format. You keep or reject every change."),
-        Action(kind: "application", label: "Prepare & apply",
-               text: "Prepares this application for your review. Filling and submitting each require your separate approval."),
-        Action(kind: "plan", label: "Build interview plan",
-               text: "Adds practice sessions to Prep based on this job. No model needed."),
+        Action(kind: "jobs", label: "Explain my fit", text: "Strengths, gaps and unknowns"),
+        Action(kind: "resume", label: "Tailor my resume", text: "One page for this job; you keep or reject each change"),
+        Action(kind: "application", label: "Prepare & apply", text: "Prepared for your review; you approve each step"),
+        Action(kind: "plan", label: "Build interview plan", text: "Adds practice sessions to Prep"),
     ]
 
     private var started: [JSON] {
         store.account.runViews.filter { $0["target_id"].string == application.id && ["jobs", "resume", "application"].contains($0["kind"].string) }
     }
 
+    /// The agents behind these actions, each once, however many actions share one.
+    private var features: [AgentFeature] {
+        var seen = Set<String>()
+        return actions.compactMap { $0.kind == "plan" ? nil : store.account.feature(forKind: $0.kind) }
+            .filter { seen.insert($0.key).inserted }
+    }
+
+    /// Agents that are not ready, or that are missing a required setup step.
+    private var shortfalls: [AgentFeature] {
+        features.filter { $0.state != "ready" || !$0.missingRequired.isEmpty }
+    }
+
+    /// Fixes every short agent needs, in the order the first one lists them. Said once, in the open.
+    private var commonFixes: [String] {
+        guard let first = shortfalls.first else { return [] }
+        var fixes: [String] = []
+        for check in first.missingRequired where !check.fix.isEmpty && !fixes.contains(check.fix) {
+            if shortfalls.allSatisfy({ $0.missingRequired.contains { $0.fix == check.fix } }) { fixes.append(check.fix) }
+        }
+        return fixes
+    }
+
+    /// Whether some agent needs more than the shared fixes; that detail waits under Agent help.
+    private var hasSpecificGuidance: Bool {
+        shortfalls.contains { feature in feature.missingRequired.contains { !commonFixes.contains($0.fix) } }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                GlyphView(name: "sparkles", size: 20)
-                Text("Agent help").font(Typeface.title).foregroundStyle(Palette.ink)
-            }
-            Text("Optional. Nothing starts until you choose it, and nothing is sent without your approval.")
-                .font(Typeface.caption).foregroundStyle(Palette.muted)
             ForEach(Array(started.enumerated()), id: \.offset) { _, run in
                 TaskRow(run: run) { task = TaskTarget(id: run["id"].string) }
             }
-            ForEach(actions) { action in
-                let feature = action.kind == "plan" ? nil : store.account.feature(forKind: action.kind)
-                let unavailable = feature?.state == "unavailable"
-                Card(spacing: 8) {
-                    HStack {
-                        Text(action.label).font(Typeface.option).foregroundStyle(Palette.icon)
-                        Spacer()
-                        if let feature {
-                            StatusPill(label: AgentLabels.featureState[feature.state] ?? feature.state,
-                                       tone: AgentLabels.featureTone(feature.state))
+            if !shortfalls.isEmpty { setupSummary }
+            // Collapsed: the choices and their per-agent detail are one tap away, never in the way of Notes.
+            DisclosureSection("Agent help", detail: "Nothing starts or sends without you.") {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(actions) { action in
+                        let feature = action.kind == "plan" ? nil : store.account.feature(forKind: action.kind)
+                        let unavailable = feature?.state == "unavailable"
+                        VStack(alignment: .leading, spacing: 4) {
+                            ListRow(label: action.label, detail: action.text) {
+                                Task { await start(action.kind) }
+                            }
+                            .disabled(working || unavailable)
+                            .opacity(working || unavailable ? 0.5 : 1)
+                            if let feature {
+                                // Shared fixes are in the summary above; only what is specific to this agent repeats here.
+                                ForEach(feature.missingRequired.filter { !commonFixes.contains($0.fix) }) {
+                                    Text("✕ \($0.fix)").font(Typeface.caption).foregroundStyle(Palette.muted)
+                                }
+                                if unavailable {
+                                    StatusPill(label: AgentLabels.featureState["unavailable"] ?? "Unavailable", tone: .quiet)
+                                    if !feature.alternative.isEmpty {
+                                        Text("Meanwhile: \(feature.alternative)").font(Typeface.caption).foregroundStyle(Palette.muted)
+                                    }
+                                }
+                            }
                         }
                     }
-                    Text(action.text).font(Typeface.caption).foregroundStyle(Palette.text)
-                    if let feature {
-                        ForEach(feature.missingRequired) { Text("✕ \($0.fix)").font(Typeface.caption).foregroundStyle(Palette.muted) }
-                        if unavailable, !feature.alternative.isEmpty {
-                            Text("Meanwhile: \(feature.alternative)").font(Typeface.caption).foregroundStyle(Palette.muted)
-                        }
-                    }
-                    StackButton(label: action.label, kind: .secondary, disabled: working || unavailable) {
-                        Task { await start(action.kind) }
-                    }
+                    ListRow(label: "Mock interview for this role", icon: "chat") { showInterview = true }
                 }
             }
-            StackButton(label: "Mock interview for this role", icon: "chat", kind: .secondary) { showInterview = true }
             MessageLine(text: message, isError: false).fadeSwitch(!message.isEmpty)
             if offerPrep {
                 Chip(label: "Open Prep for this role") { showPrepPlan = true }
@@ -82,6 +104,24 @@ struct ApplicationAgentSection: View {
         .sheet(item: $task) { AgentTaskSheet(taskID: $0.id).environment(store) }
         .sheet(isPresented: $showInterview) { InterviewView(initialApplicationID: application.id).environment(store) }
         .sheet(isPresented: $showPrepPlan) { ApplicationPrepPlanView(application: application).environment(store) }
+    }
+
+    /// One short, always-visible statement of what is missing, with each fix said once.
+    private var setupSummary: some View {
+        let allUnavailable = shortfalls.allSatisfy { $0.state == "unavailable" }
+        return VStack(alignment: .leading, spacing: 6) {
+            StatusPill(label: allUnavailable ? (AgentLabels.featureState["unavailable"] ?? "Unavailable")
+                                              : (AgentLabels.featureState["setup"] ?? "Needs setup"),
+                       tone: AgentLabels.featureTone(allUnavailable ? "unavailable" : "setup"))
+            ForEach(commonFixes, id: \.self) { fix in
+                Text("✕ \(fix)").font(Typeface.caption).foregroundStyle(Palette.muted)
+            }
+            if hasSpecificGuidance {
+                Text("Some tasks need more. Open Agent help for each one.").font(Typeface.caption).foregroundStyle(Palette.muted)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
     }
 
     private func start(_ kind: String) async {

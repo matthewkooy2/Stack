@@ -39,7 +39,7 @@ struct ApplicationsView: View {
                 .reveal(1)
             }
             if rows.isEmpty {
-                EmptyNote(icon: "applications", title: "Nothing saved yet", message: "Save a role from Jobs and it will show up here.")
+                EmptyNote(icon: "applications", title: "Nothing saved yet", message: "Roles you save from Jobs appear here.")
                     .reveal(1)
             } else {
                 VStack(spacing: 0) {
@@ -105,41 +105,43 @@ struct ApplicationDetailView: View {
                         .reveal(1)
                     }
 
-                    Card {
-                        Text("Resume").font(Typeface.section).foregroundStyle(Palette.ink)
-                        FlowLayout(spacing: 8) {
-                            Chip(label: "None", selected: app.resumeID.isEmpty) { select("") }
-                            ForEach(store.account.resumes) { resume in
-                                Chip(label: resume.name, selected: app.resumeID == resume.id) { select(resume.id) }
-                            }
-                        }
-                    }
-                    .reveal(2)
-
-                    VStack(alignment: .leading, spacing: 12) {
-                        StackField(label: "Your notes", text: $notes, multiline: true)
-                        StackButton(label: "Save notes", disabled: store.busy || notes == app.notes) {
-                            Task { await store.mutate("save_application", ["id": .string(app.id), "notes": .string(notes)]) }
-                        }
-                    }
-                    .reveal(3)
-
-                    StackButton(label: "Add a follow-up reminder", icon: "bell", kind: .secondary) { showReminder = true }
-
-                    if !app.history.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Status history").font(Typeface.caption).foregroundStyle(Palette.muted)
-                            ForEach(Array(app.history.enumerated()), id: \.offset) { _, event in
-                                Text("\(event.status) · \(dateTime(event.at)) · \(event.source)")
-                                    .font(Typeface.caption).foregroundStyle(Palette.text)
-                            }
-                        }
-                    }
-
                     MessageLine(text: store.error).fadeSwitch(!store.error.isEmpty)
                     MessageLine(text: store.notice, isError: false).fadeSwitch(!store.notice.isEmpty)
 
                     if !app.isDemo { ApplicationAgentSection(application: app) }
+
+                    VStack(spacing: 0) {
+                        DisclosureSection("Resume", detail: resumeName(for: app)) {
+                            FlowLayout(spacing: 8) {
+                                Chip(label: "None", selected: app.resumeID.isEmpty) { select("") }
+                                ForEach(store.account.resumes) { resume in
+                                    Chip(label: resume.name, selected: app.resumeID == resume.id) { select(resume.id) }
+                                }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        DisclosureSection("Notes", detail: app.notes.isBlank ? "" : app.notes, open: !app.notes.isBlank) {
+                            VStack(alignment: .leading, spacing: 12) {
+                                StackField(label: "Your notes", text: $notes, multiline: true)
+                                StackButton(label: "Save notes", disabled: store.busy || notes == app.notes) {
+                                    Task { await store.mutate("save_application", ["id": .string(app.id), "notes": .string(notes)]) }
+                                }
+                            }
+                        }
+                        ListRow(label: "Add a follow-up reminder", icon: "bell") { showReminder = true }
+                        if !app.history.isEmpty {
+                            DisclosureSection("Status history", detail: "\(app.history.count) updates") {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    ForEach(Array(app.history.enumerated()), id: \.offset) { _, event in
+                                        Text("\(event.status) · \(dateTime(event.at)) · \(event.source)")
+                                            .font(Typeface.caption).foregroundStyle(Palette.text)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                    }
+                    .reveal(2)
                 }
                 .onAppear { if !loadedNotes { notes = app.notes; loadedNotes = true } }
             } else {
@@ -159,6 +161,10 @@ struct ApplicationDetailView: View {
                 }
             }
         }
+    }
+
+    private func resumeName(for app: Application) -> String {
+        app.resumeID.isEmpty ? "None attached" : (store.account.resume(app.resumeID)?.name ?? "Attached")
     }
 
     private func select(_ resumeID: String) {

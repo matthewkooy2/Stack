@@ -23,56 +23,56 @@ struct ApplicationAgentSection: View {
     }
 
     private let actions = [
-        Action(kind: "jobs", label: "Explain my fit",
-               text: "Strengths, gaps and unknowns, quoted from the listing and your confirmed facts. Nothing leaves Stack."),
-        Action(kind: "resume", label: "Tailor my resume",
-               text: "Rewords, reorders and trims your LaTeX resume to one page for this job, in your format. You keep or reject every change."),
-        Action(kind: "application", label: "Prepare & apply",
-               text: "Prepares this application for your review. Filling and submitting each require your separate approval."),
-        Action(kind: "plan", label: "Build interview plan",
-               text: "Adds practice sessions to Prep based on this job. No model needed."),
+        Action(kind: "jobs", label: "Explain my fit", text: "Strengths, gaps and unknowns"),
+        Action(kind: "resume", label: "Tailor my resume", text: "One page for this job; you keep or reject each change"),
+        Action(kind: "application", label: "Prepare & apply", text: "Prepared for your review; you approve each step"),
+        Action(kind: "plan", label: "Build interview plan", text: "Adds practice sessions to Prep"),
     ]
 
     private var started: [JSON] {
         store.account.runViews.filter { $0["target_id"].string == application.id && ["jobs", "resume", "application"].contains($0["kind"].string) }
     }
 
+    /// True when any agent behind these actions is missing a required setup step.
+    private var needsSetup: Bool {
+        actions.contains { action in
+            action.kind != "plan" && !(store.account.feature(forKind: action.kind)?.missingRequired.isEmpty ?? true)
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                GlyphView(name: "sparkles", size: 20)
-                Text("Agent help").font(Typeface.title).foregroundStyle(Palette.ink)
-            }
-            Text("Optional. Nothing starts until you choose it, and nothing is sent without your approval.")
-                .font(Typeface.caption).foregroundStyle(Palette.muted)
             ForEach(Array(started.enumerated()), id: \.offset) { _, run in
                 TaskRow(run: run) { task = TaskTarget(id: run["id"].string) }
             }
-            ForEach(actions) { action in
-                let feature = action.kind == "plan" ? nil : store.account.feature(forKind: action.kind)
-                let unavailable = feature?.state == "unavailable"
-                Card(spacing: 8) {
-                    HStack {
-                        Text(action.label).font(Typeface.option).foregroundStyle(Palette.icon)
-                        Spacer()
-                        if let feature {
-                            StatusPill(label: AgentLabels.featureState[feature.state] ?? feature.state,
-                                       tone: AgentLabels.featureTone(feature.state))
+            DisclosureSection("Agent help", detail: needsSetup ? "Needs setup. Nothing starts or sends without you."
+                                                              : "Optional. Nothing starts or sends without you.",
+                              open: !started.isEmpty || needsSetup) {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(actions) { action in
+                        let feature = action.kind == "plan" ? nil : store.account.feature(forKind: action.kind)
+                        let unavailable = feature?.state == "unavailable"
+                        VStack(alignment: .leading, spacing: 4) {
+                            ListRow(label: action.label, detail: action.text) {
+                                Task { await start(action.kind) }
+                            }
+                            .disabled(working || unavailable)
+                            .opacity(working || unavailable ? 0.5 : 1)
+                            if let feature {
+                                if feature.state != "ready" {
+                                    StatusPill(label: AgentLabels.featureState[feature.state] ?? feature.state,
+                                               tone: AgentLabels.featureTone(feature.state))
+                                }
+                                ForEach(feature.missingRequired) { Text("✕ \($0.fix)").font(Typeface.caption).foregroundStyle(Palette.muted) }
+                                if unavailable, !feature.alternative.isEmpty {
+                                    Text("Meanwhile: \(feature.alternative)").font(Typeface.caption).foregroundStyle(Palette.muted)
+                                }
+                            }
                         }
                     }
-                    Text(action.text).font(Typeface.caption).foregroundStyle(Palette.text)
-                    if let feature {
-                        ForEach(feature.missingRequired) { Text("✕ \($0.fix)").font(Typeface.caption).foregroundStyle(Palette.muted) }
-                        if unavailable, !feature.alternative.isEmpty {
-                            Text("Meanwhile: \(feature.alternative)").font(Typeface.caption).foregroundStyle(Palette.muted)
-                        }
-                    }
-                    StackButton(label: action.label, kind: .secondary, disabled: working || unavailable) {
-                        Task { await start(action.kind) }
-                    }
+                    ListRow(label: "Mock interview for this role", icon: "chat") { showInterview = true }
                 }
             }
-            StackButton(label: "Mock interview for this role", icon: "chat", kind: .secondary) { showInterview = true }
             MessageLine(text: message, isError: false).fadeSwitch(!message.isEmpty)
             if offerPrep {
                 Chip(label: "Open Prep for this role") { showPrepPlan = true }

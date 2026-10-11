@@ -106,6 +106,47 @@ struct StatusPill: View {
     }
 }
 
+/// A hairline row that reveals secondary content on demand, so a screen leads with one thing.
+@MainActor
+struct DisclosureSection<Content: View>: View {
+    let title: String
+    var detail = ""
+    @State private var open: Bool
+    @ViewBuilder var content: () -> Content
+
+    init(_ title: String, detail: String = "", open: Bool = false, @ViewBuilder content: @escaping () -> Content) {
+        self.title = title
+        self.detail = detail
+        self.content = content
+        _open = State(initialValue: open)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Button {
+                withAnimation(Motion.fadeAnimation) { open.toggle() }
+            } label: {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(title).font(Typeface.option).foregroundStyle(Palette.icon)
+                        if !detail.isEmpty { Text(detail).font(Typeface.caption).foregroundStyle(Palette.muted).lineLimit(2) }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    GlyphView(name: "chevron", size: 16, color: Palette.muted)
+                        .rotationEffect(.degrees(open ? 90 : 0))
+                }
+                .padding(.vertical, 16)
+                .contentShape(Rectangle())
+                .overlay(alignment: .bottom) { Rectangle().fill(Palette.rule).frame(height: 1) }
+            }
+            .buttonStyle(.tap(scale: 0.985, dim: 1))
+            .accessibilityLabel(detail.isEmpty ? title : "\(title), \(detail)")
+            .accessibilityValue(open ? "Expanded" : "Collapsed")
+            if open { content().transition(.opacity) }
+        }
+    }
+}
+
 /// A scrollable block of selectable text, such as LaTeX source or extracted resume text.
 @MainActor
 struct CodeBlock: View {

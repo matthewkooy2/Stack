@@ -35,7 +35,7 @@ class TestFlightScript(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
-        for name in ('scripts/ci/ios-testflight.sh', 'native/app.config.js', 'native/build-config.js',
+        for name in ('scripts/ci/ios-testflight.sh', 'scripts/ci/ios-signing.py', 'native/app.config.js', 'native/build-config.js',
                      'native/package.json', 'native/package-lock.json', 'native/app-icon.png'):
             target = self.root / name
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -44,7 +44,7 @@ class TestFlightScript(unittest.TestCase):
         (self.root / 'native/Podfile.lock').write_text('PODS:\n  - ExpoModulesCore\n\nSPEC CHECKSUMS:\n  ExpoModulesCore: ' + 'a' * 40 + '\n')
         (self.root / '.jac/mobile-rn/ios').mkdir(parents=True)
         (self.root / 'bin').mkdir()
-        for name in ('node', 'npm', 'pod', 'xcrun'):
+        for name in ('node', 'npm', 'pod', 'xcrun', 'ruby'):
             target = self.root / 'bin' / name
             target.write_text(STUB); target.chmod(0o755)
         (self.root / 'bin/xcodebuild').write_text(XCODEBUILD)
@@ -61,7 +61,9 @@ class TestFlightScript(unittest.TestCase):
                     'STACK_API_URL': 'https://stack.example.com', 'GITHUB_RUN_NUMBER': '41', 'GITHUB_RUN_ATTEMPT': '2',
                     'RUNNER_TEMP': str(self.root / 'runner-temp'),
                     'APPLE_TEAM_ID': 'ABCDE12345', 'ASC_KEY_ID': 'FIXTURE', 'ASC_ISSUER_ID': 'fixture-issuer',
-                    'ASC_AUTH_KEY_PATH': str(key)}
+                    'ASC_AUTH_KEY_PATH': str(key), 'IOS_SIGNING_IDENTITY': 'A' * 40,
+                    'IOS_PROFILE_UUID': '00000000-0000-0000-0000-000000000001',
+                    'IOS_SIGNING_KEYCHAIN': str(self.root / 'fixture.keychain-db')}
 
     def run_script(self, **env):
         return subprocess.run(['bash', str(self.root/'scripts/ci/ios-testflight.sh')], env={**self.env, **env},
@@ -75,13 +77,21 @@ class TestFlightScript(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         archive, export = self.commands('xcodebuild')
         self.assertTrue(archive.endswith(' archive'), archive)
-        self.assertIn('-authenticationKeyPath', archive)
+        self.assertNotIn('-allowProvisioningUpdates', archive)
+        self.assertNotIn('-authenticationKeyPath', archive)
+        self.assertIn('CODE_SIGN_STYLE=Manual', archive)
+        self.assertNotIn('PROVISIONING_PROFILE_SPECIFIER=', archive)
+        self.assertEqual(len(self.commands('ruby')), 1)
         self.assertIn('DEVELOPMENT_TEAM=ABCDE12345', archive)
         self.assertIn('-exportArchive', export)
-        self.assertIn('-authenticationKeyPath', export)
+        self.assertNotIn('-authenticationKeyPath', export)
+        self.assertNotIn('-allowProvisioningUpdates', export)
         options = plistlib.loads((self.ci/'ExportOptions.plist').read_bytes())
         self.assertIs(options['manageAppVersionAndBuildNumber'], False)
         self.assertEqual(options['teamID'], 'ABCDE12345')
+        self.assertEqual(options['signingStyle'], 'manual')
+        self.assertEqual(options['signingCertificate'], 'A' * 40)
+        self.assertEqual(options['provisioningProfiles'], {'com.matthewkooy.stack': self.env['IOS_PROFILE_UUID']})
         self.assertIn('--upload-app', self.commands('xcrun')[0])
         # The pinned compiler cannot build the mobile runtime from a cache inside the project.
         self.assertEqual(set(self.commands('jac-cache')), {f"jac-cache {self.root/'runner-temp/jac-tool-cache'}"})
@@ -128,6 +138,12 @@ class TestFlightScript(unittest.TestCase):
         result = self.run_script(ASC_KEY_ID='')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('ASC_KEY_ID', result.stderr)
+        self.assertFalse(self.log.exists())
+
+    def test_missing_restored_identity_prevents_building(self):
+        result = self.run_script(IOS_SIGNING_IDENTITY='')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('IOS_SIGNING_IDENTITY', result.stderr)
         self.assertFalse(self.log.exists())
 
     def test_invalid_mode_is_rejected(self):

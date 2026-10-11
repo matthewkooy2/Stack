@@ -2,7 +2,7 @@
 
 Base: `f9acbaebebb6a6583942d2553298141094fa9a87`. This is an isolated local candidate, not a release.
 
-Tracking: [MAT-33](https://linear.app/matt-kooy/issue/MAT-33/restore-on-device-and-optional-live-transcription-in-swift), verified Personal `matt-kooy` workspace / MAT team / Stack project. Bug label; In Progress. Priority remains No priority pending Matt's selection. Existing MAT-5 and MAT-20 ownership, scope and relationships are unchanged.
+Tracking: [MAT-33](https://linear.app/matt-kooy/issue/MAT-33/restore-on-device-and-optional-live-transcription-in-swift), verified Personal `matt-kooy` workspace / MAT team / Stack project. Bug label; In Progress. Priority remains No priority pending Matt's selection. Existing interview and PC-transcription issue ownership and scope are untouched. Linear automatically linked the mentions of MAT-5 and MAT-20 when creating this issue. Automatic approval review rejected removing those references, citing relationship preservation; they remain intact. The separate verification-only description update succeeded.
 
 ## Cause and historical behavior
 

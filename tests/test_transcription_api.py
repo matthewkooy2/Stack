@@ -15,7 +15,7 @@ class API(unittest.TestCase):
     def setUp(self):
         scratch=ROOT/'.jac/transcription-api-tests';scratch.mkdir(parents=True,exist_ok=True)
         self.directory=tempfile.TemporaryDirectory(dir=scratch);self.addCleanup(self.directory.cleanup)
-        config=Path(self.directory.name)/'config.json';config.write_text('{}')
+        config=Path(self.directory.name)/'config.json';config.write_text('{"invite_only":false}')
         env=patch.dict(os.environ,{'STACK_AGENT_CONFIG':str(config),'STACK_AGENT_WORKER_TOKEN':TOKEN,'STACK_TRANSCRIPTION_STORAGE':str(Path(self.directory.name)/'audio')})
         env.start();self.addCleanup(env.stop)
         self.client=JacTestClient.from_file(str(ROOT/'main.jac'),base_path=self.directory.name)
@@ -58,6 +58,37 @@ class API(unittest.TestCase):
         self.assertIn('error',self.rpc('transcription_get',{'id':accepted['id']}))
         self.assertEqual(self.rpc('transcription_list')['recordings'],[])
         self.client.set_auth_token(self.token)
+        self.assertTrue(self.rpc('account_delete',{'username':'transcription-owner','password':'Password-fixture-123'})['deleted'])
+        self.assertEqual(self.worker('transcription_processing_claim'),{'idle':True})
+
+    def test_phone_original_edit_replay_owner_and_delete(self):
+        args={'client_id':'phone-api-recording-000001','content':base64.b64encode(wav()).decode(),
+              'local_transcript':'A phone recognized original.'}
+        self.client.clear_auth()
+        self.assertFalse(self.client.post('/function/transcription_upload',json=args).ok)
+        self.client.set_auth_token(self.token)
+        accepted=self.rpc('transcription_upload',args)
+        self.assertTrue(self.rpc('transcription_list')['client_transcripts'])
+        self.assertEqual(accepted['status'],'completed')
+        self.assertEqual(self.worker('transcription_processing_claim'),{'idle':True})
+        edited=self.rpc('transcription_action',{'id':accepted['id'],'action':'save','text':'Reviewed correction.','revision':1})
+        self.client.reload();self.client.set_auth_token(self.token)
+        replay=self.rpc('transcription_upload',args)
+        self.assertEqual((replay['id'],replay['transcript'],replay['original_transcript']),
+                         (accepted['id'],edited['transcript'],args['local_transcript']))
+        self.assertIn('error',self.rpc('transcription_upload',{**args,'local_transcript':'Replacement.'}))
+        self.assertIn('error',self.rpc('transcription_action',{'id':accepted['id'],'action':'save','text':'Stale','revision':1}))
+        self.client.register_user('phone-other-owner','Password-fixture-456')
+        for endpoint,body in [('transcription_get',{'id':accepted['id']}),
+                              ('transcription_audio',{'id':accepted['id']}),
+                              ('transcription_action',{'id':accepted['id'],'action':'save','text':'Other','revision':2})]:
+            self.assertIn('error',self.rpc(endpoint,body))
+        other=self.rpc('transcription_upload',args)
+        self.assertNotEqual(other['id'],accepted['id'])
+        self.client.set_auth_token(self.token)
+        exported=self.rpc('account_export')['recordings']
+        self.assertEqual(exported[0]['original_transcript'],args['local_transcript'])
+        self.assertEqual(exported[0]['transcript'],'Reviewed correction.')
         self.assertTrue(self.rpc('account_delete',{'username':'transcription-owner','password':'Password-fixture-123'})['deleted'])
         self.assertEqual(self.worker('transcription_processing_claim'),{'idle':True})
 

@@ -1,0 +1,70 @@
+name: Speech restoration acceptance
+on:
+  pull_request:
+    paths:
+      - 'ios/**'
+      - 'agents/transcription*.py'
+      - 'core/transcription.jac'
+      - 'tests/test_transcription*.py'
+      - 'tests/test_interview_contract.py'
+      - 'scripts/ci/ios-swift.sh'
+      - '.github/workflows/speech-restoration.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: speech-restoration-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  backend:
+    name: Phone transcript persistence and PC fallback
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      JAC_DB_SCRATCH: '1'
+      JAC_TEST_JOBS: '0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-jac
+      - name: Verify synthetic audio storage and interview contracts
+        run: python3 -m unittest tests.test_transcription tests.test_interview_contract -v
+      - name: Verify authenticated original, edit, replay, ownership and fallback
+        run: jac run --no-serve tests/test_transcription_api.py
+
+  native:
+    name: Unsigned speech build and native tests (Xcode 26.6)
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      STACK_API_URL: https://stack.invalid
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Require the modern speech compiler and simulator SDK
+        run: |
+          xcodebuild -version
+          xcrun swift --version
+          python3 - <<'PY'
+          import re, subprocess
+          version = subprocess.check_output(['xcrun', 'swift', '--version'], text=True)
+          match = re.search(r'Swift version (\d+)\.(\d+)', version)
+          assert match and tuple(map(int, match.groups())) >= (6, 2), version
+          sdk = subprocess.check_output(['xcrun', '--sdk', 'iphonesimulator', '--show-sdk-version'], text=True).strip()
+          assert int(sdk.split('.')[0]) >= 26, sdk
+          PY
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Compile and test without signing or provisioning
+        run: bash scripts/ci/ios-swift.sh test
+      - name: Retain unsigned test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: speech-native-results-${{ github.event.pull_request.head.sha || github.sha }}
+          path: .jac/ci-ios-swift/*.xcresult
+          if-no-files-found: ignore
+          retention-days: 7

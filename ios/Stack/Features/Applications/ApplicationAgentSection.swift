@@ -33,11 +33,31 @@ struct ApplicationAgentSection: View {
         store.account.runViews.filter { $0["target_id"].string == application.id && ["jobs", "resume", "application"].contains($0["kind"].string) }
     }
 
-    /// True when any agent behind these actions is missing a required setup step.
-    private var needsSetup: Bool {
-        actions.contains { action in
-            action.kind != "plan" && !(store.account.feature(forKind: action.kind)?.missingRequired.isEmpty ?? true)
+    /// The agents behind these actions, each once, however many actions share one.
+    private var features: [AgentFeature] {
+        var seen = Set<String>()
+        return actions.compactMap { $0.kind == "plan" ? nil : store.account.feature(forKind: $0.kind) }
+            .filter { seen.insert($0.key).inserted }
+    }
+
+    /// Agents that are not ready, or that are missing a required setup step.
+    private var shortfalls: [AgentFeature] {
+        features.filter { $0.state != "ready" || !$0.missingRequired.isEmpty }
+    }
+
+    /// Fixes every short agent needs, in the order the first one lists them. Said once, in the open.
+    private var commonFixes: [String] {
+        guard let first = shortfalls.first else { return [] }
+        var fixes: [String] = []
+        for check in first.missingRequired where !check.fix.isEmpty && !fixes.contains(check.fix) {
+            if shortfalls.allSatisfy({ $0.missingRequired.contains { $0.fix == check.fix } }) { fixes.append(check.fix) }
         }
+        return fixes
+    }
+
+    /// Whether some agent needs more than the shared fixes; that detail waits under Agent help.
+    private var hasSpecificGuidance: Bool {
+        shortfalls.contains { feature in feature.missingRequired.contains { !commonFixes.contains($0.fix) } }
     }
 
     var body: some View {
@@ -45,9 +65,9 @@ struct ApplicationAgentSection: View {
             ForEach(Array(started.enumerated()), id: \.offset) { _, run in
                 TaskRow(run: run) { task = TaskTarget(id: run["id"].string) }
             }
-            DisclosureSection("Agent help", detail: needsSetup ? "Needs setup. Nothing starts or sends without you."
-                                                              : "Optional. Nothing starts or sends without you.",
-                              open: !started.isEmpty || needsSetup) {
+            if !shortfalls.isEmpty { setupSummary }
+            // Collapsed: the choices and their per-agent detail are one tap away, never in the way of Notes.
+            DisclosureSection("Agent help", detail: "Nothing starts or sends without you.") {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(actions) { action in
                         let feature = action.kind == "plan" ? nil : store.account.feature(forKind: action.kind)
@@ -59,13 +79,15 @@ struct ApplicationAgentSection: View {
                             .disabled(working || unavailable)
                             .opacity(working || unavailable ? 0.5 : 1)
                             if let feature {
-                                if feature.state != "ready" {
-                                    StatusPill(label: AgentLabels.featureState[feature.state] ?? feature.state,
-                                               tone: AgentLabels.featureTone(feature.state))
+                                // Shared fixes are in the summary above; only what is specific to this agent repeats here.
+                                ForEach(feature.missingRequired.filter { !commonFixes.contains($0.fix) }) {
+                                    Text("✕ \($0.fix)").font(Typeface.caption).foregroundStyle(Palette.muted)
                                 }
-                                ForEach(feature.missingRequired) { Text("✕ \($0.fix)").font(Typeface.caption).foregroundStyle(Palette.muted) }
-                                if unavailable, !feature.alternative.isEmpty {
-                                    Text("Meanwhile: \(feature.alternative)").font(Typeface.caption).foregroundStyle(Palette.muted)
+                                if unavailable {
+                                    StatusPill(label: AgentLabels.featureState["unavailable"] ?? "Unavailable", tone: .quiet)
+                                    if !feature.alternative.isEmpty {
+                                        Text("Meanwhile: \(feature.alternative)").font(Typeface.caption).foregroundStyle(Palette.muted)
+                                    }
                                 }
                             }
                         }
@@ -82,6 +104,24 @@ struct ApplicationAgentSection: View {
         .sheet(item: $task) { AgentTaskSheet(taskID: $0.id).environment(store) }
         .sheet(isPresented: $showInterview) { InterviewView(initialApplicationID: application.id).environment(store) }
         .sheet(isPresented: $showPrepPlan) { ApplicationPrepPlanView(application: application).environment(store) }
+    }
+
+    /// One short, always-visible statement of what is missing, with each fix said once.
+    private var setupSummary: some View {
+        let allUnavailable = shortfalls.allSatisfy { $0.state == "unavailable" }
+        return VStack(alignment: .leading, spacing: 6) {
+            StatusPill(label: allUnavailable ? (AgentLabels.featureState["unavailable"] ?? "Unavailable")
+                                              : (AgentLabels.featureState["setup"] ?? "Needs setup"),
+                       tone: AgentLabels.featureTone(allUnavailable ? "unavailable" : "setup"))
+            ForEach(commonFixes, id: \.self) { fix in
+                Text("✕ \(fix)").font(Typeface.caption).foregroundStyle(Palette.muted)
+            }
+            if hasSpecificGuidance {
+                Text("Some tasks need more. Open Agent help for each one.").font(Typeface.caption).foregroundStyle(Palette.muted)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
     }
 
     private func start(_ kind: String) async {

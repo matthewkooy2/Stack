@@ -290,7 +290,17 @@ final class ScreenFlowUITests: XCTestCase {
         XCTAssertTrue(reveal(row(app, "Status history"), in: app, "history-row"), "the Status history row is reachable")
         let setup = app.staticTexts["✕ Connect a model provider in Agents."].firstMatch
         XCTAssertTrue(reveal(setup, in: app, "setup-guidance"), "required setup guidance is shown and reachable")
+        let fixCount = app.staticTexts.matching(NSPredicate(format: "label == %@", "✕ Connect a model provider in Agents.")).count
+        XCTAssertEqual(fixCount, 1, "the shared setup fix is said once, not per task")
+        XCTAssertFalse(row(app, "Explain my fit").exists, "the task choices stay collapsed until asked for")
         capture("applications-detail-setup-guidance")
+
+        // The choices, and the no-start/no-send assurance, are one tap away.
+        tap(row(app, "Agent help"), in: app, "agent-help")
+        XCTAssertTrue(reveal(row(app, "Explain my fit"), in: app, "explain-fit"), "the task choices open on demand")
+        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == %@", "✕ Connect a model provider in Agents.")).count, 1,
+                       "opening the choices does not repeat the shared fix")
+        capture("applications-agent-help-open")
 
         tap(app.buttons["Notes"], in: app, "Notes")
         let notes = field(app, "Your notes")

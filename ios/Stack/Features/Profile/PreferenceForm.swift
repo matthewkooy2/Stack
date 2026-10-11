@@ -71,6 +71,16 @@ struct ChoiceChips: View {
 struct MatchInputsView: View {
     @Binding var form: PreferenceForm
     var showStage = true
+    private let startOpen: Bool
+
+    init(form: Binding<PreferenceForm>, showStage: Bool = true) {
+        _form = form
+        self.showStage = showStage
+        let value = form.wrappedValue
+        // Anything already set stays visible; the rest waits behind one tap.
+        startOpen = !value.salaryMin.isEmpty || !value.excludeCompanies.isEmpty
+                          || !value.excludeTerms.isEmpty || !value.soft.isEmpty
+    }
 
     private let niceToHave: [(key: String, label: String)] = [
         ("location", "Location"), ("modes", "Work arrangement"), ("employment_types", "Employment type"),
@@ -93,24 +103,27 @@ struct MatchInputsView: View {
             group("Open to") {
                 ChoiceChips(options: ["Remote", "Hybrid", "On-site"],
                             isSelected: { form.modes.contains($0) }, onTap: { form.modes = form.modes.toggled($0) })
-                Text("Leave all off for any work arrangement.").font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             group("Employment type") {
                 ChoiceChips(options: ["Full-time", "Part-time", "Contract", "Temporary", "Internship"],
                             isSelected: { form.employmentTypes.contains($0) },
                             onTap: { form.employmentTypes = form.employmentTypes.toggled($0) })
             }
-            StackField(label: "Minimum pay (USD)", text: $form.salaryMin, placeholder: "Optional", keyboard: .decimalPad)
-            ChoiceChips(options: ["hour", "year"], isSelected: { form.salaryPeriod == $0 },
-                        onTap: { form.salaryPeriod = $0 }, labelFor: { "per " + $0 })
-            StackField(label: "Hide these employers", text: $form.excludeCompanies, placeholder: "Separate with commas")
-            StackField(label: "Hide jobs mentioning", text: $form.excludeTerms, placeholder: "Separate with commas")
-            group("Nice to have, not required") {
-                ChoiceChips(options: niceToHave.map(\.key), isSelected: { form.soft.contains($0) },
-                            onTap: { form.soft = form.soft.toggled($0) },
-                            labelFor: { key in niceToHave.first { $0.key == key }?.label ?? key })
-                Text("Jobs that conflict with a requirement are hidden. Nice-to-haves only change the order. When a listing doesn’t say, the job stays visible and is marked unconfirmed.")
-                    .font(Typeface.caption).foregroundStyle(Palette.muted)
+            DisclosureSection("More preferences", detail: "Pay, exclusions, nice-to-haves", open: startOpen) {
+                VStack(alignment: .leading, spacing: 18) {
+                    StackField(label: "Minimum pay (USD)", text: $form.salaryMin, placeholder: "Optional", keyboard: .decimalPad)
+                    ChoiceChips(options: ["hour", "year"], isSelected: { form.salaryPeriod == $0 },
+                                onTap: { form.salaryPeriod = $0 }, labelFor: { "per " + $0 })
+                    StackField(label: "Hide these employers", text: $form.excludeCompanies, placeholder: "Separate with commas")
+                    StackField(label: "Hide jobs mentioning", text: $form.excludeTerms, placeholder: "Separate with commas")
+                    group("Nice to have, not required") {
+                        ChoiceChips(options: niceToHave.map(\.key), isSelected: { form.soft.contains($0) },
+                                    onTap: { form.soft = form.soft.toggled($0) },
+                                    labelFor: { key in niceToHave.first { $0.key == key }?.label ?? key })
+                        Text("Conflicts with a requirement are hidden. Nice-to-haves only change the order.")
+                            .font(Typeface.caption).foregroundStyle(Palette.muted)
+                    }
+                }
             }
         }
     }

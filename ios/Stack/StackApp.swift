@@ -14,6 +14,8 @@ struct StackApp: App {
                 LocalDraftUITestScene()
             } else if ProcessInfo.processInfo.arguments.contains("--job-filters-ui-test") {
                 JobFiltersUITestScene()
+            } else if ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--screen-flow=") }) {
+                ScreenFlowUITestScene()
             } else {
                 mainScene
             }

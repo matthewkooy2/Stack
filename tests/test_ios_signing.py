@@ -167,7 +167,7 @@ class SigningConfiguration(unittest.TestCase):
     def test_keychain_delete_failure_still_removes_decoded_assets_and_profile(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {'RUNNER_TEMP': temp}, clear=True):
             directory = signing.state_dir(); directory.mkdir()
-            for name in ('signing.keychain-db', 'distribution.p12', 'app.mobileprovision'):
+            for name in ('distribution.p12', 'app.mobileprovision', 'signing.keychain-db'):
                 (directory / name).write_bytes(b'fictional fixture')
             installed = Path(temp) / 'installed.mobileprovision'; installed.touch()
             (directory / 'installed-profile').write_text(str(installed))

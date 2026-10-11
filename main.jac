@@ -34,6 +34,7 @@ import from agents.resume_templates { TEMPLATES as LATEX_TEMPLATES, fill as fill
 import from agents.record_resume { validate_upload, validate_records, check_documents }
 import from agents.bullet_bank { save_review as bank_save_review, compose as bank_compose, KIND as BANK_KIND }
 import from agents.linkedin { profile_url }
+import from agents.autofill { application_url }
 import from agents.voice { voice_settings }
 import from agents.prep { problem, validate_session }
 import from agents.study { plan as study_plan }
@@ -746,10 +747,22 @@ def:priv agent_start(kind: str, target_id: str) -> dict[str, any] {
     if kind=="application" { return _error("The application assistant has been retired. Apply on the employer site yourself."); }
     with _write_lock {
         _agent_fresh();
-        if kind in ["jobs","resume"] {
+        if kind in ["jobs","resume","autofill"] {
             for a in [root -->][?:Application] {
                 if jid(a)==target_id and not a.demo {
                     job=_application_job(a);
+                    if kind=="autofill" {
+                        try { destination=application_url(job.get("url","")); }
+                        except ValueError as e { return _error(str(e)); }
+                        if not os.environ.get("STACK_BROWSER_URL","") or not os.environ.get("STACK_BROWSER_TOKEN","") { return _error("Autofill needs the isolated browser worker. Configure it before starting."); }
+                        for old in [root -->][?:AgentRun] {
+                            if old.kind=="autofill" and old.target_id==target_id and old.status not in ["completed","cancelled","failed"] { return _run_view(old,True); }
+                        }
+                        # No model, inferred facts, resume contents or credentials enter this task.
+                        selected_resume=_application_resume(a);
+                        profile=_profile();profile_facts=[{"key":"name","value":profile.name,"verified":True,"source":"Saved Profile name"}] if profile.onboarded and profile.name else [];
+                        return _agent_start("autofill",target_id,{"application_id":jid(a),"job":job,"application_url":destination["url"],"autofill_profile":profile_facts,"resume_id":jid(selected_resume) if selected_resume is not None else "","resume_name":selected_resume.name if selected_resume is not None else ""},str(uuid4()));
+                    }
                     context=_application_agent_context(a);
                     # Refuse unconfirmed or unavailable sources before queueing tailoring.
                     if kind=="resume" and not context["resume_id"] { return _error("Upload your resume on the Resume tab first."); }
@@ -922,7 +935,7 @@ def:priv resume_save_details(id: str, revision: int, values: dict[str, any], con
 
 def _browser_run(id: str) -> AgentRun | None {
     _agent_access();r=_owned_run(id);
-    if r is None or r.kind!="linkedin" or r.status in ["completed","cancelled","failed"] { return None; }
+    if r is None or r.kind not in ["linkedin","autofill"] or r.status in ["completed","cancelled","failed"] { return None; }
     if r.kind=="linkedin" and r.index!=0 { return None; }
     return r;
 }
@@ -935,7 +948,7 @@ def:priv agent_browser_subscribe(id: str) -> dict[str, any] {
 }
 def:priv agent_browser_control(id: str, action: str, generation: int = -1, controller: str = "", instance: str = "") -> dict[str, any] {
     _agent_access();r=_owned_run(id);
-    if r is None or r.kind!="linkedin" { return {"error":"This task has no browser."}; }
+    if r is None or r.kind not in ["linkedin","autofill"] { return {"error":"This task has no browser."}; }
     if action=="stop" {
         result=agent_cancel(id);
         try { result["control"]=browser_worker.browser_call("control",{"owner":jid(root),"id":id,"action":"status"},2); }
@@ -969,6 +982,7 @@ def:priv agent_browser_control(id: str, action: str, generation: int = -1, contr
         } elif action=="resume" {
             if r.status!="paused" { return {"error":"This task is not paused for browser control."}; }
             r.status=previous if previous in ["review","uncertain"] else "needs_input" if any(q["key"]!="browser" for q in r.requests) else "queued";
+            if r.kind=="autofill" { r.status="queued"; }
             if r.status=="queued" { r.requests=[];r.attempts=0;r.next_at=0.0; }
             r.context.pop("browser_return",None);r.message="Browser returned to the agent.";
         }
@@ -982,6 +996,19 @@ def:priv agent_browser(id: str, event: dict[str, any]) -> dict[str, any] {
     kind=event.get("type","snapshot");
     if kind in ["take","resume","stop"] { return agent_browser_control(id,kind,event.get("generation",-1),event.get("controller",""),event.get("instance","")); }
     if kind!="snapshot" and r.status!="paused" { return {"error":"Take control before using the browser."}; }
+    if kind=="upload_resume" {
+        if r.kind!="autofill" { return _error("This task does not support application resume upload."); }
+        selected_resume=_owned_resume(r.context.get("resume_id",""));
+        if selected_resume is None or selected_resume.size>8*1024*1024 { return _error("Choose a PDF or DOCX resume up to 8 MB for this application, then start a new autofill task."); }
+        document=read_resume(jid(selected_resume));
+        if document.get("error") { return document; }
+        # Never accept client-supplied file bytes or a cross-account resume ID.
+        # Display names can be renamed; the validated stored extension remains authoritative.
+        suffix=Path(selected_resume.file_key).suffix.lower();
+        if suffix not in [".pdf",".docx"] { return _error("This application needs an uploaded PDF or DOCX resume."); }
+        upload_name=Path(str(document["name"]).replace("\\","/")).stem+suffix;
+        event={**event,"document":{"name":upload_name,"content":document["content"]}};
+    }
     try {
         identity={"owner":jid(root),"id":id};
         result=browser_worker.browser_call("frame" if kind=="snapshot" else "handoff",{**identity,"event":event},10);

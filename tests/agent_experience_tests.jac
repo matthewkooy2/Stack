@@ -89,7 +89,7 @@ test "agents never launch implicitly and outbound steps wait for review of the e
                 client.set_auth_token(a);state=rpc(client,"bootstrap");owner=state["user_id"];
                 # Before any setup, every feature explains itself and what is missing.
                 features={f["key"]:f for f in state["agents"]["features"]};
-                assert len(features)==10 and features["coaching"]["state"]=="unavailable", features["coaching"];
+                assert len(features)==11 and features["coaching"]["state"]=="unavailable", features["coaching"];
                 assert [c for c in features["networking"]["checks"] if c["key"]=="rules" and c["action"]=="rules" and not c["ok"]];
                 assert features["code"]["alternative"] and "applications" not in features;
                 assert state["agents"]["active"]==0 and state["agents"]["attention"]==0;

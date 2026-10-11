@@ -172,6 +172,7 @@ struct PDFSheet: View {
                 .padding(.horizontal, Spacing.page)
                 PDFKitView(data: preview.data).clipShape(RoundedRectangle(cornerRadius: Spacing.radius, style: .continuous))
                     .padding(.horizontal, 12)
+                    .accessibilityIdentifier("pdf-preview")
             }
             .padding(.top, 16)
         }

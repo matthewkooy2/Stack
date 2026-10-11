@@ -71,6 +71,7 @@ class API(unittest.TestCase):
         self.assertTrue(self.rpc('transcription_list')['client_transcripts'])
         self.assertEqual(accepted['status'],'completed')
         self.assertEqual(self.worker('transcription_processing_claim'),{'idle':True})
+
         edited=self.rpc('transcription_action',{'id':accepted['id'],'action':'save','text':'Reviewed correction.','revision':1})
         self.client.reload();self.client.set_auth_token(self.token)
         replay=self.rpc('transcription_upload',args)
@@ -91,5 +92,24 @@ class API(unittest.TestCase):
         self.assertEqual(exported[0]['transcript'],'Reviewed correction.')
         self.assertTrue(self.rpc('account_delete',{'username':'transcription-owner','password':'Password-fixture-123'})['deleted'])
         self.assertEqual(self.worker('transcription_processing_claim'),{'idle':True})
+
+    def test_phone_validation_and_empty_original_preserve_pc_fallback(self):
+        args={'client_id':'phone-api-validation-000001','content':base64.b64encode(wav()).decode()}
+        self.assertIn('error',self.rpc('transcription_upload',{**args,'local_transcript':'x'*30001}))
+        self.assertIn('error',self.rpc('transcription_upload',{**args,'content':base64.b64encode(b'not a wav').decode(),
+                                                             'local_transcript':'A recognized original.'}))
+        self.assertIn('error',self.rpc('transcription_upload',{**args,'content':base64.b64encode(wav(value=0)).decode(),
+                                                             'local_transcript':'A recognized original.'}))
+        self.assertEqual(self.rpc('transcription_list')['recordings'],[])
+        fallback=self.rpc('transcription_upload',{**args,'local_transcript':'   '})
+        self.assertEqual((fallback['status'],fallback['model'],fallback['revision']),('queued','whisper.cpp/base.en',0))
+        self.assertEqual(fallback['original_transcript'],'')
+        claimed=self.worker('transcription_processing_claim')
+        self.assertEqual(claimed['id'],fallback['id'])
+        before=self.rpc('transcription_get',{'id':fallback['id']})
+        self.assertIn('error',self.rpc('transcription_upload',{**args,'local_transcript':'Cannot replace the PC job.'}))
+        self.assertEqual(self.rpc('transcription_get',{'id':fallback['id']}),before)
+        empty=self.rpc('transcription_upload',{**args,'client_id':'phone-api-empty-original-000001','local_transcript':''})
+        self.assertEqual((empty['status'],empty['model'],empty['original_transcript']),('queued','whisper.cpp/base.en',''))
 
 if __name__=='__main__':unittest.main()

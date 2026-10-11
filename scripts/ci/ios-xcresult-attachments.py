@@ -21,8 +21,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-IMAGE_TYPES = {"public.png": ".png", "public.jpeg": ".jpg", "public.heic": ".heic"}
-IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".heic"}
+# Screenshots, plus the plain-text accessibility trees and notes that UI tests attach as diagnostics.
+IMAGE_TYPES = {"public.png": ".png", "public.jpeg": ".jpg", "public.heic": ".heic",
+               "public.plain-text": ".txt", "public.utf8-plain-text": ".txt"}
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".heic", ".txt"}
 
 
 def run_command(command):
@@ -164,7 +166,7 @@ class Exporter:
         filename = text(attachment.get("filename"))
         suffix = IMAGE_TYPES.get(kind) or Path(filename).suffix.lower()
         if suffix not in IMAGE_SUFFIXES and kind and kind not in IMAGE_TYPES:
-            return  # logs and other non-image evidence are not screenshots
+            return  # other evidence types are not exported
         suffix = ".jpg" if suffix == ".jpeg" else (suffix or ".png")
         self.counter += 1
         target = self.output / f"{self.counter:03d}-{safe(test.split('/')[-1], 'test')}-{safe(name, 'attachment')}{suffix}"

@@ -166,6 +166,7 @@ struct PDFSheet: View {
             VStack(spacing: 12) {
                 HStack {
                     BackButton(label: "Close") { dismiss() }
+                        .accessibilityIdentifier("pdf-preview-close")
                     Text(preview.name).font(Typeface.section).foregroundStyle(Palette.ink).lineLimit(1)
                     Spacer()
                 }

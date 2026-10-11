@@ -40,11 +40,19 @@ final class ScreenFlowUITests: XCTestCase {
         app.buttons.matching(NSPredicate(format: "label == %@", "Close")).allElementsBoundByIndex
     }
 
-    /// Sheets can stack; the topmost presented Close is the last one in the hierarchy.
+    /// Stacked sheets each keep a Close button in the hierarchy. The one in front is the hittable one that sits
+    /// lowest on screen; hierarchy order and index are not a reliable signal.
+    private func frontClose(_ app: XCUIApplication) -> XCUIElement? {
+        closeButtons(app).filter { $0.exists && $0.isHittable }.max { $0.frame.minY < $1.frame.minY }
+    }
+
     private func closeTop(_ app: XCUIApplication) {
-        let closes = closeButtons(app)
-        XCTAssertFalse(closes.isEmpty, "there is a sheet to close")
-        closes.last?.tap()
+        guard let close = frontClose(app) else {
+            diagnose(app, "no-hittable-close")
+            XCTFail("a presented sheet has a hittable Close button")
+            return
+        }
+        close.tap()
     }
 
     /// Polls a condition on the run loop; unlike a fixed sleep it fails when the state never arrives.
@@ -57,26 +65,80 @@ final class ScreenFlowUITests: XCTestCase {
         return condition()
     }
 
-    /// Scrolls the frontmost scroll view, a bounded number of times, until the element can be tapped:
-    /// down the page first, then back up. Long sheets and the keyboard can leave a control off screen.
+    /// Asserts a condition that is waited for, and keeps a screenshot plus the accessibility tree when it never holds.
     @discardableResult
-    private func reveal(_ element: XCUIElement, in app: XCUIApplication, attempts: Int = 6) -> Bool {
-        func ready() -> Bool { element.exists && element.isHittable }
-        if ready() { return true }
-        for direction in [true, false] {
-            for _ in 0..<attempts {
-                let target = app.scrollViews.allElementsBoundByIndex.last ?? app.windows.firstMatch
-                if direction { target.swipeUp() } else { target.swipeDown() }
-                if ready() { return true }
-            }
+    private func require(_ app: XCUIApplication, _ what: String, timeout: TimeInterval = 10,
+                         file: StaticString = #filePath, line: UInt = #line, _ condition: () -> Bool) -> Bool {
+        let held = waitUntil(timeout, condition)
+        if !held {
+            diagnose(app, what)
+            XCTFail("\(what)", file: file, line: line)
         }
-        return ready()
+        return held
     }
 
-    /// Reveals then taps, failing with the element's description when it never becomes tappable.
+    /// A screenshot and the accessibility hierarchy, kept so a failure can be diagnosed from the result bundle.
+    private func diagnose(_ app: XCUIApplication, _ what: String) {
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = "diagnostic-\(what)"
+        shot.lifetime = .keepAlways
+        add(shot)
+        let tree = XCTAttachment(string: app.debugDescription)
+        tree.name = "ax-tree-\(what)"
+        tree.lifetime = .keepAlways
+        add(tree)
+    }
+
+    /// A drag along the page's left margin, clear of text fields, so it moves the page rather than a field.
+    /// SwiftUI sheet scroll views are not reported as ScrollView elements, so the window is the stable target.
+    private func dragPage(_ app: XCUIApplication, from: CGFloat, to: CGFloat) {
+        let window = app.windows.firstMatch
+        let start = window.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: from))
+        let end = window.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: to))
+        start.press(forDuration: 0.05, thenDragTo: end)
+    }
+
+    /// Whether the element is on screen and clear of the system edges: the top inset, the home indicator and
+    /// the keyboard, where a tap can land without reaching the control.
+    private func comfortable(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        guard element.exists, element.isHittable else { return false }
+        let window = app.windows.firstMatch.frame
+        var bottom = window.maxY - window.height * 0.10
+        let keyboard = app.keyboards.firstMatch
+        if keyboard.exists { bottom = min(bottom, keyboard.frame.minY - 8) }
+        return element.frame.midY > window.minY + window.height * 0.10 && element.frame.midY < bottom
+    }
+
+    /// Scrolls the page, a bounded number of times, until the element is comfortably tappable: up the page first,
+    /// then back down. Returns false (with diagnostics) when it never gets there.
+    @discardableResult
+    private func reveal(_ element: XCUIElement, in app: XCUIApplication, attempts: Int = 6, _ what: String = "element") -> Bool {
+        if comfortable(element, in: app) { return true }
+        for forward in [true, false] {
+            for _ in 0..<attempts {
+                if forward { dragPage(app, from: 0.55, to: 0.25) } else { dragPage(app, from: 0.3, to: 0.6) }
+                if comfortable(element, in: app) { return true }
+            }
+        }
+        diagnose(app, "reveal-failed-\(what)")
+        return false
+    }
+
+    /// Reveals then taps, failing with diagnostics when the element never becomes comfortably tappable.
     private func tap(_ element: XCUIElement, in app: XCUIApplication, _ what: String, file: StaticString = #filePath, line: UInt = #line) {
-        XCTAssertTrue(reveal(element, in: app), "\(what) is reachable by scrolling", file: file, line: line)
+        XCTAssertTrue(reveal(element, in: app, what), "\(what) is reachable by scrolling", file: file, line: line)
         element.tap()
+    }
+
+    /// Dismisses the keyboard the way a person does: drag the page toward it (the page dismisses interactively),
+    /// then drag the keyboard itself down. Verified, not assumed.
+    private func dismissKeyboard(_ app: XCUIApplication) {
+        let keyboard = app.keyboards.firstMatch
+        guard keyboard.exists else { return }
+        dragPage(app, from: 0.35, to: 0.9)
+        if waitUntil(2, { !keyboard.exists }) { return }
+        keyboard.swipeDown()
+        require(app, "the keyboard dismissed by a drag", timeout: 4) { !keyboard.exists }
     }
 
     // MARK: Settings
@@ -146,13 +208,18 @@ final class ScreenFlowUITests: XCTestCase {
         XCTAssertTrue(waitUntil(5) { row(app, "Preview").exists }, "Preview row is back after closing Format")
         let closesBefore = closeButtons(app).count
         tap(row(app, "Preview"), in: app, "Preview")
-        XCTAssertTrue(waitUntil(15) { preview.exists || closeButtons(app).count > closesBefore },
-                      "the PDF preview sheet appeared (marker or an added Close button)")
+        require(app, "the PDF preview sheet appeared (marker or an added Close button)", timeout: 15) {
+            preview.exists || closeButtons(app).count > closesBefore
+        }
         XCTAssertFalse(app.staticTexts["This document is not available to preview."].exists, "no preview error is shown")
         capture("resume-preview-nested")
-        closeTop(app)
-        XCTAssertTrue(waitUntil(5) { !preview.exists && closeButtons(app).count == closesBefore },
-                      "the preview sheet closed and the Manage sheet is frontmost again")
+        let previewClose = app.buttons["pdf-preview-close"]
+        XCTAssertTrue(previewClose.waitForExistence(timeout: 5), "the preview sheet has its own identified Close")
+        XCTAssertTrue(previewClose.isHittable, "the preview's Close is the visible front button")
+        previewClose.tap()
+        require(app, "the preview sheet closed and the Manage sheet is frontmost again", timeout: 5) {
+            !preview.exists && !previewClose.exists
+        }
 
         XCTAssertTrue(field(app, "Resume name").waitForExistence(timeout: 5))
         XCTAssertTrue(reveal(field(app, "Resume name"), in: app), "the rename field is reachable after returning")
@@ -219,10 +286,10 @@ final class ScreenFlowUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Notes"].waitForExistence(timeout: 5))
         // Disclosure rows announce "title, detail", so match on the title's start. The detail sheet is long,
         // so each row and the setup guidance are scrolled into view rather than assumed on screen.
-        XCTAssertTrue(reveal(row(app, "Resume"), in: app), "the Resume row is reachable")
-        XCTAssertTrue(reveal(row(app, "Status history"), in: app), "the Status history row is reachable")
+        XCTAssertTrue(reveal(row(app, "Resume"), in: app, "resume-row"), "the Resume row is reachable")
+        XCTAssertTrue(reveal(row(app, "Status history"), in: app, "history-row"), "the Status history row is reachable")
         let setup = app.staticTexts["✕ Connect a model provider in Agents."].firstMatch
-        XCTAssertTrue(reveal(setup, in: app), "required setup guidance is shown and reachable")
+        XCTAssertTrue(reveal(setup, in: app, "setup-guidance"), "required setup guidance is shown and reachable")
         capture("applications-detail-setup-guidance")
 
         tap(app.buttons["Notes"], in: app, "Notes")
@@ -231,18 +298,22 @@ final class ScreenFlowUITests: XCTestCase {
         tap(notes, in: app, "the notes field")
         notes.typeText("Follow up with the recruiter on Friday")
         capture("applications-notes-keyboard")
+        // With the keyboard up, Save notes is below it. Dismiss it by gesture, then bring Save into view.
+        dismissKeyboard(app)
+        capture("applications-notes-keyboard-dismissed")
         let save = app.buttons["Save notes"]
         tap(save, in: app, "Save notes")
         let failure = app.staticTexts["We couldn't save your notes. Check your connection and try again."]
-        XCTAssertTrue(waitUntil(8) { failure.exists || reveal(failure, in: app, attempts: 2) },
-                      "the failed save explains itself")
+        require(app, "the failed save explains itself", timeout: 8) { failure.exists }
+        XCTAssertTrue(reveal(failure, in: app, "save-failure-message"), "the save error is visible on screen")
         capture("applications-notes-save-failed")
 
-        XCTAssertTrue(reveal(field(app, "Your notes"), in: app), "the notes field is reachable after the failure")
+        XCTAssertTrue(reveal(field(app, "Your notes"), in: app, "notes-field"), "the notes field is reachable after the failure")
         XCTAssertTrue(text(field(app, "Your notes")).contains("Follow up"), "the note stays after the failed save")
         tap(save, in: app, "Save notes (retry)")
         let saved = app.staticTexts["Saved to your Stack."]
-        XCTAssertTrue(waitUntil(8) { saved.exists || reveal(saved, in: app, attempts: 2) }, "the retry confirms the save")
+        require(app, "the retry confirms the save", timeout: 8) { saved.exists }
+        XCTAssertTrue(reveal(saved, in: app, "saved-notice"), "the saved notice is visible on screen")
         capture("applications-notes-saved")
     }
 
@@ -256,12 +327,19 @@ final class ScreenFlowUITests: XCTestCase {
         let disclosure = app.buttons["Fit and tags"]
         XCTAssertTrue(disclosure.waitForExistence(timeout: 10))
         capture("jobs-detail-collapsed")
-        tap(disclosure, in: app, "Fit and tags")
-        let fit = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "project work covers")).firstMatch
-        XCTAssertTrue(waitUntil(5) { fit.exists }, "the full fit note is available")
-        XCTAssertTrue(reveal(fit, in: app), "the full fit note can be scrolled to")
-        let tag = app.staticTexts["Remote friendly"]
-        XCTAssertTrue(reveal(tag, in: app), "tags beyond the card's first three are available")
+        XCTAssertEqual(disclosure.value as? String, "Collapsed")
+        // The row starts under the home indicator, where a tap is swallowed; bring it clear first.
+        tap(disclosure, in: app, "fit-and-tags-disclosure")
+        require(app, "the Fit and tags disclosure expanded", timeout: 5) { (disclosure.value as? String) == "Expanded" }
+        capture("jobs-detail-expanded")
+
+        // The deck card behind the sheet carries the whole fit note in one combined label, so match the note by
+        // its opening words, which only the disclosure's own text begins with.
+        let fit = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Strong match: your SQL")).firstMatch
+        require(app, "the full fit note is in the disclosure", timeout: 5) { fit.exists }
+        XCTAssertTrue(fit.label.contains("project work covers"), "the note is complete, not clamped")
+        let tag = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Remote friendly")).firstMatch
+        XCTAssertTrue(reveal(tag, in: app, "remote-friendly-tag"), "tags beyond the card's first three are available")
         capture("jobs-detail-fit-and-tags")
     }
 
@@ -276,14 +354,22 @@ final class ScreenFlowUITests: XCTestCase {
         welcome.terminate()
 
         let app = launch("recovery")
-        XCTAssertTrue(app.buttons["Use my existing Stack account"].waitForExistence(timeout: 10))
+        let openButton = app.buttons["Use my existing Stack account"]
+        let usernameField = field(app, "Existing Stack username")
+        XCTAssertTrue(openButton.waitForExistence(timeout: 10))
+        XCTAssertFalse(usernameField.exists, "recovery starts collapsed")
         capture("recovery-collapsed")
-        app.buttons["Use my existing Stack account"].tap()
-        XCTAssertTrue(field(app, "Existing Stack username").waitForExistence(timeout: 5))
+        openButton.tap()
+        // The collapsed trigger and the form's submit share one label, so the fields are the real signal.
+        require(app, "the recovery fields appeared", timeout: 5) { usernameField.exists }
         capture("recovery-open")
-        app.buttons["Cancel"].tap()
-        XCTAssertTrue(app.buttons["Use my existing Stack account"].waitForExistence(timeout: 5))
-        XCTAssertFalse(field(app, "Existing Stack username").exists)
+        let cancel = app.buttons["Cancel"]
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5))
+        tap(cancel, in: app, "recovery-cancel")
+        require(app, "the recovery fields disappeared after Cancel", timeout: 5) {
+            !usernameField.exists && !field(app, "Existing Stack password").exists
+        }
+        XCTAssertTrue(openButton.waitForExistence(timeout: 5), "the collapsed trigger is back")
         capture("recovery-cancelled")
     }
 }

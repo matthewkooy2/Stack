@@ -36,13 +36,16 @@ PLAN_JSON = {"summaries": {"_values": [{"testableSummaries": {"_values": [{"test
 ]}}]}}]}}
 SUMMARIES = {
     "summary-settings": {"activitySummaries": {"_values": [
-        {"attachments": {"_values": [attachment("settings-hub", "p1"), attachment("settings-log", "p2", kind="public.plain-text", filename="log.txt")]}},
+        {"attachments": {"_values": [attachment("settings-hub", "p1"), attachment("settings-trace", "p2", kind="public.log", filename="trace.log")]}},
         {"subactivities": {"_values": [{"attachments": {"_values": [attachment("settings-draft retained", "p3")]}}]}},
     ]}},
     "summary-jobs": {"activitySummaries": {"_values": [{"attachments": {"_values": [
         attachment("jobs-detail", "p4"), attachment("jobs-detail", "p4"),
     ]}}]}},
 }
+
+
+ORIGINAL_JOBS = SUMMARIES["summary-jobs"]
 
 
 class StubTool:
@@ -121,6 +124,17 @@ class ExportTests(unittest.TestCase):
         self.assertTrue(json.loads((out / "manifest.json").read_text())["attachments"])
         self.assertTrue(any("--legacy" in command for command in tool.commands))
 
+    def test_plain_text_diagnostics_are_exported_as_txt(self):
+        extra = {"activitySummaries": {"_values": [{"attachments": {"_values": [
+            attachment("ax-tree-reveal-failed", "p9", kind="public.plain-text", filename="tree.txt")]}}]}}
+        SUMMARIES["summary-jobs"] = extra
+        self.addCleanup(lambda: SUMMARIES.__setitem__("summary-jobs", ORIGINAL_JOBS))
+        out, manifest = self.export(StubTool())
+        tree = [item for item in manifest["attachments"] if item["name"] == "ax-tree-reveal-failed"]
+        self.assertEqual(len(tree), 1)
+        self.assertTrue(tree[0]["file"].endswith(".txt"))
+        self.assertTrue((out / tree[0]["file"]).exists())
+
     def test_xcode15_get_without_legacy_flag(self):
         tool = StubTool(legacy=False)
         _, manifest = self.export(tool)
@@ -134,7 +148,7 @@ class ExportTests(unittest.TestCase):
         tool = StubTool(graph=False, attachments_command=True)
         out, manifest = self.export(tool)
         self.assertEqual(manifest["method"], "export-attachments")
-        self.assertEqual([item["name"] for item in manifest["attachments"]], ["network list_0_ABC"])
+        self.assertEqual([item["name"] for item in manifest["attachments"]], ["network list_0_ABC", "notes"])
         self.assertEqual((out / manifest["attachments"][0]["file"]).read_bytes(), b"png-one")
         self.assertTrue(manifest["errors"], "the failed graph route stays on record")
 

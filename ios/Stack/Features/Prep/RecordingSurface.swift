@@ -109,6 +109,7 @@ struct LiveTranscriptControl: View {
                     GlyphView(name: "chat", size: 18)
                     Text(shown ? "Live transcription: on" : "Live transcription: off")
                         .font(Typeface.caption).foregroundStyle(Palette.icon)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxWidth: .infinity, minHeight: 48)
                 .background(Palette.oat, in: Capsule())

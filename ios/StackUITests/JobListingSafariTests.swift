@@ -79,8 +79,9 @@ final class JobListingSafariUITests: XCTestCase {
 
     private func expect(_ app: XCUIApplication, _ text: String, timeout: TimeInterval = 20, file: StaticString = #filePath,
                         line: UInt = #line) {
+        // waitForExistence also captures a debug description after every miss; this polls the query alone.
         let found = element(app, containing: text)
-        if !found.waitForExistence(timeout: timeout) {
+        if !poll(found, "exists == true", until: Date().addingTimeInterval(timeout)) {
             capture("missing-" + text.prefix(24))
             dump(app, "missing-" + text.prefix(24))
             XCTFail("expected '\(text)' on screen", file: file, line: line)
@@ -96,16 +97,15 @@ final class JobListingSafariUITests: XCTestCase {
         // that tree while Safari covers them, so neither a global first match nor card existence proves dismissal.
         let closeControls = app.otherElements["TopBrowserBar"].buttons
             .matching(NSPredicate(format: "label IN %@", ["Close", "Done"]))
-        let closeReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            closeControls.count == 1 && closeControls.element.isHittable
-        }, object: app)
-        if XCTWaiter.wait(for: [closeReady], timeout: 10) != .completed {
+        // Each query can take seconds while Safari's tree is exposed, so every poll makes one query and the
+        // uniqueness check runs once the control is ready, inside the same assertion.
+        let close = closeControls.firstMatch
+        if !poll(close, "isHittable == true", until: Date().addingTimeInterval(10)) || closeControls.count != 1 {
             dump(app, "no-close")
             capture("no-close")
             XCTFail("the native browser has one hittable Close or Done control", file: file, line: line)
             return
         }
-        let close = closeControls.element
         let addresses = app.otherElements["TopBrowserBar"].buttons.matching(identifier: "URL")
         // Use this actual control's measured center. The Address AX frame overlaps it, so an inferred
         // hittable point can miss Close. Keep a single tap and the complete dismissal proof below.
@@ -118,15 +118,22 @@ final class JobListingSafariUITests: XCTestCase {
         add(geometry)
         close.coordinate(withNormalizedOffset: CGVector(dx: normalizedX, dy: 0.5)).tap()
         let cards = app.buttons.matching(identifier: "job-card-job-alpha")
-        let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            closeControls.count == 0 && cards.count == 1 && cards.element.isHittable
-        }, object: app)
-        if XCTWaiter.wait(for: [dismissed], timeout: 10) != .completed {
+        let deadline = Date().addingTimeInterval(10)
+        let dismissed = poll(close, "exists == false", until: deadline)
+            && poll(cards.firstMatch, "isHittable == true", until: deadline)
+            && closeControls.count == 0 && cards.count == 1
+        if !dismissed {
             dump(app, "after-close")
             capture("after-close")
             XCTFail("closing the browser removes its native Close control and returns to one hittable deck card",
                     file: file, line: line)
         }
+    }
+
+    /// Polls a single element query until the deadline shared by the steps of one assertion.
+    private func poll(_ element: XCUIElement, _ format: String, until deadline: Date) -> Bool {
+        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: format), object: element)
+        return XCTWaiter.wait(for: [expectation], timeout: max(0, deadline.timeIntervalSinceNow)) == .completed
     }
 
     private func tapLink(_ app: XCUIApplication, _ text: String) {

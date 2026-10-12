@@ -71,7 +71,12 @@ run_xcodebuild() {
   rm -rf "$result"
   mkdir -p "$(dirname "$result")"
   # Signing is disabled: this route proves the source compiles and its tests pass, nothing more.
-  xcodebuild "$action" \
+  # Bound a stuck xcodebuild/reporting phase while preserving the broader manual test budget.
+  local timeout=${STACK_XCODEBUILD_TIMEOUT_SECONDS:-1200}
+  if [[ "${FULL_SUITE:-false}" == true || "${REPEATABILITY:-false}" == true ]]; then
+    timeout=${STACK_XCODEBUILD_TIMEOUT_SECONDS:-3600}
+  fi
+  python3 scripts/ci/ios-xcodebuild.py "$timeout" xcodebuild "$action" \
     -project ios/Stack.xcodeproj \
     -scheme Stack \
     -configuration "${STACK_IOS_CONFIGURATION:-Debug}" \
@@ -110,3 +115,5 @@ case "$MODE" in
     run_xcodebuild test
     ;;
 esac
+
+

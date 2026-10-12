@@ -373,7 +373,7 @@ final class ResumeReviewControllerTests: XCTestCase {
                                currentUserID: { [unowned self] in self.user }, writeDelay: .milliseconds(5), onConfirmed: confirmed)
     }
 
-    private let name = ResumeFieldAddress.single("profile.name")
+    private let nameAddress = ResumeFieldAddress.single("profile.name")
 
     // MARK: Draft persistence
 
@@ -381,15 +381,15 @@ final class ResumeReviewControllerTests: XCTestCase {
         let fake = FakeBackend()
         let first = controller(fake)
         await first.load()
-        first.set("Ada Corrected", at: name)
+        first.set("Ada Corrected", at: nameAddress)
         first.flush()
 
         let second = controller(fake)
         await second.load()
-        XCTAssertEqual(second.document.value(at: name), "Ada Corrected")
+        XCTAssertEqual(second.document.value(at: nameAddress), "Ada Corrected")
         XCTAssertTrue(second.dirty)
         XCTAssertTrue(second.restoredDraft)
-        XCTAssertEqual(second.document.saved(at: name), "Ada Example", "last saved value is kept next to the correction")
+        XCTAssertEqual(second.document.saved(at: nameAddress), "Ada Example", "last saved value is kept next to the correction")
         XCTAssertNil(second.conflict)
     }
 
@@ -397,7 +397,7 @@ final class ResumeReviewControllerTests: XCTestCase {
         let fake = FakeBackend()
         let screen = controller(fake)
         await screen.load()
-        screen.set("Typed", at: name)
+        screen.set("Typed", at: nameAddress)
         try await Task.sleep(for: .milliseconds(80))
         XCTAssertEqual(drafts.load(userID: "user-a", resumeID: "resume-1")?.document.single("profile.name"), "Typed")
     }
@@ -406,10 +406,10 @@ final class ResumeReviewControllerTests: XCTestCase {
         let fake = FakeBackend()
         let screen = controller(fake)
         await screen.load()
-        screen.set("Changed", at: name)
+        screen.set("Changed", at: nameAddress)
         screen.flush()
         XCTAssertNotNil(drafts.load(userID: "user-a", resumeID: "resume-1"))
-        screen.revert(at: name)
+        screen.revert(at: nameAddress)
         screen.flush()
         XCTAssertFalse(screen.dirty)
         XCTAssertNil(drafts.load(userID: "user-a", resumeID: "resume-1"))
@@ -419,20 +419,20 @@ final class ResumeReviewControllerTests: XCTestCase {
         let fake = FakeBackend()
         let owner = controller(fake)
         await owner.load()
-        owner.set("Private edit", at: name)
+        owner.set("Private edit", at: nameAddress)
         owner.flush()
 
         user = "user-b"
         let other = controller(fake, user: "user-b")
         await other.load()
-        XCTAssertEqual(other.document.value(at: name), "Ada Example")
+        XCTAssertEqual(other.document.value(at: nameAddress), "Ada Example")
         XCTAssertFalse(other.dirty)
         XCTAssertFalse(other.restoredDraft)
 
         user = "user-a"
         let again = controller(fake)
         await again.load()
-        XCTAssertEqual(again.document.value(at: name), "Private edit", "the same account finds its draft after signing in again")
+        XCTAssertEqual(again.document.value(at: nameAddress), "Private edit", "the same account finds its draft after signing in again")
     }
 
     func testNoAccountMeansNothingIsReadOrKept() async {
@@ -442,7 +442,7 @@ final class ResumeReviewControllerTests: XCTestCase {
         await screen.load()
         XCTAssertFalse(screen.loaded)
         XCTAssertFalse(screen.error.isEmpty)
-        screen.set("x", at: name)
+        screen.set("x", at: nameAddress)
         screen.flush()
         XCTAssertNil(drafts.load(userID: "", resumeID: "resume-1"))
     }
@@ -463,7 +463,7 @@ final class ResumeReviewControllerTests: XCTestCase {
         await newer.value
         fake.heldReads[0].1.resume(returning: fake.heldReads[0].0)
         await older.value
-        XCTAssertEqual(screen.document.value(at: name), "Newer")
+        XCTAssertEqual(screen.document.value(at: nameAddress), "Newer")
         XCTAssertEqual(screen.revision.int, 2)
     }
 
@@ -474,11 +474,11 @@ final class ResumeReviewControllerTests: XCTestCase {
         fake.holdReads = true
         let poll = Task { await screen.load(quiet: true) }
         await fake.settle()
-        screen.set("Typed while reading", at: name)
+        screen.set("Typed while reading", at: nameAddress)
         fake.document = Sample.document(["profile.name": "Server newer"], revision: 2, confirmed: true)
         fake.heldReads[0].1.resume(returning: fake.document)
         await poll.value
-        XCTAssertEqual(screen.document.value(at: name), "Typed while reading")
+        XCTAssertEqual(screen.document.value(at: nameAddress), "Typed while reading")
         XCTAssertNotNil(screen.conflict, "the newer revision is held, not applied")
         XCTAssertEqual(screen.revision.int, 1)
         XCTAssertEqual(screen.statusID, "conflict")
@@ -488,13 +488,13 @@ final class ResumeReviewControllerTests: XCTestCase {
         let fake = FakeBackend()
         let screen = controller(fake)
         await screen.load()
-        screen.set("Typed", at: name)
+        screen.set("Typed", at: nameAddress)
         var polled = fake.document
         polled["processing"] = ["status": "completed"]
         fake.document = polled
         await screen.load(quiet: true)
         XCTAssertNil(screen.conflict)
-        XCTAssertEqual(screen.document.value(at: name), "Typed")
+        XCTAssertEqual(screen.document.value(at: nameAddress), "Typed")
         XCTAssertEqual(screen.processing["status"].string, "completed")
     }
 
@@ -515,13 +515,13 @@ final class ResumeReviewControllerTests: XCTestCase {
         let fake = FakeBackend()
         let screen = controller(fake)
         await screen.load()
-        screen.set("Kept for account A", at: name)
+        screen.set("Kept for account A", at: nameAddress)
         screen.invalidate()
         XCTAssertFalse(screen.loaded)
         XCTAssertEqual(screen.document.flatValues(), [:])
         XCTAssertEqual(drafts.load(userID: "user-a", resumeID: "resume-1")?.document.single("profile.name"), "Kept for account A")
-        screen.set("ignored", at: name)
-        XCTAssertEqual(screen.document.value(at: name), "")
+        screen.set("ignored", at: nameAddress)
+        XCTAssertEqual(screen.document.value(at: nameAddress), "")
         await screen.load()
         XCTAssertFalse(screen.loaded, "an invalidated screen does not read again")
         XCTAssertNil(screen.originalValues)
@@ -535,13 +535,13 @@ final class ResumeReviewControllerTests: XCTestCase {
         let fake = FakeBackend()
         let first = controller(fake)
         await first.load()
-        first.set("My edit", at: name)
+        first.set("My edit", at: nameAddress)
         first.flush()
 
         fake.document = Sample.document(["profile.name": "Someone else"], revision: 2)
         let second = controller(fake)
         await second.load()
-        XCTAssertEqual(second.document.value(at: name), "My edit")
+        XCTAssertEqual(second.document.value(at: nameAddress), "My edit")
         XCTAssertNotNil(second.conflict)
         XCTAssertNotNil(drafts.load(userID: "user-a", resumeID: "resume-1"))
 
@@ -549,7 +549,7 @@ final class ResumeReviewControllerTests: XCTestCase {
         XCTAssertTrue(fake.saves.isEmpty, "a stale draft is never submitted")
 
         second.discardEditsAndReload()
-        XCTAssertEqual(second.document.value(at: name), "Someone else")
+        XCTAssertEqual(second.document.value(at: nameAddress), "Someone else")
         XCTAssertEqual(second.revision.int, 2)
         XCTAssertNil(second.conflict)
         XCTAssertNil(drafts.load(userID: "user-a", resumeID: "resume-1"))
@@ -560,12 +560,12 @@ final class ResumeReviewControllerTests: XCTestCase {
         let fake = FakeBackend()
         let screen = controller(fake)
         await screen.load()
-        screen.set("My edit", at: name)
+        screen.set("My edit", at: nameAddress)
         fake.saveError = ConflictError()
         fake.onSave = { fake.document = Sample.document(["profile.name": "Remote"], revision: 5) }
         await screen.save(confirm: false)
         XCTAssertEqual(screen.error, "This resume changed.")
-        XCTAssertEqual(screen.document.value(at: name), "My edit")
+        XCTAssertEqual(screen.document.value(at: nameAddress), "My edit")
         XCTAssertNotNil(screen.conflict)
         XCTAssertFalse(screen.saving)
         XCTAssertEqual(drafts.load(userID: "user-a", resumeID: "resume-1")?.document.single("profile.name"), "My edit")
@@ -577,7 +577,7 @@ final class ResumeReviewControllerTests: XCTestCase {
         let fake = FakeBackend()
         let screen = controller(fake)
         await screen.load()
-        screen.set("Ada Corrected", at: name)
+        screen.set("Ada Corrected", at: nameAddress)
         screen.flush()
         await screen.save(confirm: false)
         XCTAssertEqual(fake.saves.count, 1)
@@ -602,19 +602,19 @@ final class ResumeReviewControllerTests: XCTestCase {
         let fake = FakeBackend()
         let screen = controller(fake)
         await screen.load()
-        screen.set("Submitted value", at: name)
+        screen.set("Submitted value", at: nameAddress)
         fake.holdSave = true
         let saving = Task { await screen.save(confirm: false) }
         await fake.settle()
         XCTAssertTrue(screen.saving)
-        screen.set("Typed during save", at: name)
+        screen.set("Typed during save", at: nameAddress)
         screen.addEntry("projects")
-        XCTAssertEqual(screen.document.value(at: name), "Submitted value")
+        XCTAssertEqual(screen.document.value(at: nameAddress), "Submitted value")
         XCTAssertEqual(fake.saves[0].values["profile.name"], "Submitted value")
         fake.heldSave?.resume(returning: fake.commit(fake.saves[0].values, false))
         await saving.value
         XCTAssertFalse(screen.saving)
-        XCTAssertEqual(screen.document.value(at: name), "Submitted value")
+        XCTAssertEqual(screen.document.value(at: nameAddress), "Submitted value")
         XCTAssertNil(drafts.load(userID: "user-a", resumeID: "resume-1"))
     }
 
@@ -622,7 +622,7 @@ final class ResumeReviewControllerTests: XCTestCase {
         let fake = FakeBackend()
         let screen = controller(fake)
         await screen.load()
-        screen.set("Submitted value", at: name)
+        screen.set("Submitted value", at: nameAddress)
         fake.holdSave = true
         let saving = Task { await screen.save(confirm: false) }
         await fake.settle()
@@ -640,7 +640,7 @@ final class ResumeReviewControllerTests: XCTestCase {
         let fake = FakeBackend()
         let screen = controller(fake)
         await screen.load()
-        screen.set("Will not save", at: name)
+        screen.set("Will not save", at: nameAddress)
         fake.saveError = URLError(.notConnectedToInternet)
         await screen.save(confirm: true)
         XCTAssertFalse(screen.error.isEmpty)
@@ -657,7 +657,7 @@ final class ResumeReviewControllerTests: XCTestCase {
         let fake = FakeBackend()
         let screen = controller(fake)
         await screen.load()
-        screen.set("Account A edit", at: name)
+        screen.set("Account A edit", at: nameAddress)
         fake.holdSave = true
         let saving = Task { await screen.save(confirm: true) }
         await fake.settle()
@@ -708,10 +708,10 @@ final class ResumeReviewControllerTests: XCTestCase {
         let fake = FakeBackend()
         let screen = controller(fake)
         await screen.load()
-        screen.set("  Ada Spaced  ", at: name)
+        screen.set("  Ada Spaced  ", at: nameAddress)
         await screen.save(confirm: false)
         XCTAssertEqual(fake.saves[0].values["profile.name"], "Ada Spaced")
-        XCTAssertEqual(screen.document.value(at: name), "Ada Spaced")
+        XCTAssertEqual(screen.document.value(at: nameAddress), "Ada Spaced")
     }
 
     // MARK: Legacy records
@@ -893,11 +893,11 @@ final class ResumeReviewControllerTests: XCTestCase {
         XCTAssertEqual(screen.fieldSpecs("projects").last?.name, "url")
         XCTAssertFalse(screen.canAddEntry("projects"))
         XCTAssertNil(screen.addEntry("projects"))
-        screen.set("Too long for this server", at: name)
+        screen.set("Too long for this server", at: nameAddress)
         await screen.save(confirm: false)
         XCTAssertTrue(fake.saves.isEmpty)
         XCTAssertFalse(screen.error.isEmpty)
-        XCTAssertEqual(screen.document.value(at: name), "Too long for this server")
+        XCTAssertEqual(screen.document.value(at: nameAddress), "Too long for this server")
     }
 
     func testFailedDraftWriteStaysVisibleWhileServerSaveRemainsUsable() async throws {
@@ -908,10 +908,10 @@ final class ResumeReviewControllerTests: XCTestCase {
         let screen = ResumeReviewController(resumeID: "resume-1", userID: "user-a", backend: fake.backend,
                                             drafts: FileResumeDraftStore(root: blocked), currentUserID: { "user-a" })
         await screen.load()
-        screen.set("Still usable", at: name)
+        screen.set("Still usable", at: nameAddress)
         screen.flush()
         XCTAssertFalse(screen.draftError.isEmpty)
-        XCTAssertEqual(screen.document.value(at: name), "Still usable")
+        XCTAssertEqual(screen.document.value(at: nameAddress), "Still usable")
         await screen.save(confirm: false)
         XCTAssertEqual(fake.saves.first?.values["profile.name"], "Still usable")
         XCTAssertTrue(screen.draftError.isEmpty)

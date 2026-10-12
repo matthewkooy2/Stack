@@ -157,7 +157,9 @@ final class MicrophonePCMTests: XCTestCase {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
         defer { try? FileManager.default.removeItem(at: url) }
         let source = try buffer(.pcmFormatInt16, channels: 1)
-        let speechFormat = try XCTUnwrap(AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000,
+        // iOS 27 traps an AnalyzerInput whose samples are not 16-bit signed integers. The app submits the format
+        // SpeechAnalyzer reports; Float32 conversion stays covered without Speech in SpeechRestorationTests.
+        let speechFormat = try XCTUnwrap(AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000,
                                                       channels: 1, interleaved: false))
         let (stream, continuation) = AsyncStream<AnalyzerInput>.makeStream()
         let meter = PCMLevelMeter()

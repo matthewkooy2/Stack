@@ -35,7 +35,7 @@ struct AccessView: View {
                 .tracking(-2.1)
                 .foregroundStyle(Palette.ink)
                 .reveal(0)
-            Text("Your next chapter, organized. Find roles, track applications and practice for the interview.")
+            Text("Find roles, track applications, practice interviews.")
                 .font(Typeface.body)
                 .foregroundStyle(Palette.muted)
                 .reveal(1)
@@ -112,14 +112,12 @@ struct InvitationView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.stack) {
-                Text("Finish signing in").font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink).reveal(0)
-                Text("Your account is authenticated. A beta invitation is required to enter Stack.")
-                    .font(Typeface.body).foregroundStyle(Palette.muted).reveal(1)
-                StackField(label: "Beta invitation", text: $code, keyboard: .asciiCapable, autocapitalization: .never).reveal(2)
+                Text("Enter your invitation").font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink).reveal(0)
+                StackField(label: "Beta invitation", text: $code, keyboard: .asciiCapable, autocapitalization: .never).reveal(1)
                 MessageLine(text: store.error).fadeSwitch(!store.error.isEmpty)
-                StackButton(label: "Continue", disabled: store.busy) { Task { await store.acceptInvitation(code) } }.reveal(3)
+                StackButton(label: "Continue", disabled: store.busy || code.isBlank) { Task { await store.acceptInvitation(code) } }.reveal(2)
                 if store.googleInfo["can_recover"].bool {
-                    GoogleAccountCard().reveal(4)
+                    GoogleAccountCard().reveal(3)
                 }
                 StackButton(label: "Sign out", kind: .secondary, disabled: store.busy) { Task { await store.signOut() } }
             }
@@ -136,6 +134,7 @@ struct GoogleAccountCard: View {
     @Environment(AppStore.self) private var store
     @State private var username = ""
     @State private var password = ""
+    @State private var recovering = false
 
     private var info: JSON { store.googleInfo }
 
@@ -145,8 +144,6 @@ struct GoogleAccountCard: View {
             if !info["username"].string.isEmpty {
                 Text("Signed in as \(info["username"].string)").font(Typeface.body).foregroundStyle(Palette.text)
             }
-            Text("Your resumes, applications, contacts and practice are saved to this account.")
-                .font(Typeface.caption).foregroundStyle(Palette.muted)
             if info["google"].bool {
                 Text("Google sign-in linked").font(Typeface.body).foregroundStyle(Palette.success)
             } else {
@@ -158,10 +155,14 @@ struct GoogleAccountCard: View {
             if store.googlePending {
                 StackButton(label: "Cancel Google sign-in", kind: .secondary) { store.cancelGoogle() }
             }
-            if info["can_recover"].bool {
+            if info["can_recover"].bool, !recovering {
+                StackButton(label: "Use my existing Stack account", kind: .secondary) {
+                    withAnimation(Motion.fadeAnimation) { recovering = true }
+                }
+            }
+            if info["can_recover"].bool, recovering {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Use your existing Stack account").font(Typeface.body).foregroundStyle(Palette.ink)
-                    Text("Confirm your original Stack credentials to preserve its account and saved data.")
+                    Text("Confirm your original Stack sign-in to keep its saved data.")
                         .font(Typeface.caption).foregroundStyle(Palette.muted)
                     StackField(label: "Existing Stack username", text: $username, keyboard: .asciiCapable, autocapitalization: .never)
                     StackField(label: "Existing Stack password", text: $password, secure: true)
@@ -171,6 +172,10 @@ struct GoogleAccountCard: View {
                             await store.recoverGoogle(username: username, password: password)
                             password = ""
                         }
+                    }
+                    StackButton(label: "Cancel", kind: .secondary, disabled: store.busy) {
+                        password = ""
+                        withAnimation(Motion.fadeAnimation) { recovering = false }
                     }
                 }
             }

@@ -140,11 +140,9 @@ struct TailoredResumesSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionLabel(text: "Tailored resumes")
-            Text("Made by resume tailoring, one per job. Your uploads above are never changed.")
-                .font(Typeface.caption).foregroundStyle(Palette.muted)
+            Text("One per job. Your uploads are never changed.").font(Typeface.caption).foregroundStyle(Palette.muted)
             if store.account.tailored.isEmpty {
-                Text("Resumes you tailor for a saved job appear here.").font(Typeface.body).foregroundStyle(Palette.text)
+                Text("Tailored resumes appear here.").font(Typeface.body).foregroundStyle(Palette.text)
             }
             ForEach(store.account.tailored) { item in card(item) }
             MessageLine(text: error).fadeSwitch(!error.isEmpty)

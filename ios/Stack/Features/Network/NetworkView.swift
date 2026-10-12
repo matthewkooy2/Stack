@@ -13,12 +13,9 @@ struct NetworkView: View {
 
     @State private var showSavedOnly = false
     @State private var selected: Connection?
-    @State private var task: TaskTarget?
-    @State private var showPublicProfiles = false
-
-    private func navigate(_ action: String) {
-        NotificationCenter.default.post(name: .stackNavigate, object: nil, userInfo: ["destination": action])
-    }
+    @State private var tool: NetworkTool?
+    /// Held here, not in the sheets, so closing a tool never discards unfinished edits.
+    @State private var drafts = NetworkDrafts()
 
     private var connections: [Connection] {
         store.account.contacts.compactMap { record in
@@ -30,7 +27,7 @@ struct NetworkView: View {
 
     var body: some View {
         Page {
-            ScreenHeader(title: "Network", subtitle: "People worth a conversation", onProfile: onProfile).reveal(0)
+            ScreenHeader(title: "Network", onProfile: onProfile).reveal(0)
             HStack(spacing: 8) {
                 Chip(label: "Discover", selected: !showSavedOnly) { withAnimation(Motion.fadeAnimation) { showSavedOnly = false } }
                 Chip(label: "Saved", selected: showSavedOnly) { withAnimation(Motion.fadeAnimation) { showSavedOnly = true } }
@@ -38,7 +35,7 @@ struct NetworkView: View {
             .reveal(1)
             if shown.isEmpty {
                 EmptyNote(icon: "network", title: showSavedOnly ? "No saved contacts" : "No suggestions yet",
-                          message: "Save a contact to keep your outreach draft and notes together.")
+                          message: "Saved contacts keep your draft and notes together.")
             } else {
                 VStack(spacing: Spacing.option) {
                     ForEach(Array(shown.enumerated()), id: \.element.id) { index, connection in
@@ -63,8 +60,12 @@ struct NetworkView: View {
                     }
                 }
             }
-            NetworkAgentSection(onOpenTask: { task = TaskTarget(id: $0) }, onNavigate: navigate)
-            ListRow(label: "Public profiles", icon: "profile", detail: "Draft your LinkedIn, GitHub and portfolio story") { showPublicProfiles = true }
+            VStack(spacing: 0) {
+                ListRow(label: "Your contacts", icon: "network", detail: "Add people and draft outreach for review") { tool = .contacts }
+                ListRow(label: "LinkedIn review", icon: "sparkles", detail: "Fixes and rewrites for your profile") { tool = .linkedIn }
+                ListRow(label: "Public profiles", icon: "profile", detail: "LinkedIn, GitHub and portfolio drafts") { tool = .profiles }
+            }
+            .reveal(shown.count + 2)
         }
         .refreshable { await store.refresh() }
         .task(id: store.pendingOpen) {
@@ -77,8 +78,47 @@ struct NetworkView: View {
         .sheet(item: $selected) { connection in
             ContactDetailView(recordID: connection.record.id).environment(store)
         }
+        .onChange(of: store.sessionGeneration) { _, _ in drafts.reset() }
+        .onChange(of: store.phase) { _, phase in if phase != .ready { drafts.reset() } }
+        .sheet(item: $tool) { value in
+            switch value {
+            case .contacts: NetworkToolSheet(title: "Your contacts", tool: .contacts, drafts: drafts).environment(store)
+            case .linkedIn: NetworkToolSheet(title: "LinkedIn review", tool: .linkedIn, drafts: drafts).environment(store)
+            case .profiles: PublicProfilesView().environment(store)
+            }
+        }
+    }
+}
+
+enum NetworkTool: String, Identifiable {
+    case contacts, linkedIn, profiles
+    var id: String { rawValue }
+}
+
+/// Outreach and LinkedIn review each get their own screen, with agent tasks opening from here.
+@MainActor
+private struct NetworkToolSheet: View {
+    let title: String
+    let tool: NetworkTool
+    let drafts: NetworkDrafts
+    @Environment(AppStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    @State private var task: TaskTarget?
+
+    var body: some View {
+        SheetPage(title: title) {
+            if tool == .linkedIn {
+                LinkedInProfileCard(drafts: drafts, onOpenTask: { task = TaskTarget(id: $0) }, onNavigate: navigate)
+            } else {
+                NetworkAgentSection(drafts: drafts, onOpenTask: { task = TaskTarget(id: $0) }, onNavigate: navigate)
+            }
+        }
         .sheet(item: $task) { target in AgentTaskSheet(taskID: target.id).environment(store) }
-        .sheet(isPresented: $showPublicProfiles) { PublicProfilesView().environment(store) }
+    }
+
+    private func navigate(_ action: String) {
+        dismiss()
+        NotificationCenter.default.post(name: .stackNavigate, object: nil, userInfo: ["destination": action])
     }
 }
 
@@ -112,15 +152,18 @@ private struct ContactDetailView: View {
                         }
                     }
                     .reveal(0)
-                    Text(person.bio).font(Typeface.body).foregroundStyle(Palette.text).reveal(1)
-                    Card(tint: Palette.surfaceRaised) {
-                        Text("Why connect?").font(Typeface.caption).foregroundStyle(Palette.muted)
-                        Text(person.reason).font(Typeface.body).foregroundStyle(Palette.text)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(person.bio).font(Typeface.body).foregroundStyle(Palette.text)
+                        if !person.reason.isEmpty {
+                            Text("Why connect: \(person.reason)").font(Typeface.caption).foregroundStyle(Palette.muted)
+                        }
                     }
-                    .reveal(2)
+                    .reveal(1)
                     StackField(label: "Outreach draft", text: $draft, multiline: true).reveal(3)
-                    Text("Edit and save your draft. Sending is not enabled.").font(Typeface.caption).foregroundStyle(Palette.muted)
-                    StackField(label: "Private notes", text: $notes, multiline: true)
+                    Text("Saved here. Nothing is sent.").font(Typeface.caption).foregroundStyle(Palette.muted)
+                    DisclosureSection("Private notes", open: !notes.isBlank) {
+                        StackField(label: "Private notes", text: $notes, multiline: true)
+                    }
                     StackButton(label: "Save draft and notes", disabled: store.busy) { save(record.saved) }
                     StackButton(label: record.saved ? "Remove from saved" : "Save contact", icon: "star", kind: .secondary, disabled: store.busy) {
                         save(!record.saved)

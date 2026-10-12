@@ -8,7 +8,9 @@ on:
       - 'mobile/feature-rpcs.js'
       - 'scripts/ci/ios-swift.sh'
       - 'scripts/ci/ios-swift-static.py'
+      - 'scripts/ci/ios-xcresult-attachments.py'
       - 'tests/test_ios_swift_static.py'
+      - 'tests/test_ios_xcresult_attachments.py'
       - '.github/workflows/ios-swift.yml'
   push:
     branches: [main]
@@ -17,7 +19,9 @@ on:
       - 'mobile/feature-rpcs.js'
       - 'scripts/ci/ios-swift.sh'
       - 'scripts/ci/ios-swift-static.py'
+      - 'scripts/ci/ios-xcresult-attachments.py'
       - 'tests/test_ios_swift_static.py'
+      - 'tests/test_ios_xcresult_attachments.py'
       - '.github/workflows/ios-swift.yml'
   workflow_dispatch:
 permissions:
@@ -39,6 +43,8 @@ jobs:
           python-version: '3.12'
       - name: Check delimiters, types and published backend functions
         run: python3 -m unittest discover -s tests -p test_ios_swift_static.py -v
+      - name: Check the result-attachment exporter
+        run: python3 -m unittest discover -s tests -p test_ios_xcresult_attachments.py -v
       - name: Check the Swift sources
         run: bash scripts/ci/ios-swift.sh static
 
@@ -58,11 +64,26 @@ jobs:
           # The API origin is only compiled into Info.plist; tests use stubbed transport.
           STACK_API_URL: https://stack.invalid
         run: bash scripts/ci/ios-swift.sh test
-      - name: Keep the result bundle
+      # Evidence only: a raw .xcresult cannot be read off macOS, so its kept screenshots are exported to PNG.
+      # This step never changes the job's result; the build and test step above owns it. Failures to export are
+      # written to evidence/manifest.json and shown as warnings.
+      - name: Export kept screenshots from the result bundle
+        if: always()
+        run: |
+          shopt -s nullglob
+          bundles=(.jac/ci-ios-swift/*.xcresult)
+          if [ ${#bundles[@]} -eq 0 ]; then
+            echo "No result bundle was produced; nothing to export."
+            exit 0
+          fi
+          python3 scripts/ci/ios-xcresult-attachments.py --output .jac/ci-ios-swift/evidence "${bundles[@]}"
+      - name: Keep the result bundle and exported screenshots
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ios-swift-results-${{ github.run_number }}
-          path: .jac/ci-ios-swift/*.xcresult
+          path: |
+            .jac/ci-ios-swift/*.xcresult
+            .jac/ci-ios-swift/evidence
           if-no-files-found: ignore
           retention-days: 7

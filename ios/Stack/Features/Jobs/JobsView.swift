@@ -139,18 +139,16 @@ struct JobsView: View {
                 )
                 if search.missingGraduation {
                     StackButton(label: "Set graduation", icon: "clock") { sheet = .timeline }
-                }
-                if !feed.nextCursor.isEmpty {
+                } else if !feed.nextCursor.isEmpty {
                     StackButton(label: "Load more roles", icon: "refresh", disabled: feed.busy) {
                         Task { await load(refresh: false, more: true) }
                     }
-                }
-                HStack(spacing: Spacing.option) {
-                    StackButton(label: "Refresh jobs", icon: "refresh", kind: .secondary, disabled: feed.busy) {
+                } else {
+                    StackButton(label: "Refresh jobs", icon: "refresh", disabled: feed.busy) {
                         Task { await load(refresh: true) }
                     }
-                    StackButton(label: "Import a job link", icon: "link", kind: .secondary) { sheet = .importLink }
                 }
+                StackButton(label: "Import a job link", kind: .secondary) { sheet = .importLink }
             }
             .padding(.horizontal, Spacing.page)
             Spacer()
@@ -168,17 +166,17 @@ struct JobsView: View {
     private var emptyMessage: String {
         if !feed.loadError.isEmpty { return feed.loadError }
         if search.missingGraduation {
-            return "Confirmed timeline matches compare listings with your graduation month, so none can be confirmed yet. Set it, or choose Hide timeline mismatches in Filters to include unclear listings."
+            return "Add your graduation month so timelines can be confirmed, or relax the timeline in Filters."
         }
-        if !feed.nextCursor.isEmpty { return "Continue to the next page of verified roles." }
+        if !feed.nextCursor.isEmpty { return "More verified roles are ready." }
         if search.filters["timeline"].string == "confirmed" {
-            return "Many listings lack a clear graduation window. Add your graduation date, or choose Hide timeline mismatches to include unclear listings."
+            return "Many listings do not state a graduation window. Relax the timeline in Filters to see them."
         }
         if !search.excluded.isEmpty {
             let reasons = search.excluded.prefix(4).map { "\($0["reason"].string) (\($0["count"].int))" }.joined(separator: ", ")
-            return "Hidden by your requirements: \(reasons). Mark some as nice to have in Filters or your profile to see them ranked lower."
+            return "Hidden by your requirements: \(reasons). Mark some as nice to have to see them ranked lower."
         }
-        return "New verified roles appear here as they are found. Try another role or location, or refresh after sources finish."
+        return "New verified roles appear here as they are found."
     }
 
     private func roundButton(icon: String, label: String, filled: Bool = false, action: @escaping () -> Void) -> some View {
@@ -401,12 +399,13 @@ struct JobCard: View {
             if !job.fit.isEmpty || !job.reason.isEmpty {
                 Text(job.fit.isEmpty ? job.reason : job.fit)
                     .font(Typeface.body).foregroundStyle(Palette.text)
+                    .lineLimit(3)
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Palette.surfaceRaised, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             if !job.tags.isEmpty {
-                FlowLayout(spacing: 8) { ForEach(job.tags.prefix(6), id: \.self) { Chip(label: $0) } }
+                FlowLayout(spacing: 8) { ForEach(job.tags.prefix(3), id: \.self) { Chip(label: $0) } }
             }
             Spacer(minLength: 0)
         }
@@ -451,19 +450,25 @@ struct JobDetailView: View {
                     StackButton(label: "Open application page", icon: "link", kind: .dark) { openURL(url) }.reveal(2)
                 }
                 if !match.object.isEmpty { matchSection(match) }
-                if !raw["timeline"].object.isEmpty { timelineSection(raw["timeline"]) }
+                if !match["confirm"].strings.isEmpty { confirmSection(match["confirm"].strings) }
+                if !raw["timeline"].object.isEmpty {
+                    DisclosureSection(raw["timeline"]["label"].string.isEmpty ? "Timeline" : raw["timeline"]["label"].string) {
+                        timelineSection(raw["timeline"])
+                    }
+                }
                 if !displayed.requirements.isEmpty {
-                    Card {
-                        Text("What they look for").font(Typeface.section).foregroundStyle(Palette.ink)
-                        ForEach(displayed.requirements, id: \.self) { item in
-                            HStack(alignment: .top, spacing: 10) {
-                                GlyphView(name: "check", size: 14, color: Palette.muted).padding(.top, 5)
-                                Text(item).font(Typeface.body).foregroundStyle(Palette.text)
+                    DisclosureSection("What they look for") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(displayed.requirements, id: \.self) { item in
+                                HStack(alignment: .top, spacing: 10) {
+                                    GlyphView(name: "check", size: 14, color: Palette.muted).padding(.top, 5)
+                                    Text(item).font(Typeface.body).foregroundStyle(Palette.text)
+                                }
                             }
                         }
                     }
-                    .reveal(3)
                 }
+                fitSection
                 descriptionSection(raw)
                 attribution(raw)
             }
@@ -472,33 +477,51 @@ struct JobDetailView: View {
     }
 
     private func matchSection(_ match: JSON) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionLabel(text: "How this matches you")
-            if !match["label"].string.isEmpty {
-                Text(match["label"].string).font(Typeface.section).foregroundStyle(Palette.ink)
+        DisclosureSection(match["label"].string.isEmpty ? "How this matches you" : match["label"].string,
+                          detail: match["label"].string.isEmpty ? "" : "How this matches you") {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(match["checks"].array.enumerated()), id: \.offset) { _, check in
+                    HStack(alignment: .top, spacing: 10) {
+                        Text(mark(check["status"].string)).font(Typeface.body).foregroundStyle(Palette.muted).frame(width: 18)
+                        Text("\(check["label"].string)\(check["required"].bool ? "" : " (nice to have)"): \(check["detail"].string)")
+                            .font(Typeface.body).foregroundStyle(Palette.text)
+                    }
+                }
+                Text("✓ confirmed · ? unclear · ~ caveat · ✕ conflicts with a nice-to-have")
+                    .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
-            ForEach(Array(match["checks"].array.enumerated()), id: \.offset) { _, check in
-                HStack(alignment: .top, spacing: 10) {
-                    Text(mark(check["status"].string)).font(Typeface.body).foregroundStyle(Palette.muted).frame(width: 18)
-                    Text("\(check["label"].string)\(check["required"].bool ? "" : " (nice to have)"): \(check["detail"].string)")
-                        .font(Typeface.body).foregroundStyle(Palette.text)
+        }
+    }
+
+    /// The deck card clamps the fit note and tags; the full text lives here, on demand.
+    @ViewBuilder
+    private var fitSection: some View {
+        let fit = displayed.fit.isBlank ? displayed.reason : displayed.fit
+        if !fit.isBlank || !displayed.tags.isEmpty {
+            DisclosureSection("Fit and tags") {
+                VStack(alignment: .leading, spacing: 12) {
+                    if !fit.isBlank { Text(fit).font(Typeface.body).foregroundStyle(Palette.text) }
+                    if !displayed.tags.isEmpty {
+                        FlowLayout(spacing: 8) { ForEach(displayed.tags, id: \.self) { Chip(label: $0) } }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
-            Text("✓ confirmed · ? not stated or unclear · ~ fits with a caveat · ✕ conflicts with a nice-to-have")
-                .font(Typeface.caption).foregroundStyle(Palette.muted)
-            if !match["confirm"].strings.isEmpty {
-                SectionLabel(text: "Confirm before applying")
-                ForEach(match["confirm"].strings, id: \.self) { Text("• \($0)").font(Typeface.body).foregroundStyle(Palette.text) }
-            }
+        }
+    }
+
+    private func confirmSection(_ items: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Confirm before applying").font(Typeface.caption.weight(.semibold)).foregroundStyle(Palette.muted)
+            ForEach(items, id: \.self) { Text("• \($0)").font(Typeface.body).foregroundStyle(Palette.text) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func timelineSection(_ timeline: JSON) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(timeline["label"].string).font(Typeface.section).foregroundStyle(Palette.ink)
             Text(timeline["reason"].string).font(Typeface.body).foregroundStyle(Palette.text)
-            Text("Timeline check only · Not a guarantee of eligibility. Based on the listing text below.")
+            Text("Timeline check only, not a guarantee of eligibility.")
                 .font(Typeface.caption).foregroundStyle(Palette.muted)
             ForEach(Array(timeline["evidence"].array.enumerated()), id: \.offset) { _, item in
                 Card(spacing: 6) {
@@ -516,14 +539,16 @@ struct JobDetailView: View {
         let blocks = [raw["description"].string, raw["qualifications"].string, raw["eligibility"].string, raw["remote_eligibility"].string]
             .filter { !$0.isBlank }
         if !blocks.isEmpty || !displayed.summary.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(snippet ? "Description excerpt — read the full listing at the source." : "Employer listing")
-                    .font(Typeface.caption).foregroundStyle(Palette.muted)
-                ForEach(blocks.isEmpty ? [displayed.summary] : blocks, id: \.self) {
-                    Text($0).font(Typeface.body).foregroundStyle(Palette.text)
+            DisclosureSection(snippet ? "Listing excerpt" : "Employer listing") {
+                VStack(alignment: .leading, spacing: 12) {
+                    if snippet {
+                        Text("Read the full listing at the source.").font(Typeface.caption).foregroundStyle(Palette.muted)
+                    }
+                    ForEach(blocks.isEmpty ? [displayed.summary] : blocks, id: \.self) {
+                        Text($0).font(Typeface.body).foregroundStyle(Palette.text)
+                    }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

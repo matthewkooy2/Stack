@@ -3,13 +3,14 @@ import SwiftUI
 /// Resume-side agents: scoring and tailoring for a saved job, and profile suggestions.
 @MainActor
 struct ResumeAgentsSection: View {
+    /// Owned by the Resume tab so a closed Tailor screen keeps its choice and scores.
+    @Binding var setupFor: String
+    @Binding var scores: [String: JSON]
     let onOpenTask: (String) -> Void
     let onNavigate: (String) -> Void
 
     @Environment(AppStore.self) private var store
     @State private var working = false
-    @State private var setupFor = ""
-    @State private var scores: [String: JSON] = [:]
     @State private var scoring = ""
     @State private var message = ""
     @State private var error = ""
@@ -53,7 +54,7 @@ struct ResumeAgentsSection: View {
                 Text("Resume: \(app.tailorResumeName)\(app.tailorReady ? " · LaTeX ready" : " · needs its LaTeX")")
                     .font(Typeface.caption).foregroundStyle(Palette.text)
             } else {
-                Text("Upload your resume above to tailor for this job.").font(Typeface.caption).foregroundStyle(Palette.text)
+                Text("Close this screen and upload a PDF resume first.").font(Typeface.caption).foregroundStyle(Palette.text)
             }
             ForEach(Array(runs(for: app.id, kinds: ["resume"]).enumerated()), id: \.offset) { _, run in
                 TaskRow(run: run) { onOpenTask(run["id"].string) }

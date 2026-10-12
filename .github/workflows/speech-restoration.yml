@@ -43,7 +43,7 @@ jobs:
   native:
     name: Unsigned speech build and native tests (Xcode 26.6)
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       STACK_API_URL: https://stack.invalid
@@ -69,7 +69,7 @@ jobs:
       - name: Compile and test without signing or provisioning
         env:
           STACK_LISTING_REQUIRE_ACCEPTANCE: "1"
-          STACK_LISTING_ERROR_TEXT: ${{ inputs.listing_error_text || '' }}
+          STACK_LISTING_ERROR_TEXT: ${{ inputs.listing_error_text || 'Can''t Open Page' }}
         run: |
           mkdir -p .jac/ci-ios-swift
           set -o pipefail

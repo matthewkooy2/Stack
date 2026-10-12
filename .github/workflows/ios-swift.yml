@@ -84,7 +84,7 @@ jobs:
           # The API origin is only compiled into Info.plist; tests use stubbed transport.
           STACK_API_URL: https://stack.invalid
           STACK_LISTING_REQUIRE_ACCEPTANCE: '1'
-          STACK_LISTING_ERROR_TEXT: ${{ inputs.listing_error_text || '' }}
+          STACK_LISTING_ERROR_TEXT: ${{ inputs.listing_error_text || 'Can''t Open Page' }}
         run: |
           python3 scripts/ci/ios-listing-fixture-server.py --port 18765 > "$RUNNER_TEMP/listing-fixture.log" 2>&1 &
           fixture_pid=$!

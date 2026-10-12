@@ -92,18 +92,29 @@ final class JobListingSafariUITests: XCTestCase {
     }
 
     private func closeBrowser(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
-        let close = app.buttons.matching(NSPredicate(format: "label IN %@", ["Close", "Done"])).firstMatch
-        if !close.waitForExistence(timeout: 10) {
+        // The captured native tree places Close in TopBrowserBar. Background deck elements can remain in
+        // that tree while Safari covers them, so neither a global first match nor card existence proves dismissal.
+        let closeControls = app.otherElements["TopBrowserBar"].buttons
+            .matching(NSPredicate(format: "label IN %@", ["Close", "Done"]))
+        let closeReady = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            closeControls.count == 1 && closeControls.element.isHittable
+        }, object: app)
+        if XCTWaiter.wait(for: [closeReady], timeout: 10) != .completed {
             dump(app, "no-close")
             capture("no-close")
-            XCTFail("the browser has a Close or Done control", file: file, line: line)
+            XCTFail("the native browser has one hittable Close or Done control", file: file, line: line)
             return
         }
-        close.tap()
-        if !app.buttons["job-card-job-alpha"].waitForExistence(timeout: 10) {
+        closeControls.element.tap()
+        let cards = app.buttons.matching(identifier: "job-card-job-alpha")
+        let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            closeControls.count == 0 && cards.count == 1 && cards.element.isHittable
+        }, object: app)
+        if XCTWaiter.wait(for: [dismissed], timeout: 10) != .completed {
             dump(app, "after-close")
             capture("after-close")
-            XCTFail("closing the browser returns to the deck card", file: file, line: line)
+            XCTFail("closing the browser removes its native Close control and returns to one hittable deck card",
+                    file: file, line: line)
         }
     }
 

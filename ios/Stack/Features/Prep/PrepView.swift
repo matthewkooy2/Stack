@@ -6,6 +6,7 @@ struct PrepView: View {
     @Environment(AppStore.self) private var store
     @State var model = PrepModel()
     @State private var tool: PrepTool?
+    @State private var showLiveTranscript = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -231,6 +232,14 @@ struct PrepView: View {
                 }
                 .frame(maxWidth: .infinity, minHeight: 180)
             }
+            if model.recorder.onDevice {
+                Toggle("Show live transcript", isOn: $showLiveTranscript)
+                    .font(Typeface.caption).tint(Palette.icon)
+                if showLiveTranscript {
+                    Text(model.recorder.liveText).font(Typeface.body).foregroundStyle(Palette.text)
+                        .accessibilityLabel("Live transcript")
+                }
+            }
             Text("Up to five minutes. A phone call or locking your phone stops and keeps the recording.")
                 .font(Typeface.caption).foregroundStyle(Palette.muted)
             Spacer(minLength: 24)
@@ -265,7 +274,8 @@ struct PrepView: View {
                 StackButton(label: "Upload saved answer", disabled: model.busy) { Task { await model.retryUpload() } }.reveal()
             }
             AnswerEditor(text: Binding(get: { model.draft }, set: { model.edited($0) }),
-                         placeholder: "Type or review your answer before coaching", label: "Review transcript", disabled: model.busy)
+                         placeholder: "Type or review your answer before coaching", label: "Review transcript",
+                         disabled: model.busy && !model.canReviewPhoneText)
             VStack(spacing: Spacing.option) {
                 StackButton(label: "Get coaching", disabled: model.busy || model.saving || model.draft.isBlank) { Task { await model.coach() } }
                 StackButton(label: "Record again", kind: .secondary, disabled: model.busy) { Task { await model.recordAnswer() } }

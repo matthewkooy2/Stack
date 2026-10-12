@@ -2,13 +2,13 @@
 import from core.automation { _agent_access, _agent_system }
 import from agents.transcription_store { Store }
 
-def:priv transcription_upload(client_id: str, content: str) -> dict[str, any] {
+def:priv transcription_upload(client_id: str, content: str, local_transcript: str = "") -> dict[str, any] {
     _agent_access();
-    try { return Store().upload(jid(root),client_id,content); }
+    try { return Store().upload(jid(root),client_id,content,local_transcript); }
     except ValueError as e { return {"error":str(e)}; }
 }
 def:priv transcription_list() -> dict[str, any] {
-    _agent_access();return {"recordings":Store().list(jid(root)),"runtime":Store().runtime_status()};
+    _agent_access();return {"recordings":Store().list(jid(root)),"runtime":Store().runtime_status(),"client_transcripts":True};
 }
 def:priv transcription_get(id: str) -> dict[str, any] {
     _agent_access();

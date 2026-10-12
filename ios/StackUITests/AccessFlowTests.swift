@@ -70,7 +70,7 @@ final class AccessFlowTests: XCTestCase {
         capture("welcome-after-relaunch")
     }
 
-    func testNamedFieldsAndKeyboardValidation() {
+    func testNamedFieldsAndKeyboardValidation() async {
         let app = XCUIApplication()
         app.launch()
         XCTAssertTrue(app.buttons["Sign in"].waitForExistence(timeout: 10))
@@ -84,10 +84,14 @@ final class AccessFlowTests: XCTestCase {
         // A whole-screen swipe starts over the keyboard rather than the scrollable form.
         app.scrollViews.firstMatch.swipeUp()
         let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.keyboards.firstMatch)
-        XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
+        // Cold Xcode 27 snapshots took 4.2s per keyboard query, leaving the old 5s bound only one poll.
+        // Keep one real dismissal gesture and the disappearance assertion; allow three slow snapshot polls.
+        let dismissalResult = await XCTWaiter.fulfillment(of: [dismissed], timeout: 15)
+        XCTAssertEqual(dismissalResult, .completed)
         let submit = app.buttons["Sign in"]
         let visible = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == true"), object: submit)
-        XCTAssertEqual(XCTWaiter.wait(for: [visible], timeout: 5), .completed)
+        let visibilityResult = await XCTWaiter.fulfillment(of: [visible], timeout: 5)
+        XCTAssertEqual(visibilityResult, .completed)
         app.buttons["Sign in"].tap()
         XCTAssertTrue(app.staticTexts["Use a username of at least 3 characters and a password of at least 8."].waitForExistence(timeout: 5))
         capture("keyboard-validation")

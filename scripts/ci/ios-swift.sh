@@ -18,8 +18,8 @@ cd "$STACK_ROOT"
 
 MODE=${1:-all}
 case "$MODE" in
-  static|build|test|all) ;;
-  *) echo 'Usage: ios-swift.sh [static|build|test|all]' >&2; exit 2 ;;
+  static|build|test|core|all) ;;
+  *) echo 'Usage: ios-swift.sh [static|build|test|core|all]' >&2; exit 2 ;;
 esac
 
 static_checks() {
@@ -58,10 +58,16 @@ generate() {
 
 run_xcodebuild() {
   local action=$1
+  shift
+  if [[ "$MODE" == core ]]; then
+    local selected
+    selected=$(python3 scripts/ci/ios-core.py)
+    while IFS= read -r item; do set -- "$@" "$item"; done <<< "$selected"
+  fi
   local destination derived result
   destination=$(pick_destination)
   derived=${STACK_IOS_DERIVED_DATA:-$STACK_ROOT/.jac/ci-ios-swift/DerivedData}
-  result=$STACK_ROOT/.jac/ci-ios-swift/$action.xcresult
+  result=$STACK_ROOT/.jac/ci-ios-swift/${STACK_IOS_RESULT_NAME:-$action}.xcresult
   rm -rf "$result"
   mkdir -p "$(dirname "$result")"
   # Signing is disabled: this route proves the source compiles and its tests pass, nothing more.
@@ -78,7 +84,7 @@ run_xcodebuild() {
     "STACK_LISTING_ERROR_TEXT=${STACK_LISTING_ERROR_TEXT:-}" \
     "STACK_API_URL=${STACK_API_URL:-http://127.0.0.1:8000}" \
     CODE_SIGNING_ALLOWED=NO \
-    CODE_SIGNING_REQUIRED=NO
+    CODE_SIGNING_REQUIRED=NO "$@"
 }
 
 case "$MODE" in
@@ -91,7 +97,7 @@ case "$MODE" in
     generate
     run_xcodebuild build
     ;;
-  test)
+  test|core)
     static_checks
     require_mac
     generate

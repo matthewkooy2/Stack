@@ -37,15 +37,19 @@ class SigningConfiguration(unittest.TestCase):
         expression = re.search(r'^    if: (.+)$', block, re.MULTILINE).group(1)
         context = {'github.repository': 'matthewkooy2/Stack', 'github.ref': 'refs/heads/main',
                    'github.event_name': 'push', 'vars.STACK_TESTFLIGHT_ENABLED': 'true',
-                   'inputs.upload_native': False, 'inputs.preflight_only': True, **overrides}
-        for name, value in context.items():
+                   'inputs.upload_native': False, 'inputs.preflight_only': True,
+                   'github.event.workflow_run.conclusion': 'success',
+                   'github.event.workflow_run.event': 'push',
+                   'github.event.workflow_run.head_repository.full_name': 'matthewkooy2/Stack', **overrides}
+        for name, value in sorted(context.items(), key=lambda item: -len(item[0])):
             expression = expression.replace(name, repr(value))
         expression = expression.replace('&&', ' and ').replace('||', ' or ').replace('!', ' not ')
         # Evaluate the actual workflow expression with fictional event context.
         return bool(eval(expression, {'__builtins__': {}}, {}))
 
     def test_automatic_release_selects_only_swift_on_enabled_main(self):
-        self.assertTrue(self.upload_condition('swift-testflight.yml', 'native-upload'))
+        self.assertTrue(self.upload_condition('swift-testflight.yml', 'native-upload',
+                                              **{'github.event_name': 'workflow_run'}))
         self.assertFalse(self.upload_condition('testflight.yml', 'build-and-upload'))
         for context in ({'github.event_name': 'pull_request'}, {'github.ref': 'refs/heads/feature'},
                         {'vars.STACK_TESTFLIGHT_ENABLED': 'false'}, {'vars.STACK_TESTFLIGHT_ENABLED': ''},
@@ -62,17 +66,20 @@ class SigningConfiguration(unittest.TestCase):
         self.assertTrue(self.upload_condition('testflight.yml', 'build-and-upload',
                                               **event, **{'inputs.preflight_only': False}))
 
-    def test_push_triggers_follow_swift_sources_not_legacy_client(self):
-        expo = (ROOT / '.github/workflows/testflight.yml').read_text()
+    def test_native_upload_follows_successful_main_verification_without_retesting(self):
         swift = (ROOT / '.github/workflows/swift-testflight.yml').read_text()
-        self.assertNotIn('  push:', expo)
-        push = swift.split('  push:\n', 1)[1].split('  workflow_dispatch:', 1)[0]
-        self.assertIn('branches: [main]', push)
-        for path in ('ios/**', 'scripts/ci/ios-swift-testflight.sh', 'scripts/ci/ios-signing.py',
-                     '.github/workflows/swift-testflight.yml'):
-            self.assertIn(f"'{path}'", push)
-        for path in ('mobile/**', 'native/**', 'core/**'):
-            self.assertNotIn(f"'{path}'", push)
+        self.assertNotIn('  push:', swift)
+        self.assertIn('workflows: [Stack SwiftUI app]', swift)
+        self.assertIn('branches: [main]', swift)
+        self.assertLess(swift.index('ios-native-proof.py release'), swift.index('ios-signing.py prepare'))
+        script = (ROOT / 'scripts/ci/ios-swift-testflight.sh').read_text()
+        self.assertNotIn('ios-swift.sh all', script)
+        self.assertIn('ios-native-proof.py release', script)
+        for context in ({'github.event.workflow_run.conclusion': 'failure'},
+                        {'github.event.workflow_run.event': 'pull_request'},
+                        {'github.event.workflow_run.head_repository.full_name': 'example/fork'}):
+            self.assertFalse(self.upload_condition('swift-testflight.yml', 'native-upload',
+                                                   **{'github.event_name': 'workflow_run', **context}))
 
     def test_matching_distribution_profile_accepts_legacy_app_prefix(self):
         self.assertEqual(signing.validate_profile(profile(), TEAM, [IDENTITY]), (UUID, IDENTITY))

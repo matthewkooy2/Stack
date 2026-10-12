@@ -10,6 +10,11 @@ on:
       - 'scripts/ci/ios-swift.sh'
       - '.github/workflows/speech-restoration.yml'
   workflow_dispatch:
+    inputs:
+      listing_error_text:
+        description: Observed Safari connection-error label for this simulator and locale
+        type: string
+        default: ""
 permissions:
   contents: read
 concurrency:
@@ -59,9 +64,20 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Compile and test without signing or provisioning
+        env:
+          STACK_LISTING_REQUIRE_ACCEPTANCE: "1"
+          STACK_LISTING_ERROR_TEXT: ${{ inputs.listing_error_text || '' }}
         run: |
           mkdir -p .jac/ci-ios-swift
           set -o pipefail
+          python3 scripts/ci/ios-listing-fixture-server.py --port 18765 > "$RUNNER_TEMP/listing-fixture.log" 2>&1 &
+          fixture_pid=$!
+          trap 'kill "$fixture_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:18765/health; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:18765/health
           bash scripts/ci/ios-swift.sh test | tee .jac/ci-ios-swift/microphone-tests.log
       - name: Require each synthetic microphone test to pass on the modern SDK
         run: |

@@ -237,7 +237,10 @@ struct RecordingSurface: View {
                         .accessibilityLabel("Elapsed time")
                         .accessibilityValue("\(Int(recorder.elapsed) / 60) minutes \(Int(recorder.elapsed) % 60) seconds")
                 }
-                .accessibilityElement(children: .combine)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Recording status and elapsed time")
+                .accessibilityValue("\(status), \(Int(recorder.elapsed) / 60) minutes \(Int(recorder.elapsed) % 60) seconds")
+                .accessibilityIdentifier("recording-status-clock")
             }
             .frame(maxWidth: .infinity)
 

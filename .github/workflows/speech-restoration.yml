@@ -67,14 +67,22 @@ jobs:
         run: |
           python3 - <<'PY'
           import pathlib, re
-          source = pathlib.Path('ios/StackTests/MicrophonePCMTests.swift').read_text()
           log = pathlib.Path('.jac/ci-ios-swift/microphone-tests.log').read_text()
-          names = re.findall(r'^\s+func (test\w+)\(', source, re.M)
+          sources = ['ios/StackTests/MicrophonePCMTests.swift', 'ios/StackUITests/MicrophoneSurfaceTests.swift']
+          names = [name for source in sources for name in re.findall(r'^\s+func (test\w+)\(', pathlib.Path(source).read_text(), re.M)]
           assert names, 'No synthetic microphone tests found'
           missing = [name for name in names if not re.search(r'Test Case .*\b' + re.escape(name) + r'\b.* passed', log)]
           assert not missing, f'Microphone tests did not execute and pass: {missing}'
           print(f'All {len(names)} synthetic microphone XCTest cases executed and passed.')
           PY
+      - name: Export kept synthetic UI screenshots
+        if: always()
+        run: |
+          shopt -s nullglob
+          bundles=(.jac/ci-ios-swift/*.xcresult)
+          if [ ${#bundles[@]} -gt 0 ]; then
+            python3 scripts/ci/ios-xcresult-attachments.py --output .jac/ci-ios-swift/evidence "${bundles[@]}"
+          fi
       - name: Retain unsigned test results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -83,5 +91,6 @@ jobs:
           path: |
             .jac/ci-ios-swift/*.xcresult
             .jac/ci-ios-swift/microphone-tests.log
+            .jac/ci-ios-swift/evidence
           if-no-files-found: ignore
           retention-days: 7

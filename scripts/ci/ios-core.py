@@ -11,10 +11,12 @@ SELECTION = ROOT / 'scripts/ci/ios-core-tests.txt'
 def selected():
     cases = [line.strip() for line in SELECTION.read_text().splitlines()
              if line.strip() and not line.startswith('#')]
-    if len(set(cases)) != 34 or len(cases) != 34:
-        raise ValueError('Expected exactly 30 unit cases and 4 UI journeys without duplicates')
+    if len(set(cases)) != 33 or len(cases) != 33:
+        raise ValueError('Expected exactly 30 unit cases and 3 UI journeys without duplicates')
     if sum(case.startswith('StackTests/') for case in cases) != 30:
         raise ValueError('Expected exactly 30 unit cases')
+    if sum(case.startswith('StackUITests/') for case in cases) != 3:
+        raise ValueError('Expected exactly 3 UI journeys')
     for case in cases:
         if not re.fullmatch(r'(StackTests|StackUITests)/\w+/test\w+', case):
             raise ValueError('Invalid selected XCTest identity: ' + case)
@@ -40,6 +42,6 @@ def require_passed(log):
 if __name__ == '__main__':
     if len(sys.argv) == 2:
         require_passed(Path(sys.argv[1]).read_text())
-        print('All 34 selected XCTest cases executed and passed.')
+        print('All 33 selected XCTest cases executed and passed.')
     else:
         print('\n'.join('-only-testing:' + case for case in selected()))

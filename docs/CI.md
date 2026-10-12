@@ -86,13 +86,14 @@ and retired application submission boundaries. These checks prevent credential
 exposure, account leakage, lost data, unsafe uploads and unauthorized paid or
 external actions. Do not substitute `make test`, which runs the broader selection.
 
-Native core selects the exact 30 unit cases and four UI journeys in
+Native core selects the exact 30 unit cases and three UI journeys in
 `scripts/ci/ios-core-tests.txt`. They protect account transitions and isolation,
 resume draft/revision/save integrity, durable recording and the real modern Speech
 bridge, feed session isolation and safe listing URLs. The UI journeys exercise
-welcome/login validation, resume save/confirmation, recording pause/stop/retry and
-listing open/close. They use controlled transport and fictional loopback pages;
-they do not prove live sign-in, microphone hardware, speech assets or phone layout.
+welcome/login validation, resume save/confirmation and recording pause/stop/retry.
+The Safari browser journey remains in the existing manual full suite. Selected UI
+journeys use controlled transport; they do not prove live sign-in, microphone
+hardware, speech assets or phone layout.
 Every selected XCTest must execute and pass once. Missing, skipped or duplicate
 execution is failure. An unsigned Release compile also remains required because
 the fixture UI scenes are Debug-only.
@@ -116,8 +117,9 @@ runtime update invalidates reuse. Deployment target remains iOS 17.0.
 | Legacy Expo unsigned archive on PRs | Explicit manual `validate_legacy` input |
 
 Main contains 168 native unit methods and 45 UI methods. Blocking native selection
-is 30 plus four; the other 138 units and 41 UI methods remain intact. Reduced
-blocking coverage includes parser/layout variants, full keyboard and accessibility
+is 30 plus three; the other 138 units and 42 UI methods remain intact. Safari open,
+close, navigation and recovery behavior remain available in the manual full suite.
+Reduced blocking coverage includes parser/layout variants, full keyboard and accessibility
 journeys, browser redirects/history/reload/handoff, filter variants, older compiler
 fallbacks, Windows orchestration, push-provider journeys and broad browser rendering.
 Moving a test does not erase a known defect or certify its behavior.

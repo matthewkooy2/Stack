@@ -25,7 +25,15 @@ jobs:
           python3 scripts/ci/ios-listing-fixture-server.py --port 18765 > .jac/listing-diagnostics/fixture.log 2>&1 &
           fixture_pid=$!
           log_pid=''
-          trap 'kill "$fixture_pid" ${log_pid:+"$log_pid"} 2>/dev/null || true' EXIT
+          simulator_id=''
+          cleanup() {
+            app_data=$(xcrun simctl get_app_container "$simulator_id" com.matthewkooy.stack.swift data 2>/dev/null) || true
+            if [[ -n "$app_data" && -f "$app_data/Library/Application Support/stack-listing-lifecycle.log" ]]; then
+              cp "$app_data/Library/Application Support/stack-listing-lifecycle.log" .jac/listing-diagnostics/lifecycle-durable.log
+            fi
+            kill "$fixture_pid" ${log_pid:+"$log_pid"} 2>/dev/null || true
+          }
+          trap cleanup EXIT
           for attempt in {1..30}; do
             if curl --fail --silent http://127.0.0.1:18765/health; then break; fi
             sleep 1
@@ -61,5 +69,6 @@ jobs:
             .jac/listing-diagnostics/test.xcresult
             .jac/listing-diagnostics/evidence
             .jac/listing-diagnostics/lifecycle.log
+            .jac/listing-diagnostics/lifecycle-durable.log
             .jac/listing-diagnostics/fixture.log
           retention-days: 7

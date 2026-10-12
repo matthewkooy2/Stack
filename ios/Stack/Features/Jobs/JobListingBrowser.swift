@@ -178,6 +178,21 @@ struct SafariListingPresenter: UIViewControllerRepresentable {
             let browserID = observed.map { String(describing: ObjectIdentifier($0)) } ?? "none"
             let state = "event=\(event) coordinator=\(coordinatorID) browser=\(browserID) matches=\(observed === browser) delegate=\(observed?.delegate != nil) presenting=\(observed?.presentingViewController != nil) window=\(observed?.viewIfLoaded?.window != nil) selection=\(selection != nil) selectionMatches=\(selection?.id == presentedID) dismissing=\(dismissing) removed=\(removed) beingDismissed=\(observed?.isBeingDismissed ?? false)"
             NSLog("Stack listing browser lifecycle: %@", state)
+            // Diagnostic branch only: persist synthetic fixture events so dropped unified-log messages
+            // cannot be mistaken for absent callbacks. Export this one file, never the app's data tree.
+            if ProcessInfo.processInfo.arguments.contains("--screen-flow=deck"),
+               let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+                try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                let url = directory.appendingPathComponent("stack-listing-lifecycle.log")
+                if !FileManager.default.fileExists(atPath: url.path) {
+                    FileManager.default.createFile(atPath: url.path, contents: nil)
+                }
+                if let handle = try? FileHandle(forWritingTo: url) {
+                    handle.seekToEndOfFile()
+                    handle.write(Data("\(Date().timeIntervalSince1970) pid=\(ProcessInfo.processInfo.processIdentifier) \(state)\n".utf8))
+                    handle.closeFile()
+                }
+            }
             #endif
         }
     }

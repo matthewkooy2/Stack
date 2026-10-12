@@ -51,6 +51,7 @@ pick_destination() {
 }
 
 generate() {
+  python3 scripts/ci/resume-review/prepare.py
   export STACK_API_URL="${STACK_API_URL:-http://127.0.0.1:8000}"
   (cd ios && xcodegen generate --spec project.yml --project .)
 }

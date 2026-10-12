@@ -39,3 +39,12 @@ or merging. Use `type<scope>: outcome`, lowercase with no final period.
 Supply an explicit styled merge/squash title and reviewed body, constrain the
 operation to the reviewed head, and verify the resulting message. Reuse existing
 issue PRs and keep drafts until current-head/current-base acceptance passes.
+
+## CI scope
+
+Keep automatic verification to backend/security and native core, using one release
+toolchain. Each blocking test must name the user failure it prevents and disclose
+measured runtime. New jobs, matrices, frameworks or coverage expansion require
+explicit scope approval. Keep broader regressions manual. Reuse native results
+only for identical source, test policy and toolchain; missing or failed proof must
+never authorize release. See [the coverage and release rules](docs/CI.md).

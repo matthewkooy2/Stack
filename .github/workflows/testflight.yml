@@ -1,27 +1,11 @@
 name: Stack TestFlight deployment
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'mobile/**'
-      - 'native/**'
-      - 'core/**'
-      - 'jac.toml'
-      - 'scripts/jac'
-      - 'scripts/compile-mobile.jac'
-      - 'scripts/stage-mobui.cjs'
-      - 'scripts/auth-build-config.cjs'
-      - 'scripts/setup*'
-      - 'scripts/ci/ios-testflight.sh'
-      - 'scripts/ci/ios-signing.py'
-      - 'scripts/ci/asc-preflight.cjs'
-      - 'tests/release-config.cjs'
-      - 'tests/test_ios_testflight.py'
-      - 'tests/asc-preflight.cjs'
-      - '.github/actions/ios-toolchain/**'
-      - '.github/workflows/testflight.yml'
   workflow_dispatch:
     inputs:
+      validate_legacy:
+        description: Run the unsigned legacy Expo archive regression
+        type: boolean
+        default: false
       preflight_only:
         description: Check configuration and App Store Connect without uploading
         type: boolean
@@ -51,7 +35,7 @@ jobs:
         run: node scripts/ci/asc-preflight.cjs
   # Pull requests get no signing secrets; prove the release archive builds unsigned.
   validate:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'workflow_dispatch' && inputs.validate_legacy
     runs-on: xcode-27
     timeout-minutes: 60
     concurrency:

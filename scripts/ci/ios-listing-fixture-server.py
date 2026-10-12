@@ -11,6 +11,7 @@ Pages: /listing (long title and links), /detail, /redirect (302 to /redirected),
 """
 import argparse
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -64,6 +65,8 @@ class Handler(BaseHTTPRequestHandler):
         with lock:
             state["hits"][path] = state["hits"].get(path, 0) + 1
             failing = state["fail"]
+            hits = state["hits"].get("/flaky", 0)
+        print(f"{time.time():.3f} path={self.path} fail={failing} flaky_hits={hits}", flush=True)
         if path == "/control/fail":
             on = parse_qs(url.query).get("on", ["0"])[0] == "1"
             with lock:

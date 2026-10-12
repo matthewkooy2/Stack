@@ -4,10 +4,10 @@ import XCTest
 /// by a stub URLProtocol. No sign-in, token, network or live data. Every flow keeps screenshot attachments.
 @MainActor
 final class ScreenFlowUITests: XCTestCase {
-    private func launch(_ flow: String) -> XCUIApplication {
+    private func launch(_ flow: String, extra: [String] = []) -> XCUIApplication {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = ["--screen-flow=\(flow)", "--disable-draft-animations"]
+        app.launchArguments = ["--screen-flow=\(flow)", "--disable-draft-animations"] + extra
         app.launch()
         return app
     }
@@ -384,6 +384,35 @@ final class ScreenFlowUITests: XCTestCase {
         let tag = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Remote friendly")).firstMatch
         XCTAssertTrue(reveal(tag, in: app, "remote-friendly-tag"), "tags beyond the card's first three are available")
         capture("jobs-detail-fit-and-tags")
+    }
+
+    /// Proves only the standalone fixture host: a bare card and the details sheet each present the listing stub
+    /// and close back to where they were. It does not exercise `JobsView` (see `JobsDeckFlowUITests`) or the
+    /// native Safari view, which this fixture replaces with a stub.
+    func testStandaloneCardHostPresentsStubListingFromCardAndDetailsAndReturns() {
+        let app = launch("jobs", extra: ["--stub-listing-browser"])
+        let card = app.buttons["job-card"]
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        card.tap()
+        let url = app.staticTexts["stub-browser-url"]
+        require(app, "the card opens its listing in the browser", timeout: 5) { url.exists }
+        XCTAssertEqual(url.label, "https://example.invalid/jobs/1")
+        capture("jobs-listing-browser")
+        app.buttons["Close listing"].tap()
+        require(app, "closing returns to the same card", timeout: 5) { !url.exists && card.exists }
+
+        // Reopen works, and the job's details and application link remain reachable from the same screen.
+        card.tap()
+        require(app, "the listing reopens", timeout: 5) { url.exists }
+        app.buttons["Close listing"].tap()
+        require(app, "the listing closed again", timeout: 5) { !url.exists }
+        app.buttons["Open job details"].tap()
+        let apply = app.buttons["Open application page"]
+        XCTAssertTrue(apply.waitForExistence(timeout: 10))
+        apply.tap()
+        require(app, "the application page opens in the browser from details", timeout: 5) { url.exists }
+        app.buttons["Close listing"].tap()
+        require(app, "details are still showing after the browser closes", timeout: 5) { !url.exists && apply.exists }
     }
 
     // MARK: Onboarding

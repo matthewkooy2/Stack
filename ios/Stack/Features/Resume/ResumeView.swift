@@ -19,7 +19,7 @@ struct ResumeView: View {
     private var processingActive: Bool {
         store.account.resumes.contains { resume in
             let state = store.account.processing(of: resume.id)
-            return ["queued", "parsing", "compiling"].contains(state["pdf"]["status"].string)
+            return ["queued", "parsing", "compiling"].contains(state[ResumeLane.structured]["status"].string)
                 || ["queued", "parsing", "compiling"].contains(state["source"]["status"].string)
         }
     }
@@ -82,8 +82,9 @@ struct ResumeView: View {
         parts.append(resume.detailsStatus)
         return VStack(alignment: .leading, spacing: 0) {
             ListRow(label: resume.name, icon: "resume", detail: parts.joined(separator: " · ")) { managing = resume }
-            if needsAttention(state["pdf"]) {
-                ProcessingStatusView(resumeID: resume.id, kind: "pdf", processing: state["pdf"]).padding(.vertical, 10)
+            if needsAttention(state[ResumeLane.structured]) {
+                ProcessingStatusView(resumeID: resume.id, kind: ResumeLane.structured, processing: state[ResumeLane.structured])
+                    .padding(.vertical, 10)
             }
             if needsAttention(state["source"]) {
                 ProcessingStatusView(resumeID: resume.id, kind: "source", processing: state["source"]).padding(.vertical, 10)

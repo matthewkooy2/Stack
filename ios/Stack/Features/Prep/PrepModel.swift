@@ -374,7 +374,7 @@ final class PrepModel {
     /// Hidden tabs stay mounted, so leaving Prep must explicitly release the microphone.
     func suspendCapture() {
         epoch += 1
-        let stopped = recorder.stop()
+        let stopped = recorder.stop(reason: "Recording stopped when you left Prep. The partial answer was kept.")
         let captured = stopped ?? pendingCapture
         pendingCapture = nil
         guard let saved = captured else { return }

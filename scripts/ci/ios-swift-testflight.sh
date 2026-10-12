@@ -23,7 +23,23 @@ python3 scripts/ci/ios-signing.py export-options "$CI_DIR/ExportOptions.plist"
 SIGNING=(DEVELOPMENT_TEAM="$APPLE_TEAM_ID" CODE_SIGN_STYLE=Manual
   CODE_SIGN_IDENTITY="$IOS_SIGNING_IDENTITY" PROVISIONING_PROFILE_SPECIFIER="$IOS_PROFILE_UUID"
   "OTHER_CODE_SIGN_FLAGS=--keychain $IOS_SIGNING_KEYCHAIN")
+# Re-run the browser acceptance against fictional loopback pages before upload.
+# The heading was observed in the native iOS 18.2 Safari calibration evidence.
+python3 scripts/ci/ios-listing-fixture-server.py --port 18765 > "$CI_DIR/listing-fixture.log" 2>&1 &
+fixture_pid=$!
+trap 'kill "$fixture_pid" 2>/dev/null || true' EXIT
+for attempt in {1..30}; do
+  if curl --fail --silent http://127.0.0.1:18765/health; then break; fi
+  sleep 1
+done
+curl --fail --silent http://127.0.0.1:18765/health
+export STACK_LISTING_REQUIRE_ACCEPTANCE=1
+if [[ -z "${STACK_LISTING_ERROR_TEXT:-}" ]]; then
+  export STACK_LISTING_ERROR_TEXT="Can’t Open Page"
+fi
 bash scripts/ci/ios-swift.sh all
+kill "$fixture_pid"
+trap - EXIT
 xcodebuild archive -project ios/Stack.xcodeproj -scheme Stack -configuration Release \
   -destination 'generic/platform=iOS' -archivePath "$ARCHIVE" \
   -derivedDataPath "$CI_DIR/DerivedData" "${SIGNING[@]}" \

@@ -6,7 +6,6 @@ struct PrepView: View {
     @Environment(AppStore.self) private var store
     @State var model = PrepModel()
     @State private var tool: PrepTool?
-    @State private var showLiveTranscript = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -16,13 +15,22 @@ struct PrepView: View {
                         if model.page != .home {
                             BackButton(label: "Back to Prep", disabled: model.locked) { Task { await model.back() } }
                         }
-                        if [.question, .answer, .recording, .review, .processing, .coaching].contains(model.page) {
+                        if [.question, .answer, .review, .processing, .coaching].contains(model.page) {
                             Text("Question \(model.index + 1) of \(model.plan.count)")
                                 .font(Typeface.caption).foregroundStyle(Palette.muted)
                         }
                         pageContent
                         MessageLine(text: model.error.isEmpty ? model.recorder.error : model.error)
                             .fadeSwitch(!(model.error.isEmpty && model.recorder.error.isEmpty))
+                        if model.page != .recording {
+                            MessageLine(text: model.recorder.stopNotice, isError: false)
+                                .fadeSwitch(!model.recorder.stopNotice.isEmpty)
+                        }
+                        if model.recorder.permissionDenied {
+                            StackButton(label: "Open microphone settings", kind: .secondary) { AppSettings.open() }
+                            Text("Allow microphone access, then return and choose Record answer again. You can also type instead.")
+                                .font(Typeface.caption).foregroundStyle(Palette.muted)
+                        }
                         Text("Saving…").font(Typeface.caption).foregroundStyle(Palette.muted)
                             .fadeSwitch(model.busy || model.saving)
                     }
@@ -215,40 +223,10 @@ struct PrepView: View {
     }
 
     private var recordingPage: some View {
-        VStack(alignment: .leading, spacing: Spacing.stack) {
-            Text("Record your answer").font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink)
-            Text(model.question?.prompt ?? "").font(Typeface.body).foregroundStyle(Palette.text)
-            Card {
-                VStack(spacing: 14) {
-                    Halo(active: model.recorder.isRecording && !model.recorder.isPaused, size: 76) {
-                        GlyphView(name: "mic", size: 38)
-                    }
-                    Text(model.recorder.isPaused ? "Paused" : (model.recorder.isRecording ? "Recording" : "Recording stopped"))
-                        .font(Typeface.body).foregroundStyle(Palette.text)
-                    Text(recordingClock(model.recorder.elapsed))
-                        .font(.system(.largeTitle, design: .default).weight(.bold).monospacedDigit())
-                        .foregroundStyle(Palette.ink)
-                        .contentTransition(.numericText())
-                }
-                .frame(maxWidth: .infinity, minHeight: 180)
-            }
-            if model.recorder.onDevice {
-                Toggle("Show live transcript", isOn: $showLiveTranscript)
-                    .font(Typeface.caption).tint(Palette.icon)
-                if showLiveTranscript {
-                    Text(model.recorder.liveText).font(Typeface.body).foregroundStyle(Palette.text)
-                        .accessibilityLabel("Live transcript")
-                }
-            }
-            Text("Up to five minutes. A phone call or locking your phone stops and keeps the recording.")
-                .font(Typeface.caption).foregroundStyle(Palette.muted)
-            Spacer(minLength: 24)
-            VStack(spacing: Spacing.option) {
-                StackButton(label: "Finish answer", disabled: model.busy) { Task { await model.finishAnswer() } }
-                StackButton(label: model.recorder.isPaused ? "Resume" : "Pause", kind: .secondary,
-                            disabled: model.busy || !model.recordingActive) { model.togglePause() }
-            }
-        }
+        RecordingSurface(recorder: model.recorder, questionNumber: model.index + 1,
+                         questionCount: model.plan.count, prompt: model.question?.prompt ?? "",
+                         busy: model.busy, onStop: { Task { await model.finishAnswer() } },
+                         onTogglePause: { model.togglePause() })
     }
 
     private var review: some View {

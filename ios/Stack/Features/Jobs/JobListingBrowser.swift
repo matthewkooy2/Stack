@@ -49,51 +49,145 @@ struct JobListing: Identifiable, Equatable {
 /// all come from `SFSafariViewController`, so they behave exactly as people expect. It runs out of process, so
 /// Stack never sees the page contents, cookies or anything typed into a form.
 @MainActor
-struct SafariListing: UIViewControllerRepresentable {
-    let url: URL
-    let onFinish: () -> Void
+struct SafariListingPresenter: UIViewControllerRepresentable {
+    @Binding var item: JobListing?
 
-    func makeCoordinator() -> Coordinator { Coordinator(onFinish: onFinish) }
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
-    func makeUIViewController(context: Context) -> SFSafariViewController {
-        let configuration = SFSafariViewController.Configuration()
-        configuration.entersReaderIfAvailable = false
-        configuration.barCollapsingEnabled = true
-        let controller = SFSafariViewController(url: url, configuration: configuration)
-        controller.preferredBarTintColor = UIColor(Palette.page)
-        controller.preferredControlTintColor = UIColor(Palette.dark)
-        controller.dismissButtonStyle = .close
-        controller.delegate = context.coordinator
-        return controller
+    func makeUIViewController(context: Context) -> Anchor {
+        let anchor = Anchor()
+        context.coordinator.anchor = anchor
+        anchor.onAppear = { [weak coordinator = context.coordinator] in coordinator?.synchronize() }
+        return anchor
     }
 
-    func updateUIViewController(_ controller: SFSafariViewController, context: Context) {
-        context.coordinator.onFinish = onFinish
+    func updateUIViewController(_ controller: Anchor, context: Context) {
+        context.coordinator.selection = item
+        context.coordinator.clearSelection = { item = nil }
+        context.coordinator.synchronize()
     }
 
-    final class Coordinator: NSObject, SFSafariViewControllerDelegate {
-        var onFinish: () -> Void
-        init(onFinish: @escaping () -> Void) { self.onFinish = onFinish }
+    static func dismantleUIViewController(_ controller: Anchor, coordinator: Coordinator) {
+        controller.onAppear = nil
+        coordinator.tearDown()
+    }
 
-        func safariViewControllerDidFinish(_ controller: SFSafariViewController) { onFinish() }
+    final class Anchor: UIViewController {
+        var onAppear: (() -> Void)?
+
+        override func viewDidLoad() {
+            super.viewDidLoad()
+            view.backgroundColor = .clear
+            view.isUserInteractionEnabled = false
+        }
+
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            onAppear?()
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, SFSafariViewControllerDelegate, UIAdaptivePresentationControllerDelegate {
+        weak var anchor: Anchor?
+        var selection: JobListing?
+        var clearSelection: (() -> Void)?
+        private var browser: SFSafariViewController?
+        private var presentedID: String?
+        private var dismissing = false
+        private var removed = false
+
+        func synchronize() {
+            guard !removed, !dismissing else { return }
+            if browser != nil {
+                if selection?.id != presentedID { dismiss(clear: false) }
+                return
+            }
+            guard let selection, let anchor, anchor.viewIfLoaded?.window != nil,
+                  anchor.presentedViewController == nil else { return }
+            let configuration = SFSafariViewController.Configuration()
+            configuration.entersReaderIfAvailable = false
+            configuration.barCollapsingEnabled = true
+            let controller = SFSafariViewController(url: selection.url, configuration: configuration)
+            controller.preferredBarTintColor = UIColor(Palette.page)
+            controller.preferredControlTintColor = UIColor(Palette.dark)
+            controller.dismissButtonStyle = .close
+            controller.modalPresentationStyle = .fullScreen
+            controller.delegate = self
+            browser = controller
+            presentedID = selection.id
+            trace("present")
+            // Safari must be presented modally, never embedded as a child of a SwiftUI cover.
+            anchor.present(controller, animated: true)
+            controller.presentationController?.delegate = self
+        }
+
+        func safariViewControllerDidFinish(_ controller: SFSafariViewController) {
+            guard controller === browser else { return }
+            trace("native close callback")
+            dismiss(clear: true)
+        }
+
+        func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+            guard presentationController.presentedViewController === browser else { return }
+            finishDismissal(clear: true)
+        }
+
+        private func dismiss(clear: Bool) {
+            guard !dismissing, let browser else { return }
+            dismissing = true
+            trace("dismiss begin")
+            browser.dismiss(animated: true) { [weak self] in self?.finishDismissal(clear: clear) }
+        }
+
+        private func finishDismissal(clear: Bool) {
+            guard browser != nil else { return }
+            let closedID = presentedID
+            browser = nil
+            presentedID = nil
+            // Retain coverage state until UIKit finishes, so deck cleanup cannot run during dismissal.
+            if clear, selection?.id == closedID {
+                selection = nil
+                clearSelection?()
+            }
+            dismissing = false
+            trace("dismiss complete")
+            synchronize()
+        }
+
+        func tearDown() {
+            removed = true
+            clearSelection = nil
+            browser?.delegate = nil
+            browser?.dismiss(animated: false)
+            browser = nil
+            presentedID = nil
+        }
+
+        private func trace(_ event: String) {
+            #if DEBUG
+            print("Stack listing browser lifecycle: \(event)")
+            #endif
+        }
     }
 }
 
 extension View {
     /// Presents the listing full screen over the current screen, which stays alive underneath, so its deck,
     /// filters, scroll position and selection are exactly as they were when the browser closes.
+    @ViewBuilder
     func jobListingBrowser(item: Binding<JobListing?>) -> some View {
-        fullScreenCover(item: item) { listing in
-            #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("--stub-listing-browser") {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--stub-listing-browser") {
+            fullScreenCover(item: item) { listing in
                 StubListingBrowser(listing: listing) { item.wrappedValue = nil }
-            } else {
-                SafariListing(url: listing.url) { item.wrappedValue = nil }.ignoresSafeArea()
             }
-            #else
-            SafariListing(url: listing.url) { item.wrappedValue = nil }.ignoresSafeArea()
-            #endif
+        } else {
+            background(SafariListingPresenter(item: item).frame(width: 0, height: 0))
         }
+        #else
+        background(SafariListingPresenter(item: item).frame(width: 0, height: 0))
+        #endif
     }
 }
 

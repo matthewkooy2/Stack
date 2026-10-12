@@ -58,7 +58,7 @@ fixture server first, then run only that suite:
 ```sh
 python3 scripts/ci/ios-listing-fixture-server.py --port 18765    # leave running
 xcodebuild test -project ios/Stack.xcodeproj -scheme Stack -destination '<simulator>' \
-  -only-testing:StackUITests/JobListingSafariUITests TEST_RUNNER_STACK_LISTING_FIXTURE_PORT=18765
+  -only-testing:StackUITests/JobListingSafariUITests STACK_LISTING_FIXTURE_PORT=18765
 ```
 
 Without the server the suite skips itself. A skip does not establish native acceptance: the browser behaviour
@@ -66,7 +66,7 @@ is verified only when these tests actually run and pass.
 
 Before accepting failure/retry, observe a distinctive Safari connection-error label on the target OS and locale
 using the loopback `/flaky` page with `/control/fail?on=1`. Supply that observed text as
-`TEST_RUNNER_STACK_LISTING_ERROR_TEXT='observed error label'` in the `xcodebuild test` command above.
+`STACK_LISTING_ERROR_TEXT='observed error label'` in the `xcodebuild test` command above.
 `testFailedConnectionThenReloadRecovers` skips when that calibration is missing; it does not guess system error
 wording. With calibration it requires a fixture request, the observed error label, a successful reload and removal
 of the error label, and keeps screenshots plus an accessibility dump. Reset `/control/fail?on=0` after manual
@@ -76,7 +76,8 @@ the test locale. Device VoiceOver and Reduce Motion behaviour of the browser is 
 Hosted Swift CI starts the fixture and sets `STACK_LISTING_REQUIRE_ACCEPTANCE=1`, so unavailable fixture data is
 a failure. Missing error-text calibration captures the actual error screenshot/accessibility tree and fails;
 the observed wording must then be supplied as `STACK_LISTING_ERROR_TEXT` for a passing failure/retry run.
-The CI script forwards these settings into the XCTest runner and runs native tests serially on the exact PR head.
+The scheme explicitly forwards these build settings into the XCTest runner; the CI script supplies them and
+runs native tests serially on the exact PR head.
 
 Evidence limits of the Jobs flow tests (`JobsDeckFlowUITests`): opening the browser does not force an early
 commit of a pending Save/Pass, but the normal 2.4s Undo timer keeps running while it is open; the tests use a 60s

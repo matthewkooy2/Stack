@@ -14,6 +14,8 @@ final class JobsDeckFlowUITests: XCTestCase {
                                "--long-undo-window"]
         app.launch()
         XCTAssertTrue(app.buttons["job-card-job-alpha"].waitForExistence(timeout: 10), "the deck loads its first card")
+        XCTAssertEqual(app.buttons.matching(identifier: "job-card-job-alpha").count, 1,
+                       "decorative swipe stamps must not create a second accessible card")
         return app
     }
 

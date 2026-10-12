@@ -3,7 +3,7 @@ import XCTest
 /// Drives the real `SFSafariViewController` opened from the real `JobsView`, against fictional pages served by
 /// `scripts/ci/ios-listing-fixture-server.py` on loopback. No live job page, account or form is involved.
 ///
-/// Start the server first (default port 18765, or `TEST_RUNNER_STACK_LISTING_FIXTURE_PORT`), then run this class.
+/// Start the server first (default port 18765, or `STACK_LISTING_FIXTURE_PORT`), then run this class.
 /// The deck is the offline `--screen-flow=deck` fixture; `--listing-url-override=` points its first job at the
 /// loopback page. Every step keeps a real screenshot attachment.
 @MainActor
@@ -49,6 +49,8 @@ final class JobListingSafariUITests: XCTestCase {
                                "--listing-url-override=" + base + path]
         app.launch()
         XCTAssertTrue(app.buttons["job-card-job-alpha"].waitForExistence(timeout: 15), "the deck loads its first card")
+        XCTAssertEqual(app.buttons.matching(identifier: "job-card-job-alpha").count, 1,
+                       "the accessible card is unique")
         return app
     }
 
@@ -184,7 +186,7 @@ final class JobListingSafariUITests: XCTestCase {
         let errorText = (ProcessInfo.processInfo.environment["STACK_LISTING_ERROR_TEXT"] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         try XCTSkipIf(errorText.isEmpty && !requiredAcceptance, "Observe Safari's connection-error label on the target OS/locale, then rerun "
-            + "with TEST_RUNNER_STACK_LISTING_ERROR_TEXT. Missing calibration is not failure/retry acceptance.")
+            + "with STACK_LISTING_ERROR_TEXT. Missing calibration is not failure/retry acceptance.")
         control("/control/fail?on=1")
         defer { control("/control/fail?on=0") }
         let app = launch(path: "/flaky")

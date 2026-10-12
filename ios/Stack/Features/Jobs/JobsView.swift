@@ -126,7 +126,9 @@ struct JobsView: View {
                             .offset(y: CGFloat(offset) * 12)
                             .offset(offset == 0 ? drag : .zero)
                             .rotationEffect(.degrees(offset == 0 ? Double(drag.width / 18) : 0))
-                            .overlay(alignment: .topLeading) { if offset == 0 { stamp(for: drag.width) } }
+                            .overlay(alignment: .topLeading) {
+                                if offset == 0 { stamp(for: drag.width).accessibilityHidden(true) }
+                            }
                             .gesture(swipe(top), including: offset == 0 ? .all : .none)
                             .onTapGesture { if offset == 0 { open(job) } }
                             .accessibilityHidden(offset != 0)

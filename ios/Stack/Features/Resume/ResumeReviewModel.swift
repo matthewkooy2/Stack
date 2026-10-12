@@ -3,6 +3,7 @@ import Foundation
 /// The resume fields Stack's review screen edits, as agreed with the backend: flat keys such as
 /// `profile.name` and `workExperiences.1.jobTitle`. Entry sections repeat; `descriptions` is a
 /// newline-separated list of bullets. Keys outside this table are kept, shown and sent back unchanged.
+/// Limits and extra fields come from the server (`ResumeLimits`, `ResumeDefinition`), not from here.
 struct ResumeFieldSpec: Hashable {
     let name: String
     let label: String
@@ -23,10 +24,6 @@ struct ResumeSectionSpec: Hashable {
 }
 
 enum ResumeSchema {
-    static let maxEntries = 20
-    static let maxFieldLength = 8000
-    static let maxTotalLength = 100_000
-
     static let sections: [ResumeSectionSpec] = [
         ResumeSectionSpec(key: "profile", title: "Contact", entryLabel: "Contact", repeated: false, fields: [
             ResumeFieldSpec(name: "name", label: "Name"),
@@ -76,6 +73,13 @@ enum ResumeSchema {
         return (parts[0], index, parts[2])
     }
 
+    /// A single key split into its section and field name: `profile.links.github` -> (`profile`, `github`).
+    static func singleKey(_ key: String) -> (section: String, field: String) {
+        let parts = key.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count > 1 else { return ("", key) }
+        return (parts[0], parts[parts.count - 1])
+    }
+
     /// A readable name for a field the app does not know: `jobTitle` -> `Job title`.
     static func humanized(_ name: String) -> String {
         var out = ""
@@ -101,49 +105,147 @@ enum ResumeBullets {
     }
 }
 
+/// The processing lane of structured resume extraction. Retired `pdf` tickets map onto it; the LaTeX
+/// `source` lane is a separate lane and is never remapped.
+enum ResumeLane {
+    static let structured = "import"
+    static let source = "source"
+
+    static func kind(of processing: JSON) -> String {
+        processing["kind"].string == source ? source : structured
+    }
+}
+
+/// Bounds the server publishes with a review document. A value the server did not send is nil: no
+/// client-side limit is applied for it and the server's own error is shown instead.
+struct ResumeLimits: Codable, Hashable {
+    var groups: [String: Int] = [:]
+    var scalar: Int?
+    var summary: Int?
+    var descriptions: Int?
+    var bullet: Int?
+    var text: Int?
+    var history: Int?
+    /// Additional server-only compatibility projection bounds, including generated labels/separators.
+    var projectionRecords: Int?
+    var projectionText: Int?
+    var textIncludesProjection: Bool?
+
+    init() {}
+
+    init(_ json: JSON) {
+        func positive(_ value: JSON) -> Int? { value.isNull || value.int <= 0 ? nil : value.int }
+        for (key, value) in json["groups"].object { if let limit = positive(value) { groups[key] = limit } }
+        scalar = positive(json["scalar"])
+        summary = positive(json["summary"])
+        descriptions = positive(json["descriptions"])
+        bullet = positive(json["bullet"])
+        text = positive(json["text"])
+        history = positive(json["history"])
+        projectionRecords = positive(json["projection_records"])
+        projectionText = positive(json["projection_text"])
+        if !json["text_includes_projection"].isNull { textIncludesProjection = json["text_includes_projection"].bool }
+    }
+
+    var isEmpty: Bool { self == ResumeLimits() }
+
+    /// Characters one field may hold: the summary, a `descriptions` list or any other text.
+    func fieldLimit(section: String, field: String) -> Int? {
+        if section == "profile", field == "summary" { return summary }
+        return field == "descriptions" ? descriptions : scalar
+    }
+}
+
+struct ResumeDefinitionField: Codable, Hashable {
+    let name: String
+    let label: String
+    let multiline: Bool
+}
+
+/// One group of fields the server accepts, so a client can add entries when a parse found none.
+struct ResumeDefinition: Codable, Hashable {
+    let key: String
+    let label: String
+    let repeatable: Bool
+    let max: Int?
+    let fields: [ResumeDefinitionField]
+
+    static func parse(_ json: JSON) -> [ResumeDefinition] {
+        json.array.compactMap { item in
+            let key = item["key"].string
+            guard !key.isEmpty else { return nil }
+            let fields: [ResumeDefinitionField] = item["fields"].array.compactMap { field in
+                var name = field["name"].string
+                if name.isEmpty { name = field["key"].string.split(separator: ".").last.map(String.init) ?? "" }
+                guard !name.isEmpty else { return nil }
+                return ResumeDefinitionField(name: name, label: field["label"].string, multiline: field["multiline"].bool)
+            }
+            let max = item["max"].isNull || item["max"].int <= 0 ? nil : item["max"].int
+            return ResumeDefinition(key: key, label: item["label"].string, repeatable: item["repeatable"].bool, max: max, fields: fields)
+        }
+    }
+}
+
+enum ResumeWarnings {
+    /// Warnings arrive as plain strings or as `{code, message}` objects; both read as one line each.
+    static func normalize(_ json: JSON) -> [String] {
+        let items: [JSON]
+        switch json {
+        case .array(let values): items = values
+        case .null: items = []
+        default: items = [json]
+        }
+        return items.compactMap { item in
+            var text = item.string
+            if case .object = item {
+                text = item["message"].string.trimmingCharacters(in: .whitespacesAndNewlines)
+                if text.isEmpty { text = item["code"].string }
+            }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+}
+
 struct ResumeEntry: Codable, Hashable, Identifiable {
     /// Local identity that follows the entry through reordering; never sent to the backend.
     var id: String
     var values: [String: String]
-    /// What the field held when the entry was read (or the backend's `original_values`).
-    var original: [String: String]
+    /// What each field held when this entry was last read or saved. This is the saved version, not the
+    /// original extraction: the backend keeps no per-entry link to the original parse.
+    var saved: [String: String]
 }
 
 /// The editable document: single fields by flat key, repeated entries in display order. Entries keep
-/// their original values and unknown fields while they are added, removed and reordered.
+/// their unknown fields and last-saved values while they are added, removed and reordered.
 struct ResumeDocument: Codable, Hashable {
     var singles: [String: String] = [:]
-    var singleOriginals: [String: String] = [:]
+    var singleSaved: [String: String] = [:]
     var entries: [String: [ResumeEntry]] = [:]
     /// Backend labels for fields and sections the app has no table entry for.
     var labels: [String: String] = [:]
+    /// Bullet lists that hold exactly one blank item. An empty string cannot tell "no items" from "one
+    /// blank item", so this local marker keeps the first new row until it is typed into or removed.
+    var blankBullets: Set<String> = []
 
     init() {}
 
-    /// - Parameters:
-    ///   - values: flat key/value map as read.
-    ///   - originals: the backend's immutable original values, when it supplies them.
-    ///   - carried: originals carried over from the document that was just saved (used when the
-    ///     backend supplies none), keyed by the same flat keys as `values`.
-    init(values: [String: String], originals: [String: String]? = nil, carried: [String: String]? = nil,
-         labels: [String: String] = [:]) {
+    /// - Parameter values: flat key/value map as read; it is also what each field's saved value is.
+    init(values: [String: String], labels: [String: String] = [:]) {
         self.labels = labels
-        func original(_ key: String, _ value: String) -> String { originals?[key] ?? carried?[key] ?? value }
         var grouped: [String: [Int: [String: String]]] = [:]
         for (key, value) in values {
             if let entry = ResumeSchema.entryKey(key) {
                 grouped[entry.section, default: [:]][entry.index, default: [:]][entry.field] = value
             } else {
                 singles[key] = value
-                singleOriginals[key] = original(key, value)
+                singleSaved[key] = value
             }
         }
         for (section, indexed) in grouped {
             entries[section] = indexed.keys.sorted().map { index in
                 let fields = indexed[index] ?? [:]
-                var originalFields: [String: String] = [:]
-                for (field, value) in fields { originalFields[field] = original("\(section).\(index).\(field)", value) }
-                return ResumeEntry(id: "\(section).\(index)", values: fields, original: originalFields)
+                return ResumeEntry(id: "\(section).\(index)", values: fields, saved: fields)
             }
         }
     }
@@ -200,32 +302,41 @@ struct ResumeDocument: Codable, Hashable {
 
     // MARK: Editing
 
+    // Typed text is stored exactly as given. Limits are checked by `problems(limits:)` before a save, so
+    // an edit is never cut short silently.
+
     mutating func setSingle(_ key: String, _ value: String) {
-        singles[key] = String(value.prefix(ResumeSchema.maxFieldLength))
-        if singleOriginals[key] == nil { singleOriginals[key] = "" }
+        singles[key] = value
+        blankBullets.remove(Self.blankKey(single: key))
+        if singleSaved[key] == nil { singleSaved[key] = "" }
     }
 
     mutating func setField(_ section: String, _ id: String, _ field: String, _ value: String) {
         guard var list = entries[section], let index = list.firstIndex(where: { $0.id == id }) else { return }
-        list[index].values[field] = String(value.prefix(ResumeSchema.maxFieldLength))
-        if list[index].original[field] == nil { list[index].original[field] = "" }
+        list[index].values[field] = value
+        blankBullets.remove(Self.blankKey(section, id, field))
+        if list[index].saved[field] == nil { list[index].saved[field] = "" }
         entries[section] = list
     }
 
-    /// Adds an entry with every known field present and empty. Returns nil at the entry limit.
+    /// Adds an entry with every given field present and empty (the known fields when none are given).
+    /// Returns nil at `limit`.
     @discardableResult
-    mutating func addEntry(_ section: String, id: String = "new-" + UUID().uuidString.lowercased()) -> String? {
+    mutating func addEntry(_ section: String, fields: [String]? = nil, limit: Int? = nil,
+                           id: String = "new-" + UUID().uuidString.lowercased()) -> String? {
         var list = entries[section] ?? []
-        guard list.count < ResumeSchema.maxEntries else { return nil }
-        let names = ResumeSchema.spec(section)?.fields.map(\.name) ?? []
-        let blank = Dictionary(uniqueKeysWithValues: names.map { ($0, "") })
-        list.append(ResumeEntry(id: id, values: blank, original: blank))
+        if let limit, list.count >= limit { return nil }
+        let names = fields ?? ResumeSchema.spec(section)?.fields.map(\.name) ?? []
+        let blank = Dictionary(names.map { ($0, "") }, uniquingKeysWith: { first, _ in first })
+        list.append(ResumeEntry(id: id, values: blank, saved: blank))
         entries[section] = list
         return id
     }
 
     mutating func removeEntry(_ section: String, _ id: String) {
         entries[section]?.removeAll { $0.id == id }
+        let prefix = Self.blankKey(section, id, "")
+        blankBullets = blankBullets.filter { !$0.hasPrefix(prefix) }
     }
 
     /// Moves an entry one place; returns whether it moved.
@@ -241,40 +352,55 @@ struct ResumeDocument: Codable, Hashable {
 
     // Bullets are edited as items of the entry's newline-separated value.
 
+    private static func blankKey(single key: String) -> String { "single:" + key }
+    private static func blankKey(_ section: String, _ id: String, _ field: String) -> String { "entry:\(section):\(id):\(field)" }
+
+    private func items(of value: String, blankKey: String) -> [String] {
+        value.isEmpty && blankBullets.contains(blankKey) ? [""] : ResumeBullets.split(value)
+    }
+
     func bullets(_ section: String, _ id: String, _ field: String) -> [String] {
-        ResumeBullets.split(value(section, id, field))
+        items(of: value(section, id, field), blankKey: Self.blankKey(section, id, field))
     }
 
     mutating func setBullets(_ section: String, _ id: String, _ field: String, _ items: [String]) {
-        setField(section, id, field, ResumeBullets.join(items.map(ResumeBullets.clean)))
+        let cleaned = items.map(ResumeBullets.clean)
+        setField(section, id, field, ResumeBullets.join(cleaned))
+        if cleaned == [""], entry(section, id) != nil { blankBullets.insert(Self.blankKey(section, id, field)) }
     }
 
-    func singleBullets(_ key: String) -> [String] { ResumeBullets.split(single(key)) }
+    func singleBullets(_ key: String) -> [String] { items(of: single(key), blankKey: Self.blankKey(single: key)) }
 
     mutating func setSingleBullets(_ key: String, _ items: [String]) {
-        setSingle(key, ResumeBullets.join(items.map(ResumeBullets.clean)))
+        let cleaned = items.map(ResumeBullets.clean)
+        setSingle(key, ResumeBullets.join(cleaned))
+        if cleaned == [""] { blankBullets.insert(Self.blankKey(single: key)) }
     }
 
-    // MARK: Original versus corrected
+    // MARK: Saved versus edited
 
     func isChanged(single key: String) -> Bool {
-        Self.normalize(single(key), bullets: Self.isBulletKey(key)) != Self.normalize(singleOriginals[key] ?? "", bullets: Self.isBulletKey(key))
+        Self.normalize(single(key), bullets: Self.isBulletKey(key)) != Self.normalize(singleSaved[key] ?? "", bullets: Self.isBulletKey(key))
     }
 
     func isChanged(_ section: String, _ id: String, _ field: String) -> Bool {
         guard let entry = entry(section, id) else { return false }
         let bullets = ResumeSchema.field(section: section, name: field)?.bullets ?? (field == "descriptions")
-        return Self.normalize(entry.values[field] ?? "", bullets: bullets) != Self.normalize(entry.original[field] ?? "", bullets: bullets)
+        return Self.normalize(entry.values[field] ?? "", bullets: bullets) != Self.normalize(entry.saved[field] ?? "", bullets: bullets)
     }
 
-    func original(single key: String) -> String { singleOriginals[key] ?? "" }
-    func original(_ section: String, _ id: String, _ field: String) -> String { entry(section, id)?.original[field] ?? "" }
+    func saved(single key: String) -> String { singleSaved[key] ?? "" }
+    func saved(_ section: String, _ id: String, _ field: String) -> String { entry(section, id)?.saved[field] ?? "" }
 
-    mutating func restoreOriginal(single key: String) { singles[key] = singleOriginals[key] ?? "" }
+    mutating func revert(single key: String) {
+        singles[key] = singleSaved[key] ?? ""
+        blankBullets.remove(Self.blankKey(single: key))
+    }
 
-    mutating func restoreOriginal(_ section: String, _ id: String, _ field: String) {
+    mutating func revert(_ section: String, _ id: String, _ field: String) {
         guard var list = entries[section], let index = list.firstIndex(where: { $0.id == id }) else { return }
-        list[index].values[field] = list[index].original[field] ?? ""
+        list[index].values[field] = list[index].saved[field] ?? ""
+        blankBullets.remove(Self.blankKey(section, id, field))
         entries[section] = list
     }
 
@@ -298,8 +424,23 @@ struct ResumeDocument: Codable, Hashable {
         return value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func isEmptyEntry(_ entry: ResumeEntry, section: String) -> Bool {
+    private func isEmptyEntry(_ entry: ResumeEntry) -> Bool {
         entry.values.allSatisfy { Self.normalize($0.value, bullets: $0.key == "descriptions").isEmpty }
+    }
+
+    /// Rows that exist only on this device because they hold no text yet: a new blank entry or a first
+    /// blank bullet. They are never sent, but a local draft keeps them.
+    var hasLocalOnlyRows: Bool {
+        func hasBlankItems(_ value: String) -> Bool {
+            ResumeBullets.split(value).contains { $0.trimmingCharacters(in: .whitespaces).isEmpty }
+        }
+        return !blankBullets.isEmpty
+            || singles.contains { Self.isBulletKey($0.key) && hasBlankItems($0.value) }
+            || entries.values.contains { list in
+                list.contains { entry in
+                    isEmptyEntry(entry) || entry.values.contains { $0.key == "descriptions" && hasBlankItems($0.value) }
+                }
+            }
     }
 
     /// The flat values to save. Entries are numbered in display order; an entry with every field empty
@@ -309,7 +450,7 @@ struct ResumeDocument: Codable, Hashable {
         for (key, value) in singles { flat[key] = Self.normalize(value, bullets: Self.isBulletKey(key)) }
         for (section, list) in entries {
             var index = 0
-            for entry in list where !isEmptyEntry(entry, section: section) {
+            for entry in list where !isEmptyEntry(entry) {
                 for (field, value) in entry.values {
                     flat["\(section).\(index).\(field)"] = Self.normalize(value, bullets: field == "descriptions")
                 }
@@ -319,23 +460,102 @@ struct ResumeDocument: Codable, Hashable {
         return flat
     }
 
-    /// The original values under the same numbering as `flatValues()`.
-    func flatOriginals() -> [String: String] {
-        var flat = singleOriginals
-        for (section, list) in entries {
-            var index = 0
-            for entry in list where !isEmptyEntry(entry, section: section) {
-                for (field, value) in entry.original { flat["\(section).\(index).\(field)"] = value }
-                index += 1
-            }
+    // MARK: Limits
+
+    /// A sentence when `value` does not fit the server's bounds for this field, else nil.
+    static func problem(value: String, section: String, field: String, label: String, limits: ResumeLimits) -> String? {
+        let bullets = field == "descriptions"
+        let text = normalize(value, bullets: bullets)
+        if bullets, let bullet = limits.bullet,
+           let long = text.components(separatedBy: "\n").first(where: { $0.count > bullet }) {
+            return "\(label): each item can be up to \(bullet) characters (this one has \(long.count)). Your text is kept; shorten it to save."
         }
-        return flat
+        if let limit = limits.fieldLimit(section: section, field: field), text.count > limit {
+            return "\(label) can be up to \(limit) characters (it has \(text.count)). Your text is kept; shorten it to save."
+        }
+        return nil
     }
 
-    /// Why this document cannot be saved, or nil.
-    var problem: String? {
-        let total = flatValues().values.reduce(0) { $0 + $1.count }
-        return total > ResumeSchema.maxTotalLength ? "Resume details can hold up to 100,000 characters in total." : nil
+    /// Why this document cannot be saved, in a stable order. Empty when it fits the given limits.
+    func problems(limits: ResumeLimits) -> [String] {
+        var found: [String] = []
+        for key in singles.keys.sorted() {
+            let parts = ResumeSchema.singleKey(key)
+            let label = "\(sectionTitle(parts.section)) \(self.label(forKey: key))"
+            if let message = Self.problem(value: singles[key] ?? "", section: parts.section, field: parts.field,
+                                          label: label, limits: limits) { found.append(message) }
+        }
+        for section in entries.keys.sorted() {
+            let kept = entries(of: section).filter { !isEmptyEntry($0) }
+            if let limit = limits.groups[section], kept.count > limit {
+                found.append("\(sectionTitle(section)) can have up to \(limit) entries (there are \(kept.count)). Remove some to save.")
+            }
+            for (index, entry) in kept.enumerated() {
+                for field in entry.values.keys.sorted() {
+                    let label = "\(sectionTitle(section)) \(index + 1) \(self.label(section: section, field: field))"
+                    if let message = Self.problem(value: entry.values[field] ?? "", section: section, field: field,
+                                                  label: label, limits: limits) { found.append(message) }
+                }
+            }
+        }
+        if let limit = limits.text {
+            let total = flatValues().values.reduce(0) { $0 + $1.count }
+            if total > limit { found.append("Resume details can hold up to \(limit) characters in total (there are \(total)). Your text is kept; shorten it to save.") }
+        }
+        return found
+    }
+}
+
+// MARK: Original extraction
+
+struct ResumeOriginalField: Identifiable, Hashable {
+    let id: String
+    let label: String
+    let value: String
+}
+
+struct ResumeOriginalGroup: Identifiable, Hashable {
+    let id: String
+    let title: String
+    let fields: [ResumeOriginalField]
+}
+
+/// The extractor's own values read back as a read-only list in the order they were extracted. Entry
+/// numbers here are original-parse positions: no link to the current, possibly reordered, entries is
+/// inferred, because the backend keeps none.
+enum ResumeOriginalView {
+    static func groups(values: [String: String], labels: [String: String] = [:]) -> [ResumeOriginalGroup] {
+        let document = ResumeDocument(values: values, labels: labels)
+        func fields(_ keys: [String], id: (String) -> String, label: (String) -> String, value: (String) -> String) -> [ResumeOriginalField] {
+            keys.compactMap { key in
+                let text = value(key)
+                return text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : ResumeOriginalField(id: id(key), label: label(key), value: text)
+            }
+        }
+        var result: [ResumeOriginalGroup] = []
+        func single(_ spec: ResumeSectionSpec) {
+            let keys = spec.fields.map { "\(spec.key).\($0.name)" } + document.extraKeys(in: spec.key)
+            let rows = fields(keys, id: { $0 }, label: { document.label(forKey: $0) }, value: { document.single($0) })
+            if !rows.isEmpty { result.append(ResumeOriginalGroup(id: spec.key, title: spec.title, fields: rows)) }
+        }
+        func repeated(_ section: String, title: String) {
+            for (position, entry) in document.entries(of: section).enumerated() {
+                // The number is the original parse position carried by the key, not the list position.
+                let number = (Int(entry.id.split(separator: ".").last ?? "") ?? position) + 1
+                let known = ResumeSchema.spec(section)?.fields.map(\.name) ?? []
+                let names = known.filter { entry.values[$0] != nil } + entry.values.keys.filter { !known.contains($0) }.sorted()
+                let rows = fields(names, id: { "\(section).\(position).\($0)" }, label: { document.label(section: section, field: $0) },
+                                  value: { entry.values[$0] ?? "" })
+                if !rows.isEmpty { result.append(ResumeOriginalGroup(id: "\(section).\(position)", title: "\(title) \(number)", fields: rows)) }
+            }
+        }
+        for spec in ResumeSchema.sections {
+            if spec.repeated { repeated(spec.key, title: spec.entryLabel) } else { single(spec) }
+        }
+        for section in document.unknownEntrySections { repeated(section, title: document.sectionTitle(section)) }
+        let stray = fields(document.strayKeys, id: { $0 }, label: { document.label(forKey: $0) }, value: { document.single($0) })
+        if !stray.isEmpty { result.append(ResumeOriginalGroup(id: "other", title: "Other fields", fields: stray)) }
+        return result
     }
 }
 
@@ -343,16 +563,21 @@ struct ResumeDocument: Codable, Hashable {
 struct ResumeIncoming {
     var revision: JSON
     var values: [String: String]
+    /// The immutable original extraction (`original_values`), in the original parse's numbering.
     var originals: [String: String]?
     var labels: [String: String]
     var records: [JSON]
     var hasFields: Bool
+    var warnings: [String]
+    var limits: ResumeLimits
+    var definitions: [ResumeDefinition]
 
     init(_ result: JSON) {
         revision = result["revision"]
         var flat: [String: String] = [:]
         var labels: [String: String] = [:]
         var sawSections = false
+        if case .array = result["sections"] { sawSections = true }
         for section in result["sections"].array {
             sawSections = true
             let base = section["key"].string.split(separator: ".").first.map(String.init) ?? ""
@@ -377,6 +602,7 @@ struct ResumeIncoming {
             }
         }
         var sawValues = false
+        if case .object = result["values"] { sawValues = true }
         for (key, value) in result["values"].object {
             sawValues = true
             if flat[key] == nil { flat[key] = value.string }
@@ -384,8 +610,14 @@ struct ResumeIncoming {
         values = flat
         self.labels = labels
         hasFields = sawSections || sawValues
-        let originalObject = result["original_values"].object
-        originals = originalObject.isEmpty ? nil : originalObject.mapValues { $0.string }
+        if case .object(let originalObject) = result["original_values"] {
+            originals = originalObject.mapValues { $0.string }
+        } else {
+            originals = nil
+        }
         records = result["records"].array
+        warnings = ResumeWarnings.normalize(result["warnings"])
+        limits = ResumeLimits(result["limits"])
+        definitions = ResumeDefinition.parse(result["definitions"])
     }
 }

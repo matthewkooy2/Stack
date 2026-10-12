@@ -123,6 +123,13 @@ final class ScreenFlowServer: @unchecked Sendable {
     private var reviewValues: [String: String] = [:]
     private var reviewRevision = 1
     private var reviewConfirmed = false
+    private var reviewOriginalValues: [String: String] = [:]
+    private var reviewProcessing: JSON = .null
+    private var reviewImportPolls = 0
+    private var reviewAccountProcessing: JSON?
+    // Separate synthetic server storage, never the account's live backend or draft files.
+    private let reviewPersistence = UserDefaults(suiteName: "StackOfflineResumeReviewServer")!
+    private var reviewPersistenceKey: String { "resume-1:" + reviewUser }
     private var reviewUser = "fixture-user"
 
     /// A synthetic resume covering every field the review screen edits, plus one field it does not know.
@@ -155,11 +162,32 @@ final class ScreenFlowServer: @unchecked Sendable {
         func argument(_ name: String) -> String? {
             arguments.first { $0.hasPrefix("--\(name)=") }.map { String($0.dropFirst(name.count + 3)) }
         }
-        reviewValues = arguments.contains("--resume-review-empty") ? [:] : Self.reviewFixture
-        reviewRevision = argument("resume-review-revision").flatMap(Int.init) ?? 1
-        reviewConfirmed = arguments.contains("--resume-review-confirmed")
         reviewUser = argument("resume-review-user") ?? "fixture-user"
+        if arguments.contains("--reset-resume-drafts") {
+            reviewPersistence.removePersistentDomain(forName: "StackOfflineResumeReviewServer")
+        }
+        reviewValues = arguments.contains("--resume-review-empty") ? [:] : Self.reviewFixture
+        reviewOriginalValues = reviewValues
+        reviewRevision = 1
+        reviewConfirmed = false
+        if !arguments.contains("--resume-review-empty"),
+           let data = reviewPersistence.data(forKey: reviewPersistenceKey),
+           let saved = try? JSONDecoder().decode(JSON.self, from: data) {
+            reviewValues = saved["values"].object.mapValues { $0.string }
+            reviewOriginalValues = saved["original_values"].object.mapValues { $0.string }
+            reviewRevision = saved["revision"].int
+            reviewConfirmed = saved["confirmed"].bool
+        }
+        if let revision = argument("resume-review-revision").flatMap(Int.init) { reviewRevision = revision }
+        if arguments.contains("--resume-review-confirmed") { reviewConfirmed = true }
         if let edit = argument("resume-review-remote-name") { reviewValues["profile.name"] = edit }
+        reviewProcessing = argument("resume-review-processing").map {
+            JSON.object(["kind": "import", "status": .string($0)])
+        } ?? .null
+        reviewImportPolls = 0
+        reviewAccountProcessing = argument("resume-review-account-processing").map {
+            JSON.object(["kind": "import", "status": .string($0)])
+        }
     }
 
     static var job: JSON {
@@ -197,7 +225,7 @@ final class ScreenFlowServer: @unchecked Sendable {
                             "summary": ["sections": 4, "entries": 6, "bullets": 14]]
         let resumes: [JSON] = [
             ["id": "resume-1", "name": .string(Self.resumeName), "size": 120_000, "created_at": 1_700_000_000,
-             "details_status": "Needs review", "format": format],
+             "details_status": "Needs review", "format": format, "processing": ["import": reviewAccountProcessing ?? reviewProcessing]],
             ["id": "resume-2", "name": "Backup resume.pdf", "size": 90_000, "created_at": 1_690_000_000,
              "details_status": "Confirmed", "format": format],
         ]
@@ -252,6 +280,20 @@ final class ScreenFlowServer: @unchecked Sendable {
         func ok(_ result: JSON) -> (Int, JSON) { (200, ["ok": true, "data": ["result": result]]) }
         func fail(_ message: String) -> (Int, JSON) { (500, ["ok": false, "error": ["message": .string(message)]]) }
         switch name {
+        case "bootstrap":
+            if flow == "resume-review", ["queued", "parsing"].contains(reviewProcessing["status"].string) {
+                reviewImportPolls += 1
+                reviewProcessing["status"] = reviewImportPolls > 1 ? "completed" : "parsing"
+            }
+            return ok(buildSnapshot())
+        case "retry_resume_processing":
+            guard flow == "resume-review", body["id"].string == "resume-1", body["kind"].string == "import" else {
+                return fail("Unknown synthetic processing lane.")
+            }
+            reviewProcessing = ["kind": "import", "status": "queued"]
+            reviewImportPolls = 0
+            reviewAccountProcessing = nil
+            return ok(buildSnapshot())
         case "agent_start":
             guard body["kind"].string == "autofill", body["target_id"].string == "application-1" else {
                 return fail("Unsupported synthetic task.")
@@ -297,6 +339,12 @@ final class ScreenFlowServer: @unchecked Sendable {
             reviewValues = body["values"].object.mapValues { $0.string }
             reviewRevision += 1
             reviewConfirmed = body["confirm"].bool
+            let saved: JSON = ["values": .object(reviewValues.mapValues { .string($0) }),
+                               "original_values": .object(reviewOriginalValues.mapValues { .string($0) }),
+                               "revision": .number(Double(reviewRevision)), "confirmed": .bool(reviewConfirmed)]
+            if let data = try? JSONEncoder().encode(saved) {
+                reviewPersistence.set(data, forKey: reviewPersistenceKey)
+            }
             return ok(reviewDocument())
         case "read_resume_source":
             return ok(["tex": "\\documentclass{article}", "preview": ["name": "preview.pdf", "content": .string(Self.pdfBase64())]])
@@ -335,8 +383,22 @@ final class ScreenFlowServer: @unchecked Sendable {
             return ["key": .string(group), "label": .string(label), "summary": .string(fields.first?["value"].string ?? "Not found"),
                     "fields": .array(fields)]
         }
+        let definitions: [JSON] = ResumeSchema.sections.map { spec in
+            let maximum: JSON = spec.repeated ? .number(Double(spec.key == "educations" ? 20 : 30)) : .null
+            return ["key": .string(spec.key), "label": .string(spec.title), "repeatable": .bool(spec.repeated), "max": maximum,
+                    "fields": .array(spec.fields.map { field in
+                        ["key": .string(spec.key + (spec.repeated ? ".{n}." : ".") + field.name),
+                         "name": .string(field.name), "label": .string(field.label), "multiline": .bool(field.multiline || field.bullets)]
+                    })]
+        }
         return ["revision": .number(Double(reviewRevision)), "confirmed": .bool(reviewConfirmed), "sections": .array(sections),
-                "text": "Ada Example, Data analyst", "warnings": [], "processing": nil]
+                "values": .object(reviewValues.mapValues { .string($0) }),
+                "original_values": .object(reviewOriginalValues.mapValues { .string($0) }),
+                "definitions": .array(definitions),
+                "limits": ["groups": ["educations": 20, "workExperiences": 30, "projects": 30], "scalar": 300,
+                           "summary": 2000, "descriptions": 6000, "bullet": 1500, "text": 60000, "history": 100],
+                "text": "Ada Example, Data analyst", "warnings": [["code": "synthetic", "message": "Check the extracted dates."]],
+                "processing": reviewProcessing]
     }
 
     private static func pdfBase64() -> String {

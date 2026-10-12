@@ -21,6 +21,7 @@ struct ResumeSectionEditor: View {
     private var isOther: Bool { sectionKey == ResumeReviewController.otherSectionID }
     private var title: String { isOther ? "Other fields" : document.sectionTitle(sectionKey) }
     private var isRepeated: Bool { spec?.repeated ?? !isOther }
+    private var addLabel: String { spec?.addLabel ?? "Add entry" }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -53,12 +54,14 @@ struct ResumeSectionEditor: View {
     @ViewBuilder
     private var singleFields: some View {
         if let spec {
-            ForEach(spec.fields, id: \.name) { field in
+            ForEach(controller.fieldSpecs(spec.key), id: \.name) { field in
                 ResumeFieldRow(controller: controller, address: .single("\(spec.key).\(field.name)"), label: field.label,
                                accessibleLabel: "\(spec.title) \(field.label)", bullets: field.bullets,
                                multiline: field.multiline, email: field.email)
             }
-            ForEach(document.extraKeys(in: spec.key), id: \.self) { key in
+            ForEach(document.extraKeys(in: spec.key).filter { key in
+                !controller.fieldSpecs(spec.key).contains { "\(spec.key).\($0.name)" == key }
+            }, id: \.self) { key in
                 ResumeFieldRow(controller: controller, address: .single(key), label: document.label(forKey: key),
                                accessibleLabel: "\(spec.title) \(document.label(forKey: key))",
                                bullets: key.hasSuffix(".descriptions"))
@@ -86,8 +89,8 @@ struct ResumeSectionEditor: View {
             ForEach(Array(list.enumerated()), id: \.element.id) { index, entry in
                 entryCard(entry, index: index, count: list.count, label: "\(entryLabel) \(index + 1)")
             }
-            StackButton(label: spec?.addLabel ?? "Add entry", icon: "add-session", kind: .primary,
-                        disabled: !controller.canEdit || list.count >= ResumeSchema.maxEntries) {
+            StackButton(label: addLabel, icon: "add-session", kind: .primary,
+                        disabled: !controller.canEdit || !controller.canAddEntry(sectionKey)) {
                 controller.addEntry(sectionKey)
             }
             .accessibilityIdentifier("resume-review-add-\(sectionKey)")
@@ -96,7 +99,7 @@ struct ResumeSectionEditor: View {
     }
 
     private func entryCard(_ entry: ResumeEntry, index: Int, count: Int, label: String) -> some View {
-        let known = spec?.fields ?? []
+        let known = controller.fieldSpecs(sectionKey)
         let knownNames = Set(known.map(\.name))
         let extras = entry.values.keys.filter { !knownNames.contains($0) }.sorted()
         return Card(spacing: 14) {
@@ -134,7 +137,8 @@ struct ResumeSectionEditor: View {
     }
 }
 
-/// A labelled text field with the original value and a way back to it once it has been corrected.
+/// A labelled text field. Once edited it shows the last saved value and a way back to it; the original
+/// extraction is a separate read-only screen because entries are renumbered and reordered by saving.
 @MainActor
 struct ResumeFieldRow: View {
     let controller: ResumeReviewController
@@ -171,18 +175,22 @@ struct ResumeFieldRow: View {
                         .background(Palette.field, in: RoundedRectangle(cornerRadius: Spacing.radius, style: .continuous))
                 }
             }
+            if let problem = controller.problem(at: address) {
+                Text(problem).font(Typeface.caption).foregroundStyle(Palette.danger)
+                    .accessibilityIdentifier("resume-problem-\(accessibleLabel)")
+            }
             if changed {
-                let original = controller.document.original(at: address)
+                let saved = controller.document.saved(at: address)
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text(original.isEmpty ? "Original: empty" : "Original: \(original.replacingOccurrences(of: "\n", with: " · "))")
+                    Text(saved.isEmpty ? "Last saved: empty" : "Last saved: \(saved.replacingOccurrences(of: "\n", with: " · "))")
                         .font(Typeface.caption).foregroundStyle(Palette.muted).lineLimit(3)
-                        .accessibilityIdentifier("resume-original-\(accessibleLabel)")
+                        .accessibilityIdentifier("resume-saved-\(accessibleLabel)")
                     Spacer(minLength: 0)
-                    Button("Restore original") { controller.restoreOriginal(at: address) }
+                    Button("Undo change") { controller.revert(at: address) }
                         .font(Typeface.caption.weight(.semibold)).foregroundStyle(Palette.dark)
                         .frame(minHeight: 44)
                         .disabled(!controller.canEdit)
-                        .accessibilityLabel("Restore original \(accessibleLabel)")
+                        .accessibilityLabel("Undo change \(accessibleLabel)")
                 }
             }
         }
@@ -235,6 +243,52 @@ struct ResumeBulletEditor: View {
             Chip(label: "Add item") { controller.addBullet(to: address) }
                 .disabled(!controller.canEdit)
                 .accessibilityLabel("Add item to \(accessibleLabel)")
+        }
+    }
+}
+
+/// The original extraction, read-only and in the order it was extracted. Entry numbers are original
+/// positions; they are not matched to the current entries, which saving may have reordered.
+@MainActor
+struct ResumeOriginalScreen: View {
+    let controller: ResumeReviewController
+    let onBack: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            StackButton(label: "All sections", icon: "return", kind: .secondary, disabled: false, action: onBack)
+                .accessibilityIdentifier("resume-review-all-sections")
+            Text("Original extraction").font(Typeface.section).foregroundStyle(Palette.ink).accessibilityAddTraits(.isHeader)
+            Text("Read-only. These are the fields first extracted from your upload, in their original order. "
+                 + "They are unaltered by edits or editable-field limits. The accepted source text is below.")
+                .font(Typeface.caption).foregroundStyle(Palette.muted)
+            ForEach(Array(controller.warnings.enumerated()), id: \.offset) { _, warning in
+                Text(warning).font(Typeface.caption).foregroundStyle(Palette.text)
+            }
+            let groups = controller.originalGroups
+            if controller.originalValues == nil {
+                Text("The original fields are not available for this resume.").font(Typeface.caption).foregroundStyle(Palette.muted)
+            } else if groups.isEmpty {
+                Text("Nothing was extracted.").font(Typeface.caption).foregroundStyle(Palette.muted)
+            }
+            ForEach(groups) { group in
+                Card(spacing: 10) {
+                    Text(group.title).font(Typeface.option).foregroundStyle(Palette.icon).accessibilityAddTraits(.isHeader)
+                    ForEach(group.fields) { field in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(field.label).font(Typeface.caption).foregroundStyle(Palette.muted)
+                            Text(field.value).font(Typeface.body).foregroundStyle(Palette.text).textSelection(.enabled)
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("resume-original-field-\(field.id)")
+                    }
+                }
+                .accessibilityIdentifier("resume-original-group-\(group.id)")
+            }
+            Text("Extracted text").font(Typeface.option).foregroundStyle(Palette.icon).accessibilityAddTraits(.isHeader)
+            Text(controller.sourceText.isEmpty ? "No text was extracted." : controller.sourceText)
+                .font(Typeface.caption).foregroundStyle(Palette.text).textSelection(.enabled)
+                .accessibilityIdentifier("resume-original-source-text")
         }
     }
 }

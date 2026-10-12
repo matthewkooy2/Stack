@@ -87,17 +87,17 @@ final class ResumeDocumentTests: XCTestCase {
         XCTAssertEqual(flat["educations.0.school"], "Example State")
         XCTAssertEqual(flat["workExperiences.0.jobTitle"], "Analyst")
         XCTAssertFalse(flat.keys.contains { $0.hasPrefix("projects.") })
-        XCTAssertNil(ResumeDocument(values: [:]).problem)
+        XCTAssertTrue(ResumeDocument(values: [:]).problems(limits: ResumeLimits()).isEmpty)
     }
 
-    func testEntryLimitIsTwenty() {
+    func testEntryLimitComesFromTheServer() {
         var document = ResumeDocument(values: [:])
-        for _ in 0..<ResumeSchema.maxEntries { XCTAssertNotNil(document.addEntry("projects")) }
-        XCTAssertNil(document.addEntry("projects"))
-        XCTAssertEqual(document.entries(of: "projects").count, 20)
+        for _ in 0..<3 { XCTAssertNotNil(document.addEntry("projects", limit: 3)) }
+        XCTAssertNil(document.addEntry("projects", limit: 3))
+        XCTAssertEqual(document.entries(of: "projects").count, 3)
     }
 
-    func testRemoveAndReorderKeepOriginalsAndRenumberKeys() {
+    func testRemoveAndReorderKeepSavedValuesAndRenumberKeys() {
         var document = ResumeDocument(values: Sample.values)
         let first = document.entries(of: "educations")[0].id
         let second = document.entries(of: "educations")[1].id
@@ -107,7 +107,7 @@ final class ResumeDocumentTests: XCTestCase {
         var flat = document.flatValues()
         XCTAssertEqual(flat["educations.0.school"], "Lakeside College")
         XCTAssertEqual(flat["educations.1.school"], "Corrected State")
-        XCTAssertEqual(document.flatOriginals()["educations.1.school"], "Example State", "the original travels with the entry")
+        XCTAssertEqual(document.saved("educations", first, "school"), "Example State", "the last saved value travels with local identity")
         XCTAssertTrue(document.isChanged("educations", first, "school"))
         XCTAssertFalse(document.isChanged("educations", second, "school"))
 
@@ -117,7 +117,7 @@ final class ResumeDocumentTests: XCTestCase {
         XCTAssertNil(flat["educations.1.school"], "no stale key is left behind")
         XCTAssertEqual(flat["educations.0.degree"], "B.S.", "unedited fields of the surviving entry are untouched")
 
-        document.restoreOriginal("educations", first, "school")
+        document.revert("educations", first, "school")
         XCTAssertEqual(document.flatValues()["educations.0.school"], "Example State")
     }
 
@@ -136,15 +136,13 @@ final class ResumeDocumentTests: XCTestCase {
         XCTAssertEqual(document.flatValues()["workExperiences.0.descriptions"], "Automated reports\nBuilt dashboards")
     }
 
-    func testOriginalsFromBackendWinOverFieldValue() {
-        let document = ResumeDocument(values: ["profile.name": "Ada Corrected", "educations.0.school": "Corrected State"],
-                                      originals: ["profile.name": "Ada Exampel", "educations.0.school": "Exmaple State"])
-        XCTAssertEqual(document.original(single: "profile.name"), "Ada Exampel")
-        XCTAssertTrue(document.isChanged(single: "profile.name"))
-        XCTAssertEqual(document.original("educations", "educations.0", "school"), "Exmaple State")
-        let fallback = ResumeDocument(values: ["profile.name": "Ada Example"])
-        XCTAssertEqual(fallback.original(single: "profile.name"), "Ada Example")
-        XCTAssertFalse(fallback.isChanged(single: "profile.name"))
+    func testOriginalExtractionIsSeparateFromTheEditableSavedVersion() {
+        let incoming = ResumeIncoming(Sample.document(["profile.name": "Ada Corrected"], originals: ["profile.name": "Ada Exampel"]))
+        let document = ResumeDocument(values: incoming.values)
+        XCTAssertEqual(document.saved(single: "profile.name"), "Ada Corrected")
+        XCTAssertFalse(document.isChanged(single: "profile.name"))
+        XCTAssertEqual(ResumeOriginalView.groups(values: incoming.originals ?? [:]).first?.fields.first?.value, "Ada Exampel")
+        XCTAssertNotNil(ResumeIncoming(Sample.document([:], originals: [:])).originals, "empty originals differ from absent originals")
     }
 
     func testIncomingReadsSectionsAndFlatValuesAndKeepsUnknownKeys() {
@@ -156,6 +154,59 @@ final class ResumeDocumentTests: XCTestCase {
         XCTAssertEqual(incoming.values["profile.custom"], "x")
         XCTAssertNil(incoming.originals)
         XCTAssertEqual(incoming.labels["profile.custom"], "Descriptions", "unknown fields use the backend label")
+        XCTAssertTrue(ResumeIncoming(["sections": []]).hasFields, "an empty section payload is an explicit cleared document")
+        XCTAssertTrue(ResumeIncoming(["values": [:]]).hasFields)
+    }
+
+    func testServerLimitsValidateWithoutTruncatingTypedText() {
+        let limits = ResumeLimits(["groups": ["projects": 1], "scalar": 3, "summary": 6,
+                                   "descriptions": 10, "bullet": 4, "text": 20])
+        var document = ResumeDocument(values: [:])
+        document.setSingle("profile.name", "Long name")
+        document.setSingle("profile.summary", "Long summary")
+        document.setSingleBullets("skills.descriptions", ["oversized"])
+        for title in ["One", "Two"] {
+            let id = document.addEntry("projects")!
+            document.setField("projects", id, "project", title)
+        }
+        XCTAssertEqual(document.single("profile.name"), "Long name")
+        let problems = document.problems(limits: limits)
+        XCTAssertTrue(problems.contains { $0.contains("3 characters") })
+        XCTAssertTrue(problems.contains { $0.contains("6 characters") })
+        XCTAssertTrue(problems.contains { $0.contains("each item") })
+        XCTAssertTrue(problems.contains { $0.contains("1 entries") })
+        XCTAssertTrue(problems.contains { $0.contains("in total") })
+    }
+
+    func testObjectAndStringWarningsAndProcessingLanes() {
+        XCTAssertEqual(ResumeWarnings.normalize([" plain ", ["code": "date", "message": " Check dates "], ["code": "unknown"], ""]),
+                       ["plain", "Check dates", "unknown"])
+        XCTAssertEqual(ResumeLane.kind(of: ["kind": "pdf"]), "import")
+        XCTAssertEqual(ResumeLane.kind(of: ["kind": "import"]), "import")
+        XCTAssertEqual(ResumeLane.kind(of: ["kind": "source"]), "source")
+    }
+
+    func testFrozenParserFixturePreservesOriginalOrderOverflowAndMetadata() throws {
+        let url = try XCTUnwrap(Bundle(for: ResumeDocumentTests.self).url(forResource: "resume-review-contract", withExtension: "json"))
+        let response = try JSONDecoder().decode(JSON.self, from: Data(contentsOf: url))
+        let incoming = ResumeIncoming(response)
+        let current = ResumeDocument(values: incoming.values, labels: incoming.labels)
+        XCTAssertEqual(incoming.revision.int, 3)
+        XCTAssertEqual(current.entries(of: "educations").count, 20)
+        XCTAssertEqual(current.entries(of: "workExperiences")[0].values["company"], "Harbor Systems")
+        XCTAssertEqual(incoming.originals?["workExperiences.0.company"], "Northwind Labs")
+        XCTAssertEqual(incoming.originals?["educations.20.school"], "Fictional University 20")
+        XCTAssertTrue(ResumeOriginalView.groups(values: incoming.originals ?? [:]).contains { $0.title == "Education 21" })
+        XCTAssertEqual(incoming.limits.groups["educations"], 20)
+        XCTAssertEqual(incoming.limits.projectionRecords, 300)
+        XCTAssertEqual(incoming.limits.projectionText, 60000)
+        XCTAssertEqual(incoming.limits.textIncludesProjection, true)
+        XCTAssertEqual(incoming.definitions.count, 6)
+        XCTAssertFalse(incoming.warnings.isEmpty)
+        XCTAssertEqual(ResumeLane.kind(of: response["processing"]), "import")
+        XCTAssertEqual(response["processing"]["status"].string, "completed")
+        XCTAssertTrue(response["provenance"].object.isEmpty)
+        XCTAssertTrue(current.problems(limits: incoming.limits).isEmpty)
     }
 }
 
@@ -177,49 +228,70 @@ final class ResumeDraftStoreTests: XCTestCase {
                                  baseline: ["profile.name": "Ada"], savedAt: 1)
     }
 
-    func testDraftSurvivesANewStoreInstance() {
-        FileResumeDraftStore(root: root).save(draft(user: "user-a"))
+    func testDraftSurvivesANewStoreInstance() throws {
+        try FileResumeDraftStore(root: root).save(draft(user: "user-a"))
         let reloaded = FileResumeDraftStore(root: root).load(userID: "user-a", resumeID: "resume-1")
         XCTAssertEqual(reloaded?.document.single("profile.name"), "Edited")
         XCTAssertEqual(reloaded?.baseRevision, 3)
         XCTAssertTrue(reloaded?.hasEdits ?? false)
     }
 
-    func testDraftsAreIsolatedPerAccountAndResume() {
+    func testDraftsAreIsolatedPerAccountAndResume() throws {
         let store = FileResumeDraftStore(root: root)
-        store.save(draft(user: "user-a"))
+        try store.save(draft(user: "user-a"))
         XCTAssertNil(store.load(userID: "user-b", resumeID: "resume-1"))
         XCTAssertNil(store.load(userID: "user-a", resumeID: "resume-2"))
         XCTAssertNil(store.load(userID: "", resumeID: "resume-1"))
-        store.save(draft(user: "user-b", name: "Other account"))
+        try store.save(draft(user: "user-b", name: "Other account"))
         XCTAssertEqual(store.load(userID: "user-a", resumeID: "resume-1")?.document.single("profile.name"), "Edited")
         XCTAssertEqual(store.load(userID: "user-b", resumeID: "resume-1")?.document.single("profile.name"), "Other account")
     }
 
     func testIdentifiersAreNotOnDisk() throws {
-        FileResumeDraftStore(root: root).save(draft(user: "user-secret-a", resume: "resume-secret-1"))
+        try FileResumeDraftStore(root: root).save(draft(user: "user-secret-a", resume: "resume-secret-1"))
         let names = (FileManager.default.enumerator(atPath: root.path)?.allObjects as? [String]) ?? []
         XCTAssertFalse(names.isEmpty)
         XCTAssertFalse(names.contains { $0.contains("secret") })
     }
 
-    func testClearIfMatchingOnlyRemovesTheSubmittedSnapshot() {
+    func testClearIfMatchingOnlyRemovesTheSubmittedSnapshot() throws {
         let store = FileResumeDraftStore(root: root)
         let submitted = draft(user: "user-a", name: "Submitted")
-        store.save(draft(user: "user-a", name: "Edited after submitting"))
+        try store.save(draft(user: "user-a", name: "Edited after submitting"))
         XCTAssertFalse(store.clear(ifMatching: submitted))
         XCTAssertNotNil(store.load(userID: "user-a", resumeID: "resume-1"))
-        store.save(submitted)
+        try store.save(submitted)
         XCTAssertTrue(store.clear(ifMatching: submitted))
         XCTAssertNil(store.load(userID: "user-a", resumeID: "resume-1"))
     }
 
     func testCorruptFileIsIgnored() throws {
         let store = FileResumeDraftStore(root: root)
-        store.save(draft(user: "user-a"))
+        try store.save(draft(user: "user-a"))
         let files = (FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)?.allObjects as? [URL]) ?? []
         for file in files where file.pathExtension == "json" { try Data("{not json".utf8).write(to: file) }
         XCTAssertNil(store.load(userID: "user-a", resumeID: "resume-1"))
+    }
+
+    func testFirstBlankBulletAndEntrySurviveEncodingAndReload() throws {
+        var pending = draft(user: "user-a")
+        pending.document = ResumeDocument(values: [:])
+        pending.baseline = [:]
+        pending.document.setSingleBullets("skills.descriptions", [""])
+        let id = pending.document.addEntry("projects")!
+        let store = FileResumeDraftStore(root: root)
+        try store.save(pending)
+        let loaded = try XCTUnwrap(store.load(userID: "user-a", resumeID: "resume-1"))
+        XCTAssertEqual(loaded.document.singleBullets("skills.descriptions"), [""])
+        XCTAssertEqual(loaded.document.entries(of: "projects").first?.id, id)
+        XCTAssertTrue(loaded.hasEdits)
+    }
+
+    func testWriteFailureIsThrownInsteadOfReportingDurability() throws {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let blocked = root.appendingPathComponent("not-a-directory")
+        try Data("blocked".utf8).write(to: blocked)
+        XCTAssertThrowsError(try FileResumeDraftStore(root: blocked).save(draft(user: "user-a")))
     }
 }
 
@@ -227,7 +299,7 @@ final class ResumeDraftStoreTests: XCTestCase {
 
 @MainActor
 private final class FakeBackend {
-    var document: JSON = Sample.document()
+    var document: JSON = Sample.document(originals: Sample.values)
     var holdReads = false
     var heldReads: [(JSON, CheckedContinuation<JSON, Error>)] = []
     var readError: Error?
@@ -272,7 +344,8 @@ private final class FakeBackend {
 
     func commit(_ values: [String: String], _ confirm: Bool) -> JSON {
         let next = document["revision"].int + 1
-        document = Sample.document(values, revision: next, confirmed: confirm)
+        let originals = ResumeIncoming(document).originals
+        document = Sample.document(values, revision: next, confirmed: confirm, originals: originals)
         return document
     }
 
@@ -316,7 +389,7 @@ final class ResumeReviewControllerTests: XCTestCase {
         XCTAssertEqual(second.document.value(at: name), "Ada Corrected")
         XCTAssertTrue(second.dirty)
         XCTAssertTrue(second.restoredDraft)
-        XCTAssertEqual(second.document.original(at: name), "Ada Example", "original is kept next to the correction")
+        XCTAssertEqual(second.document.saved(at: name), "Ada Example", "last saved value is kept next to the correction")
         XCTAssertNil(second.conflict)
     }
 
@@ -336,7 +409,7 @@ final class ResumeReviewControllerTests: XCTestCase {
         screen.set("Changed", at: name)
         screen.flush()
         XCTAssertNotNil(drafts.load(userID: "user-a", resumeID: "resume-1"))
-        screen.restoreOriginal(at: name)
+        screen.revert(at: name)
         screen.flush()
         XCTAssertFalse(screen.dirty)
         XCTAssertNil(drafts.load(userID: "user-a", resumeID: "resume-1"))
@@ -451,6 +524,9 @@ final class ResumeReviewControllerTests: XCTestCase {
         XCTAssertEqual(screen.document.value(at: name), "")
         await screen.load()
         XCTAssertFalse(screen.loaded, "an invalidated screen does not read again")
+        XCTAssertNil(screen.originalValues)
+        XCTAssertTrue(screen.sourceText.isEmpty)
+        XCTAssertTrue(screen.warnings.isEmpty)
     }
 
     // MARK: Conflict
@@ -513,7 +589,7 @@ final class ResumeReviewControllerTests: XCTestCase {
         XCTAssertFalse(screen.dirty)
         XCTAssertEqual(screen.message, "Draft saved.")
         XCTAssertEqual(fake.refreshes, 1)
-        XCTAssertEqual(screen.document.original(at: name), "Ada Example", "the original is carried across a save")
+        XCTAssertEqual(screen.originalValues?["profile.name"], "Ada Example", "original extraction stays separate across a save")
 
         await screen.save(confirm: true)
         XCTAssertEqual(fake.saves.count, 2)
@@ -542,7 +618,7 @@ final class ResumeReviewControllerTests: XCTestCase {
         XCTAssertNil(drafts.load(userID: "user-a", resumeID: "resume-1"))
     }
 
-    func testSaveDoesNotClearADraftThatChangedMeanwhile() async {
+    func testSaveDoesNotClearADraftThatChangedMeanwhile() async throws {
         let fake = FakeBackend()
         let screen = controller(fake)
         await screen.load()
@@ -553,7 +629,7 @@ final class ResumeReviewControllerTests: XCTestCase {
         // A reopened screen for the same resume wrote newer edits while the save was in flight.
         var newer = screen.currentDraft()
         newer.document.setSingle("profile.name", "Edited elsewhere afterwards")
-        drafts.save(newer)
+        try drafts.save(newer)
         fake.heldSave?.resume(returning: fake.commit(fake.saves[0].values, false))
         await saving.value
         XCTAssertEqual(drafts.load(userID: "user-a", resumeID: "resume-1")?.document.single("profile.name"),
@@ -705,5 +781,139 @@ final class ResumeReviewControllerTests: XCTestCase {
         XCTAssertEqual(screen.bullets(at: skills), ["SQL", "Python", "R"])
         screen.removeBullet(at: 0, of: skills)
         XCTAssertEqual(screen.bullets(at: skills), ["Python", "R"])
+    }
+
+    func testBlankRowsSurviveQuietReadAndReopenedDraft() async {
+        let fake = FakeBackend()
+        fake.document = Sample.document(["skills.descriptions": "", "additional.descriptions": "Tutor"])
+        let first = controller(fake)
+        await first.load()
+        let skills = ResumeFieldAddress.single("skills.descriptions")
+        let additional = ResumeFieldAddress.single("additional.descriptions")
+        first.addBullet(to: skills)
+        first.addBullet(to: additional)
+        let entry = first.addEntry("projects")!
+        XCTAssertFalse(first.dirty, "blank rows are omitted from the server payload")
+        XCTAssertTrue(first.hasLocalEdits)
+        first.flush()
+        await first.load(quiet: true)
+        XCTAssertEqual(first.bullets(at: skills), [""])
+        XCTAssertEqual(first.bullets(at: additional), ["Tutor", ""])
+        XCTAssertEqual(first.document.entries(of: "projects").first?.id, entry)
+        let reopened = controller(fake)
+        await reopened.load()
+        XCTAssertTrue(reopened.restoredDraft)
+        XCTAssertEqual(reopened.bullets(at: additional), ["Tutor", ""])
+        XCTAssertEqual(reopened.document.entries(of: "projects").first?.id, entry)
+        fake.document = Sample.document(["skills.descriptions": "Server"], revision: 2)
+        await reopened.load(quiet: true)
+        XCTAssertNotNil(reopened.conflict)
+        XCTAssertEqual(reopened.bullets(at: skills), [""])
+    }
+
+    func testBlankBulletInPopulatedListAloneSurvivesRefreshAndRelaunch() async {
+        let fake = FakeBackend()
+        fake.document = Sample.document(["skills.descriptions": "SQL\nPython"])
+        let first = controller(fake)
+        await first.load()
+        let skills = ResumeFieldAddress.single("skills.descriptions")
+        first.addBullet(to: skills)
+        XCTAssertFalse(first.dirty)
+        XCTAssertTrue(first.hasLocalEdits, "the trailing blank alone must protect the draft")
+        first.flush()
+        await first.load(quiet: true)
+        XCTAssertEqual(first.bullets(at: skills), ["SQL", "Python", ""])
+        let reopened = controller(fake)
+        await reopened.load()
+        XCTAssertEqual(reopened.bullets(at: skills), ["SQL", "Python", ""])
+        reopened.moveBullet(at: 2, by: -1, of: skills)
+        reopened.setBullet("   ", at: 1, of: skills)
+        XCTAssertFalse(reopened.dirty)
+        reopened.flush()
+        await reopened.load(quiet: true)
+        XCTAssertEqual(reopened.bullets(at: skills), ["SQL", "   ", "Python"], "middle whitespace-only rows are local too")
+    }
+
+    func testSaveFailureKeepsBlankRowsOnDiskAndOnScreen() async {
+        let fake = FakeBackend()
+        fake.document = Sample.document(["skills.descriptions": ""])
+        let screen = controller(fake)
+        await screen.load()
+        let skills = ResumeFieldAddress.single("skills.descriptions")
+        screen.addBullet(to: skills)
+        fake.saveError = URLError(.notConnectedToInternet)
+        await screen.save(confirm: true)
+        XCTAssertEqual(screen.bullets(at: skills), [""])
+        XCTAssertEqual(drafts.load(userID: "user-a", resumeID: "resume-1")?.document.bullets(at: skills), [""])
+    }
+
+    func testSavedReorderAndReloadNeverPairOriginalsWithCurrentIndexes() async {
+        let fake = FakeBackend()
+        let first = controller(fake)
+        await first.load()
+        let id = first.document.entries(of: "educations")[0].id
+        first.moveEntry("educations", id, by: 1)
+        await first.save(confirm: false)
+        let reopened = controller(fake)
+        await reopened.load()
+        XCTAssertEqual(reopened.document.entries(of: "educations")[0].values["school"], "Lakeside College")
+        XCTAssertEqual(reopened.document.entries(of: "educations")[0].saved["school"], "Lakeside College")
+        let original = reopened.originalGroups.first { $0.id == "educations.0" }
+        XCTAssertEqual(original?.fields.first { $0.id.hasSuffix(".school") }?.value, "Example State")
+        XCTAssertEqual(reopened.originalValues, Sample.values)
+    }
+
+    func testOriginalOverflowRemainsVisibleWithoutBlockingBoundedEditableCopy() async {
+        let fake = FakeBackend()
+        let longOriginal = String(repeating: "x", count: 1000)
+        fake.document = Sample.document(["educations.0.school": "First"], originals: [
+            "educations.0.school": "First", "educations.20.school": "Overflow school", "profile.summary": longOriginal,
+        ])
+        fake.document["limits"] = ["groups": ["educations": 20], "scalar": 300, "summary": 100, "text": 500]
+        fake.document["warnings"] = [["code": "ENTRIES_TRUNCATED", "message": "Some entries are outside the editable copy."]]
+        let screen = controller(fake)
+        await screen.load()
+        XCTAssertEqual(screen.document.entries(of: "educations").count, 1)
+        XCTAssertTrue(screen.originalGroups.contains { $0.title == "Education 21" })
+        XCTAssertEqual(screen.originalValues?["profile.summary"], longOriginal)
+        XCTAssertNil(screen.limitProblem, "originals do not count against editable limits")
+        await screen.save(confirm: false)
+        XCTAssertEqual(fake.saves.count, 1)
+        XCTAssertNil(fake.saves[0].values["educations.20.school"])
+        XCTAssertEqual(screen.originalValues?["educations.20.school"], "Overflow school")
+    }
+
+    func testServerDefinitionsAndLimitsControlAddingAndSaving() async {
+        let fake = FakeBackend()
+        fake.document["limits"] = ["groups": ["projects": 1], "scalar": 5]
+        fake.document["definitions"] = [["key": "projects", "repeatable": true, "max": 1,
+                                           "fields": [["key": "projects.{n}.url", "label": "Project link", "multiline": false]]]]
+        let screen = controller(fake)
+        await screen.load()
+        XCTAssertEqual(screen.fieldSpecs("projects").last?.name, "url")
+        XCTAssertFalse(screen.canAddEntry("projects"))
+        XCTAssertNil(screen.addEntry("projects"))
+        screen.set("Too long for this server", at: name)
+        await screen.save(confirm: false)
+        XCTAssertTrue(fake.saves.isEmpty)
+        XCTAssertFalse(screen.error.isEmpty)
+        XCTAssertEqual(screen.document.value(at: name), "Too long for this server")
+    }
+
+    func testFailedDraftWriteStaysVisibleWhileServerSaveRemainsUsable() async throws {
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let blocked = root.appendingPathComponent("blocked")
+        try Data("blocked".utf8).write(to: blocked)
+        let fake = FakeBackend()
+        let screen = ResumeReviewController(resumeID: "resume-1", userID: "user-a", backend: fake.backend,
+                                            drafts: FileResumeDraftStore(root: blocked), currentUserID: { "user-a" })
+        await screen.load()
+        screen.set("Still usable", at: name)
+        screen.flush()
+        XCTAssertFalse(screen.draftError.isEmpty)
+        XCTAssertEqual(screen.document.value(at: name), "Still usable")
+        await screen.save(confirm: false)
+        XCTAssertEqual(fake.saves.first?.values["profile.name"], "Still usable")
+        XCTAssertTrue(screen.draftError.isEmpty)
     }
 }

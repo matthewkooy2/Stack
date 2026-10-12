@@ -6,7 +6,9 @@ extension ResumeReviewController.Backend {
     static func live(_ store: AppStore) -> ResumeReviewController.Backend {
         ResumeReviewController.Backend(
             read: { id in try await store.call("agent_extract_resume", ["id": .string(id)], timeout: 45) },
-            retry: { id in _ = try await store.callAccount("retry_resume_processing", ["id": .string(id), "kind": "pdf"]) },
+            retry: { id in
+                _ = try await store.callAccount("retry_resume_processing", ["id": .string(id), "kind": .string(ResumeLane.structured)])
+            },
             save: { id, revision, values, confirm in
                 try await store.call("resume_save_details", [
                     "id": .string(id), "revision": revision, "values": .object(values.mapValues { .string($0) }),
@@ -24,7 +26,8 @@ extension ResumeReviewController.Backend {
 }
 
 /// Review of what Stack read from a resume. Every extracted field is editable, grouped into focused
-/// sections; edits are kept on this device until saved. Original uploads stay unchanged.
+/// sections; edits are written to a local draft (a failure is shown and the edits stay editable) until
+/// saved. Original uploads stay unchanged, and the original extraction has its own read-only screen.
 ///
 /// The screen is rebuilt for each signed-in account, so another account's draft is never rendered.
 @MainActor
@@ -51,11 +54,22 @@ private struct ResumeReviewScreen: View {
     @State private var controller: ResumeReviewController?
     @State private var selection: String?
     @State private var showSource = false
+    @State private var lastReadTicket: JSON = .null
+
+    /// A retry changes the account's ticket before the editor's next read completes.
+    private var activeProcessing: JSON {
+        let ticket = store.account.processing(of: resume.id)[ResumeLane.structured]
+        // A cached account snapshot may predate the screen read. Prefer that read until
+        // the account ticket changes (for example immediately after retrying).
+        if !ticket.isNull, ticket != lastReadTicket { return ticket }
+        return controller?.processing ?? ticket
+    }
 
     var body: some View {
         SheetPage(title: "Resume details", subtitle: resume.name) {
             if let controller {
-                ProcessingStatusView(resumeID: resume.id, kind: "pdf", processing: controller.processing)
+                ProcessingStatusView(resumeID: resume.id, kind: ResumeLane.kind(of: activeProcessing),
+                                     processing: activeProcessing)
                 content(controller)
             } else if userID.isEmpty {
                 MessageLine(text: "Sign in to review resume details.")
@@ -69,13 +83,21 @@ private struct ResumeReviewScreen: View {
                 resumeID: resume.id, userID: userID, backend: .live(store), drafts: FileResumeDraftStore.shared,
                 currentUserID: { [store] in store.account.userID }, onConfirmed: onConfirmed)
             controller = made
+            let ticket = store.account.processing(of: resume.id)[ResumeLane.structured]
             await made.load()
+            lastReadTicket = ticket
         }
         .onDisappear { controller?.flush() }
         .onChange(of: scenePhase) { _, phase in if phase != .active { controller?.flush() } }
-        .pollsWhileProcessing(["queued", "parsing"].contains(controller?.processing["status"].string ?? ""))
-        .onChange(of: store.account.processing(of: resume.id)["pdf"]["status"].string) { _, status in
-            if status == "completed" { Task { await controller?.load(quiet: true) } }
+        .pollsWhileProcessing(["queued", "parsing"].contains(activeProcessing["status"].string))
+        .onChange(of: store.account.processing(of: resume.id)[ResumeLane.structured]["status"].string) { _, status in
+            if ["completed", "failed"].contains(status) {
+                let ticket = store.account.processing(of: resume.id)[ResumeLane.structured]
+                Task {
+                    await controller?.load(quiet: true)
+                    if store.account.processing(of: resume.id)[ResumeLane.structured] == ticket { lastReadTicket = ticket }
+                }
+            }
         }
     }
 
@@ -94,6 +116,8 @@ private struct ResumeReviewScreen: View {
             statusBlock(controller)
             if controller.recordMode {
                 ResumeRecordsEditor(controller: controller)
+            } else if selection == ResumeReviewController.originalSectionID {
+                ResumeOriginalScreen(controller: controller) { withAnimation(Motion.fadeAnimation) { selection = nil } }
             } else if let key = selection {
                 ResumeSectionEditor(controller: controller, sectionKey: key) { withAnimation(Motion.fadeAnimation) { selection = nil } }
             } else {
@@ -125,9 +149,15 @@ private struct ResumeReviewScreen: View {
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
                     .accessibilityIdentifier("resume-review-restored")
             }
+            if !controller.draftError.isEmpty {
+                Text(controller.draftError).font(Typeface.caption).foregroundStyle(Palette.danger)
+                    .accessibilityIdentifier("resume-review-draft-error")
+            }
             Text("Check every extracted line. Original uploads stay unchanged. Saving a draft withdraws confirmation.")
                 .font(Typeface.caption).foregroundStyle(Palette.muted)
-            ForEach(controller.warnings, id: \.self) { Text($0).font(Typeface.caption).foregroundStyle(Palette.text) }
+            ForEach(Array(controller.warnings.enumerated()), id: \.offset) { _, warning in
+                Text(warning).font(Typeface.caption).foregroundStyle(Palette.text)
+            }
         }
     }
 
@@ -157,6 +187,26 @@ private struct ResumeReviewScreen: View {
                 .accessibilityAddTraits(.isButton)
                 .accessibilityIdentifier("resume-review-section-\(summary.id)")
             }
+            Button {
+                withAnimation(Motion.fadeAnimation) { selection = ResumeReviewController.originalSectionID }
+            } label: {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Original extraction").font(Typeface.option).foregroundStyle(Palette.icon)
+                        Text("Read-only, in original order").font(Typeface.caption).foregroundStyle(Palette.muted).lineLimit(1)
+                    }
+                    Spacer()
+                    GlyphView(name: "chevron", size: 14, color: Palette.muted)
+                }
+                .padding(.vertical, 12)
+                .frame(minHeight: 56)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Original extraction, read-only, in original order")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityIdentifier("resume-review-section-original")
         }
     }
 

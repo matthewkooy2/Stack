@@ -4,7 +4,7 @@ import Foundation
 /// Unsaved resume-review edits, kept on this device so they survive dismissal, navigation and the
 /// process ending. A draft belongs to one account and one resume; it is never sent anywhere.
 struct ResumeReviewDraft: Codable, Equatable {
-    var version = 1
+    var version = 2
     var userID: String
     var resumeID: String
     /// The revision these edits were made against.
@@ -25,16 +25,23 @@ struct ResumeReviewDraft: Codable, Equatable {
 
     var hasEdits: Bool {
         if let records, let baselineRecords { return records != baselineRecords }
-        return document.flatValues() != baseline
+        return document.flatValues() != baseline || document.hasLocalOnlyRows
     }
 }
 
 protocol ResumeDraftStoring {
     func load(userID: String, resumeID: String) -> ResumeReviewDraft?
-    func save(_ draft: ResumeReviewDraft)
+    /// Throws when the draft could not be written; the caller keeps the edits in memory and says so.
+    func save(_ draft: ResumeReviewDraft) throws
     func clear(userID: String, resumeID: String)
     /// Removes the stored draft only when it still holds exactly `draft`'s edits. Returns whether it did.
     @discardableResult func clear(ifMatching draft: ResumeReviewDraft) -> Bool
+}
+
+enum ResumeDraftError: LocalizedError {
+    case unavailable
+
+    var errorDescription: String? { "There is no place to keep a draft for this account." }
 }
 
 /// Files under Application Support, one per account and resume. Names are digests, so neither the
@@ -67,20 +74,20 @@ struct FileResumeDraftStore: ResumeDraftStoring {
     func load(userID: String, resumeID: String) -> ResumeReviewDraft? {
         guard let url = url(userID: userID, resumeID: resumeID), let data = try? Data(contentsOf: url),
               let draft = try? JSONDecoder().decode(ResumeReviewDraft.self, from: data),
-              draft.version == 1, draft.userID == userID, draft.resumeID == resumeID else { return nil }
+              draft.version == 2, draft.userID == userID, draft.resumeID == resumeID else { return nil }
         return draft
     }
 
-    func save(_ draft: ResumeReviewDraft) {
-        guard let url = url(userID: draft.userID, resumeID: draft.resumeID),
-              let data = try? JSONEncoder().encode(draft) else { return }
+    func save(_ draft: ResumeReviewDraft) throws {
+        guard let url = url(userID: draft.userID, resumeID: draft.resumeID) else { throw ResumeDraftError.unavailable }
+        let data = try JSONEncoder().encode(draft)
         let directory = url.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         var excluded = URLResourceValues()
         excluded.isExcludedFromBackup = true
         var rootURL = root
         try? rootURL.setResourceValues(excluded)
-        try? data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        try data.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
 
     func clear(userID: String, resumeID: String) {

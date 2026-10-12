@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// Background work the server does for a resume (PDF parsing, LaTeX compilation), with retry.
+/// Background work the server does for a resume (reading it into details, LaTeX compilation), with retry.
 @MainActor
 struct ProcessingStatusView: View {
     let resumeID: String
-    var kind = "pdf"
+    var kind = ResumeLane.structured
     let processing: JSON
     @Environment(AppStore.self) private var store
     @State private var retrying = false
@@ -49,9 +49,9 @@ struct ProcessingStatusView: View {
     private var label: String {
         switch status {
         case "queued": return "Saved · Waiting to process"
-        case "parsing": return kind == "pdf" ? "Reading PDF…" : "Reading LaTeX source…"
+        case "parsing": return kind == ResumeLane.source ? "Reading LaTeX source…" : "Reading resume…"
         case "compiling": return "Compiling LaTeX…"
-        case "completed": return kind == "pdf" ? "PDF ready to review" : "LaTeX compiled"
+        case "completed": return kind == ResumeLane.source ? "LaTeX compiled" : "Resume ready to review"
         case "failed": return "Processing failed"
         default: return status
         }

@@ -7,6 +7,16 @@ enum ResumeFieldAddress: Hashable {
     case entry(section: String, id: String, field: String)
 }
 
+extension ResumeFieldAddress {
+    /// The section and field name an address refers to, for looking up limits and labels.
+    var parts: (section: String, field: String) {
+        switch self {
+        case .single(let key): return ResumeSchema.singleKey(key)
+        case .entry(let section, _, let field): return (section, field)
+        }
+    }
+}
+
 extension ResumeDocument {
     func value(at address: ResumeFieldAddress) -> String {
         switch address {
@@ -22,10 +32,24 @@ extension ResumeDocument {
         }
     }
 
-    func original(at address: ResumeFieldAddress) -> String {
+    func saved(at address: ResumeFieldAddress) -> String {
         switch address {
-        case .single(let key): return original(single: key)
-        case .entry(let section, let id, let field): return original(section, id, field)
+        case .single(let key): return saved(single: key)
+        case .entry(let section, let id, let field): return saved(section, id, field)
+        }
+    }
+
+    func bullets(at address: ResumeFieldAddress) -> [String] {
+        switch address {
+        case .single(let key): return singleBullets(key)
+        case .entry(let section, let id, let field): return bullets(section, id, field)
+        }
+    }
+
+    mutating func setBullets(_ items: [String], at address: ResumeFieldAddress) {
+        switch address {
+        case .single(let key): setSingleBullets(key, items)
+        case .entry(let section, let id, let field): setBullets(section, id, field, items)
         }
     }
 
@@ -36,12 +60,13 @@ extension ResumeDocument {
         }
     }
 
-    mutating func restoreOriginal(at address: ResumeFieldAddress) {
+    mutating func revert(at address: ResumeFieldAddress) {
         switch address {
-        case .single(let key): restoreOriginal(single: key)
-        case .entry(let section, let id, let field): restoreOriginal(section, id, field)
+        case .single(let key): revert(single: key)
+        case .entry(let section, let id, let field): revert(section, id, field)
         }
     }
+
 }
 
 struct ResumeSectionSummary: Identifiable, Hashable {
@@ -84,6 +109,14 @@ final class ResumeReviewController {
     private(set) var processing: JSON = .null
     private(set) var warnings: [String] = []
     private(set) var sourceText = ""
+    /// The server's bounds and field definitions; empty until a response carries them.
+    private(set) var limits = ResumeLimits()
+    private(set) var definitions: [String: ResumeDefinition] = [:]
+    /// The immutable original extraction in original parse order; nil when the server sent none.
+    private(set) var originalValues: [String: String]?
+    private var originalLabels: [String: String] = [:]
+    /// Set while local edits could not be written to this device; they stay editable in memory.
+    private(set) var draftError = ""
     /// The newer document the backend holds while local edits are kept.
     private(set) var conflict: JSON?
     private(set) var restoredDraft = false
@@ -125,6 +158,9 @@ final class ResumeReviewController {
         return recordMode ? records != baselineRecords : document.flatValues() != baseline
     }
 
+    /// Includes empty rows waiting for input, which do not appear in the server payload yet.
+    var hasLocalEdits: Bool { dirty || (!recordMode && document.hasLocalOnlyRows) }
+
     var canEdit: Bool { loaded && !saving && isCurrent && !recordMode }
     var canEditRecords: Bool { loaded && !saving && isCurrent && recordMode }
     var hasConflict: Bool { conflict != nil }
@@ -145,6 +181,48 @@ final class ResumeReviewController {
         ResumeReviewDraft(userID: userID, resumeID: resumeID, baseRevision: revision, document: document, baseline: baseline,
                           records: recordMode ? records : nil, baselineRecords: recordMode ? baselineRecords : nil,
                           savedAt: Date().timeIntervalSince1970)
+    }
+
+    /// Read-only groups of the original extraction, in the original order.
+    var originalGroups: [ResumeOriginalGroup] {
+        ResumeOriginalView.groups(values: originalValues ?? [:], labels: originalLabels)
+    }
+
+    /// Why the edits cannot be saved against the server's limits, or nil.
+    var limitProblem: String? { recordMode ? nil : document.problems(limits: limits).first }
+
+    /// Fields of a section: the app's own order and wording, plus any the server defines beyond them.
+    func fieldSpecs(_ section: String) -> [ResumeFieldSpec] {
+        var specs = ResumeSchema.spec(section)?.fields ?? []
+        for field in definitions[section]?.fields ?? [] where !specs.contains(where: { $0.name == field.name }) {
+            let list = field.name == "descriptions"
+            specs.append(ResumeFieldSpec(name: field.name, label: field.label.isEmpty ? ResumeSchema.humanized(field.name) : field.label,
+                                         bullets: list, multiline: field.multiline && !list))
+        }
+        return specs
+    }
+
+    /// Most entries a repeated section may hold, when the server says.
+    func entryLimit(_ section: String) -> Int? {
+        limits.groups[section] ?? (definitions[section]?.repeatable == true ? definitions[section]?.max : nil)
+    }
+
+    func canAddEntry(_ section: String) -> Bool {
+        guard let limit = entryLimit(section) else { return true }
+        return document.entries(of: section).count < limit
+    }
+
+    /// A sentence when this field is over the server's bound; the text itself is never cut.
+    func problem(at address: ResumeFieldAddress) -> String? {
+        guard !recordMode else { return nil }
+        let parts = address.parts
+        let label: String
+        switch address {
+        case .single(let key): label = document.label(forKey: key)
+        case .entry(let section, _, let field): label = document.label(section: section, field: field)
+        }
+        return ResumeDocument.problem(value: document.value(at: address), section: parts.section, field: parts.field,
+                                      label: label, limits: limits)
     }
 
     // MARK: Reading
@@ -174,10 +252,20 @@ final class ResumeReviewController {
     }
 
     private func applyMetadata(_ result: JSON) {
+        let incoming = ResumeIncoming(result)
         processing = result["processing"]
-        warnings = result["warnings"].strings
+        warnings = incoming.warnings
         sourceText = result["text"].string
         if !result["template"].isNull { template = result["template"] }
+        if !incoming.limits.isEmpty { limits = incoming.limits }
+        if !incoming.definitions.isEmpty {
+            definitions = Dictionary(incoming.definitions.map { ($0.key, $0) }, uniquingKeysWith: { first, _ in first })
+        }
+        // The original extraction never changes, so any response that carries it replaces it.
+        if let originals = incoming.originals {
+            originalValues = originals
+            originalLabels = incoming.labels
+        }
     }
 
     private func sameRevision(_ a: JSON, _ b: JSON) -> Bool { a.string == b.string }
@@ -185,7 +273,7 @@ final class ResumeReviewController {
     /// Applies a read. Local edits are never replaced: a newer revision is held as `conflict`.
     private func apply(_ result: JSON) {
         let incoming = ResumeIncoming(result)
-        if loaded, dirty {
+        if loaded, hasLocalEdits {
             applyMetadata(result)
             if !sameRevision(incoming.revision, revision) { conflict = result }
             return
@@ -218,7 +306,7 @@ final class ResumeReviewController {
             document = ResumeDocument()
             baseline = [:]
         } else {
-            document = ResumeDocument(values: incoming.values, originals: incoming.originals, labels: incoming.labels)
+            document = ResumeDocument(values: incoming.values, labels: incoming.labels)
             baseline = document.flatValues()
             records = []
             baselineRecords = []
@@ -242,16 +330,20 @@ final class ResumeReviewController {
         edited()
     }
 
-    func restoreOriginal(at address: ResumeFieldAddress) {
+    /// Puts a field back to what was last read or saved. This is not the original extraction.
+    func revert(at address: ResumeFieldAddress) {
         guard canEdit else { return }
-        document.restoreOriginal(at: address)
+        document.revert(at: address)
         edited()
     }
 
-    func bullets(at address: ResumeFieldAddress) -> [String] { ResumeBullets.split(document.value(at: address)) }
+    /// Bullet items, including a first blank row that has been added but not typed into yet.
+    func bullets(at address: ResumeFieldAddress) -> [String] { document.bullets(at: address) }
 
     func setBullets(_ items: [String], at address: ResumeFieldAddress) {
-        set(ResumeBullets.join(items.map(ResumeBullets.clean)), at: address)
+        guard canEdit else { return }
+        document.setBullets(items, at: address)
+        edited()
     }
 
     func setBullet(_ text: String, at index: Int, of address: ResumeFieldAddress) {
@@ -287,8 +379,9 @@ final class ResumeReviewController {
     @discardableResult
     func addEntry(_ section: String) -> String? {
         guard canEdit else { return nil }
-        guard let id = document.addEntry(section) else {
-            error = "Up to \(ResumeSchema.maxEntries) entries per section."
+        let names = fieldSpecs(section).map(\.name)
+        guard let id = document.addEntry(section, fields: names, limit: entryLimit(section)) else {
+            error = "This section can have up to \(entryLimit(section) ?? 0) entries."
             return nil
         }
         edited()
@@ -330,7 +423,23 @@ final class ResumeReviewController {
     /// Writes (or, when nothing differs from the saved version, removes) this screen's draft now.
     func persistNow() {
         guard loaded, !userID.isEmpty, !invalidated else { return }
-        if dirty { drafts.save(currentDraft()) } else { drafts.clear(userID: userID, resumeID: resumeID) }
+        if hasLocalEdits {
+            keep(currentDraft())
+        } else {
+            drafts.clear(userID: userID, resumeID: resumeID)
+            draftError = ""
+        }
+    }
+
+    /// Writes a draft; a failure is shown, and the edits stay in memory and can still be saved to the server.
+    private func keep(_ draft: ResumeReviewDraft) {
+        do {
+            try drafts.save(draft)
+            draftError = ""
+        } catch {
+            draftError = "These edits could not be kept on this device (\(error.localizedDescription)). "
+                + "They stay on this screen and can still be saved to your account."
+        }
     }
 
     /// Called when the screen disappears or the app leaves the foreground.
@@ -349,6 +458,20 @@ final class ResumeReviewController {
         saveToken += 1
         document = ResumeDocument()
         records = []
+        baseline = [:]
+        baselineRecords = []
+        originalValues = nil
+        originalLabels = [:]
+        sourceText = ""
+        warnings = []
+        limits = ResumeLimits()
+        definitions = [:]
+        processing = .null
+        template = .null
+        revision = .null
+        confirmed = false
+        restoredDraft = false
+        draftError = ""
         conflict = nil
         loaded = false
         error = ""
@@ -373,7 +496,7 @@ final class ResumeReviewController {
 
     func save(confirm: Bool) async {
         guard !saving, loaded, isCurrent, conflict == nil else { return }
-        if !recordMode, let problem = document.problem {
+        if let problem = limitProblem {
             error = problem
             return
         }
@@ -388,7 +511,7 @@ final class ResumeReviewController {
         let token = saveToken
         let submitted = currentDraft()
         let submittedRevision = revision
-        if dirty { drafts.save(submitted) }
+        if hasLocalEdits { keep(submitted) }
         do {
             if needsSave {
                 let result: JSON
@@ -429,8 +552,7 @@ final class ResumeReviewController {
             records = result["records"].isNull ? (submitted.records ?? []) : incoming.records
             baselineRecords = records
         } else if incoming.hasFields {
-            document = ResumeDocument(values: incoming.values, originals: incoming.originals,
-                                      carried: submitted.document.flatOriginals(), labels: incoming.labels)
+            document = ResumeDocument(values: incoming.values, labels: incoming.labels)
             baseline = document.flatValues()
         } else {
             baseline = submitted.document.flatValues()
@@ -439,6 +561,7 @@ final class ResumeReviewController {
         confirmed = result["confirmed"].isNull ? confirm : result["confirmed"].bool
         conflict = nil
         restoredDraft = false
+        draftError = ""
     }
 
     // MARK: Navigation summaries
@@ -479,4 +602,6 @@ final class ResumeReviewController {
     }
 
     static let otherSectionID = "other"
+    /// The read-only original extraction screen.
+    static let originalSectionID = "original"
 }

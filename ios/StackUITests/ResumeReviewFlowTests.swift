@@ -146,16 +146,16 @@ final class ResumeReviewFlowUITests: XCTestCase {
         }
     }
 
-    func testCorrectedValueShowsOriginalAndCanBeRestored() {
+    func testCorrectedValueShowsLastSavedAndCanBeUndone() {
         let app = launch()
         openSection(app, "profile")
         type(app, "Contact Name", " Jr")
-        let original = element(app, id: "resume-original-Contact Name")
-        XCTAssertTrue(original.waitForExistence(timeout: 5), "the original value is shown next to the correction")
-        XCTAssertTrue(original.label.contains("Ada Example"))
-        capture("resume-review-original-and-corrected")
-        let restore = app.buttons["Restore original Contact Name"]
-        show(restore, app, "Restore original")
+        let saved = element(app, id: "resume-saved-Contact Name")
+        XCTAssertTrue(saved.waitForExistence(timeout: 5), "the last saved value is shown next to the correction")
+        XCTAssertTrue(saved.label.contains("Ada Example"))
+        capture("resume-review-saved-and-corrected")
+        let restore = app.buttons["Undo change Contact Name"]
+        show(restore, app, "Undo change")
         restore.tap()
         XCTAssertTrue(waitUntil { self.text(self.field(app, "Contact Name")) == "Ada Example" })
         backToSections(app)
@@ -273,6 +273,8 @@ final class ResumeReviewFlowUITests: XCTestCase {
         XCTAssertTrue(element(app, id: "resume-review-state").waitForExistence(timeout: 10))
         XCTAssertEqual(state(app), "confirmed", "a saved review leaves no stale draft behind")
         XCTAssertFalse(element(app, id: "resume-review-restored").exists)
+        openSection(app, "profile")
+        XCTAssertEqual(text(field(app, "Contact Name")), "Ada Example Saved", "the fixture preserves server values too")
     }
 
     func testNewerServerVersionKeepsEditsUntilExplicitDiscard() {
@@ -316,5 +318,76 @@ final class ResumeReviewFlowUITests: XCTestCase {
         XCTAssertTrue(waitUntil { self.state(app) == "needs-review" })
         let row = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Education, 1 entry")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 5), "the saved entry appears in the section list")
+    }
+
+    func testFirstBlankBulletSurvivesDismissalThenCanBeSavedAndReloaded() {
+        var app = launch(["--resume-review-empty"])
+        openSection(app, "skills")
+        let add = app.buttons["Add item to Skills Skills"]
+        show(add, app, "Add first skill")
+        add.tap()
+        XCTAssertTrue(field(app, "Skills Skills item 1").waitForExistence(timeout: 5))
+        closeSheet(app)
+        reopen(app)
+        openSection(app, "skills")
+        XCTAssertTrue(field(app, "Skills Skills item 1").waitForExistence(timeout: 5), "the blank row survives")
+        type(app, "Skills Skills item 1", "SQL")
+        backToSections(app)
+        let save = element(app, id: "resume-review-save")
+        show(save, app, "Save skill")
+        save.tap()
+        XCTAssertTrue(waitUntil { self.state(app) == "needs-review" })
+        app.terminate()
+        app = launch(reset: false)
+        openSection(app, "skills")
+        XCTAssertEqual(text(field(app, "Skills Skills item 1")), "SQL")
+    }
+
+    func testOriginalExtractionKeepsOriginalOrderAfterSavedReorderAndRestart() {
+        var app = launch()
+        openSection(app, "educations")
+        let actions = app.buttons["Actions for Education 1"]
+        show(actions, app, "Move education")
+        actions.tap()
+        app.buttons["Move down"].tap()
+        backToSections(app)
+        let save = element(app, id: "resume-review-save")
+        show(save, app, "Save order")
+        save.tap()
+        XCTAssertTrue(waitUntil { self.state(app) == "needs-review" })
+        app.terminate()
+        app = launch(reset: false)
+        openSection(app, "educations")
+        XCTAssertEqual(text(field(app, "Education 1 School")), "Lakeside Community College")
+        backToSections(app)
+        openSection(app, "original")
+        let original = element(app, id: "resume-original-field-educations.0.school")
+        show(original, app, "Original education")
+        XCTAssertTrue(original.label.contains("Example State University"))
+        XCTAssertFalse(original.label.contains("Lakeside Community College"))
+        XCTAssertTrue(app.staticTexts["Check the extracted dates."].exists)
+        capture("resume-original-order-after-saved-reorder")
+    }
+
+    func testImportRetryFinishesWithoutDiscardingAnAddedBlankRow() {
+        let app = launch(["--resume-review-processing=failed"])
+        XCTAssertTrue(app.staticTexts["Processing failed"].waitForExistence(timeout: 10))
+        openSection(app, "skills")
+        let add = app.buttons["Add item to Skills Skills"]
+        show(add, app, "Add skill row")
+        add.tap()
+        XCTAssertTrue(field(app, "Skills Skills item 4").waitForExistence(timeout: 5))
+        let retry = app.buttons["Retry processing"]
+        show(retry, app, "Retry import")
+        retry.tap()
+        XCTAssertTrue(app.staticTexts["Resume ready to review"].waitForExistence(timeout: 15), "account ticket changes drive polling after retry")
+        XCTAssertTrue(field(app, "Skills Skills item 4").exists, "the completion read keeps the blank row")
+        capture("resume-import-retry-keeps-blank-row")
+    }
+
+    func testFreshProcessingReadWinsOverStaleAccountTicket() {
+        let app = launch(["--resume-review-processing=completed", "--resume-review-account-processing=failed"])
+        XCTAssertTrue(app.staticTexts["Resume ready to review"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["Retry processing"].exists, "the stale account snapshot must not override the fresher read")
     }
 }

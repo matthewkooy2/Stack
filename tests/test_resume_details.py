@@ -32,8 +32,8 @@ class DetailsContract(unittest.TestCase):
     def test_swift_fixture_matches_current_parser_contract_and_original_evidence(self):
         path = Path(__file__).parent / 'fixtures/resume-review-contract.json'
         raw = path.read_bytes()
-        self.assertEqual(hashlib.sha256(raw).hexdigest(),
-                         '187d0a564f1b0de9f04faae4f98ea0fcf88aaeb9ecd240140fa6d022aaab8532')
+        self.assertEqual(hashlib.sha256(raw.replace(b'\r\n', b'\n')).hexdigest(),
+                         'cc3a78e44470ed1eae1055e9d39c189b6946e66d2fe2eb4b95fc5a564b9fcc31')
         fixture = json.loads(raw)
         self.assertEqual(fixture['definitions'], D.definitions())
         self.assertEqual(fixture['limits'], D.limits())

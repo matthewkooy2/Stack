@@ -35,7 +35,7 @@ done
 curl --fail --silent http://127.0.0.1:18765/health
 export STACK_LISTING_REQUIRE_ACCEPTANCE=1
 if [[ -z "${STACK_LISTING_ERROR_TEXT:-}" ]]; then
-  export STACK_LISTING_ERROR_TEXT="Can't Open Page"
+  export STACK_LISTING_ERROR_TEXT="Can’t Open Page"
 fi
 bash scripts/ci/ios-swift.sh all
 kill "$fixture_pid"

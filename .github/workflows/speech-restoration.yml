@@ -69,7 +69,7 @@ jobs:
       - name: Compile and test without signing or provisioning
         env:
           STACK_LISTING_REQUIRE_ACCEPTANCE: "1"
-          STACK_LISTING_ERROR_TEXT: ${{ inputs.listing_error_text || 'Can''t Open Page' }}
+          STACK_LISTING_ERROR_TEXT: ${{ inputs.listing_error_text || 'Can’t Open Page' }}
         run: |
           mkdir -p .jac/ci-ios-swift
           set -o pipefail

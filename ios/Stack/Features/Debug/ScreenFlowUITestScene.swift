@@ -20,6 +20,7 @@ struct ScreenFlowUITestScene: View {
         configuration.protocolClasses = [ScreenFlowURLProtocol.self]
         let api = APIClient(origin: URL(string: "https://stack.invalid")!, session: URLSession(configuration: configuration))
         let store = AppStore(api: api)
+        if ProcessInfo.processInfo.arguments.contains("--reset-resume-drafts") { FileResumeDraftStore.shared.removeAll() }
         ScreenFlowServer.shared.reset(flow: flow)
         store.account = AccountState(raw: ScreenFlowServer.shared.snapshot())
         switch flow {
@@ -49,12 +50,33 @@ struct ScreenFlowUITestScene: View {
         switch Self.flow {
         case "settings": ProfileView()
         case "resume": ResumeView(onProfile: {})
+        case "resume-review": ResumeReviewFixtureHost()
         case "network": NetworkView(onProfile: {})
         case "applications", "applications-autofill-unavailable": ApplicationsView(onProfile: {}, onNavigate: { _ in })
         case "jobs": ScreenFlowJobHost(job: Job(ScreenFlowServer.job))
         case "onboarding": AccessView()
         case "recovery": InvitationView()
         default: Text("Unknown screen flow").font(Typeface.title)
+        }
+    }
+}
+
+/// The real resume review sheet over a fixture host, so a test can close it, reopen it and switch accounts.
+@MainActor
+private struct ResumeReviewFixtureHost: View {
+    @Environment(AppStore.self) private var store
+    @State private var open = true
+
+    var body: some View {
+        VStack(spacing: Spacing.stack) {
+            Text("Resume review host").font(Typeface.title).foregroundStyle(Palette.ink)
+            StackButton(label: "Open resume review") { open = true }
+        }
+        .padding(.horizontal, Spacing.page)
+        .sheet(isPresented: $open) {
+            ResumeDetailsView(resume: ResumeItem(["id": "resume-1", "name": "Ada Example resume.pdf", "size": 1000,
+                                                  "created_at": 1_700_000_000, "details_status": "Needs review"]))
+                .environment(store)
         }
     }
 }
@@ -98,6 +120,28 @@ final class ScreenFlowServer: @unchecked Sendable {
     private var notesSaves = 0
     private var modelFailed = false
     private var autofillStarted = false
+    private var reviewValues: [String: String] = [:]
+    private var reviewRevision = 1
+    private var reviewConfirmed = false
+    private var reviewUser = "fixture-user"
+
+    /// A synthetic resume covering every field the review screen edits, plus one field it does not know.
+    static let reviewFixture: [String: String] = [
+        "profile.name": "Ada Example", "profile.email": "ada@example.invalid", "profile.phone": "555-0100",
+        "profile.location": "Chicago, IL", "profile.url": "https://example.invalid/ada",
+        "profile.summary": "Analyst who explains experiments clearly.", "profile.headline": "Experimentation analyst",
+        "educations.0.school": "Example State University", "educations.0.degree": "B.S. Statistics",
+        "educations.0.gpa": "3.8", "educations.0.date": "May 2023", "educations.0.location": "Springfield, IL",
+        "educations.0.descriptions": "Dean's list\nStatistics club treasurer",
+        "educations.1.school": "Lakeside Community College", "educations.1.degree": "A.A. General Studies",
+        "educations.1.gpa": "3.9", "educations.1.date": "May 2021", "educations.1.location": "Lakeside, IL",
+        "educations.1.descriptions": "Honors program",
+        "workExperiences.0.company": "Northwind Analytics", "workExperiences.0.jobTitle": "Data Analyst Intern",
+        "workExperiences.0.date": "Summer 2024", "workExperiences.0.location": "Remote",
+        "workExperiences.0.descriptions": "Built weekly dashboards\nAutomated the reporting pipeline\nPresented results to stakeholders",
+        "projects.0.project": "Churn study", "projects.0.date": "2024", "projects.0.descriptions": "Modeled customer churn\nShared findings",
+        "skills.descriptions": "SQL\nPython\nExperiment design", "additional.descriptions": "Volunteer data tutor",
+    ]
 
     func reset(flow: String) {
         lock.lock(); defer { lock.unlock() }
@@ -107,6 +151,15 @@ final class ScreenFlowServer: @unchecked Sendable {
         notesSaves = 0
         modelFailed = false
         autofillStarted = false
+        let arguments = ProcessInfo.processInfo.arguments
+        func argument(_ name: String) -> String? {
+            arguments.first { $0.hasPrefix("--\(name)=") }.map { String($0.dropFirst(name.count + 3)) }
+        }
+        reviewValues = arguments.contains("--resume-review-empty") ? [:] : Self.reviewFixture
+        reviewRevision = argument("resume-review-revision").flatMap(Int.init) ?? 1
+        reviewConfirmed = arguments.contains("--resume-review-confirmed")
+        reviewUser = argument("resume-review-user") ?? "fixture-user"
+        if let edit = argument("resume-review-remote-name") { reviewValues["profile.name"] = edit }
     }
 
     static var job: JSON {
@@ -176,7 +229,7 @@ final class ScreenFlowServer: @unchecked Sendable {
                         "fix": "Configure the browser worker for autofill.", "action": ""]],
         ]]
         return [
-            "user_id": "fixture-user", "profile": profile, "resumes": .array(resumes), "selected_resume": "resume-1",
+            "user_id": .string(reviewUser), "profile": profile, "resumes": .array(resumes), "selected_resume": "resume-1",
             "applications": .array(applications), "people": .array(people), "contacts": .array(contacts),
             "agents": ["features": .array(features), "runs": .array(autofillStarted ? [Self.autofillRun] : []), "active": 0, "attention": 0,
                        "model_provider": ["provider": "", "message": ""]],
@@ -236,14 +289,54 @@ final class ScreenFlowServer: @unchecked Sendable {
         case "read_resume":
             return ok(["name": .string(Self.resumeName), "content": .string(Self.pdfBase64())])
         case "agent_extract_resume":
-            let fields: [JSON] = [["key": "profile.name", "label": "Name", "value": "Ada Example"]]
-            let sections: [JSON] = [["key": "profile", "label": "Profile", "summary": "Name and headline", "fields": .array(fields)]]
-            return ok(["revision": 1, "confirmed": false, "sections": .array(sections), "text": "Ada Example, Data analyst"])
+            return ok(reviewDocument())
+        case "resume_save_details":
+            guard body["revision"].int == reviewRevision else {
+                return fail("This resume changed. Reload the latest version before saving.")
+            }
+            reviewValues = body["values"].object.mapValues { $0.string }
+            reviewRevision += 1
+            reviewConfirmed = body["confirm"].bool
+            return ok(reviewDocument())
         case "read_resume_source":
             return ok(["tex": "\\documentclass{article}", "preview": ["name": "preview.pdf", "content": .string(Self.pdfBase64())]])
         default:
             return ok(buildSnapshot())
         }
+    }
+
+    /// The backend's review document: sections of `{key, label, value}` fields, a revision and the text.
+    private func reviewDocument() -> JSON {
+        let titles = ["profile": "Profile", "educations": "Education", "workExperiences": "Work experience",
+                      "projects": "Projects", "skills": "Skills", "additional": "Additional details"]
+        let names = ["name": "Name", "email": "Email", "phone": "Phone", "location": "Location", "url": "Link",
+                     "summary": "Summary", "school": "School", "degree": "Degree", "gpa": "GPA", "date": "Date",
+                     "company": "Company", "jobTitle": "Job title", "project": "Project", "descriptions": "Descriptions",
+                     "headline": "Headline"]
+        var groups: [String: [(String, String)]] = [:]
+        for (key, value) in reviewValues {
+            let parts = key.split(separator: ".").map(String.init)
+            let group = parts.count == 3 ? "\(parts[0]).\(parts[1])" : parts[0]
+            groups[group, default: []].append((key, value))
+        }
+        let order = ["profile", "educations", "workExperiences", "projects", "skills", "additional"]
+        let sections: [JSON] = groups.keys.sorted { lhs, rhs in
+            let l = order.firstIndex(of: lhs.split(separator: ".").first.map(String.init) ?? "") ?? 99
+            let r = order.firstIndex(of: rhs.split(separator: ".").first.map(String.init) ?? "") ?? 99
+            return l == r ? lhs < rhs : l < r
+        }.map { group in
+            let base = group.split(separator: ".").first.map(String.init) ?? group
+            let index = group.split(separator: ".").dropFirst().first.flatMap { Int($0) }
+            let fields: [JSON] = (groups[group] ?? []).sorted { $0.0 < $1.0 }.map { key, value in
+                let field = key.split(separator: ".").last.map(String.init) ?? key
+                return ["key": .string(key), "label": .string(names[field] ?? field), "value": .string(value)]
+            }
+            let label = (titles[base] ?? base) + (index.map { " \($0 + 1)" } ?? "")
+            return ["key": .string(group), "label": .string(label), "summary": .string(fields.first?["value"].string ?? "Not found"),
+                    "fields": .array(fields)]
+        }
+        return ["revision": .number(Double(reviewRevision)), "confirmed": .bool(reviewConfirmed), "sections": .array(sections),
+                "text": "Ada Example, Data analyst", "warnings": [], "processing": nil]
     }
 
     private static func pdfBase64() -> String {

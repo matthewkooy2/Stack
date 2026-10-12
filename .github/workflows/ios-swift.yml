@@ -8,6 +8,7 @@ on:
       - 'mobile/feature-rpcs.js'
       - 'scripts/ci/ios-swift.sh'
       - 'scripts/ci/ios-swift-static.py'
+      - 'scripts/ci/ios-listing-fixture-server.py'
       - 'scripts/ci/ios-xcresult-attachments.py'
       - 'tests/test_ios_swift_static.py'
       - 'tests/test_ios_xcresult_attachments.py'
@@ -19,6 +20,7 @@ on:
       - 'mobile/feature-rpcs.js'
       - 'scripts/ci/ios-swift.sh'
       - 'scripts/ci/ios-swift-static.py'
+      - 'scripts/ci/ios-listing-fixture-server.py'
       - 'scripts/ci/ios-xcresult-attachments.py'
       - 'tests/test_ios_swift_static.py'
       - 'tests/test_ios_xcresult_attachments.py'
@@ -38,6 +40,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
@@ -52,18 +55,29 @@ jobs:
     name: Build and unit tests (Xcode)
     needs: static
     runs-on: macos-14
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Build and test for the simulator
         env:
           # The API origin is only compiled into Info.plist; tests use stubbed transport.
           STACK_API_URL: https://stack.invalid
-        run: bash scripts/ci/ios-swift.sh test
+          STACK_LISTING_REQUIRE_ACCEPTANCE: '1'
+        run: |
+          python3 scripts/ci/ios-listing-fixture-server.py --port 18765 > "$RUNNER_TEMP/listing-fixture.log" 2>&1 &
+          fixture_pid=$!
+          trap 'kill "$fixture_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:18765/health; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:18765/health
+          bash scripts/ci/ios-swift.sh test
       # Evidence only: a raw .xcresult cannot be read off macOS, so its kept screenshots are exported to PNG.
       # This step never changes the job's result; the build and test step above owns it. Failures to export are
       # written to evidence/manifest.json and shown as warnings.

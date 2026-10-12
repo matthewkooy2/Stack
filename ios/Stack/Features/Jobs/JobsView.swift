@@ -12,6 +12,7 @@ struct JobsView: View {
     @State var drag: CGSize = .zero
     @State var hidden: Set<String> = []
     @State var detail: Job?
+    @State var listing: JobListing?
     @State var search = JobSearch()
     @State var sheet: JobSheet?
     @State var started = false
@@ -63,8 +64,17 @@ struct JobsView: View {
         .task { await start() }
         .task(id: importID) { await watchImport() }
         .onDisappear {
+            // A full-screen cover reports the screen underneath as disappeared. It is still the same visit:
+            // keep the pending Undo and the paging in flight until the browser or sheet closes.
+            guard !JobsLifecycle.isCovered(listing: listing, detail: detail, sheet: sheet) else { return }
             commitDecision()
             feed.cancel()
+        }
+        .onChange(of: listing) { old, new in
+            // Paging that stopped short while the browser was open picks up again.
+            guard old != nil, new == nil, feed.loaded, !feed.nextCursor.isEmpty, !feed.busy,
+                  deck.count < JobDeckFeed.targetDeck else { return }
+            Task { await load(refresh: false, more: true) }
         }
         .onChange(of: store.sessionGeneration) { _, _ in resetForSession() }
         .onChange(of: store.phase) { _, phase in if phase != .ready { resetForSession() } }
@@ -74,6 +84,7 @@ struct JobsView: View {
             Task { await profileSaved(event) }
         }
         .sheet(item: $detail) { job in JobDetailView(job: job).environment(store) }
+        .jobListingBrowser(item: $listing)
         .sheet(item: $sheet) { value in
             switch value {
             case .filters:
@@ -109,6 +120,7 @@ struct JobsView: View {
             VStack(spacing: 20) {
                 ZStack {
                     ForEach(Array(deck.prefix(3).enumerated().reversed()), id: \.element.id) { offset, job in
+                        let canOpenListing = JobListing(job: job) != nil
                         JobCard(job: job)
                             .scaleEffect(1 - CGFloat(offset) * 0.04)
                             .offset(y: CGFloat(offset) * 12)
@@ -116,8 +128,16 @@ struct JobsView: View {
                             .rotationEffect(.degrees(offset == 0 ? Double(drag.width / 18) : 0))
                             .overlay(alignment: .topLeading) { if offset == 0 { stamp(for: drag.width) } }
                             .gesture(swipe(top), including: offset == 0 ? .all : .none)
-                            .onTapGesture { if offset == 0 { detail = job } }
+                            .onTapGesture { if offset == 0 { open(job) } }
                             .accessibilityHidden(offset != 0)
+                            .accessibilityIdentifier("job-card-" + job.id)
+                            .accessibilityHint(canOpenListing ? "Opens the listing" : "Opens the job details")
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityActions {
+                                // A job without a safe link has no browser to open; its tap goes to details.
+                                if canOpenListing { Button("Open listing") { open(job) } }
+                                Button("Job details") { detail = job }
+                            }
                             .accessibilityAction(named: "Save") { decide(top, save: true) }
                             .accessibilityAction(named: "Pass") { decide(top, save: false) }
                     }
@@ -126,6 +146,7 @@ struct JobsView: View {
                 .frame(maxHeight: .infinity)
                 HStack(spacing: 18) {
                     roundButton(icon: "pass", label: "Pass") { decide(top, save: false) }
+                    roundButton(icon: "details", label: "Job details", size: 52) { detail = top }
                     roundButton(icon: "save", label: "Save", filled: true) { decide(top, save: true) }
                 }
                 .padding(.bottom, 12)
@@ -179,10 +200,17 @@ struct JobsView: View {
         return "New verified roles appear here as they are found."
     }
 
-    private func roundButton(icon: String, label: String, filled: Bool = false, action: @escaping () -> Void) -> some View {
+    /// A tap reads the listing in the in-app browser; a job without a safe web link opens its details instead.
+    private func open(_ job: Job) {
+        guard listing == nil, detail == nil, leavingID == nil else { return }
+        if let next = JobListing(job: job) { listing = next } else { detail = job }
+    }
+
+    private func roundButton(icon: String, label: String, filled: Bool = false, size: CGFloat = 68,
+                             action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            GlyphView(name: icon, size: 26, color: filled ? Palette.onDark : Palette.icon)
-                .frame(width: 68, height: 68)
+            GlyphView(name: icon, size: size > 60 ? 26 : 22, color: filled ? Palette.onDark : Palette.icon)
+                .frame(width: size, height: size)
                 .background(filled ? Palette.dark : Palette.button, in: Circle())
         }
         .buttonStyle(.tap(scale: 0.92))
@@ -230,11 +258,19 @@ struct JobsView: View {
             pendingDecision = (job, save, generation)
             if scenePhase != .active { commitDecision(); return }
             undoTimer = Task {
-                do { try await Task.sleep(for: .milliseconds(2400)) } catch { return }
+                do { try await Task.sleep(for: undoWindow) } catch { return }
                 guard !Task.isCancelled else { return }
                 commitDecision()
             }
         }
+    }
+
+    /// How long Undo stays offered. UI tests lengthen it so a slow machine cannot expire it mid-assertion.
+    private var undoWindow: Duration {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--long-undo-window") { return .seconds(60) }
+        #endif
+        return .milliseconds(2400)
     }
 
     private func undoDecision() {
@@ -426,7 +462,7 @@ struct JobDetailView: View {
     @State private var loading = true
     private var displayed: Job { fullJob ?? job }
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.openURL) private var openURL
+    @State private var listing: JobListing?
 
     var body: some View {
         let raw = displayed.raw
@@ -446,8 +482,11 @@ struct JobDetailView: View {
                 if !loadError.isEmpty {
                     StackButton(label: "Retry details", icon: "refresh") { Task { await loadDetails() } }
                 }
-                if let url = URL(string: displayed.url), !displayed.url.isEmpty {
-                    StackButton(label: "Open application page", icon: "link", kind: .dark) { openURL(url) }.reveal(2)
+                if let next = JobListing(job: displayed) {
+                    StackButton(label: "Open application page", icon: "link", kind: .dark) { listing = next }.reveal(2)
+                } else if !displayed.url.isBlank {
+                    Text("This listing's link can't be opened safely in the app.")
+                        .font(Typeface.caption).foregroundStyle(Palette.muted)
                 }
                 if !match.object.isEmpty { matchSection(match) }
                 if !match["confirm"].strings.isEmpty { confirmSection(match["confirm"].strings) }
@@ -474,6 +513,7 @@ struct JobDetailView: View {
             }
         }
         .task(id: job.id) { await loadDetails() }
+        .jobListingBrowser(item: $listing)
     }
 
     private func matchSection(_ match: JSON) -> some View {
@@ -555,11 +595,16 @@ struct JobDetailView: View {
     @ViewBuilder
     private func attribution(_ raw: JSON) -> some View {
         let a = raw["attribution"]
-        if a["label"].string == "Jobs by Adzuna", let url = URL(string: a["url"].string) {
-            Button { openURL(url) } label: {
-                Text("Jobs by Adzuna").font(Typeface.caption).foregroundStyle(Palette.dark).underline()
+        if a["label"].string == "Jobs by Adzuna" {
+            // The attribution is always shown; it is only a link when the URL passes the same http(s) check.
+            if let next = JobListing(job: displayed, link: a["url"].string) {
+                Button { listing = next } label: {
+                    Text("Jobs by Adzuna").font(Typeface.caption).foregroundStyle(Palette.dark).underline()
+                }
+                .accessibilityLabel("Jobs by Adzuna")
+            } else {
+                Text("Jobs by Adzuna").font(Typeface.caption).foregroundStyle(Palette.muted)
             }
-            .accessibilityLabel("Jobs by Adzuna")
         } else if !raw["source_name"].string.isEmpty {
             let checked = raw["checked_at"].double
             Text("Source: \(raw["source_name"].string)\(checked > 0 ? " · Checked \(shortDate(checked))" : "")")

@@ -70,6 +70,10 @@ run_xcodebuild() {
     -destination "$destination" \
     -derivedDataPath "$derived" \
     -resultBundlePath "$result" \
+    -parallel-testing-enabled NO \
+    "TEST_RUNNER_STACK_LISTING_FIXTURE_PORT=${STACK_LISTING_FIXTURE_PORT:-18765}" \
+    "TEST_RUNNER_STACK_LISTING_REQUIRE_ACCEPTANCE=${STACK_LISTING_REQUIRE_ACCEPTANCE:-0}" \
+    "TEST_RUNNER_STACK_LISTING_ERROR_TEXT=${STACK_LISTING_ERROR_TEXT:-}" \
     "STACK_API_URL=${STACK_API_URL:-http://127.0.0.1:8000}" \
     CODE_SIGNING_ALLOWED=NO \
     CODE_SIGNING_REQUIRED=NO

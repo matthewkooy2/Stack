@@ -93,7 +93,15 @@ class ResumeProcessing(unittest.TestCase):
         review = self.rpc('agent_extract_resume', {'id': resume['id']})
         self.assertTrue(review['records'])
         self.assertFalse(review['confirmed'])
-        self.assertIn('temporarily unavailable', self.rpc('resume_save_details', {'id': resume['id'], 'revision': 0, 'values': {'profile.name': 'Invented'}, 'confirm': True})['error'])
+        self.assertEqual(review['details_status'], 'ready')
+        saved = self.rpc('resume_save_details', {'id': resume['id'], 'revision': review['revision'],
+                                               'values': {'profile.name': 'Riley Reviewed'}, 'confirm': True})
+        self.assertTrue(saved['details_confirmed'])
+        self.assertEqual(saved['trusted_source'], 'details')
+        self.assertEqual(self.rpc('agent_settings')['facts'][0]['value'], 'Riley Reviewed')
+        draft = self.rpc('resume_save_details', {'id': resume['id'], 'revision': saved['revision'],
+                                               'values': {'profile.name': 'Riley Draft'}, 'confirm': False})
+        self.assertFalse(draft['confirmed'])
         self.assertIn('temporarily unavailable', self.rpc('retry_resume_processing', {'id': resume['id'], 'kind': 'pdf'})['error'])
         self.assertEqual(self.rpc('agent_settings')['facts'], [])
         self.client.reload()
@@ -138,6 +146,90 @@ class ResumeProcessing(unittest.TestCase):
         self.assertEqual(self.rpc('bootstrap')['resumes'][0]['processing']['source']['status'], 'queued')
         self.run_work(self.worker('resume_processing_claim'), {'pdf': PDF, 'pages': 1})
         self.assertTrue(preview.exists())
+
+    def test_legacy_corrections_migrate_and_persist_as_unconfirmed_details(self):
+        from agents import resume_details as details
+        attach = details.attach_import
+        legacy = {'profile.name': 'Legacy Corrected Name',
+                  'workExperiences.7.company': 'Legacy Corrected Company'}
+        def legacy_attachment(review, result, records, digest):
+            # Seed the pre-structured stored-review shape at the import boundary;
+            # the real worker finish, persistence, reads and reload remain active.
+            return attach({**review, 'values': legacy}, result, records, digest)
+        with patch.object(details, 'attach_import', side_effect=legacy_attachment):
+            resume = self.upload()
+        imported = self.rpc('agent_extract_resume', {'id': resume['id']})
+        self.assertEqual(imported['values']['profile.name'], legacy['profile.name'])
+        self.assertEqual(imported['values']['workExperiences.0.company'], legacy['workExperiences.7.company'])
+        self.assertFalse(imported['details_confirmed'])
+        self.assertEqual(imported['trusted_source'], '')
+        self.assertNotEqual(imported['original_values']['profile.name'], legacy['profile.name'])
+        self.client.reload()
+        self.client.set_auth_token(self.token)
+        reopened = self.rpc('agent_extract_resume', {'id': resume['id']})
+        for key in ('values', 'original_values', 'evidence'):
+            self.assertEqual(reopened[key], imported[key])
+        self.assertFalse(reopened['details_confirmed'])
+        self.assertEqual(self.rpc('agent_settings')['facts'], [])
+
+    def test_details_persist_reorder_delete_and_enforce_owner_revision(self):
+        resume = self.upload()
+        original = self.rpc('agent_extract_resume', {'id': resume['id']})
+        values = {'profile.name': 'Riley Reviewed', 'workExperiences.0.company': 'Northwind',
+                  'workExperiences.0.descriptions': 'First achievement.\nSecond achievement.',
+                  'workExperiences.1.company': 'Harbor'}
+        confirmed = self.rpc('resume_save_details', {'id': resume['id'], 'revision': original['revision'],
+                                                   'values': values, 'confirm': True})
+        self.assertTrue(confirmed['confirmed'])
+        self.assertEqual(confirmed['trusted_source'], 'details')
+        self.assertEqual([r['text'] for r in confirmed['records'] if r['kind'] == 'bullet'],
+                         ['First achievement.', 'Second achievement.'])
+        self.assertIn('error', self.rpc('resume_save_details', {'id': resume['id'], 'revision': original['revision'],
+                                                              'values': {}, 'confirm': False}))
+        draft = self.rpc('resume_save_details', {'id': resume['id'], 'revision': confirmed['revision'],
+                                               'values': {'workExperiences.8.company': 'Harbor'}, 'confirm': False})
+        self.assertFalse(draft['confirmed'])
+        self.assertEqual(self.rpc('agent_settings')['facts'], [])
+        self.client.reload()
+        self.client.set_auth_token(self.token)
+        reopened = self.rpc('agent_extract_resume', {'id': resume['id']})
+        self.assertEqual(reopened['values']['workExperiences.0.company'], 'Harbor')
+        self.assertNotIn('workExperiences.1.company', reopened['values'])
+        for key in ('original_values', 'evidence', 'source', 'text'):
+            self.assertEqual(reopened[key], original[key], key)
+        self.client.register_user('details-stranger', 'Stranger-password-123')
+        self.assertIn('error', self.rpc('agent_extract_resume', {'id': resume['id']}))
+        self.assertIn('error', self.rpc('resume_save_details', {'id': resume['id'], 'revision': draft['revision'],
+                                                              'values': {'profile.name': 'Stranger'}, 'confirm': True}))
+
+    def test_builtin_work_and_preview_withdrawn_but_uploaded_source_preserved(self):
+        resume = self.upload()
+        def save(values, confirm=True):
+            review = self.rpc('agent_extract_resume', {'id': resume['id']})
+            return self.rpc('resume_save_details', {'id': resume['id'], 'revision': review['revision'],
+                                                   'values': values, 'confirm': confirm})
+        save({'profile.name': 'Riley Reviewed'})
+        self.rpc('use_resume_template', {'id': resume['id'], 'template': 'classic'})
+        old = self.worker('resume_processing_claim')
+        save({'profile.name': 'Riley Draft'}, False)
+        self.assertIn('error', self.finish(old, {'error': 'stale compile'}))
+        self.assertEqual(self.worker('resume_processing_claim'), {'idle': True})
+        save({'profile.name': 'Riley Reviewed'})
+        self.rpc('use_resume_template', {'id': resume['id'], 'template': 'classic'})
+        self.run_work(self.worker('resume_processing_claim'), {'pdf': PDF, 'pages': 1})
+        self.assertEqual(self.rpc('bootstrap')['resumes'][0]['format']['kind'], 'builtin')
+        current = self.rpc('agent_extract_resume', {'id': resume['id']})
+        self.rpc('resume_save_records', {'id': resume['id'], 'revision': current['revision'],
+                                         'records': [{'id': 'r0', 'kind': 'title', 'text': 'Raw Reviewed'}], 'confirm': True})
+        source = self.rpc('read_resume_source', {'id': resume['id']})['source']
+        self.assertEqual(source['format'], 'records')
+        self.assertEqual(source['records'][0]['text'], 'Raw Reviewed')
+        self.assertFalse(self.rpc('agent_extract_resume', {'id': resume['id']})['details_confirmed'])
+        self.source(resume['id'])
+        uploaded = self.worker('resume_processing_claim')
+        save({'profile.name': 'Riley New Draft'}, False)
+        self.run_work(uploaded, {'pdf': PDF, 'pages': 1})
+        self.assertEqual(self.rpc('bootstrap')['resumes'][0]['format']['kind'], 'upload')
 
     def test_expired_worker_reclaimed_and_stale_result_refused(self):
         resume = self.upload()

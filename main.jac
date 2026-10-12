@@ -32,6 +32,7 @@ import from agents.tailoring { resume_text }
 import from agents.pdf_safety { inspect_pdf, inspect_file }
 import from agents.resume_templates { TEMPLATES as LATEX_TEMPLATES, fill as fill_template }
 import from agents.record_resume { validate_upload, validate_records, check_documents }
+import from agents.resume_details { view as details_view, save as details_save, facts_for as details_facts, is_resume_fact, attach_import, DetailsError }
 import from agents.bullet_bank { save_review as bank_save_review, compose as bank_compose, KIND as BANK_KIND }
 import from agents.linkedin { profile_url }
 import from agents.autofill { application_url }
@@ -559,7 +560,7 @@ def _resume_source(r: Resume) -> dict[str, any] {
         composed=bank_compose(r.review["records"],r.review.get("bank_selection",[]),[_bank_view(x) for x in [root -->][?:Resume] if jid(x)!=jid(r) and x.review.get("records")]);
         return {"format":"records",**composed,"template":r.review.get("template","classic"),"revision":r.review_revision,"upload_digest":r.upload_digest};
     }
-    if not r.review_confirmed { raise ValueError("Confirm the details for "+r.name+" to fill its built-in template."); }
+    if not r.review_confirmed or not r.review.get("details",{}).get("confirmed") or r.review.get("records_source")!="details" { raise ValueError("Confirm the details for "+r.name+" to fill its built-in template."); }
     return {**fill_template(r.template["builtin"],r.review.get("values",{})),"format":"builtin"};
 }
 def _save_template(id: str, template: dict[str, any], files: dict[str, any]) -> dict[str, any] {
@@ -605,7 +606,7 @@ def:priv use_resume_template(id: str, template: str) -> dict[str, any] {
         }
         if template not in LATEX_TEMPLATES { return _error("Choose one of the built-in templates."); }
         if not r.review_confirmed { return _error("Confirm your resume details first, so Stack can fill the template."); }
-        if r.review.get("records") {
+        if r.review.get("records") and r.review.get("records_source")!="details" {
             _cancel_resume_work(r,"source");_remove_template_files(r);r.template={};
             r.review={**r.review,"template":template};r.review_revision+=1;commit();return bootstrap();
         }
@@ -675,7 +676,7 @@ def:priv change_resume(id: str, action: str, name: str = "") -> dict[str, any] {
         if not name.strip() or len(name)>160 { return _error("Enter a name under 160 characters."); }
         r.name=name.strip();
     } elif action=="delete" {
-        _cancel_resume_work(r);_file_path(r.file_key).unlink(missing_ok=True);_remove_template_files(r);
+        _cancel_resume_work(r);_file_path(r.file_key).unlink(missing_ok=True);_remove_template_files(r);_withdraw_resume_facts(r);
         if _settings().selected_resume==id { _settings().selected_resume=""; }
         for a in [root -->][?:Application] { if a.resume_id==id { a.resume_id=""; } }
         del r;
@@ -856,14 +857,27 @@ def:priv agent_linkedin_start(url: str = "", target_role: str = "") -> dict[str,
         return _agent_start("linkedin","self",{"linkedin_url":url,"target_role":target_role or p.role,"profile":{"name":p.name}},str(uuid4()));
     }
 }
+"""Editable sections for an imported resume: the raw records plus structured details over immutable parser evidence."""
+def _resume_review(r: Resume) -> dict[str, any] {
+    plain={k:v for (k,v) in r.review.items() if k not in ["details","values"]};
+    trusted=r.review.get("records_source","records") if r.review_confirmed else "";
+    return {**plain,**details_view(r.review),"revision":r.review_revision,"confirmed":r.review_confirmed,"trusted_source":trusted,"processing":r.processing.get("import",{})};
+}
 def:priv agent_extract_resume(id: str) -> dict[str, any] {
     _agent_access();
     with _write_lock {
         _agent_fresh();r=_owned_resume(id);
         if r is None { return _error("Resume not found."); }
-        if r.review.get("records") { return {**r.review,"revision":r.review_revision,"confirmed":r.review_confirmed}; }
+        if r.review.get("records") {
+            # Uploads made before structured extraction get one details-only parse; reviewed records stay untouched.
+            current=r.processing.get("import",{}).get("status","completed");
+            if not r.review.get("details") and not r.review.get("details_error") and current=="completed" and Path(r.file_key).suffix in [".pdf",".docx"] {
+                _queue_resume(r,"import",r.file_key,r.upload_digest,0.0,r.name);commit();
+            }
+            return _resume_review(r);
+        }
         if not r.processing.get("import") { _queue_resume(r,"import",r.file_key,r.upload_digest,0.0,r.name);commit(); }
-        return {"processing":r.processing.get("import",{}),"revision":r.review_revision,"confirmed":False};
+        return {"processing":r.processing.get("import",{}),"revision":r.review_revision,"confirmed":False,**details_view({}),"trusted_source":""};
     }
 }
 
@@ -884,10 +898,14 @@ def:priv resume_save_records(id: str, revision: int, records: list[dict[str, any
         }
         if len(history)>=100 { return _error("This resume has 100 record revisions. Export before importing a new copy."); }
         _cancel_resume_work(r,"import");
-        r.review={**r.review,"records":checked,"template":template,"confirmed_at":time.time() if confirm else 0.0,
+        _invalidate_builtin_resume(r);
+        r.review={**r.review,"records":checked,"template":template,"confirmed_at":time.time() if confirm else 0.0,"records_source":"records",
             "record_history":history+[{"revision":revision+1,"records":checked,"confirmed":confirm,"source":"User-reviewed import: "+r.name,"saved_at":time.time()}]};
+        # Raw records and structured details are separate versions; the latest explicit confirmation is the only trusted one.
+        if isinstance(r.review.get("details"),dict) { r.review["details"]={**r.review["details"],"confirmed":False,"confirmed_at":0.0}; }
+        _withdraw_resume_facts(r);
         r.review_revision+=1;r.review_confirmed=confirm;commit();
-        return {**r.review,"revision":r.review_revision,"confirmed":r.review_confirmed};
+        return {**{k:v for (k,v) in r.review.items() if k not in ["details","values"]},"revision":r.review_revision,"confirmed":r.review_confirmed,"trusted_source":"records" if confirm else ""};
     }
 }
 
@@ -927,10 +945,36 @@ def:priv story_create(source_key: str, source_revision: str, excerpt: str, title
     }
 }
 
+def _withdraw_resume_facts(r: Resume) -> None {
+    m=_agent_memory();keep=[f for f in m.facts if not is_resume_fact(f,jid(r))];
+    if len(keep)!=len(m.facts) { m.facts=keep;m.revision+=1; }
+}
+"""Withdraw previews and work generated from earlier details, preserving uploaded LaTeX sources."""
+def _invalidate_builtin_resume(r: Resume) -> None {
+    t=_resume_ticket(str(r.processing.get("source",{}).get("id","")));
+    if t is not None and Path(t.input_key).suffix==".json" { _cancel_resume_work(r,"source"); }
+    if r.template.get("kind")=="builtin" { _remove_template_files(r);r.template={}; }
+}
+"""Replace a resume's editable details with the complete map sent. Absent fields are deleted and indices renumbered.
+Confirming makes these details the trusted resume (records and facts); any draft withdraws both."""
 def:priv resume_save_details(id: str, revision: int, values: dict[str, any], confirm: bool = False) -> dict[str, any] {
     _agent_access();
-    if _owned_resume(id) is None { return _error("Resume not found."); }
-    return _error("PDF detail editing is temporarily unavailable. Existing confirmed facts are preserved.");
+    with _write_lock {
+        _agent_fresh();r=_owned_resume(id);
+        if r is None { return _error("Resume not found."); }
+        if r.review_revision!=revision { return _error("Resume review changed. Reload it before saving."); }
+        if not r.review.get("records") { return _error("Wait for resume import before editing its details."); }
+        try {
+            review=details_save(r.review,values,bool(confirm),revision,time.time(),r.name);
+            facts=validate_facts(details_facts(jid(r),r.name,review["values"])) if confirm else [];
+        } except ValueError as e { return _error(str(e)); }
+        _cancel_resume_work(r,"import");
+        _invalidate_builtin_resume(r);
+        _withdraw_resume_facts(r);
+        if facts { m=_agent_memory();m.facts=m.facts+facts;m.revision+=1; }
+        r.review=dict(review);r.review_revision=revision+1;r.review_confirmed=bool(confirm);commit();
+        return _resume_review(r);
+    }
 }
 
 def _browser_run(id: str) -> AgentRun | None {
@@ -1330,8 +1374,11 @@ def:pub resume_processing_finish(token: str, id: str, owner: str, lease: str, re
             t.status="failed";_resume_progress(t,r);r.processing[t.kind]["error"]=str(result["error"])[:500];
         } elif t.kind=="import" {
             try { records=validate_records(result.get("records",[])); } except ValueError as e { return _error(str(e)); }
-            r.review={**r.review,"records":records,"imported_records":records,"template":"classic","upload_digest":r.upload_digest};
-            r.review_revision+=1;r.review_confirmed=False;t.status="completed";_resume_progress(t,r);
+            # New parses are drafts. A details-only re-parse of an older upload keeps reviewed records and confirmation.
+            merged=attach_import(r.review,result,records,r.upload_digest);
+            r.review=dict(merged[0]);r.review_revision+=1;
+            if merged[1] { r.review_confirmed=False; }
+            t.status="completed";_resume_progress(t,r);
         } else {
             files={suffix:base64.b64decode(data,validate=True) for (suffix,data) in result["files"].items()};
             if set(files)-{".zip",".pdf"} or ".pdf" not in files { return _error("Invalid compiler output."); }

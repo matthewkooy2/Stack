@@ -289,6 +289,16 @@ final class MicrophoneRecorderTests: XCTestCase {
         XCTAssertEqual(recordingSurfaceClock(-1), "00:00")
         XCTAssertEqual(RecordingLevelBars.spoken(.idle, running: false), "Not recording")
         XCTAssertTrue(RecordingLevelBars.caption(.quiet, running: true).contains("speak up"))
+        XCTAssertEqual(RecordingLevelBars.barHeight(level: 0, minHeight: 14, maxHeight: 104), 14)
+        XCTAssertEqual(RecordingLevelBars.barHeight(level: 1, minHeight: 14, maxHeight: 104), 104)
+        XCTAssertEqual(RecordingLevelBars.barHeight(level: 7, minHeight: 14, maxHeight: 104), 104)
+        XCTAssertEqual(RecordingLevelBars.barHeight(level: .nan, minHeight: 14, maxHeight: 104), 14)
+        var smoother = LevelBarSmoother()
+        let rising = smoother.advance(toward: [1, 0.5, 0, 0, 0.5, 1], elapsed: 1.0 / 60.0)
+        XCTAssertTrue(rising[0] > 0 && rising[0] < 1 && rising[2] == 0)
+        XCTAssertEqual(smoother.advance(toward: [1, 0.5, 0, 0, 0.5, 1], elapsed: 1).first, 1)
+        XCTAssertEqual(smoother.advance(toward: [1, 1, 1, 1, 1, 1], elapsed: 0).first, 1)
+        XCTAssertEqual(smoother.advance(toward: [0.3, .nan, 9, 0, 0, 0], elapsed: 0, smoothing: false), [0.3, 0, 1, 0, 0, 0])
         XCTAssertEqual(RecordingLevelBars.spoken(PCMLevelSnapshot(bars: [], level: 1, quality: .clipping), running: true), "Too loud")
     }
 }

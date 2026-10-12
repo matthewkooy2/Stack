@@ -23,7 +23,10 @@ def git(*args):
 
 
 def api(path, raw=False):
-    data = subprocess.check_output(['gh', 'api', 'repos/' + REPO + '/' + path])
+    command = ['gh', 'api', 'repos/' + REPO + '/' + path]
+    if path.endswith('/logs'):
+        command += ['-H', 'Range: bytes=0-131071']
+    data = subprocess.check_output(command)
     return data if raw else json.loads(data)
 
 
@@ -63,6 +66,17 @@ def release_changes(commit):
     return git('diff-tree', '--root', '--no-commit-id', '--name-only', '-r', commit).splitlines()
 
 
+def checkout_commit(job):
+    # GitHub drops PR associations from old runs once a PR closes. The pinned
+    # checkout action's first Git log command still records the actual tested SHA.
+    log = api(f"actions/jobs/{job['id']}/logs", raw=True)[:131072].decode('utf-8-sig')
+    match = re.search(r'(?m)^20\d\d-\S+ \[command\]\S*git log -1 --format=%H\r?\n'
+                      r'20\d\d-\S+ ([0-9a-f]{40})\r?$', log)
+    if not match:
+        raise ValueError('Missing GitHub checkout identity; verify actual main')
+    return match.group(1)
+
+
 def proof_for(run):
     name = f"native-proof-{run['id']}-{run['run_attempt']}"
     artifacts = api(f"actions/runs/{run['id']}/artifacts?per_page=100")['artifacts']
@@ -88,17 +102,21 @@ def validate(run, proof, tree, machine, depth=0):
     commit = api('git/commits/' + proof['commit'])
     if proof['tree'] != tree or commit['tree']['sha'] != tree:
         raise ValueError('The actual release tree differs from native verification')
+    jobs = api(f"actions/runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100")['jobs']
+    jobs = [j for j in jobs if j['name'] == JOB]
+    if len(jobs) != 1 or jobs[0]['conclusion'] != 'success' or jobs[0]['runner_group_name'] != 'GitHub Actions':
+        raise ValueError('Expected successful isolated native job')
     if run['event'] == 'push':
         if run['head_branch'] != 'main' or proof['commit'] != run['head_sha']:
             raise ValueError('Native push did not verify this exact main commit')
     else:
         prs = run['pull_requests']
-        if len(prs) != 1 or prs[0]['head']['repo']['id'] != run['repository']['id']:
+        if any(pr['head']['repo']['id'] != run['repository']['id'] for pr in prs):
             raise ValueError('Fork or ambiguous PR evidence cannot authorize release')
+        if checkout_commit(jobs[0]) != proof['commit']:
+            raise ValueError('Manifest differs from GitHub-owned checkout identity')
         if len(commit['parents']) != 2 or commit['parents'][1]['sha'] != run['head_sha']:
             raise ValueError('PR evidence did not test its synthetic merge commit')
-        if commit['parents'][0]['sha'] != prs[0]['base']['sha']:
-            raise ValueError('PR merge base changed; verify actual main instead')
         # Derive the merged code ourselves from GitHub-owned base/head identities.
         # A PR-produced manifest cannot choose a different tree with fabricated merge parents.
         parents = [p['sha'] for p in commit['parents']]
@@ -109,10 +127,6 @@ def validate(run, proof, tree, machine, depth=0):
     latest = runs('ios-swift.yml', head_sha=run['head_sha'], event=run['event'])[0]
     if latest['id'] != run['id'] or latest['run_attempt'] != run['run_attempt']:
         raise ValueError('Native proof was superseded')
-    jobs = api(f"actions/runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100")['jobs']
-    jobs = [j for j in jobs if j['name'] == JOB]
-    if len(jobs) != 1 or jobs[0]['conclusion'] != 'success' or jobs[0]['runner_group_name'] != 'GitHub Actions':
-        raise ValueError('Expected successful isolated native job')
     steps = {s['name']: s['conclusion'] for s in jobs[0]['steps']}
     if steps.get('Publish native proof') != 'success':
         raise ValueError('Native proof publication was not verified by GitHub')

@@ -28,7 +28,7 @@ class ReleaseProof(unittest.TestCase):
         self.record = {'run_id': 10, 'attempt': 1, 'commit': 'cccccccccccccccccccccccccccccccccccccccc', 'tree': 'tree',
                        'toolchain': MACHINE, 'reused_run': 0}
         self.commit = {'tree': {'sha': 'tree'}, 'parents': [{'sha': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'}, {'sha': 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'}]}
-        self.job = {'name': proof.JOB, 'conclusion': 'success', 'runner_group_name': 'GitHub Actions',
+        self.job = {'id': 95, 'name': proof.JOB, 'conclusion': 'success', 'runner_group_name': 'GitHub Actions',
                     'steps': [{'name': name, 'conclusion': 'success'} for name in
                               ('Run selected native cases', 'Compile unsigned Release', 'Publish native proof')]}
         self.api = patch.object(proof, 'api', side_effect=self.lookup).start()
@@ -37,6 +37,9 @@ class ReleaseProof(unittest.TestCase):
         self.git = patch.object(proof, 'git', return_value='tree').start()
 
     def lookup(self, path, raw=False):
+        if path == 'actions/jobs/95/logs':
+            return ('2026-10-12T01:00:00Z [command]/opt/homebrew/bin/git log -1 --format=%H\n'
+                    '2026-10-12T01:00:00Z ' + 'c' * 40 + '\n').encode()
         if path.startswith('git/commits/'):
             return self.commit
         if path.endswith('/jobs?per_page=100'):
@@ -59,12 +62,25 @@ class ReleaseProof(unittest.TestCase):
             self.validate()
 
     def test_wrong_commit_parent_or_changed_base_invalidates_green(self):
-        for index in (0, 1):
-            original = self.commit['parents'][index]['sha']
-            self.commit['parents'][index]['sha'] = 'different'
-            with self.assertRaises(ValueError):
-                self.validate()
-            self.commit['parents'][index]['sha'] = original
+        self.commit['parents'][1]['sha'] = 'different'
+        with self.assertRaises(ValueError):
+            self.validate()
+        self.commit['parents'][1]['sha'] = 'b' * 40
+        self.git.return_value = 'changed-base-tree'
+        with self.assertRaises(ValueError):
+            self.validate()
+
+    def test_closed_PR_can_reuse_only_the_GitHub_owned_checkout(self):
+        self.run['pull_requests'] = []
+        self.validate()
+        self.record['commit'] = 'e' * 40
+        with self.assertRaisesRegex(ValueError, 'checkout identity'):
+            self.validate()
+
+    def test_unavailable_or_fabricated_checkout_log_cannot_authorize_reuse(self):
+        for data in (b'', b"HEAD is now at abc [command]git log -1 --format=%H\n" + b'c' * 40):
+            with patch.object(proof, 'api', return_value=data), self.assertRaises(ValueError):
+                proof.checkout_commit(self.job)
 
     def test_fork_or_foreign_repository_cannot_authorize_release(self):
         self.run['pull_requests'][0]['head']['repo']['id'] = 2

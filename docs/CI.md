@@ -63,11 +63,11 @@ Moving a test does not erase a known defect or certify its behavior.
 
 Run the existing full backend/browser/Windows suites via `Manual regression`.
 Its original integration matrix is preserved, not expanded. Run all native cases
-with `Stack SwiftUI app`'s `full_suite` manual input, still on Xcode 27. Legacy Expo
+with `Stack SwiftUI app`'s `full_suite` manual input, still on Xcode 27. Native
 full-suite Safari failure/reload acceptance needs the observed `listing_error_text`
 input; missing calibration fails rather than claiming acceptance. Native full-suite
 and repeatability jobs retain a 60-minute manual ceiling.
-validation/upload remains explicit under `Stack TestFlight deployment`; existing
+Legacy Expo validation/upload remains explicit under `Stack TestFlight deployment`; existing
 upload authorization and signing protections are preserved. No nightly schedule
 or replacement framework is added.
 
@@ -76,7 +76,9 @@ or replacement framework is added.
 The native job publishes a small JSON record bound to its commit/tree, run and
 attempt, toolchain and optional originating PR run. The record is not authority:
 `ios-native-proof.py` verifies GitHub-owned repository/event/workflow/job/step
-results, current-attempt artifact identity, commit tree and PR base/head identities.
+results, current-attempt artifact identity, commit tree and the actual checkout SHA
+from the pinned checkout action's GitHub-owned log prefix. This survives GitHub
+removing PR associations when a PR closes; missing logs require actual-main testing.
 It independently reconstructs the PR merge tree. The complete tree binds sources,
 tests, fixtures, scripts and workflow policy together. Fork and manual-run evidence
 cannot authorize release. Native reuse inspects only the most recent PR run; absent,

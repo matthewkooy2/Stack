@@ -18,7 +18,7 @@ jobs:
       - uses: ./.github/actions/prepare-resume-review-fixture
       - name: Install XcodeGen
         run: brew install xcodegen
-      - name: Reproduce the two Close failures and one passing comparison
+      - name: Observe the unchanged native system-browser handoff
         run: |
           set -euo pipefail
           mkdir -p .jac/listing-diagnostics
@@ -51,9 +51,7 @@ jobs:
             -derivedDataPath .jac/listing-diagnostics/DerivedData \
             -resultBundlePath .jac/listing-diagnostics/test.xcresult \
             -parallel-testing-enabled NO \
-            -only-testing:StackUITests/JobListingSafariUITests/testCloseThenReopenShowsTheListingAgain \
-            -only-testing:StackUITests/JobListingSafariUITests/testLongTitleListingRendersAndCloses \
-            -only-testing:StackUITests/JobListingSafariUITests/testRedirectLandsOnDestination \
+            -only-testing:StackUITests/JobListingSafariUITests/testOpenInSafariHandsOffToTheSystemBrowser \
             STACK_LISTING_FIXTURE_PORT=18765 STACK_LISTING_REQUIRE_ACCEPTANCE=1 \
             STACK_API_URL=https://stack.invalid CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
       - name: Export the actual native screenshots and geometry

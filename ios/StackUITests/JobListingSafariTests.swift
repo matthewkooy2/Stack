@@ -257,9 +257,29 @@ final class JobListingSafariUITests: XCTestCase {
         expect(app, "Senior Principal Staff")
         let handoff = app.buttons["Open in Safari"]
         XCTAssertTrue(handoff.waitForExistence(timeout: 10), "the browser offers Open in Safari")
-        handoff.tap()
         let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
-        XCTAssertTrue(safari.wait(for: .runningForeground, timeout: 15), "Safari came to the foreground")
+        XCTAssertNotEqual(safari.state, .runningForeground, "Safari is not already foreground before the handoff")
+        let before = XCTAttachment(string: "OpenInSafari frame=\(handoff.frame) hittable=\(handoff.isHittable); Stack state=\(app.state.rawValue); Safari state=\(safari.state.rawValue)")
+        before.name = "handoff-before-geometry-state"
+        before.lifetime = .keepAlways
+        add(before)
+        let screen = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        screen.name = "handoff-before-screen"
+        screen.lifetime = .keepAlways
+        add(screen)
+        dump(app, "handoff-before")
+        handoff.tap()
+        let foreground = safari.wait(for: .runningForeground, timeout: 15)
+        let after = XCTAttachment(string: "Stack state=\(app.state.rawValue); Safari state=\(safari.state.rawValue); foreground=\(foreground)")
+        after.name = "handoff-after-state"
+        after.lifetime = .keepAlways
+        add(after)
+        let afterScreen = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        afterScreen.name = "handoff-after-screen"
+        afterScreen.lifetime = .keepAlways
+        add(afterScreen)
+        if app.state == .runningForeground { dump(app, "handoff-after") }
+        XCTAssertTrue(foreground, "Safari came to the foreground")
         capture("safari-handoff-system-browser")
         app.activate()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))

@@ -132,6 +132,10 @@ struct SafariListingPresenter: UIViewControllerRepresentable {
             dismiss(clear: true)
         }
 
+        func safariViewControllerWillOpenInBrowser(_ controller: SFSafariViewController) {
+            trace("will open browser entry", controller: controller)
+        }
+
         func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
             trace("adaptive close entry", controller: presentationController.presentedViewController as? SFSafariViewController)
             guard presentationController.presentedViewController === browser else { return }

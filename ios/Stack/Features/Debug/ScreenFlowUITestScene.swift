@@ -54,6 +54,7 @@ struct ScreenFlowUITestScene: View {
         case "network": NetworkView(onProfile: {})
         case "applications", "applications-autofill-unavailable": ApplicationsView(onProfile: {}, onNavigate: { _ in })
         case "jobs": ScreenFlowJobHost(job: Job(ScreenFlowServer.job))
+        case "deck", "deck-paging": JobsView(onProfile: {})
         case "onboarding": AccessView()
         case "recovery": InvitationView()
         default: Text("Unknown screen flow").font(Typeface.title)
@@ -81,20 +82,26 @@ private struct ResumeReviewFixtureHost: View {
     }
 }
 
-/// A deck card and the real detail sheet, so the long fit note and tags can be compared.
+/// A deck card, the real detail sheet and the listing browser (a stub with `--stub-listing-browser`).
 @MainActor
 private struct ScreenFlowJobHost: View {
     let job: Job
     @Environment(AppStore.self) private var store
     @State private var detail: Job?
+    @State private var listing: JobListing?
 
     var body: some View {
         VStack(spacing: Spacing.stack) {
-            JobCard(job: job).frame(height: 440)
+            JobCard(job: job)
+                .frame(height: 440)
+                .onTapGesture { if listing == nil { listing = JobListing(job: job) } }
+                .accessibilityAddTraits(.isButton)
+                .accessibilityIdentifier("job-card")
             StackButton(label: "Open job details") { detail = job }
         }
         .padding(.horizontal, Spacing.page)
         .sheet(item: $detail) { JobDetailView(job: $0).environment(store) }
+        .jobListingBrowser(item: $listing)
     }
 }
 
@@ -149,6 +156,7 @@ final class ScreenFlowServer: @unchecked Sendable {
         "projects.0.project": "Churn study", "projects.0.date": "2024", "projects.0.descriptions": "Modeled customer churn\nShared findings",
         "skills.descriptions": "SQL\nPython\nExperiment design", "additional.descriptions": "Volunteer data tutor",
     ]
+    private var decisions: [JSON] = []
 
     func reset(flow: String) {
         lock.lock(); defer { lock.unlock() }
@@ -188,6 +196,52 @@ final class ScreenFlowServer: @unchecked Sendable {
         reviewAccountProcessing = argument("resume-review-account-processing").map {
             JSON.object(["kind": "import", "status": .string($0)])
         }
+        decisions = []
+    }
+
+    /// The `deck` flow's roles, in deck order. The last one has a link that must never reach the browser.
+    static let deckJobs: [JSON] = [
+        deckJob("job-alpha", "Platform Analyst", firstListingURL),
+        deckJob("job-bravo", "Growth Engineer", "https://example.invalid/jobs/bravo"),
+        deckJob("job-charlie", "Broken Link Engineer", "javascript:void(0)"),
+    ]
+    /// What the entry-level quick pick returns, so a filter visibly changes the deck.
+    static let entryJobs: [JSON] = [deckJob("job-entry", "Entry Level Developer", "https://example.invalid/jobs/entry")]
+
+    private static func deckJob(_ id: String, _ title: String, _ url: String) -> JSON {
+        ["id": .string(id), "title": .string(title), "company": "Northwind Analytics", "location": "Chicago, IL",
+         "mode": "Hybrid", "posted": "1 day ago", "listing_url": .string(url), "fit": "Fixture fit note.",
+         "description": "Fixture description."]
+    }
+
+    /// `paging` serves the deck in two pages: the first holds one job and a cursor, the second (answered late, see
+    /// `delay`) holds the rest. Otherwise the whole deck is one page.
+    static func deckPage(query: String, filters: JSON, cursor: String = "", paging: Bool = false) -> JSON {
+        let entry = filters["levels"].strings == ["Entry-level"]
+        let criteria: JSON = ["roles": .string(query.isEmpty ? "Product analyst" : query), "employment_types": ["Full-time"]]
+        var jobs = entry ? entryJobs : deckJobs
+        var next = ""
+        if paging, !entry {
+            jobs = cursor.isEmpty ? [deckJobs[0]] : Array(deckJobs.dropFirst())
+            next = cursor.isEmpty ? "page-2" : ""
+        }
+        return ["jobs": .array(jobs), "next_cursor": .string(next), "criteria": criteria,
+                "excluded": [], "occupations": []]
+    }
+
+    /// How long a request is held before it is answered, so a test can open the browser while a page is pending.
+    func delay(for name: String, body: JSON) -> TimeInterval {
+        lock.lock(); defer { lock.unlock() }
+        return flow == "deck-paging" && name == "search_jobs" && !body["cursor"].string.isEmpty ? 3 : 0
+    }
+
+    /// `--listing-url-override=<http://127.0.0.1:port/path>` points the first deck job at a local fixture page so
+    /// the real in-app browser can be tested without any live site. Only loopback hosts are honoured.
+    private static var firstListingURL: String {
+        let prefix = "--listing-url-override="
+        let value = ProcessInfo.processInfo.arguments.first { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) }
+        if let value, let host = URL(string: value)?.host, host == "127.0.0.1" || host == "localhost" { return value }
+        return "https://example.invalid/jobs/alpha"
     }
 
     static var job: JSON {
@@ -261,7 +315,7 @@ final class ScreenFlowServer: @unchecked Sendable {
             "applications": .array(applications), "people": .array(people), "contacts": .array(contacts),
             "agents": ["features": .array(features), "runs": .array(autofillStarted ? [Self.autofillRun] : []), "active": 0, "attention": 0,
                        "model_provider": ["provider": "", "message": ""]],
-            "tailored_resumes": [], "saved_search": [:], "decisions": [], "reminders": [],
+            "tailored_resumes": [], "saved_search": [:], "decisions": .array(decisions), "reminders": [],
         ]
     }
 
@@ -327,7 +381,18 @@ final class ScreenFlowServer: @unchecked Sendable {
             notes = body["notes"].string
             return ok(buildSnapshot())
         case "get_job":
-            return ok(Self.job)
+            let id = body["id"].string
+            return ok((Self.deckJobs + Self.entryJobs).first { $0["id"].string == id } ?? Self.job)
+        case "search_jobs":
+            return ok(Self.deckPage(query: body["query"].string, filters: body["filters"],
+                                    cursor: body["cursor"].string, paging: flow == "deck-paging"))
+        case "save_search":
+            return ok(["query": body["query"], "filters": body["filters"]])
+        case "reset_search":
+            return ok([:])
+        case "swipe":
+            decisions.append(["job_id": body["job_id"], "action": body["action"]])
+            return ok(buildSnapshot())
         case "read_resume":
             return ok(["name": .string(Self.resumeName), "content": .string(Self.pdfBase64())])
         case "agent_extract_resume":
@@ -418,16 +483,37 @@ final class ScreenFlowURLProtocol: URLProtocol {
 
     override func startLoading() {
         let name = request.url?.lastPathComponent ?? ""
-        let (status, payload) = ScreenFlowServer.shared.respond(name, body: Self.body(of: request))
-        let data = (try? JSONEncoder().encode(payload)) ?? Data()
-        let response = HTTPURLResponse(url: request.url ?? URL(string: "https://stack.invalid")!, statusCode: status,
-                                       httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: data)
-        client?.urlProtocolDidFinishLoading(self)
+        let body = Self.body(of: request)
+        let delay = ScreenFlowServer.shared.delay(for: name, body: body)
+        let answer = { [self] in
+            guard !stopped.value else { return }
+            let (status, payload) = ScreenFlowServer.shared.respond(name, body: body)
+            let data = (try? JSONEncoder().encode(payload)) ?? Data()
+            let response = HTTPURLResponse(url: request.url ?? URL(string: "https://stack.invalid")!, statusCode: status,
+                                           httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        }
+        if delay > 0 {
+            DispatchQueue.global().asyncAfter(deadline: .now() + delay, execute: answer)
+        } else {
+            answer()
+        }
     }
 
-    override func stopLoading() {}
+    private let stopped = StoppedFlag()
+
+    override func stopLoading() { stopped.value = true }
+
+    private final class StoppedFlag: @unchecked Sendable {
+        private let lock = NSLock()
+        private var flag = false
+        var value: Bool {
+            get { lock.lock(); defer { lock.unlock() }; return flag }
+            set { lock.lock(); defer { lock.unlock() }; flag = newValue }
+        }
+    }
 
     private static func body(of request: URLRequest) -> JSON {
         var data = request.httpBody

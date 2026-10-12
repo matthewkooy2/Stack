@@ -67,9 +67,14 @@ run_xcodebuild() {
   xcodebuild "$action" \
     -project ios/Stack.xcodeproj \
     -scheme Stack \
+    -configuration "${STACK_IOS_CONFIGURATION:-Debug}" \
     -destination "$destination" \
     -derivedDataPath "$derived" \
     -resultBundlePath "$result" \
+    -parallel-testing-enabled NO \
+    "STACK_LISTING_FIXTURE_PORT=${STACK_LISTING_FIXTURE_PORT:-18765}" \
+    "STACK_LISTING_REQUIRE_ACCEPTANCE=${STACK_LISTING_REQUIRE_ACCEPTANCE:-0}" \
+    "STACK_LISTING_ERROR_TEXT=${STACK_LISTING_ERROR_TEXT:-}" \
     "STACK_API_URL=${STACK_API_URL:-http://127.0.0.1:8000}" \
     CODE_SIGNING_ALLOWED=NO \
     CODE_SIGNING_REQUIRED=NO

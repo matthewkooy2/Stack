@@ -40,6 +40,7 @@ enum Glyph {
         case "refresh": return "arrow.clockwise"
         case "star": return "star"
         case "trash": return "trash"
+        case "details": return "info.circle"
         default: return "circle"
         }
     }

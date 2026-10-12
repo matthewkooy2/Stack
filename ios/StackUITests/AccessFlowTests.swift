@@ -87,8 +87,7 @@ final class AccessFlowTests: XCTestCase {
         app.scrollViews.firstMatch.swipeUp()
         let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.keyboards.firstMatch)
         let waited = XCTWaiter.wait(for: [dismissed], timeout: 5)
-        let geometry = XCTAttachment(string: "before: \(before)
-after: waited=\(waited.rawValue); keyboardExists=\(app.keyboards.firstMatch.exists); keyboard=\(app.keyboards.firstMatch.frame); scroll=\(form.frame)")
+        let geometry = XCTAttachment(string: "before: \(before); after: waited=\(waited.rawValue); keyboardExists=\(app.keyboards.firstMatch.exists); keyboard=\(app.keyboards.firstMatch.frame); scroll=\(form.frame)")
         geometry.name = "diag-keyboard-geometry"
         geometry.lifetime = .keepAlways
         add(geometry)

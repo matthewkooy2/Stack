@@ -54,7 +54,7 @@ jobs:
       - name: Check fixture source representation without historical exceptions
         run: >-
           "$RUNNER_TEMP/gitleaks/gitleaks" dir tests/fixtures
-          --ignore-path /dev/null --redact=100 --no-banner --ignore-gitleaks-allow
+          --gitleaks-ignore-path /dev/null --redact=100 --no-banner --ignore-gitleaks-allow
       - name: Scan public Git history for developer credentials
         run: |
           "$RUNNER_TEMP/gitleaks/gitleaks" git --log-opts=--all --redact=100 --no-banner --ignore-gitleaks-allow

@@ -8,6 +8,7 @@ import XCTest
 /// loopback page. Every step keeps a real screenshot attachment.
 @MainActor
 final class JobListingSafariUITests: XCTestCase {
+    private var fixtureReady = false
     private var port: String { ProcessInfo.processInfo.environment["STACK_LISTING_FIXTURE_PORT"] ?? "18765" }
     private var base: String { "http://127.0.0.1:" + port }
     private var requiredAcceptance: Bool {
@@ -16,46 +17,68 @@ final class JobListingSafariUITests: XCTestCase {
 
     override func setUp() async throws {
         continueAfterFailure = false
+        fixtureReady = false
         // The default scheme runs this suite too. Without the loopback fixture there is nothing to test against,
         // so skip (never pass): a skip is not native acceptance.
-        let health = control("/health")
+        let health: String
+        do {
+            health = try await control("/health")
+        } catch {
+            if requiredAcceptance { throw error }
+            throw XCTSkip("Loopback listing fixture is not running at \(base): \(error)")
+        }
         if requiredAcceptance, health != "ok" {
             throw NSError(domain: "ListingFixture", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "Required listing fixture is unavailable at \(base)"])
         }
         try XCTSkipUnless(health == "ok", "Loopback listing fixture is not running at \(base). Start it with "
             + "`python3 scripts/ci/ios-listing-fixture-server.py --port \(port)` and rerun JobListingSafariUITests.")
-        _ = control("/control/fail?on=0")
+        try await control("/control/fail?on=0")
+        fixtureReady = true
+    }
+
+    override func tearDown() async throws {
+        if fixtureReady {
+            // A failed recovery assertion must not leave the next case's fixture in failure mode.
+            try await control("/control/fail?on=0")
+        }
+        try await super.tearDown()
     }
 
     // MARK: Helpers
 
     @discardableResult
-    private func control(_ path: String) -> String {
-        guard let url = URL(string: base + path) else { return "" }
-        var result = ""
-        let done = DispatchSemaphore(value: 0)
-        URLSession.shared.dataTask(with: url) { data, _, _ in
-            result = String(data: data ?? Data(), encoding: .utf8) ?? ""
-            done.signal()
-        }.resume()
-        _ = done.wait(timeout: .now() + 5)
-        return result
+    private func control(_ path: String) async throws -> String {
+        let url = URL(string: base + path)!
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        let start = Date()
+        // Suspend the async main-actor test, rather than blocking it with a semaphore or nested run loop.
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200,
+              let text = String(data: data, encoding: .utf8), !text.isEmpty else {
+            throw NSError(domain: "ListingFixture", code: 2,
+                          userInfo: [NSLocalizedDescriptionKey: "Invalid fixture reply for \(path): \(response)"])
+        }
+        print("FIXTURE control \(path): HTTP200 \(text), \(Date().timeIntervalSince(start))s")
+        return text
     }
 
-    private func launch(path: String) -> XCUIApplication {
+    private func launch(path: String) async -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--screen-flow=deck", "--disable-draft-animations", "--long-undo-window",
                                "--listing-url-override=" + base + path]
         app.launch()
-        XCTAssertTrue(app.buttons["job-card-job-alpha"].waitForExistence(timeout: 15), "the deck loads its first card")
+        let loaded = await poll(app.buttons["job-card-job-alpha"], "exists == true", until: Date().addingTimeInterval(15))
+        XCTAssertTrue(loaded, "the deck loads its first card")
         XCTAssertEqual(app.buttons.matching(identifier: "job-card-job-alpha").count, 1,
                        "the accessible card is unique")
         return app
     }
 
-    private func capture(_ name: String) {
-        Thread.sleep(forTimeInterval: 1)
+    private func capture(_ name: String) async {
+        try? await Task.sleep(nanoseconds: 1_000_000_000)
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = name
         attachment.lifetime = .keepAlways
@@ -78,11 +101,11 @@ final class JobListingSafariUITests: XCTestCase {
     }
 
     private func expect(_ app: XCUIApplication, _ text: String, timeout: TimeInterval = 20, file: StaticString = #filePath,
-                        line: UInt = #line) {
+                        line: UInt = #line) async {
         // waitForExistence also captures a debug description after every miss; this polls the query alone.
         let found = element(app, containing: text)
-        if !poll(found, "exists == true", until: Date().addingTimeInterval(timeout)) {
-            capture("missing-" + text.prefix(24))
+        if !(await poll(found, "exists == true", until: Date().addingTimeInterval(timeout))) {
+            await capture("missing-" + text.prefix(24))
             dump(app, "missing-" + text.prefix(24))
             XCTFail("expected '\(text)' on screen", file: file, line: line)
         }
@@ -92,7 +115,7 @@ final class JobListingSafariUITests: XCTestCase {
         app.buttons["job-card-job-alpha"].tap()
     }
 
-    private func closeBrowser(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) {
+    private func closeBrowser(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) async {
         // The captured native tree places Close in TopBrowserBar. Background deck elements can remain in
         // that tree while Safari covers them, so neither a global first match nor card existence proves dismissal.
         let closeControls = app.otherElements["TopBrowserBar"].buttons
@@ -100,9 +123,9 @@ final class JobListingSafariUITests: XCTestCase {
         // Each query can take seconds while Safari's tree is exposed, so every poll makes one query and the
         // uniqueness check runs once the control is ready, inside the same assertion.
         let close = closeControls.firstMatch
-        if !poll(close, "isHittable == true", until: Date().addingTimeInterval(10)) || closeControls.count != 1 {
+        if !(await poll(close, "isHittable == true", until: Date().addingTimeInterval(10))) || closeControls.count != 1 {
             dump(app, "no-close")
-            capture("no-close")
+            await capture("no-close")
             XCTFail("the native browser has one hittable Close or Done control", file: file, line: line)
             return
         }
@@ -118,156 +141,164 @@ final class JobListingSafariUITests: XCTestCase {
         add(geometry)
         close.coordinate(withNormalizedOffset: CGVector(dx: normalizedX, dy: 0.5)).tap()
         let cards = app.buttons.matching(identifier: "job-card-job-alpha")
-        let deadline = Date().addingTimeInterval(10)
-        let dismissed = poll(close, "exists == false", until: deadline)
-            && poll(cards.firstMatch, "isHittable == true", until: deadline)
-            && closeControls.count == 0 && cards.count == 1
+        // The failed capture already showed the deck: two sequential remote waits spent the whole deadline
+        // finding its card. Wait on that single readiness condition, then preserve both dismissal counts.
+        let returned = await poll(cards.firstMatch, "isHittable == true", until: Date().addingTimeInterval(10))
+        let dismissed = returned && closeControls.count == 0 && cards.count == 1
         if !dismissed {
             dump(app, "after-close")
-            capture("after-close")
+            await capture("after-close")
             XCTFail("closing the browser removes its native Close control and returns to one hittable deck card",
                     file: file, line: line)
         }
     }
 
     /// Polls a single element query until the deadline shared by the steps of one assertion.
-    private func poll(_ element: XCUIElement, _ format: String, until deadline: Date) -> Bool {
+    private func poll(_ element: XCUIElement, _ format: String, until deadline: Date) async -> Bool {
         let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: format), object: element)
-        return XCTWaiter.wait(for: [expectation], timeout: max(0, deadline.timeIntervalSinceNow)) == .completed
+        return await XCTWaiter.fulfillment(of: [expectation], timeout: max(0, deadline.timeIntervalSinceNow)) == .completed
     }
 
-    private func tapLink(_ app: XCUIApplication, _ text: String) {
+    private func tapLink(_ app: XCUIApplication, _ text: String) async {
         let link = app.links[text].exists ? app.links[text] : element(app, containing: text)
-        XCTAssertTrue(link.waitForExistence(timeout: 20), "link '\(text)' is on the page")
+        let found = await poll(link, "exists == true", until: Date().addingTimeInterval(20))
+        XCTAssertTrue(found, "link '\(text)' is on the page")
         link.tap()
     }
 
     // MARK: Tests
 
-    func testLongTitleListingRendersAndCloses() {
-        let app = launch(path: "/listing")
+    func testLongTitleListingRendersAndCloses() async {
+        let app = await launch(path: "/listing")
         openListing(app)
-        expect(app, "Senior Principal Staff Machine Learning")
-        capture("safari-long-title-listing")
+        await expect(app, "Senior Principal Staff Machine Learning")
+        await capture("safari-long-title-listing")
         dump(app, "safari-long-title-listing")
-        closeBrowser(app)
-        capture("safari-closed-to-deck")
+        await closeBrowser(app)
+        await capture("safari-closed-to-deck")
     }
 
-    func testInternalLinkThenBackAndForward() {
-        let app = launch(path: "/listing")
+    func testInternalLinkThenBackAndForward() async {
+        let app = await launch(path: "/listing")
         openListing(app)
-        expect(app, "Senior Principal Staff")
-        tapLink(app, "Read the internal detail page")
-        expect(app, "Reached through an internal link")
-        capture("safari-internal-detail")
+        await expect(app, "Senior Principal Staff")
+        await tapLink(app, "Read the internal detail page")
+        await expect(app, "Reached through an internal link")
+        await capture("safari-internal-detail")
 
         let back = app.buttons["Back"]
-        XCTAssertTrue(back.waitForExistence(timeout: 10), "the browser offers Back")
+        let backReady = await poll(back, "exists == true", until: Date().addingTimeInterval(10))
+        XCTAssertTrue(backReady, "the browser offers Back")
         back.tap()
-        expect(app, "Fictional listing for UI tests")
-        capture("safari-back-to-listing")
+        await expect(app, "Fictional listing for UI tests")
+        await capture("safari-back-to-listing")
 
         let forward = app.buttons["Forward"]
-        XCTAssertTrue(forward.waitForExistence(timeout: 10), "the browser offers Forward")
+        let forwardReady = await poll(forward, "exists == true", until: Date().addingTimeInterval(10))
+        XCTAssertTrue(forwardReady, "the browser offers Forward")
         forward.tap()
-        expect(app, "Reached through an internal link")
-        capture("safari-forward-to-detail")
-        closeBrowser(app)
+        await expect(app, "Reached through an internal link")
+        await capture("safari-forward-to-detail")
+        await closeBrowser(app)
     }
 
-    func testRedirectLandsOnDestination() {
-        let app = launch(path: "/listing")
+    func testRedirectLandsOnDestination() async {
+        let app = await launch(path: "/listing")
         openListing(app)
-        expect(app, "Senior Principal Staff")
-        tapLink(app, "Follow the redirect")
-        expect(app, "You arrived through a 302 redirect")
-        capture("safari-redirect-destination")
-        closeBrowser(app)
+        await expect(app, "Senior Principal Staff")
+        await tapLink(app, "Follow the redirect")
+        await expect(app, "You arrived through a 302 redirect")
+        await capture("safari-redirect-destination")
+        await closeBrowser(app)
     }
 
-    func testTargetBlankLinkStaysInsideTheBrowser() {
-        let app = launch(path: "/listing")
+    func testTargetBlankLinkStaysInsideTheBrowser() async {
+        let app = await launch(path: "/listing")
         openListing(app)
-        expect(app, "Senior Principal Staff")
-        tapLink(app, "Open the new tab page")
-        expect(app, "Opened by a target=_blank link")
-        capture("safari-target-blank")
+        await expect(app, "Senior Principal Staff")
+        await tapLink(app, "Open the new tab page")
+        await expect(app, "Opened by a target=_blank link")
+        await capture("safari-target-blank")
         XCTAssertEqual(app.state, .runningForeground, "the link did not leave Stack")
-        closeBrowser(app)
+        await closeBrowser(app)
     }
 
-    func testCloseThenReopenShowsTheListingAgain() {
-        let app = launch(path: "/listing")
+    func testCloseThenReopenShowsTheListingAgain() async {
+        let app = await launch(path: "/listing")
         openListing(app)
-        expect(app, "Senior Principal Staff")
-        closeBrowser(app)
+        await expect(app, "Senior Principal Staff")
+        await closeBrowser(app)
         openListing(app)
-        expect(app, "Senior Principal Staff")
-        capture("safari-reopened")
-        closeBrowser(app)
+        await expect(app, "Senior Principal Staff")
+        await capture("safari-reopened")
+        await closeBrowser(app)
         XCTAssertTrue(app.buttons["Save"].isHittable, "Save and Pass are reachable after reopening")
     }
 
     /// Supply a distinctive error label actually observed on this OS and locale. Safari renders it out of
     /// process; guessing its text would make a native acceptance claim depend on unobserved system UI.
-    func testFailedConnectionThenReloadRecovers() throws {
+    func testFailedConnectionThenReloadRecovers() async throws {
         let errorText = (ProcessInfo.processInfo.environment["STACK_LISTING_ERROR_TEXT"] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         try XCTSkipIf(errorText.isEmpty && !requiredAcceptance, "Observe Safari's connection-error label on the target OS/locale, then rerun "
             + "with STACK_LISTING_ERROR_TEXT. Missing calibration is not failure/retry acceptance.")
-        control("/control/fail?on=1")
-        defer { control("/control/fail?on=0") }
-        let app = launch(path: "/flaky")
+        try await control("/control/fail?on=1")
+        let app = await launch(path: "/flaky")
         openListing(app)
 
         // The browser must have actually reached the fixture, otherwise an empty screen would look like an error.
         var hits = 0
         for _ in 0..<40 where hits == 0 {
-            hits = Int(control("/control/hits?path=/flaky")) ?? 0
-            if hits == 0 { Thread.sleep(forTimeInterval: 0.5) }
+            let reply = try await control("/control/hits?path=/flaky")
+            guard let count = Int(reply) else {
+                throw NSError(domain: "ListingFixture", code: 3, userInfo: [NSLocalizedDescriptionKey: "Invalid hit count: \(reply)"])
+            }
+            hits = count
+            if hits == 0 { try await Task.sleep(nanoseconds: 500_000_000) }
         }
         XCTAssertGreaterThan(hits, 0, "the browser requested /flaky from the fixture")
 
         if errorText.isEmpty {
             // A hosted calibration run records the actual system UI and fails rather than accepting a skip.
             let reload = app.buttons.matching(NSPredicate(format: "label IN %@", ["Reload", "Reload Page"])).firstMatch
-            _ = reload.waitForExistence(timeout: 20)
-            capture("safari-error-calibration")
+            _ = await poll(reload, "exists == true", until: Date().addingTimeInterval(20))
+            await capture("safari-error-calibration")
             dump(app, "safari-error-calibration")
             XCTFail("Supply the connection-error label observed in these attachments via STACK_LISTING_ERROR_TEXT, then rerun.")
             return
         }
 
         let error = element(app, containing: errorText)
-        let shown = error.waitForExistence(timeout: 20)
-        capture("safari-failed-connection")
+        let shown = await poll(error, "exists == true", until: Date().addingTimeInterval(20))
+        await capture("safari-failed-connection")
         dump(app, "safari-failed-connection")
         XCTAssertTrue(shown, "Safari shows the observed connection-error label '\(errorText)' "
             + "(see the attached accessibility tree if the OS or locale changed)")
         XCTAssertFalse(element(app, containing: "The connection works again").exists,
                        "the recovered page did not load while the server dropped the connection")
 
-        control("/control/fail?on=0")
+        try await control("/control/fail?on=0")
         let reload = app.buttons.matching(NSPredicate(format: "label IN %@", ["Reload", "Reload Page"])).firstMatch
-        XCTAssertTrue(reload.waitForExistence(timeout: 10), "the browser offers Reload")
+        let reloadReady = await poll(reload, "exists == true", until: Date().addingTimeInterval(10))
+        XCTAssertTrue(reloadReady, "the browser offers Reload")
         reload.tap()
-        expect(app, "The connection works again")
+        await expect(app, "The connection works again")
         XCTAssertFalse(error.exists, "the error page is gone after recovery")
-        capture("safari-recovered-after-reload")
-        closeBrowser(app)
+        await capture("safari-recovered-after-reload")
+        await closeBrowser(app)
     }
 
-    func testOpenInSafariHandsOffToTheSystemBrowser() {
-        let app = launch(path: "/listing")
+    func testOpenInSafariHandsOffToTheSystemBrowser() async {
+        let app = await launch(path: "/listing")
         openListing(app)
-        expect(app, "Senior Principal Staff")
+        await expect(app, "Senior Principal Staff")
         let handoff = app.buttons["Open in Safari"]
-        XCTAssertTrue(handoff.waitForExistence(timeout: 10), "the browser offers Open in Safari")
+        let handoffReady = await poll(handoff, "exists == true", until: Date().addingTimeInterval(10))
+        XCTAssertTrue(handoffReady, "the browser offers Open in Safari")
         handoff.tap()
         let safari = XCUIApplication(bundleIdentifier: "com.apple.mobilesafari")
         XCTAssertTrue(safari.wait(for: .runningForeground, timeout: 15), "Safari came to the foreground")
-        capture("safari-handoff-system-browser")
+        await capture("safari-handoff-system-browser")
         app.activate()
         XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
     }

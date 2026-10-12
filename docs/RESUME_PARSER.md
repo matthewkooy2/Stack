@@ -1,24 +1,17 @@
-# Resume parsing is temporarily unavailable
+# Independent resume extraction and review
 
-The OpenResume implementation, adapter, review UI, and upstream sample PDF have
-been removed. PDF uploads, private storage, previews and account exports remain
-available. New uploads do not queue detail extraction. Existing PDF tickets are
-cancelled when claimed, and late worker results cannot update resume details.
-Existing user data and confirmed facts are preserved.
+PDF and text-only DOCX imports retain the bounded raw-record lane and also attempt Stack's deterministic structured parser. This candidate restores editable profile, education, work, project, skills and additional fields. It uses original Stack rules and fictional fixtures; no retired or vendor OpenResume parser or review implementation is copied. PDF.js/Node/canvas components from the standalone candidate are not included. PDF extraction uses the pinned pypdf dependency in the OS-bounded worker. No OCR, model call or private resume upload is required.
 
-PDF-only scoring, PDF detail review and PDF parser checks on tailored documents
-are paused. Uploaded LaTeX can still be compiled, scored and tailored. Existing
-confirmed details can still populate a built-in template; new PDFs cannot supply
-those details until an independently implemented parser and review flow land.
+Extraction is always a draft. Detail saves replace the whole map with an optimistic revision check: absent entries are deleted and indices become contiguous. Confirmation alone creates verified facts and a compatible reviewed-record projection. A later draft withdraws confirmation and those facts. Raw-record confirmation withdraws structured confirmation and cannot trust other details through an old built-in template.
 
-The replacement is being built separately from functional requirements, using
-permissively licensed dependencies and original synthetic fixtures. It must not
-copy or translate the retired implementation or its review UI.
+Built-in previews and pending built-in compiles are invalidated when either review version changes. Late workers fail lease/current-job checks. Uploaded LaTeX source compilation retains its independent semantics. Ownership, cancellation, replacement and original-file retention use the existing lifecycle.
 
-Removing files in the current version does not remove their earlier copies from
-Git branches, history, pull requests, release artifacts or installed services.
-Review those separately before publishing. This change does not select a license
-for Stack's original code or resolve obligations for previous distributions.
+agent_extract_resume returns values, editable sections, definitions, limits, object warnings, immutable original_values, exact evidence, original text/lines/spans/pages, revision, confirmation and import state. Original fields/evidence are preserved before editable caps, including excess entries. Accepted source extraction remains resource bounded. Parse failure leaves raw review usable. Current indices never identify original entries after edits/reorder; provenance is empty because heuristic matches are not reliable identities.
 
-Backend release format 3 requires an attended host migration before deployment.
-See [the deployment guide](AUTOMATIC_BACKEND_DEPLOYMENT.md).
+Edit limits: 20 education, 30 work and 30 project entries; 300 characters per scalar, 2,000 per summary, 6,000 per descriptions field, 1,500 per description line, 100 detail revisions. The compatibility projection must fit 300 records and 60,000 text characters including headings/separators. Unconfirmable drafts reject before storage. Individual achievement bullets and entry boundaries remain separate; short skills/additional lines pack within 2,000-character paragraphs. Clients must display errors and retain unsaved edits, never silently trim. Editable parse truncation warnings do not truncate originals.
+
+Frozen fictional response tests/fixtures/resume-review-contract.json has 21 original education entries versus 20 editable entries, reordered work, warnings, evidence, definitions, limits and completed import metadata. SHA256: 187d0a564f1b0de9f04faae4f98ea0fcf88aaeb9ecd240140fa6d022aaab8532.
+
+Run python -m unittest tests.test_resume_details tests.test_pdf_safety in the Linux dependency runtime, then jac run --no-serve tests/test_resume_processing.py against a private test database, and jac check main.jac. Actual fictional PDFs compare every expected field and reconstruct each nonempty field from evidence. Lifecycle tests cover confirmation/drafts, reload, reorder/delete, owner/revision checks and stale built-in work. Controlled compiler output does not establish real native LaTeX acceptance.
+
+Legacy standalone pdf tickets and PDF-only scoring/parser comparison remain paused; structured imports use the import lane. Swift review, PDF preview, device interaction and tailoring acceptance require hosted macOS/Xcode checks and the real iPhone flow owned by MAT-36. Backend checks do not establish device acceptance, release readiness or deployment. No publication, merge, deployment or root-license decision is part of this candidate.

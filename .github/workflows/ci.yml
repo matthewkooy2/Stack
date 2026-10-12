@@ -85,7 +85,7 @@ jobs:
       matrix:
         include:
           - suite: resumes
-            python: test_record_resume.py test_bullet_bank_workflow.py test_resume_processing.py
+            python: test_record_resume.py test_bullet_bank_workflow.py test_resume_processing.py test_resume_details.py
             jac: ''
           - suite: coaching
             python: test_interview.py test_local_models.py test_stories_api.py
@@ -133,6 +133,8 @@ jobs:
         run: python -c "import subprocess,sys,tomllib; spec=tomllib.load(open('jac.toml','rb'))['dependencies']['pypdf']; subprocess.check_call([sys.executable,'-m','pip','install','--disable-pip-version-check','pypdf'+spec])"
       - name: Exercise PDF resource limits
         run: python -m unittest discover -s tests -p test_pdf_safety.py -v
+      - name: Verify structured extraction and the shared Swift contract fixture
+        run: python -m unittest tests.test_resume_details -v
       - name: Verify service and HTTP deadline cases
         run: python -m unittest discover -s deploy/startup -p test_startup.py -v
       - name: Verify disposable Windows startup orchestration

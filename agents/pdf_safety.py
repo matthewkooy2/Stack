@@ -22,6 +22,8 @@ MAX_INPUT = 10 * 1024 * 1024
 MAX_PAGES = 50
 MAX_TEXT = 200_000
 MAX_OUTPUT = 1024 * 1024
+MAX_SPANS = 8000
+MAX_DIMENSION = 14400
 MEMORY_BYTES = 512 * 1024 * 1024
 TIMEOUT_SECONDS = 10
 _slots = threading.BoundedSemaphore(2)
@@ -158,6 +160,21 @@ def _python_executable():
 
 
 def inspect_pdf(data: bytes, extract: bool = False, max_chars: int = MAX_TEXT) -> dict:
+    return _inspect(data, "extract" if extract else "validate", max_chars)
+
+
+def inspect_spans(data: bytes, max_chars: int = MAX_TEXT) -> dict:
+    """Positioned text fragments for structured resume parsing, from the same bounded lane.
+
+    Returns {"pages": n, "text": "", "layout": [{"width", "height", "spans": [[x, y, w, h, text]]}]}.
+    Coordinates are points with a top-left origin; y is the text baseline. Widths come from
+    the PDF font when pypdf can read it and are otherwise estimated from the font size.
+    """
+    return _inspect(data, "spans", max_chars)
+
+
+def _inspect(data: bytes, mode: str, max_chars: int) -> dict:
+    extract = mode != "validate"
     if not isinstance(data, bytes) or len(data) > MAX_INPUT or not data.startswith(b"%PDF-"):
         raise ValueError("Choose a valid PDF, 10 MB or smaller.")
     if not isinstance(max_chars, int) or not 1 <= max_chars <= MAX_TEXT:
@@ -172,7 +189,7 @@ def inspect_pdf(data: bytes, extract: bool = False, max_chars: int = MAX_TEXT) -
         # The package directory is obtained from trusted runtime configuration.
         packages = str(Path(dependency.origin).resolve().parent.parent)
         command = [_python_executable(), "-I", "-S", str(Path(__file__).resolve()),
-                   packages, "extract" if extract else "validate", str(max_chars)]
+                   packages, mode, str(max_chars)]
         encoded = _run_worker(command, data, timeout=TIMEOUT_SECONDS)
         try:
             result = json.loads(encoded)
@@ -185,9 +202,33 @@ def inspect_pdf(data: bytes, extract: bool = False, max_chars: int = MAX_TEXT) -
         if (type(result.get("pages")) is not int or not 1 <= result["pages"] <= MAX_PAGES
                 or not isinstance(result.get("text"), str) or len(result["text"]) > max_chars):
             raise ValueError("PDF processing returned invalid output.")
+        if mode == "spans" and not _valid_layout(result.get("layout"), result["pages"], max_chars):
+            raise ValueError("PDF processing returned invalid output.")
         return result
     finally:
         _slots.release()
+
+
+def _valid_layout(layout, pages: int, max_chars: int) -> bool:
+    """The worker is trusted to be bounded, but its output is still checked at the boundary."""
+    if not isinstance(layout, list) or len(layout) != pages:
+        return False
+    count = characters = 0
+    for page in layout:
+        if not isinstance(page, dict) or not isinstance(page.get("spans"), list):
+            return False
+        if not all(type(page.get(key)) in (int, float) and 0 < page[key] <= MAX_DIMENSION * 10
+                   for key in ("width", "height")):
+            return False
+        for span in page["spans"]:
+            if (not isinstance(span, list) or len(span) != 5 or not isinstance(span[4], str)
+                    or not all(type(v) in (int, float) and math.isfinite(v) for v in span[:4])):
+                return False
+            count += 1
+            characters += len(span[4])
+        if count > MAX_SPANS or characters > max_chars:
+            return False
+    return True
 
 
 def inspect_file(path, extract: bool = False, max_chars: int = MAX_TEXT) -> dict:
@@ -207,6 +248,70 @@ def extract_encoded(content: str, max_chars: int = MAX_TEXT) -> str:
     if not text.strip():
         raise ValueError("This PDF has no readable text. Add verified facts or upload a text-based PDF.")
     return text
+
+
+def _collect_spans(reader, max_chars):
+    """Text fragments with baseline positions, collected through pypdf's text visitor."""
+    fonts = {}
+
+    def width_of(font_dict, text, size):
+        # pypdf's font helper is internal API; the pin in jac.toml makes it stable, and any
+        # failure falls back to a plain per-character estimate rather than failing the parse.
+        key = id(font_dict)
+        if key not in fonts:
+            fonts[key] = None
+            if font_dict is not None and len(fonts) <= 256:
+                try:
+                    from pypdf._font import Font
+                    fonts[key] = Font.from_font_resource(font_dict)
+                except Exception:
+                    fonts[key] = None
+        font = fonts[key]
+        if font is not None:
+            try:
+                return font.get_text_width(text) / 1000.0 * size
+            except Exception:
+                pass
+        return 0.5 * size * len(text)
+
+    pages, total, count = [], 0, 0
+    for page in reader.pages:
+        if int(page.rotation or 0) % 360:
+            raise _Rejected("Rotated PDF pages are not supported for structured extraction.")
+        box = page.mediabox
+        left, bottom = float(box.left), float(box.bottom)
+        width, height = abs(float(box.width)), abs(float(box.height))
+        unit = float(page.get("/UserUnit", 1) or 1)
+        if not (0 < unit <= 10 and 0 < width <= MAX_DIMENSION and 0 < height <= MAX_DIMENSION):
+            raise _Rejected("This PDF page size is not supported.")
+        spans = []
+
+        def visit(text, cm, tm, font_dict, font_size, spans=spans, left=left, bottom=bottom,
+                  height=height, unit=unit):
+            nonlocal total, count
+            # pypdf appends a newline when the operator ended a text line.
+            value = " ".join(text.rstrip("\r\n").splitlines()) if isinstance(text, str) else ""
+            if not value:
+                return
+            total += len(value)
+            count += 1
+            if count > MAX_SPANS or total > max_chars:
+                raise _Rejected("PDF text exceeds the safe processing limit.")
+            a, b, c, d, e, f = [float(v) for v in tm]
+            ca, cb, cc, cd, ce, cf = [float(v) for v in cm]
+            x = e * ca + f * cc + ce
+            y = e * cb + f * cd + cf
+            horizontal = math.hypot(a * ca + b * cc, a * cb + b * cd) * unit
+            vertical = math.hypot(c * ca + d * cc, c * cb + d * cd) * unit
+            size = abs(float(font_size or 0)) or 1.0
+            span = [round((x - left) * unit, 2), round((height - (y - bottom)) * unit, 2),
+                    round(width_of(font_dict, value, size) * horizontal, 2), round(size * vertical, 2), value]
+            if all(math.isfinite(v) for v in span[:4]):
+                spans.append(span)
+
+        page.extract_text(visitor_text=visit)
+        pages.append({"width": round(width * unit, 2), "height": round(height * unit, 2), "spans": spans})
+    return pages
 
 
 def _worker():
@@ -236,6 +341,13 @@ def _worker():
             raise _Rejected("PDF must contain between 1 and 50 pages.")
         parts, total = [], 0
         max_chars = int(sys.argv[3])
+        if sys.argv[2] == "spans":
+            result = {"pages": pages, "text": "", "layout": _collect_spans(reader, max_chars)}
+            encoded = json.dumps(result, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            if len(encoded) > MAX_OUTPUT:
+                raise _Rejected("PDF output exceeds the safe processing limit.")
+            sys.stdout.buffer.write(encoded)
+            return
         if sys.argv[2] == "extract":
             for page in reader.pages:
                 text = page.extract_text() or ""

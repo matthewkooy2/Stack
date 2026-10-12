@@ -206,18 +206,18 @@ final class FallbackPCMCapture: AudioPCMCapture {
         observers = [
             center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] notification in
                 guard notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt == AVAudioSession.InterruptionType.began.rawValue else { return }
-                Task { @MainActor in self?.end("Microphone interrupted. The partial answer was kept.") }
+                Task { @MainActor [weak self] in self?.end("Microphone interrupted. The partial answer was kept.") }
             },
             center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.end("Recording stopped when Stack entered the background. Audio was kept.") }
+                Task { @MainActor [weak self] in self?.end("Recording stopped when Stack entered the background. Audio was kept.") }
             },
             center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.end("Audio service reset. The partial answer was kept.") }
+                Task { @MainActor [weak self] in self?.end("Audio service reset. The partial answer was kept.") }
             },
             // A route or format change stops the engine itself; without this the file would
             // silently stop growing while the timer froze. Paused engines are not running either.
             center.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
-                Task { @MainActor in
+                Task { @MainActor [weak self] in
                     guard let self, !self.isPaused, !self.engine.isRunning else { return }
                     self.end("The microphone changed. The partial answer was kept.")
                 }

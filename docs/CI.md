@@ -56,6 +56,8 @@ Unavailable routing requires full verification and proof before any upload.
 Manual and relevant uploads
 still require the complete-tree proof, backend/security success, current main,
 signing and Apple processing checks. A routing-only success cannot authorize signing.
+The upload script independently uses strict `release-upload` verification: a no-upload
+selection exits with failure before it can prepare source, archive, sign or upload.
 Selector and release-boundary cases join the existing backend offline selection:
 `python -m unittest tests.test_affected_checks tests.test_ios_native_proof -v`.
 

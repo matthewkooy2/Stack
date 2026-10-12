@@ -24,7 +24,7 @@ SIGNING=(DEVELOPMENT_TEAM="$APPLE_TEAM_ID" CODE_SIGN_STYLE=Manual
   CODE_SIGN_IDENTITY="$IOS_SIGNING_IDENTITY" PROVISIONING_PROFILE_SPECIFIER="$IOS_PROFILE_UUID"
   "OTHER_CODE_SIGN_FLAGS=--keychain $IOS_SIGNING_KEYCHAIN")
 # Revalidate GitHub-owned evidence for direct invocations as well as the workflow.
-python3 scripts/ci/ios-native-proof.py release
+python3 scripts/ci/ios-native-proof.py release-upload
 python3 scripts/ci/resume-review/prepare.py
 (cd ios && xcodegen generate --spec project.yml --project .)
 xcodebuild archive -project ios/Stack.xcodeproj -scheme Stack -configuration Release \

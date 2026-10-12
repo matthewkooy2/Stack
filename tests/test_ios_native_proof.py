@@ -247,6 +247,8 @@ class RoutedRelease(unittest.TestCase):
                 git.assert_not_called()
                 validate.assert_not_called()
                 record.assert_not_called()
+                with self.assertRaisesRegex(ValueError, 'does not authorize native upload'):
+                    proof.release(MACHINE, require_upload=True)
 
     def test_irrelevant_upload_marker_can_only_suppress_upload(self):
         self.steps = {'Select affected checks': 'success', 'Report native upload not applicable': 'success',
@@ -269,6 +271,43 @@ class RoutedRelease(unittest.TestCase):
                         patch.object(proof, 'proof_for', side_effect=ValueError('Missing proof')), \
                         self.assertRaisesRegex(ValueError, 'Missing proof'):
                     proof.release(MACHINE)
+
+
+@unittest.skipIf(os.name == 'nt', 'Direct upload shell boundary runs on Linux or macOS')
+class DirectUpload(unittest.TestCase):
+    def test_no_upload_revalidation_stops_before_prepare_archive_or_upload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            script = root / 'scripts/ci/ios-swift-testflight.sh'
+            script.parent.mkdir(parents=True)
+            script.write_text((ROOT / 'scripts/ci/ios-swift-testflight.sh').read_text())
+            commands = root / 'bin'
+            commands.mkdir()
+            log = root / 'commands.log'
+            stubs = {
+                'uname': '#!/bin/sh\necho Darwin\n',
+                'python3': '#!/bin/sh\nprintf "%s\\n" "$*" >> "$COMMAND_LOG"\n'
+                           'case "$1" in *ios-native-proof.py) [ "$2" = release-upload ] && exit 7;; esac\nexit 0\n',
+                'xcodegen': '#!/bin/sh\necho xcodegen >> "$COMMAND_LOG"\n',
+                'xcodebuild': '#!/bin/sh\necho xcodebuild >> "$COMMAND_LOG"\n',
+                'xcrun': '#!/bin/sh\necho xcrun >> "$COMMAND_LOG"\n',
+            }
+            for name, contents in stubs.items():
+                path = commands / name
+                path.write_text(contents)
+                path.chmod(0o755)
+            key = root / 'synthetic-key'
+            key.write_text('synthetic')
+            env = dict(os.environ, PATH=str(commands) + os.pathsep + os.environ['PATH'],
+                       COMMAND_LOG=str(log), STACK_API_URL='https://example.test', APPLE_TEAM_ID='ABCDEFGHIJ',
+                       ASC_KEY_ID='synthetic', ASC_ISSUER_ID='synthetic', ASC_AUTH_KEY_PATH=str(key),
+                       GITHUB_RUN_NUMBER='1', GITHUB_RUN_ATTEMPT='1', IOS_SIGNING_IDENTITY='synthetic',
+                       IOS_PROFILE_UUID='synthetic', IOS_SIGNING_KEYCHAIN='synthetic')
+            result = subprocess.run(['bash', str(script)], cwd=root, env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 7, result.stderr)
+            calls = log.read_text().splitlines()
+            self.assertEqual(len(calls), 2, calls)
+            self.assertEqual(calls[-1], 'scripts/ci/ios-native-proof.py release-upload')
 
 
 if __name__ == '__main__':

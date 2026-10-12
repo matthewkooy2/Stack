@@ -167,7 +167,7 @@ def reuse(machine):
     print('No reusable native result: execute the selected cases on actual main.')
 
 
-def release(machine):
+def release(machine, require_upload=False):
     event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
     source = event.get('workflow_run')
     if source:
@@ -181,6 +181,8 @@ def release(machine):
     if api('git/ref/heads/main')['object']['sha'] != commit:
         raise ValueError('Release candidate is no longer current main')
     if source and native_not_applicable(source):
+        if require_upload:
+            raise ValueError('This event does not authorize native upload')
         # A successful no-upload selection cannot sign anything.
         # Read GitHub-owned step results, not a PR-controlled artifact or a
         # last-commit diff (which loses earlier changes in multi-commit pushes).
@@ -236,4 +238,5 @@ if __name__ == '__main__':
     os.chdir(ROOT)
     mode = sys.argv[1]
     machine = toolchain()
-    {'record': record, 'reuse': reuse, 'release': release}[mode](machine)
+    {'record': record, 'reuse': reuse, 'release': release,
+     'release-upload': lambda machine: release(machine, require_upload=True)}[mode](machine)

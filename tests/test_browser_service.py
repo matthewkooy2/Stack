@@ -4,10 +4,10 @@ import unittest
 import json
 import os
 from io import BytesIO
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from agents import worker
 from agents.browser_control import browser_diagnostic, sanitize_browser_diagnostic, BROWSER_ERROR_MESSAGE
-from agents.browser import BrowserFrames
+from agents.browser import BrowserFrames, BrowserPool
 from agents.browser_service import BrowserHost
 
 
@@ -181,5 +181,36 @@ class BrowserHandoffService(unittest.TestCase):
 
     def test_take_is_out_of_band_and_fences_old_worker_commands(self): self.exercise('take')
     def test_stop_interrupts_and_closes_on_the_playwright_thread(self): self.exercise('stop')
+
+
+class HandoffInput(unittest.TestCase):
+    def pool(self):
+        pool = BrowserPool.__new__(BrowserPool)
+        pool.frames = BrowserFrames()
+        page = MagicMock(url='https://apply.example.test/form', viewport_size={'width': 430, 'height': 780})
+        page.screenshot.return_value = b'fake-jpeg'
+        pool.sessions = {('owner', 'run'): {'page': page, 'touched': 0}}
+        return pool, page
+
+    def test_typed_text_sends_key_events_and_long_paste_inserts(self):
+        pool, page = self.pool()
+        pool.handoff('owner', 'run', {'type': 'text', 'text': 'Ann Arbor'})
+        page.keyboard.type.assert_called_once_with('Ann Arbor')
+        page.keyboard.insert_text.assert_not_called()
+        letter = 'x' * 9000
+        pool.handoff('owner', 'run', {'type': 'text', 'text': letter})
+        page.keyboard.insert_text.assert_called_once_with(letter[:8000])
+        self.assertEqual(page.keyboard.type.call_count, 1)
+
+    def test_caret_and_select_all_keys_are_forwarded_and_others_rejected(self):
+        pool, page = self.pool()
+        for key in ('ArrowLeft', 'ArrowRight', 'Home', 'End', 'Delete', 'Tab', 'Enter'):
+            pool.handoff('owner', 'run', {'type': 'key', 'key': key})
+            page.keyboard.press.assert_called_with(key)
+        pool.handoff('owner', 'run', {'type': 'key', 'key': 'SelectAll'})
+        page.keyboard.press.assert_called_with('ControlOrMeta+A')
+        for key in ('Control+W', 'F5', 'Meta+L'):
+            with self.assertRaisesRegex(ValueError, 'Unknown browser input'):
+                pool.handoff('owner', 'run', {'type': 'key', 'key': key})
 
 if __name__ == '__main__': unittest.main()

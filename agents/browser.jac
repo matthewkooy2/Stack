@@ -7,6 +7,17 @@ import threading;
 import from pathlib { Path }
 import from urllib.parse { urlsplit }
 import from agents.contracts { digest }
+with entry {
+    # Caret and form keys a viewer may forward; SelectAll uses the host's shortcut.
+    HANDOFF_KEYS = {
+        'Tab': 'Tab', 'Enter': 'Enter', 'Backspace': 'Backspace', 'Delete': 'Delete',
+        'Escape': 'Escape', 'ArrowDown': 'ArrowDown', 'ArrowUp': 'ArrowUp',
+        'ArrowLeft': 'ArrowLeft', 'ArrowRight': 'ArrowRight', 'Home': 'Home', 'End': 'End',
+        'SelectAll': 'ControlOrMeta+A'
+    };
+    # Typed text sends key events so typeahead and masked fields react; longer pastes insert at once.
+    TYPED_TEXT_LIMIT = 500;
+}
 """Latest live frame only, in memory, scoped to the account and task."""
 class BrowserFrames {
     def init(self: BrowserFrames) -> any {
@@ -183,16 +194,15 @@ class BrowserPool {
             return upload_resume(self,owner,run,event);
         } elif (kind == 'text') {
             self.guard();
-            page.keyboard.insert_text(str(event.get('text', ''))[:8000]);
-        } elif (
-            (kind == 'key')
-            and (
-                event.get('key')
-                in ('Tab', 'Enter', 'Backspace', 'Escape', 'ArrowDown', 'ArrowUp')
-            )
-        ) {
+            text = str(event.get('text', ''))[:8000];
+            if (len(text) <= TYPED_TEXT_LIMIT) {
+                page.keyboard.type(text);
+            } else {
+                page.keyboard.insert_text(text);
+            }
+        } elif ((kind == 'key') and (event.get('key') in HANDOFF_KEYS)) {
             self.guard();
-            page.keyboard.press(event['key']);
+            page.keyboard.press(HANDOFF_KEYS[event['key']]);
         } elif (kind == 'scroll') {
             self.guard();
             page.mouse.wheel(0, max(-700, min(700, int(event.get('dy', 0)))));

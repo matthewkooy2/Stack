@@ -268,6 +268,12 @@ final class ResumeReviewController {
         }
     }
 
+    /// Raw records and parsed details have separate confirmation after a legacy reparse.
+    private func confirmation(_ result: JSON, fallback: Bool = false) -> Bool {
+        if !recordMode, !result["details_confirmed"].isNull { return result["details_confirmed"].bool }
+        return result["confirmed"].isNull ? fallback : result["confirmed"].bool
+    }
+
     private func sameRevision(_ a: JSON, _ b: JSON) -> Bool { a.string == b.string }
 
     /// Applies a read. Local edits are never replaced: a newer revision is held as `conflict`.
@@ -288,7 +294,7 @@ final class ResumeReviewController {
                 records = draft.records ?? []
                 baselineRecords = draft.baselineRecords ?? []
                 revision = draft.baseRevision
-                confirmed = result["confirmed"].bool
+                confirmed = confirmation(result)
                 // Spelled out: `cond ? nil : result` would read `nil` as `JSON.null`, a non-nil conflict.
                 if sameRevision(draft.baseRevision, incoming.revision) { conflict = nil } else { conflict = result }
                 restoredDraft = true
@@ -312,7 +318,7 @@ final class ResumeReviewController {
             baselineRecords = []
         }
         revision = incoming.revision
-        confirmed = result["confirmed"].bool
+        confirmed = confirmation(result)
         loaded = true
     }
 
@@ -558,7 +564,7 @@ final class ResumeReviewController {
             baseline = submitted.document.flatValues()
         }
         if !incoming.revision.isNull { revision = incoming.revision }
-        confirmed = result["confirmed"].isNull ? confirm : result["confirmed"].bool
+        confirmed = confirmation(result, fallback: confirm)
         conflict = nil
         restoredDraft = false
         draftError = ""

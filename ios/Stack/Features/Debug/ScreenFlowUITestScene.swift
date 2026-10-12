@@ -130,6 +130,7 @@ final class ScreenFlowServer: @unchecked Sendable {
     private var reviewValues: [String: String] = [:]
     private var reviewRevision = 1
     private var reviewConfirmed = false
+    private var reviewDetailsConfirmed = false
     private var reviewOriginalValues: [String: String] = [:]
     private var reviewProcessing: JSON = .null
     private var reviewImportPolls = 0
@@ -178,6 +179,7 @@ final class ScreenFlowServer: @unchecked Sendable {
         reviewOriginalValues = reviewValues
         reviewRevision = 1
         reviewConfirmed = false
+        reviewDetailsConfirmed = false
         if !arguments.contains("--resume-review-empty"),
            let data = reviewPersistence.data(forKey: reviewPersistenceKey),
            let saved = try? JSONDecoder().decode(JSON.self, from: data) {
@@ -185,9 +187,17 @@ final class ScreenFlowServer: @unchecked Sendable {
             reviewOriginalValues = saved["original_values"].object.mapValues { $0.string }
             reviewRevision = saved["revision"].int
             reviewConfirmed = saved["confirmed"].bool
+            reviewDetailsConfirmed = saved["details_confirmed"].isNull ? reviewConfirmed : saved["details_confirmed"].bool
         }
         if let revision = argument("resume-review-revision").flatMap(Int.init) { reviewRevision = revision }
-        if arguments.contains("--resume-review-confirmed") { reviewConfirmed = true }
+        if arguments.contains("--resume-review-confirmed") {
+            reviewConfirmed = true
+            reviewDetailsConfirmed = true
+        }
+        if arguments.contains("--resume-review-unconfirmed-details") {
+            reviewConfirmed = true // Previously confirmed raw records remain trusted by the backend.
+            reviewDetailsConfirmed = false
+        }
         if let edit = argument("resume-review-remote-name") { reviewValues["profile.name"] = edit }
         reviewProcessing = argument("resume-review-processing").map {
             JSON.object(["kind": "import", "status": .string($0)])
@@ -404,9 +414,11 @@ final class ScreenFlowServer: @unchecked Sendable {
             reviewValues = body["values"].object.mapValues { $0.string }
             reviewRevision += 1
             reviewConfirmed = body["confirm"].bool
+            reviewDetailsConfirmed = reviewConfirmed
             let saved: JSON = ["values": .object(reviewValues.mapValues { .string($0) }),
                                "original_values": .object(reviewOriginalValues.mapValues { .string($0) }),
-                               "revision": .number(Double(reviewRevision)), "confirmed": .bool(reviewConfirmed)]
+                               "revision": .number(Double(reviewRevision)), "confirmed": .bool(reviewConfirmed),
+                               "details_confirmed": .bool(reviewDetailsConfirmed)]
             if let data = try? JSONEncoder().encode(saved) {
                 reviewPersistence.set(data, forKey: reviewPersistenceKey)
             }
@@ -456,7 +468,8 @@ final class ScreenFlowServer: @unchecked Sendable {
                          "name": .string(field.name), "label": .string(field.label), "multiline": .bool(field.multiline || field.bullets)]
                     })]
         }
-        return ["revision": .number(Double(reviewRevision)), "confirmed": .bool(reviewConfirmed), "sections": .array(sections),
+        return ["revision": .number(Double(reviewRevision)), "confirmed": .bool(reviewConfirmed),
+                "details_confirmed": .bool(reviewDetailsConfirmed), "sections": .array(sections),
                 "values": .object(reviewValues.mapValues { .string($0) }),
                 "original_values": .object(reviewOriginalValues.mapValues { .string($0) }),
                 "definitions": .array(definitions),

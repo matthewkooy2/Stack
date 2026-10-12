@@ -7,10 +7,13 @@ on:
       - 'ios/**'
       - 'mobile/feature-rpcs.js'
       - 'scripts/ci/ios-swift.sh'
+      - 'scripts/ci/resume-review/**'
+      - '.github/actions/prepare-resume-review-fixture/**'
       - 'scripts/ci/ios-swift-static.py'
       - 'scripts/ci/ios-listing-fixture-server.py'
       - 'scripts/ci/ios-xcresult-attachments.py'
       - 'tests/test_ios_swift_static.py'
+      - 'tests/test_resume_review_fixture.py'
       - 'tests/test_ios_xcresult_attachments.py'
       - '.github/workflows/ios-swift.yml'
   push:
@@ -19,10 +22,13 @@ on:
       - 'ios/**'
       - 'mobile/feature-rpcs.js'
       - 'scripts/ci/ios-swift.sh'
+      - 'scripts/ci/resume-review/**'
+      - '.github/actions/prepare-resume-review-fixture/**'
       - 'scripts/ci/ios-swift-static.py'
       - 'scripts/ci/ios-listing-fixture-server.py'
       - 'scripts/ci/ios-xcresult-attachments.py'
       - 'tests/test_ios_swift_static.py'
+      - 'tests/test_resume_review_fixture.py'
       - 'tests/test_ios_xcresult_attachments.py'
       - '.github/workflows/ios-swift.yml'
   workflow_dispatch:
@@ -50,6 +56,9 @@ jobs:
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: '3.12'
+      - uses: ./.github/actions/prepare-resume-review-fixture
+      - name: Verify fixture preparation fails closed
+        run: python3 -m unittest discover -s tests -p test_resume_review_fixture.py -v
       - name: Check delimiters, types and published backend functions
         run: python3 -m unittest discover -s tests -p test_ios_swift_static.py -v
       - name: Check the result-attachment exporter
@@ -67,6 +76,7 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: ./.github/actions/prepare-resume-review-fixture
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Build and test for the simulator

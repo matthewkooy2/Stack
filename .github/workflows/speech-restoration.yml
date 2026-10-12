@@ -8,6 +8,8 @@ on:
       - 'tests/test_transcription*.py'
       - 'tests/test_interview_contract.py'
       - 'scripts/ci/ios-swift.sh'
+      - 'scripts/ci/resume-review/**'
+      - '.github/actions/prepare-resume-review-fixture/**'
       - '.github/workflows/speech-restoration.yml'
   workflow_dispatch:
     inputs:
@@ -61,6 +63,7 @@ jobs:
           sdk = subprocess.check_output(['xcrun', '--sdk', 'iphonesimulator', '--show-sdk-version'], text=True).strip()
           assert int(sdk.split('.')[0]) >= 26, sdk
           PY
+      - uses: ./.github/actions/prepare-resume-review-fixture
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Compile and test without signing or provisioning

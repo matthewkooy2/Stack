@@ -98,6 +98,7 @@ struct SafariListingPresenter: UIViewControllerRepresentable {
         private var removed = false
 
         func synchronize() {
+            trace("synchronize")
             guard !removed, !dismissing else { return }
             if browser != nil {
                 if selection?.id != presentedID { dismiss(clear: false) }
@@ -118,17 +119,21 @@ struct SafariListingPresenter: UIViewControllerRepresentable {
             presentedID = selection.id
             trace("present")
             // Safari must be presented modally, never embedded as a child of a SwiftUI cover.
-            anchor.present(controller, animated: true)
+            anchor.present(controller, animated: true) { [weak self] in
+                self?.trace("present complete", controller: controller)
+            }
             controller.presentationController?.delegate = self
         }
 
         func safariViewControllerDidFinish(_ controller: SFSafariViewController) {
+            trace("native close entry", controller: controller)
             guard controller === browser else { return }
             trace("native close callback")
             dismiss(clear: true)
         }
 
         func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+            trace("adaptive close entry", controller: presentationController.presentedViewController as? SFSafariViewController)
             guard presentationController.presentedViewController === browser else { return }
             finishDismissal(clear: true)
         }
@@ -141,6 +146,7 @@ struct SafariListingPresenter: UIViewControllerRepresentable {
         }
 
         private func finishDismissal(clear: Bool) {
+            trace("finish dismissal entry")
             guard browser != nil else { return }
             let closedID = presentedID
             browser = nil
@@ -156,6 +162,7 @@ struct SafariListingPresenter: UIViewControllerRepresentable {
         }
 
         func tearDown() {
+            trace("teardown entry")
             removed = true
             clearSelection = nil
             browser?.delegate = nil
@@ -164,9 +171,13 @@ struct SafariListingPresenter: UIViewControllerRepresentable {
             presentedID = nil
         }
 
-        private func trace(_ event: String) {
+        private func trace(_ event: String, controller: SFSafariViewController? = nil) {
             #if DEBUG
-            print("Stack listing browser lifecycle: \(event)")
+            let observed = controller ?? browser
+            let coordinatorID = String(describing: ObjectIdentifier(self))
+            let browserID = observed.map { String(describing: ObjectIdentifier($0)) } ?? "none"
+            let state = "event=\(event) coordinator=\(coordinatorID) browser=\(browserID) matches=\(observed === browser) delegate=\(observed?.delegate != nil) presenting=\(observed?.presentingViewController != nil) window=\(observed?.viewIfLoaded?.window != nil) selection=\(selection != nil) selectionMatches=\(selection?.id == presentedID) dismissing=\(dismissing) removed=\(removed) beingDismissed=\(observed?.isBeingDismissed ?? false)"
+            NSLog("Stack listing browser lifecycle: %@", state)
             #endif
         }
     }

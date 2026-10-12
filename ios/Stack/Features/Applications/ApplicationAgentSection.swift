@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Contextual agent help for one saved application, with live task status. Nothing starts until the
-/// person chooses it, and nothing is sent without approval.
+/// person chooses it. Application forms may autosave; the person reviews and submits them.
 @MainActor
 struct ApplicationAgentSection: View {
     let application: Application
@@ -25,12 +25,12 @@ struct ApplicationAgentSection: View {
     private let actions = [
         Action(kind: "jobs", label: "Explain my fit", text: "Strengths, gaps and unknowns"),
         Action(kind: "resume", label: "Tailor my resume", text: "One page for this job; you keep or reject each change"),
-        Action(kind: "application", label: "Prepare & apply", text: "Prepared for your review; you approve each step"),
+        Action(kind: "autofill", label: "Autofill saved answers", text: "Fills saved answers in supported fields; the form may autosave. You review and submit."),
         Action(kind: "plan", label: "Build interview plan", text: "Adds practice sessions to Prep"),
     ]
 
     private var started: [JSON] {
-        store.account.runViews.filter { $0["target_id"].string == application.id && ["jobs", "resume", "application"].contains($0["kind"].string) }
+        store.account.runViews.filter { $0["target_id"].string == application.id && ["jobs", "resume", "application", "autofill"].contains($0["kind"].string) }
     }
 
     /// The agents behind these actions, each once, however many actions share one.
@@ -45,12 +45,18 @@ struct ApplicationAgentSection: View {
         features.filter { $0.state != "ready" || !$0.missingRequired.isEmpty }
     }
 
-    /// Fixes every short agent needs, in the order the first one lists them. Said once, in the open.
+    /// Repeated setup fixes, in action order, shown once above the task choices.
     private var commonFixes: [String] {
-        guard let first = shortfalls.first else { return [] }
         var fixes: [String] = []
-        for check in first.missingRequired where !check.fix.isEmpty && !fixes.contains(check.fix) {
-            if shortfalls.allSatisfy({ $0.missingRequired.contains { $0.fix == check.fix } }) { fixes.append(check.fix) }
+        for check in shortfalls.flatMap({ $0.missingRequired }) where !check.fix.isEmpty && !fixes.contains(check.fix) {
+            let matchingActions = actions.filter { action in
+                guard let feature = store.account.feature(forKind: action.kind),
+                      shortfalls.contains(where: { $0.key == feature.key }) else { return false }
+                return feature.missingRequired.contains { $0.fix == check.fix }
+            }.count
+            if matchingActions > 1 || shortfalls.allSatisfy({ $0.missingRequired.contains { $0.fix == check.fix } }) {
+                fixes.append(check.fix)
+            }
         }
         return fixes
     }
@@ -67,7 +73,7 @@ struct ApplicationAgentSection: View {
             }
             if !shortfalls.isEmpty { setupSummary }
             // Collapsed: the choices and their per-agent detail are one tap away, never in the way of Notes.
-            DisclosureSection("Agent help", detail: "Nothing starts or sends without you.") {
+            DisclosureSection("Agent help", detail: "You choose what starts. Review and submit applications yourself.") {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(actions) { action in
                         let feature = action.kind == "plan" ? nil : store.account.feature(forKind: action.kind)
@@ -138,7 +144,7 @@ struct ApplicationAgentSection: View {
                 offerPrep = true
             } else {
                 let result = try await store.call("agent_start", ["kind": .string(kind), "target_id": .string(application.id)])
-                if kind == "resume" || kind == "application" { task = TaskTarget(id: result["id"].string) }
+                if kind == "resume" || kind == "autofill" { task = TaskTarget(id: result["id"].string) }
                 else { message = "\(result["title"].string) started. Progress appears below and in Agents." }
             }
         } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }

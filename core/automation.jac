@@ -136,7 +136,7 @@ def _run_view(r: AgentRun, detail: bool = False) -> dict[str, any] {
     out={"id":jid(r),"kind":r.kind,"target_id":r.target_id,"status":r.status,"step":steps[min(r.index,len(steps)-1)],"message":r.message,"created_at":r.created_at,"updated_at":r.updated_at,"cost_cents":r.cost_cents,"provider":r.provider,"subscription_calls":r.subscription_calls,"dismissed":r.dismissed,"workflow_version":r.workflow_version,"upgrade_pending":r.upgrade_pending,
         **present(r.kind,r.status,r.index,steps,r.context,r.next_at)};
     out["attention"]=_needs_attention(r) or r.status=="paused";
-    out["browser"]={"supported":r.kind=="linkedin","available":r.status not in TERMINAL and r.kind=="linkedin" and r.index==0};
+    out["browser"]={"supported":r.kind in ["linkedin","autofill"],"available":r.status not in TERMINAL and r.kind in ["linkedin","autofill"] and r.index==0};
     out["needs_resume_review"]=r.status=="needs_input" and out["step"]=="tailor" and not _tailor_ready(r.context);
     out["has_requests"]=len(r.requests)>0;
     out["retry_at"]=r.next_at if r.status=="queued" and r.attempts>0 else 0.0;
@@ -248,7 +248,7 @@ def:priv agent_cancel(id: str) -> dict[str, any] {
         r.status="uncertain" if intents else "cancelled";
         r.message="Cancellation requested; reconcile the dispatched action." if intents else "Cancelled";
         r.lease="";r.updated_at=time.time();commit();
-        close_browser=r.kind=="linkedin";owner=jid(root);out=_run_view(r,True);
+        close_browser=r.kind in ["linkedin","autofill"];owner=jid(root);out=_run_view(r,True);
     }
     # Closing a remote browser must not hold up every account's database writer.
     if close_browser {
@@ -449,6 +449,7 @@ def _agent_complete(token: str, id: str, owner: str, lease: str, result: dict[st
             r.status="uncertain" if intents else "blocked";r.requests=[];r.message=str(result.get("message","This step could not complete. Retry when ready."))[:1000];
         } elif result.get("needs_input") {
             r.status="needs_input";r.requests=result.get("requests",[]);r.message=str(result.get("message","Your input is needed."))[:1000];
+            if step=="browser_autofill" { r.artifacts[step]=result.get("artifact",{}); }
             # A dispatched action still needs reconciliation.
             if intents { r.status="uncertain";r.message="An action was dispatched; reconcile it before resuming."; }
         } else {

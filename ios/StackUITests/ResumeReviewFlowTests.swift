@@ -238,8 +238,12 @@ final class ResumeReviewFlowUITests: XCTestCase {
         openSection(app, "projects")
         let addProject = app.buttons["Add project"]
         show(addProject, app, "Add project")
+        captureNavigation(addProject, app, "add-project-before-tap")
         addProject.tap()
-        XCTAssertTrue(field(app, "Project 2 Project").waitForExistence(timeout: 5))
+        let newProjectAppeared = field(app, "Project 2 Project").waitForExistence(timeout: 5)
+        captureNavigation(addProject, app, "add-project-after-tap")
+        captureNavigation(field(app, "Project 2 Project"), app, "project-two-after-tap")
+        XCTAssertTrue(newProjectAppeared)
         type(app, "Project 2 Project", "Forecast model")
         backToSections(app)
         XCTAssertEqual(state(app), "unsaved")

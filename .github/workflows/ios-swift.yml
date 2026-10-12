@@ -1,4 +1,4 @@
-name: Focused native listing diagnostics
+name: Focused native resume add diagnostics
 on:
   workflow_dispatch:
 permissions:
@@ -18,7 +18,7 @@ jobs:
       - uses: ./.github/actions/prepare-resume-review-fixture
       - name: Install XcodeGen
         run: brew install xcodegen
-      - name: Observe the unchanged native system-browser handoff
+      - name: Observe the unchanged resume add project boundary
         run: |
           set -euo pipefail
           mkdir -p .jac/listing-diagnostics
@@ -30,6 +30,9 @@ jobs:
             app_data=$(xcrun simctl get_app_container "$simulator_id" com.matthewkooy.stack.swift data 2>/dev/null) || true
             if [[ -n "$app_data" && -f "$app_data/Library/Application Support/stack-listing-lifecycle.log" ]]; then
               cp "$app_data/Library/Application Support/stack-listing-lifecycle.log" .jac/listing-diagnostics/lifecycle-durable.log
+            fi
+            if [[ -n "$app_data" && -f "$app_data/Library/Application Support/stack-resume-add-diagnostic.log" ]]; then
+              cp "$app_data/Library/Application Support/stack-resume-add-diagnostic.log" .jac/listing-diagnostics/resume-add-durable.log
             fi
             kill "$fixture_pid" ${log_pid:+"$log_pid"} 2>/dev/null || true
           }
@@ -51,7 +54,7 @@ jobs:
             -derivedDataPath .jac/listing-diagnostics/DerivedData \
             -resultBundlePath .jac/listing-diagnostics/test.xcresult \
             -parallel-testing-enabled NO \
-            -only-testing:StackUITests/JobListingSafariUITests/testOpenInSafariHandsOffToTheSystemBrowser \
+            -only-testing:StackUITests/ResumeReviewFlowUITests/testEntriesBulletsAndOrderSurviveClosingAndReopening \
             STACK_LISTING_FIXTURE_PORT=18765 STACK_LISTING_REQUIRE_ACCEPTANCE=1 \
             STACK_API_URL=https://stack.invalid CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
       - name: Export the actual native screenshots and geometry
@@ -68,5 +71,6 @@ jobs:
             .jac/listing-diagnostics/evidence
             .jac/listing-diagnostics/lifecycle.log
             .jac/listing-diagnostics/lifecycle-durable.log
+            .jac/listing-diagnostics/resume-add-durable.log
             .jac/listing-diagnostics/fixture.log
           retention-days: 7

@@ -387,8 +387,29 @@ final class ResumeReviewController {
         setBullets(items, at: address)
     }
 
+    private func recordAddEntryProbe(_ stage: String, _ section: String) {
+        #if DEBUG
+        guard ProcessInfo.processInfo.arguments.contains("--screen-flow=resume-review") else { return }
+        let line = "stage=\(stage); section=\(section); count=\(document.entries(of: section).count); canEdit=\(canEdit)\n"
+        do {
+            let directory = try FileManager.default.url(for: .applicationSupportDirectory,
+                in: .userDomainMask, appropriateFor: nil, create: true)
+            let url = directory.appendingPathComponent("stack-resume-add-diagnostic.log")
+            if FileManager.default.fileExists(atPath: url.path) {
+                let handle = try FileHandle(forWritingTo: url)
+                defer { try? handle.close() }
+                try handle.seekToEnd()
+                try handle.write(contentsOf: Data(line.utf8))
+            } else {
+                try Data(line.utf8).write(to: url)
+            }
+        } catch {}
+        #endif
+    }
+
     @discardableResult
     func addEntry(_ section: String) -> String? {
+        recordAddEntryProbe("entered", section)
         guard canEdit else { return nil }
         let names = fieldSpecs(section).map(\.name)
         guard let id = document.addEntry(section, fields: names, limit: entryLimit(section)) else {
@@ -396,6 +417,7 @@ final class ResumeReviewController {
             return nil
         }
         edited()
+        recordAddEntryProbe("appended", section)
         return id
     }
 

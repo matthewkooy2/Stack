@@ -226,5 +226,20 @@ class MergeReleaseChanges(unittest.TestCase):
             self.assertEqual(proof.release_changes('HEAD'), ['README.md'])
 
 
+class LogTransport(unittest.TestCase):
+    def test_escape_capture_is_scoped_to_raw_job_logs_and_supported_clients(self):
+        for help_text, expected in [('old client', False), ('--allow-escape-sequences', True)]:
+            with patch.object(proof.subprocess, 'check_output', side_effect=[help_text, b'log bytes']) as call:
+                self.assertEqual(proof.api('actions/jobs/95/logs', raw=True), b'log bytes')
+                command = call.call_args.args[0]
+                self.assertEqual('--allow-escape-sequences' in command, expected)
+                self.assertIn('Range: bytes=0-131071', command)
+        for path, raw in [('actions/runs/10', False), ('actions/artifacts/10/zip', True)]:
+            with patch.object(proof.subprocess, 'check_output', return_value=b'{}') as call:
+                proof.api(path, raw=raw)
+                self.assertEqual(call.call_count, 1)
+                self.assertNotIn('--allow-escape-sequences', call.call_args.args[0])
+
+
 if __name__ == '__main__':
     unittest.main()

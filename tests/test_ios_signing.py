@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import plistlib
 import re
+import subprocess
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -200,6 +201,10 @@ class SigningConfiguration(unittest.TestCase):
             workflow = (ROOT / '.github/workflows' / name).read_text()
             self.assertIn('python3 scripts/ci/ios-signing.py prepare', workflow)
             self.assertIn('if: always()\n        run: python3 scripts/ci/ios-signing.py cleanup', workflow)
+
+    def test_exact_beta_must_be_processed_and_available_to_testers(self):
+        subprocess.run(['node', '--test', 'tests/ios-swift-processing.cjs'], cwd=ROOT, check=True,
+                       capture_output=True, text=True)
 
 
 if __name__ == '__main__':

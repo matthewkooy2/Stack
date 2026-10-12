@@ -26,6 +26,13 @@ def api(path, raw=False):
     command = ['gh', 'api', 'repos/' + REPO + '/' + path]
     if path.endswith('/logs'):
         command += ['-H', 'Range: bytes=0-131071']
+        # New gh versions reject ANSI in logs even when stdout is a pipe. Permit
+        # captured bytes only for job logs; checkout_commit parses a bounded prefix
+        # into one hex SHA and never sends these untrusted bytes to a terminal.
+        if raw and re.fullmatch(r'actions/jobs/\d+/logs', path):
+            help_text = subprocess.check_output(['gh', 'api', '--help'], text=True)
+            if '--allow-escape-sequences' in help_text:
+                command += ['--allow-escape-sequences']
     data = subprocess.check_output(command)
     return data if raw else json.loads(data)
 

@@ -153,7 +153,8 @@ struct InterviewView: View {
             StackField(label: "Review your answer", text: $draft, multiline: true)
             TranscriptionPanel(onUse: { text, id in
                 if draft.isBlank { draft = text; recordingID = id } else { offered = (text, id) }
-            }, disabled: busy)
+            }, disabled: busy, questionNumber: turns.count + 1, questionCount: min(questions.count, 6),
+                               prompt: questions.indices.contains(turns.count) ? questions[turns.count]["question"].string : "")
             .id(current["id"].string + ":" + String(turns.count))
             if let offered {
                 Card(tint: Palette.oat, spacing: 8) {

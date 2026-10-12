@@ -6,6 +6,9 @@ import SwiftUI
 struct TranscriptionPanel: View {
     var onUse: ((String, String) -> Void)?
     var disabled = false
+    var questionNumber = 1
+    var questionCount = 1
+    var prompt = "Record your answer."
 
     @Environment(AppStore.self) private var store
     @Environment(\.scenePhase) private var scenePhase
@@ -21,7 +24,7 @@ struct TranscriptionPanel: View {
     @State private var error = ""
     @State private var notice = ""
     @State private var pendingUpload: CapturedRecording?
-    @State private var showLiveTranscript = false
+    @State private var showRecordingSurface = false
     @State private var deleting = false
     @State private var boundGeneration: Int?
     @State private var recordingOwner = ""
@@ -42,20 +45,8 @@ struct TranscriptionPanel: View {
                 if runtime["status"].string == "unavailable" {
                     StackButton(label: "Retry setup", kind: .secondary) { Task { await retrySetup() } }
                 }
-                HStack(spacing: 14) {
-                    Halo(active: recorder.isRecording && !recorder.isPaused, size: 56) { GlyphView(name: "mic", size: 24) }
-                    Text(recordingClock(recorder.elapsed))
-                        .font(.system(.title2).weight(.bold).monospacedDigit()).foregroundStyle(Palette.ink)
-                }
-                if recorder.onDevice && recorder.isRecording {
-                    Toggle("Show live transcript", isOn: $showLiveTranscript).font(Typeface.caption).tint(Palette.icon)
-                    if showLiveTranscript {
-                        Text(recorder.liveText).font(Typeface.body).foregroundStyle(Palette.text).accessibilityLabel("Live transcript")
-                    }
-                }
                 if recorder.isRecording {
-                    StackButton(label: "Stop and transcribe", disabled: busy) { Task { await stop(cancelled: false) } }
-                    StackButton(label: "Cancel recording", kind: .secondary, disabled: busy) { Task { await stop(cancelled: true) } }
+                    StackButton(label: "Return to recording", icon: "mic") { showRecordingSurface = true }
                 } else {
                     StackButton(label: "Record", icon: "mic", disabled: busy || dirty || disabled || recorder.finalizing || pendingUpload != nil) { Task { await record() } }
                 }
@@ -64,6 +55,12 @@ struct TranscriptionPanel: View {
             }
             MessageLine(text: error.isEmpty ? recorder.error : error).fadeSwitch(!(error.isEmpty && recorder.error.isEmpty))
             MessageLine(text: notice, isError: false).fadeSwitch(!notice.isEmpty)
+            MessageLine(text: recorder.stopNotice, isError: false).fadeSwitch(!recorder.stopNotice.isEmpty)
+            if recorder.permissionDenied {
+                StackButton(label: "Open microphone settings", kind: .secondary) { AppSettings.open() }
+                Text("After allowing microphone access, return and tap Record. You can also type your answer.")
+                    .font(Typeface.caption).foregroundStyle(Palette.muted)
+            }
             if let pending = pendingUpload {
                 StackButton(label: "Sync saved recording", disabled: busy) { Task { await upload(pending) } }
             }
@@ -105,10 +102,30 @@ struct TranscriptionPanel: View {
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { suspendRecording() }
         }
-        .onDisappear { suspendRecording() }
+        .onDisappear { if !showRecordingSurface { suspendRecording() } }
+        .fullScreenCover(isPresented: $showRecordingSurface) {
+            GeometryReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: Spacing.stack) {
+                        RecordingSurface(recorder: recorder, questionNumber: questionNumber,
+                                         questionCount: questionCount, prompt: prompt, busy: busy,
+                                         onStop: { Task { await stop(cancelled: false) } },
+                                         onTogglePause: { togglePause() })
+                        MessageLine(text: recorder.error).fadeSwitch(!recorder.error.isEmpty)
+                    }
+                    .padding(Spacing.page)
+                    .frame(minHeight: proxy.size.height, alignment: .topLeading)
+                }
+                .scrollIndicators(.hidden)
+                .background(Palette.page.ignoresSafeArea())
+            }
+            .interactiveDismissDisabled()
+            .onDisappear { if recorder.isRecording { suspendRecording() } }
+        }
         .onAppear {
             if boundGeneration == nil { boundGeneration = store.sessionGeneration }
             recorder.onAutoStop = { saved in
+                showRecordingSurface = false
                 pendingUpload = saved
                 Task { @MainActor in await upload(saved) }
             }
@@ -194,12 +211,14 @@ struct TranscriptionPanel: View {
             guard boundGeneration == store.sessionGeneration, recordingOwner == owner else {
                 _ = recorder.stop(cancelled: true); throw CancellationError()
             }
+            showRecordingSurface = true
         }
         catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
     }
 
     private func stop(cancelled: Bool) async {
         guard !busy, let saved = recorder.stop(cancelled: cancelled) else { return }
+        showRecordingSurface = false
         if cancelled {
             await saved.finalized.value
             guard boundGeneration == store.sessionGeneration else { return }
@@ -212,9 +231,18 @@ struct TranscriptionPanel: View {
 
     private func suspendRecording() {
         // Stop synchronously even while microphone permission is pending.
-        guard let saved = recorder.stop() else { return }
+        guard let saved = recorder.stop(reason: "Recording stopped when you left the recording screen or locked your phone. Audio was kept.") else { return }
+        showRecordingSurface = false
         pendingUpload = saved
         if !busy { Task { await upload(saved) } }
+    }
+
+    private func togglePause() {
+        guard !busy else { return }
+        if recorder.isPaused {
+            do { try recorder.resume() }
+            catch { recorder.error = error.localizedDescription }
+        } else { recorder.pause() }
     }
 
     private func upload(_ saved: CapturedRecording) async {

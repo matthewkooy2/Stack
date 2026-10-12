@@ -1,4 +1,4 @@
-name: Focused native safari and keyboard proof
+name: Focused flaky fixture evidence
 # Diagnostic branch only. Never merged. Signs, uploads and deploys nothing.
 on:
   workflow_dispatch:
@@ -13,14 +13,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: safari and keyboard proof xcode 27
-            runner: xcode-27
-            developer_dir: /Applications/Xcode_27.0.app/Contents/Developer
-            mode: release
-          - name: safari proof xcode 15.4
+          - name: flaky fixture evidence xcode 15.4
             runner: macos-14
             developer_dir: ''
-            mode: safari
+            mode: flaky
     env:
       STACK_API_URL: https://stack.invalid
       STACK_LISTING_REQUIRE_ACCEPTANCE: '1'
@@ -68,17 +64,13 @@ jobs:
             local code=0
             xcodebuild test-without-building "${common[@]}" -resultBundlePath "$out/$label.xcresult" "$@" "${settings[@]}" \
               > "$out/$label.log" 2>&1 || code=$?
-            grep -E "Test Case|error:|Executed|Test Suite|DIAG-SPEECH|SpeechFramework|Restarting after" "$out/$label.log" || true
+            grep -E "Test Case|error:|Executed|Test Suite|DIAG-SPEECH|SpeechFramework|Restarting after|DIAG-FLAKY" "$out/$label.log" || true
             echo "$label exit=$code" | tee -a "$out/summary.txt"
             echo "::endgroup::"
             [[ $code -eq 0 || -n "${EXPECT_FAILURE:-}" ]] || status=1
           }
-          if [[ "$MODE" == safari ]]; then
-            run safari-class-x2 -test-iterations 2 -only-testing:StackUITests/JobListingSafariUITests
-          else
-            run keyboard-x3 -test-iterations 3               -only-testing:StackUITests/AccessFlowTests/testNamedFieldsAndKeyboardValidation
-            run safari-class-x3 -test-iterations 3 -only-testing:StackUITests/JobListingSafariUITests
-          fi
+          run flaky-x6 -test-iterations 6             -only-testing:StackUITests/JobListingSafariUITests/testFailedConnectionThenReloadRecovers
+          run safari-class-x2 -test-iterations 2 -only-testing:StackUITests/JobListingSafariUITests
           cat "$out/summary.txt"
           exit $status
       - name: Export screenshots and geometry

@@ -223,9 +223,21 @@ final class JobListingSafariUITests: XCTestCase {
 
         // The browser must have actually reached the fixture, otherwise an empty screen would look like an error.
         var hits = 0
+        var raw: [String] = []
         for _ in 0..<40 where hits == 0 {
-            hits = Int(control("/control/hits?path=/flaky")) ?? 0
+            let response = control("/control/hits?path=/flaky")
+            raw.append("\(Date().timeIntervalSince1970):'\(response)'")
+            hits = Int(response) ?? 0
             if hits == 0 { Thread.sleep(forTimeInterval: 0.5) }
+        }
+        let polls = XCTAttachment(string: raw.joined(separator: "; "))
+        polls.name = "diag-flaky-hit-polls"
+        polls.lifetime = .keepAlways
+        add(polls)
+        print("DIAG-FLAKY polls: " + raw.joined(separator: "; "))
+        if hits == 0 {
+            capture("diag-flaky-no-hits")
+            dump(app, "diag-flaky-no-hits")
         }
         XCTAssertGreaterThan(hits, 0, "the browser requested /flaky from the fixture")
 

@@ -47,6 +47,13 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
+    def diag(self, path, note):
+        # Diagnostic branch only: one line per request with the client port and fail switch.
+        import time
+        with lock:
+            hits = state["hits"].get("/flaky", 0)
+        print(f"{time.time():.3f} port={self.client_address[1]} path={path} {note} flaky_hits={hits}", flush=True)
+
     def send_body(self, status, body, content_type="text/html; charset=utf-8", extra=None):
         data = body.encode("utf8")
         self.send_response(status)
@@ -64,6 +71,7 @@ class Handler(BaseHTTPRequestHandler):
         with lock:
             state["hits"][path] = state["hits"].get(path, 0) + 1
             failing = state["fail"]
+        self.diag(self.path, f"fail={failing}")
         if path == "/control/fail":
             on = parse_qs(url.query).get("on", ["0"])[0] == "1"
             with lock:

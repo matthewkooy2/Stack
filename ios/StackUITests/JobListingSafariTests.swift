@@ -107,21 +107,10 @@ final class JobListingSafariUITests: XCTestCase {
         }
         let close = closeControls.element
         let addresses = app.otherElements["TopBrowserBar"].buttons.matching(identifier: "URL")
-        // The actual native AX trees expose Address over most of Close's frame on both SDKs. A default
-        // center tap can reach Address while reporting Close as hittable. Use the visible left strip of
-        // this same unique Close control, derived from those current frames, and retain dismissal proof.
+        // Use this actual control's measured center. The Address AX frame overlaps it, so an inferred
+        // hittable point can miss Close. Keep a single tap and the complete dismissal proof below.
         let frame = close.frame
-        var normalizedX: CGFloat = 0.5
-        if addresses.count == 1, frame.intersects(addresses.element.frame) {
-            let clearWidth = addresses.element.frame.minX - frame.minX
-            guard clearWidth > 0, frame.width > 0 else {
-                dump(app, "close-overlapped")
-                capture("close-overlapped")
-                XCTFail("the native Close control has a visible strip outside Address", file: file, line: line)
-                return
-            }
-            normalizedX = min(clearWidth, frame.width) / (2 * frame.width)
-        }
+        let normalizedX: CGFloat = 0.5
         let addressFrame = addresses.count == 1 ? String(describing: addresses.element.frame) : "absent"
         let geometry = XCTAttachment(string: "Close: \(frame); Address: \(addressFrame); normalized tap: \(normalizedX), 0.5")
         geometry.name = "native-close-hit-geometry"

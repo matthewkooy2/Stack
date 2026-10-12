@@ -67,6 +67,7 @@ run_xcodebuild() {
   xcodebuild "$action" \
     -project ios/Stack.xcodeproj \
     -scheme Stack \
+    -configuration "${STACK_IOS_CONFIGURATION:-Debug}" \
     -destination "$destination" \
     -derivedDataPath "$derived" \
     -resultBundlePath "$result" \

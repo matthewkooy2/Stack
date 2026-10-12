@@ -26,6 +26,12 @@ on:
       - 'tests/test_ios_xcresult_attachments.py'
       - '.github/workflows/ios-swift.yml'
   workflow_dispatch:
+    inputs:
+      listing_error_text:
+        description: Observed Safari connection-error label for this simulator OS and locale
+        required: false
+        default: ''
+        type: string
 permissions:
   contents: read
 concurrency:
@@ -68,6 +74,7 @@ jobs:
           # The API origin is only compiled into Info.plist; tests use stubbed transport.
           STACK_API_URL: https://stack.invalid
           STACK_LISTING_REQUIRE_ACCEPTANCE: '1'
+          STACK_LISTING_ERROR_TEXT: ${{ inputs.listing_error_text || '' }}
         run: |
           python3 scripts/ci/ios-listing-fixture-server.py --port 18765 > "$RUNNER_TEMP/listing-fixture.log" 2>&1 &
           fixture_pid=$!
@@ -78,6 +85,12 @@ jobs:
           done
           curl --fail --silent http://127.0.0.1:18765/health
           bash scripts/ci/ios-swift.sh test
+      - name: Build the unsigned Release candidate
+        if: always()
+        env:
+          STACK_API_URL: https://stack.invalid
+          STACK_IOS_CONFIGURATION: Release
+        run: bash scripts/ci/ios-swift.sh build
       # Evidence only: a raw .xcresult cannot be read off macOS, so its kept screenshots are exported to PNG.
       # This step never changes the job's result; the build and test step above owns it. Failures to export are
       # written to evidence/manifest.json and shown as warnings.

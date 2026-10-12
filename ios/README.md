@@ -78,6 +78,10 @@ a failure. Missing error-text calibration captures the actual error screenshot/a
 the observed wording must then be supplied as `STACK_LISTING_ERROR_TEXT` for a passing failure/retry run.
 The scheme explicitly forwards these build settings into the XCTest runner; the CI script supplies them and
 runs native tests serially on the exact PR head.
+After inspecting the calibration attachments, dispatch the same workflow on the same branch with its
+`listing_error_text` input set to the observed label. This changes runtime test data without changing the
+candidate source. A passing calibrated run must execute all seven Safari cases. CI also builds the unsigned
+Release configuration.
 
 Evidence limits of the Jobs flow tests (`JobsDeckFlowUITests`): opening the browser does not force an early
 commit of a pending Save/Pass, but the normal 2.4s Undo timer keeps running while it is open; the tests use a 60s

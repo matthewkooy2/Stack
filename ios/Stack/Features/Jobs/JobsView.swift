@@ -127,10 +127,11 @@ struct JobsView: View {
                             .offset(offset == 0 ? drag : .zero)
                             .rotationEffect(.degrees(offset == 0 ? Double(drag.width / 18) : 0))
                             .overlay(alignment: .topLeading) {
-                                if offset == 0 { stamp(for: drag.width).accessibilityHidden(true) }
+                                if offset == 0, drag.width != 0 { stamp(for: drag.width).accessibilityHidden(true) }
                             }
                             .gesture(swipe(top), including: offset == 0 ? .all : .none)
                             .onTapGesture { if offset == 0 { open(job) } }
+                            .accessibilityElement(children: .combine)
                             .accessibilityHidden(offset != 0)
                             .accessibilityIdentifier("job-card-" + job.id)
                             .accessibilityHint(canOpenListing ? "Opens the listing" : "Opens the job details")

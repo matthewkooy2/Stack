@@ -122,7 +122,7 @@ final class JobListingSafariUITests: XCTestCase {
             }
             normalizedX = min(clearWidth, frame.width) / (2 * frame.width)
         }
-        let addressFrame = addresses.count == 1 ? addresses.element.frame.description : "absent"
+        let addressFrame = addresses.count == 1 ? String(describing: addresses.element.frame) : "absent"
         let geometry = XCTAttachment(string: "Close: \(frame); Address: \(addressFrame); normalized tap: \(normalizedX), 0.5")
         geometry.name = "native-close-hit-geometry"
         geometry.lifetime = .keepAlways

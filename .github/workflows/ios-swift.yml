@@ -1,4 +1,4 @@
-name: Focused flaky fixture evidence
+name: Focused flaky runner run loop A/B
 # Diagnostic branch only. Never merged. Signs, uploads and deploys nothing.
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: flaky fixture evidence xcode 15.4
+          - name: flaky run loop ab xcode 15.4
             runner: macos-14
             developer_dir: ''
             mode: flaky
@@ -48,10 +48,18 @@ jobs:
           curl --fail --silent http://127.0.0.1:18765/health || exit 1
           name=$(xcrun simctl list devices available | sed -n 's/^ *\(iPhone [^(]*[^ (]\) (.*/\1/p' | head -n 1)
           echo "simulator=$name" | tee -a "$out/toolchain.txt"
+          udid=$(xcrun simctl list devices available -j | NAME="$name" python3 -c 'import json,os,sys; print(next(d["udid"] for g in json.load(sys.stdin)["devices"].values() for d in g if d["name"]==os.environ["NAME"]))')
+          xcrun simctl boot "$udid" || true
+          xcrun simctl bootstatus "$udid" -b > /dev/null
+          xcrun simctl spawn "$udid" log stream --style compact --level default \
+            --predicate 'process == "SafariViewService" OR process BEGINSWITH "com.apple.WebKit" OR process == "Stack"' \
+            > "$out/simulator-safari.log" 2>&1 &
+          log_pid=$!
+          trap 'kill "$fixture_pid" "$log_pid" 2>/dev/null || true' EXIT
           python3 scripts/ci/resume-review/prepare.py
           (cd ios && xcodegen generate --spec project.yml --project .)
           common=(-project ios/Stack.xcodeproj -scheme Stack -configuration Debug
-            -destination "platform=iOS Simulator,name=$name" -derivedDataPath "$out/DerivedData"
+            -destination "platform=iOS Simulator,id=$udid" -derivedDataPath "$out/DerivedData"
             -parallel-testing-enabled NO)
           settings=(STACK_LISTING_FIXTURE_PORT=18765 STACK_LISTING_REQUIRE_ACCEPTANCE=1
             "STACK_LISTING_ERROR_TEXT=Can’t Open Page" STACK_API_URL=https://stack.invalid
@@ -69,8 +77,10 @@ jobs:
             echo "::endgroup::"
             [[ $code -eq 0 || -n "${EXPECT_FAILURE:-}" ]] || status=1
           }
-          run flaky-x6 -test-iterations 6             -only-testing:StackUITests/JobListingSafariUITests/testFailedConnectionThenReloadRecovers
-          run safari-class-x2 -test-iterations 2 -only-testing:StackUITests/JobListingSafariUITests
+          for round in 1 2 3 4 5; do
+            run "baseline-r$round" -test-iterations 2 -only-testing:StackUITests/JobListingSafariUITests/testDiagBlockingBaselineFailedConnection
+            run "runloop-r$round" -test-iterations 2 -only-testing:StackUITests/JobListingSafariUITests/testFailedConnectionThenReloadRecovers
+          done
           cat "$out/summary.txt"
           exit $status
       - name: Export screenshots and geometry

@@ -1,5 +1,11 @@
 import XCTest
 
+/// A fixture reply, written on the main queue and read by the waiting main run loop.
+private final class ControlReply: @unchecked Sendable {
+    var text = ""
+    var finished = false
+}
+
 /// Drives the real `SFSafariViewController` opened from the real `JobsView`, against fictional pages served by
 /// `scripts/ci/ios-listing-fixture-server.py` on loopback. No live job page, account or form is involved.
 ///
@@ -10,12 +16,14 @@ import XCTest
 final class JobListingSafariUITests: XCTestCase {
     private var port: String { ProcessInfo.processInfo.environment["STACK_LISTING_FIXTURE_PORT"] ?? "18765" }
     private var base: String { "http://127.0.0.1:" + port }
+    private var blockingBaseline = false
     private var requiredAcceptance: Bool {
         ProcessInfo.processInfo.environment["STACK_LISTING_REQUIRE_ACCEPTANCE"] == "1"
     }
 
     override func setUp() async throws {
         continueAfterFailure = false
+        blockingBaseline = name.contains("DiagBlockingBaseline")
         // The default scheme runs this suite too. Without the loopback fixture there is nothing to test against,
         // so skip (never pass): a skip is not native acceptance.
         let health = control("/health")
@@ -33,14 +41,26 @@ final class JobListingSafariUITests: XCTestCase {
     @discardableResult
     private func control(_ path: String) -> String {
         guard let url = URL(string: base + path) else { return "" }
-        var result = ""
-        let done = DispatchSemaphore(value: 0)
+        if blockingBaseline {
+            // Diagnostic baseline: the original semaphore wait that blocks the runner main thread.
+            var result = ""
+            let done = DispatchSemaphore(value: 0)
+            URLSession.shared.dataTask(with: url) { data, _, _ in
+                result = String(data: data ?? Data(), encoding: .utf8) ?? ""
+                done.signal()
+            }.resume()
+            _ = done.wait(timeout: .now() + 5)
+            return result
+        }
+        let reply = ControlReply()
         URLSession.shared.dataTask(with: url) { data, _, _ in
-            result = String(data: data ?? Data(), encoding: .utf8) ?? ""
-            done.signal()
+            let text = String(data: data ?? Data(), encoding: .utf8) ?? ""
+            DispatchQueue.main.async { reply.text = text; reply.finished = true }
         }.resume()
-        _ = done.wait(timeout: .now() + 5)
-        return result
+        // Wait on the run loop, not a semaphore: a blocked runner main thread stalled Safari's page start.
+        let deadline = Date().addingTimeInterval(5)
+        while !reply.finished, Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.05)) }
+        return reply.text
     }
 
     private func launch(path: String) -> XCUIApplication {
@@ -212,6 +232,14 @@ final class JobListingSafariUITests: XCTestCase {
     /// Supply a distinctive error label actually observed on this OS and locale. Safari renders it out of
     /// process; guessing its text would make a native acceptance claim depend on unobserved system UI.
     func testFailedConnectionThenReloadRecovers() throws {
+        try failedConnectionThenReload()
+    }
+
+    func testDiagBlockingBaselineFailedConnection() throws {
+        try failedConnectionThenReload()
+    }
+
+    private func failedConnectionThenReload() throws {
         let errorText = (ProcessInfo.processInfo.environment["STACK_LISTING_ERROR_TEXT"] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         try XCTSkipIf(errorText.isEmpty && !requiredAcceptance, "Observe Safari's connection-error label on the target OS/locale, then rerun "
@@ -228,7 +256,10 @@ final class JobListingSafariUITests: XCTestCase {
             let response = control("/control/hits?path=/flaky")
             raw.append("\(Date().timeIntervalSince1970):'\(response)'")
             hits = Int(response) ?? 0
-            if hits == 0 { Thread.sleep(forTimeInterval: 0.5) }
+            if hits == 0 {
+                if blockingBaseline { Thread.sleep(forTimeInterval: 0.5) }
+                else { RunLoop.current.run(until: Date().addingTimeInterval(0.5)) }
+            }
         }
         let polls = XCTAttachment(string: raw.joined(separator: "; "))
         polls.name = "diag-flaky-hit-polls"

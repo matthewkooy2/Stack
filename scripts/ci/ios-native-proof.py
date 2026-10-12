@@ -66,13 +66,6 @@ def runs(workflow, **query):
     return api('actions/workflows/' + workflow + '/runs?per_page=100&' + suffix)['workflow_runs']
 
 
-def release_changes(commit):
-    parents = git('rev-list', '--parents', '-n', '1', commit).split()
-    if len(parents) > 1:
-        return git('diff', '--name-only', parents[1], commit).splitlines()
-    return git('diff-tree', '--root', '--no-commit-id', '--name-only', '-r', commit).splitlines()
-
-
 def checkout_commit(job):
     # GitHub drops PR associations from old runs once a PR closes. The pinned
     # checkout action's first Git log command still records the actual tested SHA.
@@ -174,7 +167,7 @@ def reuse(machine):
     print('No reusable native result: execute the selected cases on actual main.')
 
 
-def release(machine):
+def release(machine, require_upload=False):
     event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
     source = event.get('workflow_run')
     if source:
@@ -187,6 +180,15 @@ def release(machine):
         commit = os.environ['GITHUB_SHA']
     if api('git/ref/heads/main')['object']['sha'] != commit:
         raise ValueError('Release candidate is no longer current main')
+    if source and native_not_applicable(source):
+        if require_upload:
+            raise ValueError('This event does not authorize native upload')
+        # A successful no-upload selection cannot sign anything.
+        # Read GitHub-owned step results, not a PR-controlled artifact or a
+        # last-commit diff (which loses earlier changes in multi-commit pushes).
+        output('upload', 'false')
+        output('release_commit', commit)
+        return
     git('fetch', '--no-tags', 'origin', commit)
     git('checkout', '--detach', commit)
     tree = git('rev-parse', 'HEAD^{tree}')
@@ -206,21 +208,35 @@ def release(machine):
         if time.monotonic() >= deadline:
             raise ValueError('Exact-commit backend/security CI is missing or pending')
         time.sleep(15)
-    # Docs-only main pushes never create automatic beta uploads. Manual upload remains explicit.
-    changes = release_changes(commit)
-    relevant = any(p.startswith(('ios/', 'scripts/ci/ios-', 'scripts/ci/resume-review/',
-                                 '.github/actions/prepare-resume-review-fixture/'))
-                   or p in (WORKFLOW, '.github/workflows/swift-testflight.yml', 'mobile/feature-rpcs.js')
-                   for p in changes)
-    output('upload', str(not source or relevant).lower())
+    # Automatic no-upload events returned before proof lookup. Every remaining
+    # upload, including manual dispatch, has the full exact-source proof above.
+    output('upload', 'true')
     output('release_commit', commit)
     if api('git/ref/heads/main')['object']['sha'] != commit:
         raise ValueError('Main advanced while waiting for verification')
     record(machine)
 
 
+def native_not_applicable(run):
+    if run.get('path') != WORKFLOW or run.get('status') != 'completed' or run.get('conclusion') != 'success':
+        return False
+    jobs = api(f"actions/runs/{run['id']}/attempts/{run['run_attempt']}/jobs?per_page=100")['jobs']
+    native = [job for job in jobs if job['name'] == JOB and job['conclusion'] == 'success']
+    if len(native) != 1:
+        return False
+    steps = {step['name']: step['conclusion'] for step in native[0]['steps']}
+    if steps.get('Select affected checks') != 'success':
+        return False
+    if steps.get('Report native upload not applicable') == 'success':
+        return True
+    return (steps.get('Report native checks not applicable') == 'success'
+            and all(steps.get(name) == 'skipped' for name in
+                    ('Run selected native cases', 'Compile unsigned Release', 'Publish native proof')))
+
+
 if __name__ == '__main__':
     os.chdir(ROOT)
     mode = sys.argv[1]
     machine = toolchain()
-    {'record': record, 'reuse': reuse, 'release': release}[mode](machine)
+    {'record': record, 'reuse': reuse, 'release': release,
+     'release-upload': lambda machine: release(machine, require_upload=True)}[mode](machine)

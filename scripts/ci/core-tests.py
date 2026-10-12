@@ -14,7 +14,7 @@ SUITES = {
         'tests.test_backend_release', 'tests.test_ios_signing',
         'tests.test_fixture_provenance', 'tests.test_resume_review_fixture',
         'tests.test_ios_swift_static', 'tests.test_ios_xcresult_attachments',
-        'tests.test_ios_native_proof', 'tests.test_ios_core',
+        'tests.test_ios_native_proof', 'tests.test_ios_core', 'tests.test_affected_checks',
     ],
     'permissions': [
         'tests.test_agents.Contracts.test_disabled_by_default',

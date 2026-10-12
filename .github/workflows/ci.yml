@@ -19,10 +19,17 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Select affected checks
+        id: affected
+        run: python3 scripts/ci/affected-checks.py
+      - name: Report backend checks not applicable
+        if: steps.affected.outputs.backend == 'false'
+        run: echo 'No backend runtime changes; credential scans still run.'
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        if: steps.affected.outputs.backend != 'false'
         with:
           node-version: '22.22.0'
       - name: Install the pinned credential scanner
@@ -43,12 +50,15 @@ jobs:
         run: |
           "$RUNNER_TEMP/gitleaks/gitleaks" git --log-opts=--all --redact=100 --no-banner --ignore-gitleaks-allow
       - name: Install documented machine prerequisites
+        if: steps.affected.outputs.backend != 'false'
         run: |
           sudo apt-get update
           sudo apt-get install -y git make python3-venv ca-certificates curl tar xz-utils libfontconfig1
       - name: Bootstrap a clean public checkout
+        if: steps.affected.outputs.backend != 'false'
         run: python3 scripts/contributor.py setup
       - name: Check server, web and native modules
+        if: steps.affected.outputs.backend != 'false'
         run: >-
           scripts/jac check main.jac web/main.jac mobile/main.jac
           core/automation.jac core/stories.jac
@@ -56,8 +66,10 @@ jobs:
           agents/notifications.jac agents/tracing.jac agents/resume_processing.jac agents/experience.jac
           scripts/agent-admin.jac
       - name: Run approved backend safety cases
+        if: steps.affected.outputs.backend != 'false'
         run: python3 scripts/ci/core-tests.py
       - name: Start services and verify account and saved practice persistence
+        if: steps.affected.outputs.backend != 'false'
         run: |
           python3 scripts/contributor.py dev --smoke
           python3 scripts/contributor.py setup

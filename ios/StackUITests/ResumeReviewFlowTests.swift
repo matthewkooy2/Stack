@@ -257,6 +257,17 @@ final class ResumeReviewFlowUITests: XCTestCase {
         XCTAssertEqual(state(app), "unsaved", "the first account finds its draft again")
     }
 
+    func testUnavailableStructuredParseShowsRawRecordsAndItsReason() {
+        let app = launch(["--resume-review-unavailable"])
+        XCTAssertTrue(element(app, id: "resume-review-state").waitForExistence(timeout: 10))
+        let record = field(app, "Record r0")
+        show(record, app, "Accepted raw record")
+        XCTAssertEqual(text(record), "Accepted raw fallback")
+        XCTAssertFalse(element(app, id: "resume-review-section-profile").exists)
+        XCTAssertTrue(app.staticTexts["Structured review unavailable for rotated PDF"].exists)
+        capture("resume-review-unavailable-raw-fallback")
+    }
+
     func testConfirmedRawRecordsStillRequireConfirmingParsedDetails() {
         var app = launch(["--resume-review-unconfirmed-details"])
         XCTAssertTrue(element(app, id: "resume-review-state").waitForExistence(timeout: 10))

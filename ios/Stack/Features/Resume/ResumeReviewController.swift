@@ -109,6 +109,7 @@ final class ResumeReviewController {
     private(set) var processing: JSON = .null
     private(set) var warnings: [String] = []
     private(set) var sourceText = ""
+    private(set) var detailsError = ""
     /// The server's bounds and field definitions; empty until a response carries them.
     private(set) var limits = ResumeLimits()
     private(set) var definitions: [String: ResumeDefinition] = [:]
@@ -256,6 +257,7 @@ final class ResumeReviewController {
         processing = result["processing"]
         warnings = incoming.warnings
         sourceText = result["text"].string
+        detailsError = result["details_error"].string
         if !result["template"].isNull { template = result["template"] }
         if !incoming.limits.isEmpty { limits = incoming.limits }
         if !incoming.definitions.isEmpty {
@@ -285,7 +287,10 @@ final class ResumeReviewController {
             return
         }
         applyMetadata(result)
-        let sectionMode = !result["sections"].array.isEmpty || incoming.records.isEmpty
+        // Pending/unavailable parses still publish empty placeholder sections. Keep their raw records editable.
+        let detailsStatus = result["details_status"].string
+        let sectionMode = incoming.records.isEmpty || (detailsStatus.isEmpty
+            ? !result["sections"].array.isEmpty : detailsStatus == "ready")
         if !loaded, let draft = drafts.load(userID: userID, resumeID: resumeID) {
             if draft.hasEdits {
                 document = draft.document
@@ -469,6 +474,7 @@ final class ResumeReviewController {
         originalValues = nil
         originalLabels = [:]
         sourceText = ""
+        detailsError = ""
         warnings = []
         limits = ResumeLimits()
         definitions = [:]

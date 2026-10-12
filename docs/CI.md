@@ -80,6 +80,9 @@ attempt, toolchain and optional originating PR run. The record is not authority:
 `ios-native-proof.py` verifies GitHub-owned repository/event/workflow/job/step
 results, current-attempt artifact identity, commit tree and the actual checkout SHA
 from the pinned checkout action's GitHub-owned log prefix. This survives GitHub
+CLI versions that reject ANSI-bearing responses: only captured numeric job logs
+opt into that transport flag when supported; raw logs are never printed or executed.
+The bounded prefix and hex-only checkout identity checks remain required. This survives GitHub
 removing PR associations when a PR closes; missing logs require actual-main testing.
 It independently reconstructs the PR merge tree. The complete tree binds sources,
 tests, fixtures, scripts and workflow policy together. Fork and manual-run evidence
@@ -100,7 +103,11 @@ upload. The commit must still be current main. Automatic docs-only pushes do not
 upload; manual upload retains its explicit input. The upload script independently
 revalidates evidence for direct invocations. Archive identity, HTTPS configuration,
 manual signing, private-file cleanup, upload and exact Apple processing checks
-remain. No simulator suite runs in the signing environment. Workflow completion
+remain. Apple confirmation requires the exact unexpired build to be `VALID` and
+its beta detail to report `IN_BETA_TESTING` for existing internal or external testers.
+Pending processing or tester availability fails after the bounded check. No tester
+membership, signing permission or credential setting is changed by that read-only check.
+No simulator suite runs in the signing environment. Workflow completion
 does not dispatch CI again, so there is no trigger loop.
 
 ## Budgets and acceptance evidence

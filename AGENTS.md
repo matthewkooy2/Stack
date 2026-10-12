@@ -42,6 +42,12 @@ issue PRs and keep drafts until current-head/current-base acceptance passes.
 
 ## CI scope
 
+Adding any CI/CD gate requires Matt's explicit direct verification and approval
+before implementation. A gate is a new blocking check, requirement, matrix or
+release condition. Agents must not add one on their own: first present the
+proposed gate, its reason and its runtime/coverage cost to Matt. Broad permission
+to implement or merge does not grant this approval.
+
 Keep automatic verification to backend/security and native core, using one release
 toolchain. Each blocking test must name the user failure it prevents and disclose
 measured runtime. New jobs, matrices, frameworks or coverage expansion require

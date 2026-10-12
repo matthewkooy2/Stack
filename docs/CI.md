@@ -12,6 +12,18 @@ uploads are not cancelled. Only trusted main code is executed with signing asset
 Native PR tests use disposable GitHub-hosted runners, read-only permissions, no
 signing environment and no secrets. There is no `pull_request_target` execution.
 
+## Approval for new gates
+
+Adding any CI/CD gate requires Matt's explicit direct verification and approval
+before implementation. A gate is a new blocking check, requirement, matrix or
+release condition, including one added to an existing job or workflow. Agents
+must not add gates on their own.
+
+First present the proposed gate, the reason it is needed and its runtime/coverage
+cost to Matt, including expected added runtime and coverage. Wait for his direct
+verification and explicit approval before adding it. Broad permission to implement
+or merge does not grant gate approval. Existing gates remain in place.
+
 ## Change impact routing
 
 `scripts/ci/affected-checks.py` routes steps inside the existing jobs. Required

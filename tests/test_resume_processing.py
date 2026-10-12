@@ -148,16 +148,25 @@ class ResumeProcessing(unittest.TestCase):
         self.assertTrue(preview.exists())
 
     def test_legacy_corrections_migrate_and_persist_as_unconfirmed_details(self):
-        from agents import resume_details as details
-        attach = details.attach_import
+        # The prepared Jac app owns its module imports independently of this
+        # test module; retain its actual function so migration still runs.
+        module = self.client._server.module
+        attach = module.attach_import
         legacy = {'profile.name': 'Legacy Corrected Name',
                   'workExperiences.7.company': 'Legacy Corrected Company'}
         def legacy_attachment(review, result, records, digest):
             # Seed the pre-structured stored-review shape at the import boundary;
             # the real worker finish, persistence, reads and reload remain active.
             return attach({**review, 'values': legacy}, result, records, digest)
-        with patch.object(details, 'attach_import', side_effect=legacy_attachment):
+        # Jac imports attach_import into main's namespace. Patch that exact
+        # consumer binding, not the Python producer module after import.
+        calls = []
+        def seed(review, result, records, digest):
+            calls.append(True)
+            return legacy_attachment(review, result, records, digest)
+        with patch.object(module, 'attach_import', side_effect=seed):
             resume = self.upload()
+        self.assertTrue(calls, 'The legacy fixture must pass through real worker finish')
         imported = self.rpc('agent_extract_resume', {'id': resume['id']})
         self.assertEqual(imported['values']['profile.name'], legacy['profile.name'])
         self.assertEqual(imported['values']['workExperiences.0.company'], legacy['workExperiences.7.company'])

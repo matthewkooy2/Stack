@@ -17,6 +17,10 @@ on:
         description: Observed Safari error label for full-suite failure/reload acceptance
         type: string
         default: ''
+      release_only:
+        description: Compile unsigned Release only; no tests or native proof publication
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -25,7 +29,7 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   native:
-    name: Native core (Xcode 27)
+    name: ${{ inputs.release_only && 'Unsigned Release compile (manual)' || 'Native core (Xcode 27)' }}
     runs-on: xcode-27
     timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && (inputs.full_suite || inputs.repeatability) && 60 || 20 }}
     env:
@@ -49,7 +53,7 @@ jobs:
       - uses: ./.github/actions/prepare-resume-review-fixture
         if: steps.reuse.outputs.reused_run == '0'
       - name: Run selected native cases
-        if: steps.reuse.outputs.reused_run == '0'
+        if: steps.reuse.outputs.reused_run == '0' && !inputs.release_only
         env:
           FULL_SUITE: ${{ inputs.full_suite || false }}
           REPEATABILITY: ${{ inputs.repeatability || false }}
@@ -81,10 +85,12 @@ jobs:
           STACK_IOS_CONFIGURATION: Release
         run: bash scripts/ci/ios-swift.sh build
       - name: Record native proof
+        if: '!inputs.release_only'
         env:
           NATIVE_REUSED_RUN: ${{ steps.reuse.outputs.reused_run }}
         run: python3 scripts/ci/ios-native-proof.py record
       - name: Publish native proof
+        if: '!inputs.release_only'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: native-proof-${{ github.run_id }}-${{ github.run_attempt }}

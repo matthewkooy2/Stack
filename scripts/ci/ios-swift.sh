@@ -58,11 +58,11 @@ generate() {
 
 run_xcodebuild() {
   local action=$1
-  local selection=()
+  shift
   if [[ "$MODE" == core ]]; then
     local selected
     selected=$(python3 scripts/ci/ios-core.py)
-    while IFS= read -r item; do selection+=("$item"); done <<< "$selected"
+    while IFS= read -r item; do set -- "$@" "$item"; done <<< "$selected"
   fi
   local destination derived result
   destination=$(pick_destination)
@@ -84,7 +84,7 @@ run_xcodebuild() {
     "STACK_LISTING_ERROR_TEXT=${STACK_LISTING_ERROR_TEXT:-}" \
     "STACK_API_URL=${STACK_API_URL:-http://127.0.0.1:8000}" \
     CODE_SIGNING_ALLOWED=NO \
-    CODE_SIGNING_REQUIRED=NO "${selection[@]}"
+    CODE_SIGNING_REQUIRED=NO "$@"
 }
 
 case "$MODE" in

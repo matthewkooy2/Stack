@@ -67,6 +67,8 @@ with `Stack SwiftUI app`'s `full_suite` manual input, still on Xcode 27. Native
 full-suite Safari failure/reload acceptance needs the observed `listing_error_text`
 input; missing calibration fails rather than claiming acceptance. Native full-suite
 and repeatability jobs retain a 60-minute manual ceiling.
+The manual `release_only` input compiles unsigned Release without replaying already
+verified native tests. It never publishes native proof or authorizes an upload.
 Legacy Expo validation/upload remains explicit under `Stack TestFlight deployment`; existing
 upload authorization and signing protections are preserved. No nightly schedule
 or replacement framework is added.
@@ -109,6 +111,14 @@ The manual native `repeatability` input runs three sequential attempts without
 automatic retries, keeps separate logs/result bundles and prints elapsed time.
 Initial acceptance needs three clean identical-source runs and independent review.
 Known defects must be corrected rather than masked with automatic retry.
+
+Candidate run 38255759216 on 9e6fca1 executed all 34 selected cases three times,
+without missing, duplicate, skipped or failed selected cases: 102 passes. Iterations
+took 10m44s, 7m33s and 5m38s. Its unsigned Release step failed before xcodebuild
+because macOS Bash 3.2 rejected an empty selector array; the invocation now uses
+positional arguments. This test success was not release proof. Backend/security
+run 38255981715 on that candidate passed in 7m32s plus a 3s summary. Final-head
+Release compilation and CI remain necessary after the invocation correction.
 
 Observed baseline on 2026-10-12: run 38233036245 took 38m58s for Xcode 27 and 26m43s
 for the older native job; run 38233036142 took 33m44s for speech-native; failed main

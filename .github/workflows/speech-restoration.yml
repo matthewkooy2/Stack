@@ -59,12 +59,29 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
       - name: Compile and test without signing or provisioning
-        run: bash scripts/ci/ios-swift.sh test
+        run: |
+          mkdir -p .jac/ci-ios-swift
+          set -o pipefail
+          bash scripts/ci/ios-swift.sh test | tee .jac/ci-ios-swift/microphone-tests.log
+      - name: Require each synthetic microphone test to pass on the modern SDK
+        run: |
+          python3 - <<'PY'
+          import pathlib, re
+          source = pathlib.Path('ios/StackTests/MicrophonePCMTests.swift').read_text()
+          log = pathlib.Path('.jac/ci-ios-swift/microphone-tests.log').read_text()
+          names = re.findall(r'^\s+func (test\w+)\(', source, re.M)
+          assert names, 'No synthetic microphone tests found'
+          missing = [name for name in names if not re.search(r'Test Case .*\b' + re.escape(name) + r'\b.* passed', log)]
+          assert not missing, f'Microphone tests did not execute and pass: {missing}'
+          print(f'All {len(names)} synthetic microphone XCTest cases executed and passed.')
+          PY
       - name: Retain unsigned test results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: speech-native-results-${{ github.event.pull_request.head.sha || github.sha }}
-          path: .jac/ci-ios-swift/*.xcresult
+          path: |
+            .jac/ci-ios-swift/*.xcresult
+            .jac/ci-ios-swift/microphone-tests.log
           if-no-files-found: ignore
           retention-days: 7

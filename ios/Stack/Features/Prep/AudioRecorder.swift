@@ -115,44 +115,70 @@ enum RecordingStore {
     }
 }
 
-/// Records one answer at a time with pause and resume.
+/// Records one answer at a time with pause and resume. Both capture paths (on-device speech
+/// and the PC-transcription fallback) tap the microphone PCM and feed one `PCMLevelMeter`.
 @MainActor
 @Observable
-final class AudioRecorder: NSObject, AVAudioRecorderDelegate {
+final class AudioRecorder {
     private(set) var isRecording = false
     private(set) var isPaused = false
     private(set) var elapsed: TimeInterval = 0
     var error = ""
+    /// A calm explanation of why capture ended without Stop (call, background, route change, limit).
+    private(set) var stopNotice = ""
+    /// Microphone access was refused; the view offers Settings and a retry.
+    private(set) var permissionDenied = false
     private(set) var liveText = ""
     private(set) var onDevice = false
     private(set) var finalizing = false
     private(set) var engineMessage = ""
+    /// Whether the live transcript is drawn. Visibility only: recognition and the saved
+    /// transcript never depend on it, and it survives pause, resume and new captures.
+    private(set) var showsLiveTranscript = false
+    /// Level meter of the capture in progress (or the one that just ended; it reads idle).
+    private(set) var meter: PCMLevelMeter?
 
-    private var recorder: AVAudioRecorder?
-    private var ticker: Task<Void, Never>?
-    private var interruption: NSObjectProtocol?
     private var captureGeneration = 0
+    private var starting = false
     private var speechCapture: AnyObject?
+    private var fallbackCapture: (any AudioPCMCapture)?
+    private let requestPermission: @MainActor () async -> Bool
+    private let makeFallback: @MainActor () -> any AudioPCMCapture
+    private let allowOnDevice: Bool
+
+    // Synthetic tests inject permission and capture; the app uses the real microphone paths.
+    init(requestPermission: @escaping @MainActor () async -> Bool = {
+        await withCheckedContinuation { continuation in
+            AVAudioApplication.requestRecordPermission { continuation.resume(returning: $0) }
+        }
+    }, makeFallback: @escaping @MainActor () -> any AudioPCMCapture = { FallbackPCMCapture() }, allowOnDevice: Bool = true) {
+        self.requestPermission = requestPermission
+        self.makeFallback = makeFallback
+        self.allowOnDevice = allowOnDevice
+    }
     private(set) var clientID = ""
     private(set) var fileURL: URL?
     /// Called when the recording stopped on its own (time limit, phone call, route change).
     var onAutoStop: ((CapturedRecording) -> Void)?
 
+    func setLiveTranscriptVisible(_ visible: Bool) { showsLiveTranscript = visible }
+
     func start(owner: String) async throws -> (clientID: String, url: URL) {
-        guard !isRecording, !finalizing, speechCapture == nil else { throw APIError(message: "Finish the current recording first.") }
+        guard !starting, !isRecording, !finalizing, speechCapture == nil, fallbackCapture == nil else { throw APIError(message: "Finish the current recording first.") }
+        starting = true
+        defer { starting = false }
         let generation = captureGeneration
-        error = ""
+        error = ""; stopNotice = ""; permissionDenied = false
         liveText = ""; onDevice = false
         engineMessage = "PC transcription will be used."
-        let granted = await withCheckedContinuation { continuation in
-            AVAudioApplication.requestRecordPermission { continuation.resume(returning: $0) }
-        }
+        let granted = await requestPermission()
         guard generation == captureGeneration, !Task.isCancelled else { throw CancellationError() }
         guard granted else {
+            permissionDenied = true
             throw APIError(message: "Allow microphone access in iPhone Settings to record your answer, or type it instead.")
         }
         #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, *), allowOnDevice {
             let capabilities = await StackSpeechSession.capabilities()
             guard generation == captureGeneration, !Task.isCancelled else { throw CancellationError() }
             engineMessage = capabilities["reason"] as? String ?? engineMessage
@@ -165,11 +191,14 @@ final class AudioRecorder: NSObject, AVAudioRecorderDelegate {
                     if event["kind"] as? String == "progress" {
                         self.elapsed = (event["duration_ms"] as? Double ?? 0) / 1000
                         self.liveText = event["text"] as? String ?? ""
-                    } else if event["kind"] as? String == "finished", let saved = self.stop() {
-                        self.onAutoStop?(saved)
+                    } else if event["kind"] as? String == "finished" {
+                        self.elapsed = (event["duration_ms"] as? Double ?? 0) / 1000
+                        self.stopNotice = event["message"] as? String ?? ""
+                        if let saved = self.stop() { self.onAutoStop?(saved) }
                     }
                 }
                 speechCapture = capture
+                meter = capture.meter
                 do {
                     try await capture.start(uri: url.absoluteString)
                     guard generation == captureGeneration, !Task.isCancelled else { throw CancellationError() }
@@ -185,32 +214,31 @@ final class AudioRecorder: NSObject, AVAudioRecorderDelegate {
             }
         }
         #endif
-        let session = AVAudioSession.sharedInstance()
-        try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker, .allowBluetooth])
-        try session.setActive(true)
         let id = RecordingStore.newClientID()
         let url = try RecordingStore.url(owner: owner, clientID: id)
-        let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatLinearPCM,
-            AVSampleRateKey: 16_000,
-            AVNumberOfChannelsKey: 1,
-            AVLinearPCMBitDepthKey: 16,
-            AVLinearPCMIsFloatKey: false,
-            AVLinearPCMIsBigEndianKey: false,
-        ]
-        let made = try AVAudioRecorder(url: url, settings: settings)
-        made.delegate = self
-        guard made.record(forDuration: RecordingStore.maximumSeconds) else {
-            throw APIError(message: "The microphone could not start. Close other audio apps and try again.")
+        let capture = makeFallback()
+        capture.onProgress = { [weak self] seconds in
+            guard let self, generation == self.captureGeneration, id == self.clientID else { return }
+            self.elapsed = seconds
         }
-        recorder = made
+        capture.onEnded = { [weak self] reason in
+            guard let self, generation == self.captureGeneration, id == self.clientID else { return }
+            self.stopNotice = reason
+            if let saved = self.stop() { self.onAutoStop?(saved) }
+        }
+        do { try capture.start(url: url) }
+        catch { throw APIError(message: "The microphone could not start. Close other audio apps and try again.") }
+        guard generation == captureGeneration, !Task.isCancelled else {
+            capture.stop()
+            throw CancellationError()
+        }
+        fallbackCapture = capture
+        meter = capture.meter
         clientID = id
         fileURL = url
         isRecording = true
         isPaused = false
         elapsed = 0
-        observeInterruptions()
-        startTicker()
         return (id, url)
     }
 
@@ -222,8 +250,8 @@ final class AudioRecorder: NSObject, AVAudioRecorderDelegate {
             return
         }
         #endif
-        recorder?.pause()
-        isPaused = true
+        guard let capture = fallbackCapture else { return }
+        do { try capture.pause(); isPaused = true } catch { self.error = error.localizedDescription }
     }
 
     func resume() throws {
@@ -233,13 +261,15 @@ final class AudioRecorder: NSObject, AVAudioRecorderDelegate {
             try capture.resume(); isPaused = false; return
         }
         #endif
-        guard recorder?.record() == true else { throw APIError(message: "The recording could not resume.") }
+        guard let capture = fallbackCapture else { return }
+        do { try capture.resume() } catch { throw APIError(message: "The recording could not resume.") }
         isPaused = false
     }
 
     /// Stops and returns the saved file, or nil when nothing is being recorded.
     @discardableResult
-    func stop(cancelled: Bool = false) -> CapturedRecording? {
+    func stop(cancelled: Bool = false, reason: String = "") -> CapturedRecording? {
+        if isRecording, !reason.isEmpty { stopNotice = reason }
         captureGeneration += 1
         #if compiler(>=6.2)
         if #available(iOS 26.0, *), let capture = speechCapture as? StackSpeechSession, let url = fileURL {
@@ -249,6 +279,8 @@ final class AudioRecorder: NSObject, AVAudioRecorderDelegate {
             isRecording = false; isPaused = false; finalizing = true
             let task = Task { @MainActor [weak self] in
                 let result = await capture.stop(cancelled: cancelled, reason: "")
+                self?.elapsed = (result["duration_ms"] as? Double ?? 0) / 1000
+                if let message = result["message"] as? String, !message.isEmpty { self?.stopNotice = message }
                 if result["complete"] as? Bool == true, let original = result["text"] as? String, original.count <= 30000 {
                     do { try RecordingStore.saveTranscript(PhoneTranscript(original: original, text: original, revision: 1), at: url) }
                     catch is CancellationError { }
@@ -261,58 +293,14 @@ final class AudioRecorder: NSObject, AVAudioRecorderDelegate {
             return CapturedRecording(clientID: id, url: url, finalized: task)
         }
         #endif
-        guard let recorder, let url = fileURL else { return nil }
-        elapsed = recorder.currentTime
-        recorder.stop()
-        finish()
-        return CapturedRecording(clientID: clientID, url: url, finalized: Task {})
-    }
-
-    private func finish() {
-        ticker?.cancel()
-        ticker = nil
-        recorder = nil
+        guard let capture = fallbackCapture, let url = fileURL else { return nil }
+        let result = capture.stop()
+        fallbackCapture = nil
+        elapsed = result.seconds
         isRecording = false
         isPaused = false
-        if let interruption { NotificationCenter.default.removeObserver(interruption) }
-        interruption = nil
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-    }
-
-    private func startTicker() {
-        ticker?.cancel()
-        ticker = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .milliseconds(200))
-                guard let self, let recorder = self.recorder else { return }
-                if self.isRecording { self.elapsed = recorder.currentTime }
-            }
-        }
-    }
-
-    /// A phone call or alarm stops the capture; the audio recorded so far is kept.
-    private func observeInterruptions() {
-        interruption = NotificationCenter.default.addObserver(
-            forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
-        ) { [weak self] note in
-            let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt
-            guard raw == AVAudioSession.InterruptionType.began.rawValue else { return }
-            guard let recording = self else { return }
-            Task { @MainActor in
-                guard let saved = recording.stop() else { return }
-                recording.onAutoStop?(saved)
-            }
-        }
-    }
-
-    nonisolated func audioRecorderDidFinishRecording(_ recorder: AVAudioRecorder, successfully flag: Bool) {
-        Task { @MainActor in
-            // Reaching the time limit stops the recorder itself.
-            guard self.isRecording, self.recorder === recorder, self.fileURL != nil else { return }
-            self.elapsed = RecordingStore.maximumSeconds
-            guard let saved = self.stop() else { return }
-            self.onAutoStop?(saved)
-        }
+        if !result.error.isEmpty, stopNotice.isEmpty { stopNotice = result.error }
+        return CapturedRecording(clientID: clientID, url: url, finalized: Task {})
     }
 }
 

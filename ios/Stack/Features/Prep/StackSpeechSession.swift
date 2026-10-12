@@ -24,8 +24,13 @@ import UIKit
   private var starting = true
   private var stopRequested = false
   private var stopped = false
+  private var paused = false
+  private var naturalFormat: AVAudioFormat?
   private var stoppedSnapshot: (seconds: Double, error: String)?
   private(set) var isActive = false
+  /// Amplitude of the PCM this capture delivers. Owned by this capture alone, so a stale
+  /// session can never move a newer recording's bars.
+  let meter = PCMLevelMeter()
   var isBusy: Bool { starting || isActive || (stopRequested && !stopped) }
   init(id: String, emit: @escaping ([String: Any]) -> Void) { self.id = id; self.emit = emit }
   nonisolated static func failure(_ message: String) -> NSError { NSError(domain: "StackSpeech", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }
@@ -38,11 +43,25 @@ import UIKit
   }
   func pause() throws {
     guard isActive, !stopRequested else { throw Self.failure("Recording is no longer active.") }
+    writer?.setPaused(true)
     engine.pause()
+    meter.pause(); paused = true
   }
   func resume() throws {
     guard isActive, !stopRequested else { throw Self.failure("Recording is no longer active.") }
-    try engine.start()
+    // A route change while paused is not reported (a paused engine is not running) and the
+    // tap is still bound to the old format, so check before restarting.
+    guard engine.inputNode.outputFormat(forBus: 0) == naturalFormat else {
+      let message = "The microphone changed while paused. The partial answer was kept."
+      Task { @MainActor in _ = await self.stop(cancelled: false, reason: message) }
+      throw Self.failure(message)
+    }
+    do { try engine.start() }
+    catch {
+      Task { @MainActor in _ = await self.stop(cancelled: false, reason: "The microphone could not resume. The partial answer was kept.") }
+      throw error
+    }
+    meter.resume(); writer?.setPaused(false); paused = false
   }
   func start(uri: String) async throws {
     defer { starting = false }
@@ -59,6 +78,7 @@ import UIKit
     try audioSession.setActive(true)
     let natural = engine.inputNode.outputFormat(forBus: 0)
     guard natural.sampleRate > 0, natural.channelCount > 0 else { throw Self.failure("Microphone input is unavailable.") }
+    naturalFormat = natural
     let transcriber = SpeechTranscriber(locale: locale, preset: .progressiveTranscription)
     let analyzer = SpeechAnalyzer(modules: [transcriber], options: .init(priority: .userInitiated, modelRetention: .whileInUse))
     self.analyzer = analyzer
@@ -84,7 +104,7 @@ import UIKit
     try await analyzer.start(inputSequence: stream)
     try checkStartup()
     guard let input else { throw Self.failure("Recording stopped before microphone startup completed.") }
-    let writer = try SpeechAudioWriter(url: url, natural: natural, pcm: pcm, speechFormat: speechFormat, continuation: input)
+    let writer = try SpeechAudioWriter(url: url, natural: natural, pcm: pcm, speechFormat: speechFormat, continuation: input, meter: meter)
     self.writer = writer
     engine.inputNode.installTap(onBus: 0, bufferSize: 2048, format: natural) { @Sendable buffer, _ in writer.append(buffer) }
     engine.prepare()
@@ -94,13 +114,21 @@ import UIKit
     observers = [
       NotificationCenter.default.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] notification in
         guard notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt == AVAudioSession.InterruptionType.began.rawValue else { return }
-        Task { @MainActor in _ = await self?.stop(cancelled: false, reason: "Microphone interrupted. The partial answer was kept.") }
+        Task { @MainActor [weak self] in _ = await self?.stop(cancelled: false, reason: "Microphone interrupted. The partial answer was kept.") }
       },
       NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
-        Task { @MainActor in _ = await self?.stop(cancelled: false, reason: "Recording stopped when Stack entered the background. Audio was kept.") }
+        Task { @MainActor [weak self] in _ = await self?.stop(cancelled: false, reason: "Recording stopped when Stack entered the background. Audio was kept.") }
       },
       NotificationCenter.default.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
-        Task { @MainActor in _ = await self?.stop(cancelled: false, reason: "Audio service reset. The partial answer was kept.") }
+        Task { @MainActor [weak self] in _ = await self?.stop(cancelled: false, reason: "Audio service reset. The partial answer was kept.") }
+      },
+      // A route or format change stops the engine itself, so no more samples arrive. A paused
+      // engine is also not running, hence the flag.
+      NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+        Task { @MainActor [weak self] in
+          guard let self, self.isActive, !self.paused, !self.engine.isRunning else { return }
+          _ = await self.stop(cancelled: false, reason: "The microphone changed. The partial answer was kept.")
+        }
       }
     ]
     ticker = Task { [weak self] in
@@ -130,6 +158,7 @@ import UIKit
     stopRequested = true
     guard stoppedSnapshot == nil else { return }
     engine.stop(); ticker?.cancel()
+    meter.finish()
     if writer != nil { engine.inputNode.removeTap(onBus: 0) }
     stoppedSnapshot = writer?.close() ?? (seconds: 0, error: "")
     input?.finish()
@@ -177,7 +206,7 @@ import UIKit
   }
 }
 
-@available(iOS 26.0, *) private final class SpeechAudioWriter: @unchecked Sendable {
+@available(iOS 26.0, *) final class SpeechAudioWriter: @unchecked Sendable {
   private let lock = NSLock()
   private var file: FileHandle?
   private let converter: SpeechPCMConverter
@@ -187,24 +216,22 @@ import UIKit
   private var syncedFrames: AVAudioFramePosition = 0
   private var speechFrames: AVAudioFramePosition = 0
   private var error = ""
-  init(url: URL, natural: AVAudioFormat, pcm: AVAudioFormat, speechFormat: AVAudioFormat, continuation: AsyncStream<AnalyzerInput>.Continuation) throws {
+  private var paused = false
+  private let meter: PCMLevelMeter
+  init(url: URL, natural: AVAudioFormat, pcm: AVAudioFormat, speechFormat: AVAudioFormat, continuation: AsyncStream<AnalyzerInput>.Continuation, meter: PCMLevelMeter) throws {
+    self.meter = meter
     converter = try SpeechPCMConverter(from: natural, to: pcm)
     speechConverter = try SpeechPCMConverter(from: pcm, to: speechFormat)
     self.continuation = continuation
-    guard FileManager.default.createFile(atPath: url.path, contents: Self.header(bytes: 0), attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]) else { throw StackSpeechSession.failure("Could not create the durable audio file.") }
+    guard FileManager.default.createFile(atPath: url.path, contents: WAVHeader.data(bytes: 0), attributes: [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication]) else { throw StackSpeechSession.failure("Could not create the durable audio file.") }
     file = try FileHandle(forUpdating: url)
     try file?.seek(toOffset: 44)
   }
-  private static func header(bytes: UInt32) -> Data {
-    var data = Data("RIFF".utf8)
-    func integer<T: FixedWidthInteger>(_ value: T) { var little = value.littleEndian; withUnsafeBytes(of: &little) { data.append(contentsOf: $0) } }
-    integer(bytes + 36); data.append(Data("WAVEfmt ".utf8)); integer(UInt32(16)); integer(UInt16(1)); integer(UInt16(1))
-    integer(UInt32(16000)); integer(UInt32(32000)); integer(UInt16(2)); integer(UInt16(16)); data.append(Data("data".utf8)); integer(bytes)
-    return data
-  }
   func append(_ source: AVAudioPCMBuffer) {
     lock.lock(); defer { lock.unlock() }
-    guard file != nil, frames < 16000 * 300 else { return }
+    guard file != nil, !paused, frames < 16000 * 300 else { return }
+    // Measured from the tapped samples before conversion, under the same lock as the file.
+    meter.ingest(source)
     let output: AVAudioPCMBuffer
     do { guard let converted = try converter.convert(source) else { return }; output = converted }
     catch { self.error = "Audio conversion failed. Partial audio was kept."; return }
@@ -222,7 +249,7 @@ import UIKit
       // Update the header for every committed buffer so reopening after suspension
       // can recover all written frames without relying on a later Stop callback.
       let count = frames + AVAudioFramePosition(output.frameLength)
-      try file.seek(toOffset: 0); try file.write(contentsOf: Self.header(bytes: UInt32(count * 2)))
+      try file.seek(toOffset: 0); try file.write(contentsOf: WAVHeader.data(bytes: UInt32(count * 2)))
       try file.seek(toOffset: UInt64(44 + count * 2))
       if count - syncedFrames >= 16000 { try file.synchronize(); syncedFrames = count }
     }
@@ -242,6 +269,9 @@ import UIKit
   }
   func snapshot() -> (seconds: Double, error: String) {
     lock.lock(); defer { lock.unlock() }; return (Double(frames) / 16000, error)
+  }
+  func setPaused(_ value: Bool) {
+    lock.lock(); defer { lock.unlock() }; paused = value
   }
   func close() -> (seconds: Double, error: String) {
     lock.lock(); defer { lock.unlock() }

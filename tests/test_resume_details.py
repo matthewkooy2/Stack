@@ -109,6 +109,37 @@ class DetailsContract(unittest.TestCase):
         self.assertEqual(saved['details']['original_values'][key], 'Fictional University 20')
         self.assertEqual(D.view(saved)['provenance'], {})
 
+    def test_legacy_corrections_survive_reparse_without_implicit_trust(self):
+        original = D.build(positioned([['Riley Sample', 'Experience',
+                                      'Northwind Labs | Engineer | 2020 - Present']]))
+        legacy = {'profile.name': ' User Corrected Name ',
+                  'workExperiences.8.company': 'User Corrected Company'}
+        for existing_records in ([], [{'id': 'r0', 'kind': 'title', 'text': 'Reviewed'}]):
+            review = {'values': copy.deepcopy(legacy), 'records': existing_records,
+                      'confirmed_at': 42.0, 'record_history': [{'revision': 1}]}
+            before = copy.deepcopy(review)
+            attached, first = D.attach_import(review, {'details': original},
+                                              [{'id': 'r1', 'kind': 'title', 'text': 'Imported'}], 'digest')
+            self.assertEqual(review, before)
+            self.assertEqual(first, not bool(existing_records))
+            self.assertEqual(attached['values']['profile.name'], 'User Corrected Name')
+            self.assertEqual(attached['values']['workExperiences.0.company'], 'User Corrected Company')
+            self.assertEqual(attached['details']['legacy_values'], legacy)
+            self.assertEqual(attached['details']['original_values'], original['values'])
+            self.assertFalse(attached['details']['confirmed'])
+            self.assertEqual(attached['details']['confirmed_at'], 0.0)
+            self.assertEqual(attached['record_history'], review['record_history'])
+            if existing_records:
+                self.assertEqual(attached['records'], existing_records)
+            saved = D.save(attached, {'profile.name': 'Later edit'}, False, 1, 2.0, 'Synthetic.pdf')
+            self.assertEqual(saved['details']['legacy_values'], legacy)
+        for invalid in ({'unknown': 'Preserve me'}, {'profile.name': 'x' * 301}, None):
+            review = {'values': invalid, 'records': existing_records}
+            attached, _ = D.attach_import(review, {'details': original}, [], 'digest')
+            self.assertEqual(attached['values'], invalid)
+            self.assertNotIn('details', attached)
+            self.assertIn('details_error', attached)
+
     def test_short_lines_fit_confirmed_projection_without_loss(self):
         lines = ['Skill %d' % i for i in range(299)]
         values = D.normalize({'profile.name': 'Riley Sample', 'skills.descriptions': '\n'.join(lines)})

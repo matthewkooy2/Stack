@@ -147,6 +147,31 @@ class ResumeProcessing(unittest.TestCase):
         self.run_work(self.worker('resume_processing_claim'), {'pdf': PDF, 'pages': 1})
         self.assertTrue(preview.exists())
 
+    def test_legacy_corrections_migrate_and_persist_as_unconfirmed_details(self):
+        from agents import resume_details as details
+        attach = details.attach_import
+        legacy = {'profile.name': 'Legacy Corrected Name',
+                  'workExperiences.7.company': 'Legacy Corrected Company'}
+        def legacy_attachment(review, result, records, digest):
+            # Seed the pre-structured stored-review shape at the import boundary;
+            # the real worker finish, persistence, reads and reload remain active.
+            return attach({**review, 'values': legacy}, result, records, digest)
+        with patch.object(details, 'attach_import', side_effect=legacy_attachment):
+            resume = self.upload()
+        imported = self.rpc('agent_extract_resume', {'id': resume['id']})
+        self.assertEqual(imported['values']['profile.name'], legacy['profile.name'])
+        self.assertEqual(imported['values']['workExperiences.0.company'], legacy['workExperiences.7.company'])
+        self.assertFalse(imported['details_confirmed'])
+        self.assertEqual(imported['trusted_source'], '')
+        self.assertNotEqual(imported['original_values']['profile.name'], legacy['profile.name'])
+        self.client.reload()
+        self.client.set_auth_token(self.token)
+        reopened = self.rpc('agent_extract_resume', {'id': resume['id']})
+        for key in ('values', 'original_values', 'evidence'):
+            self.assertEqual(reopened[key], imported[key])
+        self.assertFalse(reopened['details_confirmed'])
+        self.assertEqual(self.rpc('agent_settings')['facts'], [])
+
     def test_details_persist_reorder_delete_and_enforce_owner_revision(self):
         resume = self.upload()
         original = self.rpc('agent_extract_resume', {'id': resume['id']})

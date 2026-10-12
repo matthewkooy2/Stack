@@ -531,6 +531,12 @@ def attach_import(review, result, records, upload_digest):
         if result.get('details') is None:
             raise DetailsError(str(result.get('details_error') or 'Structured details were not produced for this resume.')[:300])
         details = new_details(_original_from_worker(result['details']))
+        # Older reviews store user corrections directly in the flat values map.
+        # Re-parsing supplies original evidence, never permission to discard edits
+        # or infer structured confirmation from a raw-record confirmation.
+        if 'values' in review:
+            details['values'] = normalize(review['values'])
+            details['legacy_values'] = dict(review['values'])
         new['details'] = details
         new['values'] = details['values']
         new.pop('details_error', None)

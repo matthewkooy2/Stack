@@ -13,6 +13,10 @@ on:
         description: Run the selected suite three times sequentially without retries
         type: boolean
         default: false
+      listing_error_text:
+        description: Observed Safari error label for full-suite failure/reload acceptance
+        type: string
+        default: ''
 permissions:
   contents: read
   actions: read
@@ -23,17 +27,20 @@ jobs:
   native:
     name: Native core (Xcode 27)
     runs-on: xcode-27
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && inputs.repeatability && 60 || 20 }}
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && (inputs.full_suite || inputs.repeatability) && 60 || 20 }}
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
       STACK_API_URL: https://stack.invalid
       STACK_IOS_DESTINATION: platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0
       STACK_LISTING_REQUIRE_ACCEPTANCE: '1'
+      STACK_LISTING_ERROR_TEXT: ${{ inputs.listing_error_text || '' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Install XcodeGen
+        run: brew install xcodegen
       - name: Verify identical native tree
         id: reuse
         env:
@@ -41,9 +48,6 @@ jobs:
         run: python3 scripts/ci/ios-native-proof.py reuse
       - uses: ./.github/actions/prepare-resume-review-fixture
         if: steps.reuse.outputs.reused_run == '0'
-      - name: Install XcodeGen
-        if: steps.reuse.outputs.reused_run == '0'
-        run: brew install xcodegen
       - name: Run selected native cases
         if: steps.reuse.outputs.reused_run == '0'
         env:

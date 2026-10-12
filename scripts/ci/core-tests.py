@@ -58,7 +58,10 @@ def main():
         suite = unittest.defaultTestLoader.loadTestsFromNames(SUITES[selector])
         result = unittest.TextTestRunner(verbosity=2).run(suite)
         return 0 if result.wasSuccessful() and result.testsRun and not result.skipped else 1
-    env = dict(os.environ, JAC_DB_SCRATCH='1', JAC_TEST_JOBS='0', PYTHONPATH=str(ROOT))
+    sys.path.insert(0, str(ROOT / 'scripts'))
+    import bootstrap
+    env = bootstrap.environment(ROOT)
+    env.update(JAC_DB_SCRATCH='1', JAC_TEST_JOBS='0', PYTHONPATH=str(ROOT))
     for name in SUITES:
         start = time.monotonic()
         subprocess.run([str(ROOT / 'scripts/jac'), 'run', '--no-serve', __file__],

@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import subprocess
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -14,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location('native_proof', ROOT / 'scripts/ci/ios-native-proof.py')
 proof = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(proof)
-MACHINE = {'xcode': 'Xcode 27.0\nBuild version 27A266a', 'runtime': proof.RUNTIME,
+MACHINE = {'xcode': 'Xcode 27.0\nBuild version 27A266a', 'xcodegen': '2.46.0', 'runtime': proof.RUNTIME,
            'runtime_build': 'synthetic-build', 'device': 'iPhone 18 Pro'}
 
 
@@ -22,11 +23,11 @@ class ReleaseProof(unittest.TestCase):
     def setUp(self):
         self.run = {'id': 10, 'run_attempt': 1, 'path': proof.WORKFLOW, 'status': 'completed',
                     'conclusion': 'success', 'head_repository': {'full_name': proof.REPO},
-                    'repository': {'id': 1}, 'head_sha': 'head', 'event': 'pull_request',
-                    'pull_requests': [{'head': {'repo': {'id': 1}}, 'base': {'sha': 'base'}}]}
-        self.record = {'run_id': 10, 'attempt': 1, 'commit': 'merge', 'tree': 'tree',
+                    'repository': {'id': 1}, 'head_sha': 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'event': 'pull_request',
+                    'pull_requests': [{'head': {'repo': {'id': 1}}, 'base': {'sha': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'}}]}
+        self.record = {'run_id': 10, 'attempt': 1, 'commit': 'cccccccccccccccccccccccccccccccccccccccc', 'tree': 'tree',
                        'toolchain': MACHINE, 'reused_run': 0}
-        self.commit = {'tree': {'sha': 'tree'}, 'parents': [{'sha': 'base'}, {'sha': 'head'}]}
+        self.commit = {'tree': {'sha': 'tree'}, 'parents': [{'sha': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'}, {'sha': 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'}]}
         self.job = {'name': proof.JOB, 'conclusion': 'success', 'runner_group_name': 'GitHub Actions',
                     'steps': [{'name': name, 'conclusion': 'success'} for name in
                               ('Run selected native cases', 'Compile unsigned Release', 'Publish native proof')]}
@@ -47,7 +48,7 @@ class ReleaseProof(unittest.TestCase):
 
     def test_success_requires_the_actual_reconstructed_merge_tree(self):
         self.validate()
-        self.git.assert_any_call('merge-tree', '--write-tree', 'base', 'head')
+        self.git.assert_any_call('merge-tree', '--write-tree', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb')
         self.git.return_value = 'different-tree'
         with self.assertRaises(ValueError):
             self.validate()
@@ -107,7 +108,7 @@ class ReleaseProof(unittest.TestCase):
             self.validate()
 
     def test_main_commit_must_match_verified_push_exactly(self):
-        self.run.update(event='push', head_branch='main', head_sha='merge')
+        self.run.update(event='push', head_branch='main', head_sha='cccccccccccccccccccccccccccccccccccccccc')
         self.validate()
         self.record['commit'] = 'pr-head'
         with self.assertRaises(ValueError):
@@ -124,6 +125,12 @@ class ReleaseProof(unittest.TestCase):
         self.job['conclusion'] = 'failure'
         with self.assertRaises(ValueError):
             self.validate()
+
+    def test_manifest_cannot_inject_git_options_or_choose_a_noncommit(self):
+        self.record['commit'] = '--upload-pack=untrusted'
+        with self.assertRaisesRegex(ValueError, 'Invalid native commit'):
+            self.validate()
+        self.api.assert_not_called()
 
     def test_missing_expired_or_unsafe_artifact_is_rejected(self):
         self.api.side_effect = None
@@ -147,10 +154,10 @@ class ReleaseProof(unittest.TestCase):
             event = Path(directory) / 'event.json'
             event.write_text(json.dumps({'workflow_run': {'event': 'push', 'head_branch': 'main',
                                                          'head_repository': {'full_name': proof.REPO},
-                                                         'head_sha': 'merge'}}))
-            backend = {**self.run, 'id': 20, 'event': 'push', 'head_branch': 'main', 'head_sha': 'merge'}
-            self.run.update(event='push', head_branch='main', head_sha='merge')
-            self.api.side_effect = lambda path, raw=False: ({'object': {'sha': 'merge'}} if path == 'git/ref/heads/main'
+                                                         'head_sha': 'cccccccccccccccccccccccccccccccccccccccc'}}))
+            backend = {**self.run, 'id': 20, 'event': 'push', 'head_branch': 'main', 'head_sha': 'cccccccccccccccccccccccccccccccccccccccc'}
+            self.run.update(event='push', head_branch='main', head_sha='cccccccccccccccccccccccccccccccccccccccc')
+            self.api.side_effect = lambda path, raw=False: ({'object': {'sha': 'cccccccccccccccccccccccccccccccccccccccc'}} if path == 'git/ref/heads/main'
                                                             else {'jobs': [{'name': 'CI passed', 'conclusion': 'skipped'}]})
             with patch.dict(os.environ, {'GITHUB_EVENT_PATH': str(event)}), \
                     patch.object(proof, 'proof_for', return_value=self.record), \
@@ -170,6 +177,37 @@ class ReleaseProof(unittest.TestCase):
                 self.api.return_value = {'object': {'sha': 'new-main'}}
                 with self.assertRaisesRegex(ValueError, 'no longer current main'):
                     proof.release(MACHINE)
+
+
+class MergeReleaseChanges(unittest.TestCase):
+    def test_normal_feature_and_docs_merges_are_compared_to_the_first_parent(self):
+        with tempfile.TemporaryDirectory() as directory, patch.object(proof, 'ROOT', Path(directory)):
+            def command(*args):
+                return subprocess.check_output(['git', *args], cwd=directory, text=True).strip()
+            environment = dict(os.environ, GIT_AUTHOR_NAME='Synthetic', GIT_COMMITTER_NAME='Synthetic',
+                               GIT_AUTHOR_EMAIL='synthetic@example.test', GIT_COMMITTER_EMAIL='synthetic@example.test')
+            def commit(message):
+                subprocess.run(['git', 'add', '.'], cwd=directory, check=True, capture_output=True)
+                subprocess.run(['git', 'commit', '-m', message], cwd=directory, env=environment, check=True, capture_output=True)
+            command('init', '-b', 'main')
+            Path(directory, 'README.md').write_text('baseline')
+            commit('baseline')
+            self.assertEqual(proof.release_changes('HEAD'), ['README.md'])
+            command('switch', '-c', 'feature')
+            Path(directory, 'ios').mkdir()
+            Path(directory, 'ios/Feature.swift').write_text('struct Feature {}')
+            commit('feature')
+            command('switch', 'main')
+            subprocess.run(['git', 'merge', '--no-ff', '-m', 'feature merge', 'feature'], cwd=directory,
+                           env=environment, check=True, capture_output=True)
+            self.assertEqual(proof.release_changes('HEAD'), ['ios/Feature.swift'])
+            command('switch', '-c', 'docs')
+            Path(directory, 'README.md').write_text('documentation only')
+            commit('docs')
+            command('switch', 'main')
+            subprocess.run(['git', 'merge', '--no-ff', '-m', 'docs merge', 'docs'], cwd=directory,
+                           env=environment, check=True, capture_output=True)
+            self.assertEqual(proof.release_changes('HEAD'), ['README.md'])
 
 
 if __name__ == '__main__':

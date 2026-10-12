@@ -3,6 +3,7 @@
 import io
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -37,19 +38,29 @@ def toolchain():
     version = subprocess.check_output(['xcodebuild', '-version'], text=True).strip()
     if version != 'Xcode 27.0\nBuild version 27A266a':
         raise ValueError('Expected Xcode 27.0 build 27A266a')
+    generator = subprocess.check_output(['xcodegen', '--version'], text=True).strip()
+    if not re.fullmatch(r'(?:Version: )?2\.46\.0', generator):
+        raise ValueError('Expected XcodeGen 2.46.0 for verification and archive')
     runtimes = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'runtimes', '-j']))['runtimes']
     runtime = next(r for r in runtimes if r['identifier'] == RUNTIME and r['isAvailable'])
     devices = json.loads(subprocess.check_output(['xcrun', 'simctl', 'list', 'devices', 'available', '-j']))['devices'][RUNTIME]
     device = [d for d in devices if d['name'] == 'iPhone 18 Pro' and d['isAvailable']]
     if len(device) != 1 or os.environ.get('RUNNER_ENVIRONMENT') != 'github-hosted':
         raise ValueError('Require a disposable GitHub-hosted runner and one iPhone 18 Pro on iOS 27.0')
-    return {'xcode': version, 'runtime': RUNTIME, 'runtime_build': runtime['buildversion'],
+    return {'xcode': version, 'xcodegen': '2.46.0', 'runtime': RUNTIME, 'runtime_build': runtime['buildversion'],
             'device': 'iPhone 18 Pro'}
 
 
 def runs(workflow, **query):
     suffix = '&'.join(f'{name}={value}' for name, value in query.items())
     return api('actions/workflows/' + workflow + '/runs?per_page=100&' + suffix)['workflow_runs']
+
+
+def release_changes(commit):
+    parents = git('rev-list', '--parents', '-n', '1', commit).split()
+    if len(parents) > 1:
+        return git('diff', '--name-only', parents[1], commit).splitlines()
+    return git('diff-tree', '--root', '--no-commit-id', '--name-only', '-r', commit).splitlines()
 
 
 def proof_for(run):
@@ -72,6 +83,8 @@ def validate(run, proof, tree, machine, depth=0):
         raise ValueError('Native source is not a trusted repository push or PR')
     if proof['run_id'] != run['id'] or proof['attempt'] != run['run_attempt'] or proof['toolchain'] != machine:
         raise ValueError('Native run/attempt/toolchain mismatch')
+    if not re.fullmatch(r'[0-9a-f]{40}', str(proof['commit'])):
+        raise ValueError('Invalid native commit identity')
     commit = api('git/commits/' + proof['commit'])
     if proof['tree'] != tree or commit['tree']['sha'] != tree:
         raise ValueError('The actual release tree differs from native verification')
@@ -173,7 +186,7 @@ def release(machine):
             raise ValueError('Exact-commit backend/security CI is missing or pending')
         time.sleep(15)
     # Docs-only main pushes never create automatic beta uploads. Manual upload remains explicit.
-    changes = git('diff-tree', '--no-commit-id', '--name-only', '-r', commit).splitlines()
+    changes = release_changes(commit)
     relevant = any(p.startswith(('ios/', 'scripts/ci/ios-', 'scripts/ci/resume-review/',
                                  '.github/actions/prepare-resume-review-fixture/'))
                    or p in (WORKFLOW, '.github/workflows/swift-testflight.yml', 'mobile/feature-rpcs.js')

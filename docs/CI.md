@@ -36,7 +36,8 @@ Every selected XCTest must execute and pass once. Missing, skipped or duplicate
 execution is failure. An unsigned Release compile also remains required because
 the fixture UI scenes are Debug-only.
 
-The sole native toolchain is Xcode 27.0 build 27A266a. The destination is iPhone 18
+The sole native toolchain is Xcode 27.0 build 27A266a with XcodeGen 2.46.0. Both
+verification and archive reject generator drift. The destination is iPhone 18
 Pro, iOS 27.0. The proof also binds the installed simulator runtime build, so a
 runtime update invalidates reuse. Deployment target remains iOS 17.0.
 
@@ -63,6 +64,9 @@ Moving a test does not erase a known defect or certify its behavior.
 Run the existing full backend/browser/Windows suites via `Manual regression`.
 Its original integration matrix is preserved, not expanded. Run all native cases
 with `Stack SwiftUI app`'s `full_suite` manual input, still on Xcode 27. Legacy Expo
+full-suite Safari failure/reload acceptance needs the observed `listing_error_text`
+input; missing calibration fails rather than claiming acceptance. Native full-suite
+and repeatability jobs retain a 60-minute manual ceiling.
 validation/upload remains explicit under `Stack TestFlight deployment`; existing
 upload authorization and signing protections are preserved. No nightly schedule
 or replacement framework is added.

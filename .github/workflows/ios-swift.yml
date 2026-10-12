@@ -69,9 +69,10 @@ jobs:
           run() {
             local label=$1; shift
             echo "::group::$label"
+            local code=0
             xcodebuild test-without-building "${common[@]}" -resultBundlePath "$out/$label.xcresult" "$@" "${settings[@]}" \
-              2>&1 | grep -E "Test Case|error:|Executed|iteration|Test Suite" || true
-            local code=${PIPESTATUS[0]}
+              > "$out/$label.log" 2>&1 || code=$?
+            grep -E "Test Case|error:|Executed|Test Suite" "$out/$label.log" || true
             echo "$label exit=$code" | tee -a "$out/summary.txt"
             echo "::endgroup::"
             [[ $code -eq 0 ]] || status=1
@@ -103,4 +104,5 @@ jobs:
             .jac/focused/summary.txt
             .jac/focused/toolchain.txt
             .jac/focused/fixture.log
+            .jac/focused/*.log
           retention-days: 7

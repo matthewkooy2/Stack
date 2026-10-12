@@ -105,7 +105,29 @@ final class JobListingSafariUITests: XCTestCase {
             XCTFail("the native browser has one hittable Close or Done control", file: file, line: line)
             return
         }
-        closeControls.element.tap()
+        let close = closeControls.element
+        let addresses = app.otherElements["TopBrowserBar"].buttons.matching(identifier: "URL")
+        // The actual native AX trees expose Address over most of Close's frame on both SDKs. A default
+        // center tap can reach Address while reporting Close as hittable. Use the visible left strip of
+        // this same unique Close control, derived from those current frames, and retain dismissal proof.
+        let frame = close.frame
+        var normalizedX: CGFloat = 0.5
+        if addresses.count == 1, frame.intersects(addresses.element.frame) {
+            let clearWidth = addresses.element.frame.minX - frame.minX
+            guard clearWidth > 0, frame.width > 0 else {
+                dump(app, "close-overlapped")
+                capture("close-overlapped")
+                XCTFail("the native Close control has a visible strip outside Address", file: file, line: line)
+                return
+            }
+            normalizedX = min(clearWidth, frame.width) / (2 * frame.width)
+        }
+        let addressFrame = addresses.count == 1 ? addresses.element.frame.description : "absent"
+        let geometry = XCTAttachment(string: "Close: \(frame); Address: \(addressFrame); normalized tap: \(normalizedX), 0.5")
+        geometry.name = "native-close-hit-geometry"
+        geometry.lifetime = .keepAlways
+        add(geometry)
+        close.coordinate(withNormalizedOffset: CGVector(dx: normalizedX, dy: 0.5)).tap()
         let cards = app.buttons.matching(identifier: "job-card-job-alpha")
         let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             closeControls.count == 0 && cards.count == 1 && cards.element.isHittable

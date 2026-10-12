@@ -53,8 +53,14 @@ final class ResumeReviewFlowUITests: XCTestCase {
     }
 
     /// Drags along the page's left margin, clear of text fields, so the page scrolls instead of a field.
+    /// The drag starts above an open keyboard: one that starts on a key edits the focused field instead.
     private func drag(_ app: XCUIApplication, from: CGFloat, to: CGFloat) {
         let window = app.windows.firstMatch
+        var from = from
+        let keyboard = app.keyboards.firstMatch
+        if keyboard.exists, keyboard.frame.height > 0, window.frame.height > 0 {
+            from = min(from, (keyboard.frame.minY - window.frame.minY - 24) / window.frame.height)
+        }
         let start = window.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: from))
         let end = window.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: to))
         start.press(forDuration: 0.05, thenDragTo: end)
@@ -65,7 +71,7 @@ final class ResumeReviewFlowUITests: XCTestCase {
         var viewport = app.windows.firstMatch.frame.insetBy(dx: 0, dy: 44)
         guard target.exists else { return viewport.insetBy(dx: 8, dy: 8) }
         let identifier = target.identifier
-        let owners = app.scrollViews.allElementsBoundByIndex.filter {
+        let owners = identifier.isEmpty ? [] : app.scrollViews.allElementsBoundByIndex.filter {
             $0.descendants(matching: .button).matching(identifier: identifier).count > 0
         }
         if let owner = owners.min(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }) {
@@ -81,6 +87,12 @@ final class ResumeReviewFlowUITests: XCTestCase {
     private func fullyVisible(_ target: XCUIElement, _ app: XCUIApplication) -> Bool {
         guard target.exists, target.isHittable, !target.frame.isEmpty else { return false }
         return navigationViewport(target, app).contains(target.frame)
+    }
+
+    /// Hittable alone accepts a control clipped under the home indicator, where its tap reaches nothing.
+    private func tappable(_ target: XCUIElement, _ app: XCUIApplication) -> Bool {
+        guard target.exists, target.isHittable, !target.frame.isEmpty else { return false }
+        return navigationViewport(target, app).contains(CGPoint(x: target.frame.midX, y: target.frame.midY))
     }
 
     private func captureNavigation(_ target: XCUIElement, _ app: XCUIApplication, _ name: String) {
@@ -101,15 +113,15 @@ final class ResumeReviewFlowUITests: XCTestCase {
         add(screenshot)
     }
 
-    /// Scrolls until the element can be tapped, down the page first and then back up.
+    /// Scrolls until the element's tap point is inside the measured viewport, down the page first and then back up.
     @discardableResult
     private func show(_ target: XCUIElement, _ app: XCUIApplication, _ what: String,
                       fully: Bool = false, file: StaticString = #filePath, line: UInt = #line) -> Bool {
-        if fully ? fullyVisible(target, app) : (target.exists && target.isHittable) { return true }
+        if fully ? fullyVisible(target, app) : tappable(target, app) { return true }
         for forward in [true, false] {
             for _ in 0..<8 {
                 if forward { drag(app, from: 0.7, to: 0.3) } else { drag(app, from: 0.3, to: 0.7) }
-                if fully ? fullyVisible(target, app) : (target.exists && target.isHittable) { return true }
+                if fully ? fullyVisible(target, app) : tappable(target, app) { return true }
             }
         }
         let tree = XCTAttachment(string: app.debugDescription)
@@ -237,7 +249,7 @@ final class ResumeReviewFlowUITests: XCTestCase {
 
         openSection(app, "projects")
         let addProject = app.buttons["Add project"]
-        show(addProject, app, "Add project")
+        show(addProject, app, "Add project", fully: true)
         addProject.tap()
         XCTAssertTrue(field(app, "Project 2 Project").waitForExistence(timeout: 5))
         type(app, "Project 2 Project", "Forecast model")

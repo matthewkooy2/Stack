@@ -1,190 +1,101 @@
-name: Stack SwiftUI app
-# A separate route for the native Swift rebuild in ios/. It signs and uploads nothing, and the Expo app,
-# the TestFlight workflow and the `CI passed` gate do not depend on it.
+name: Focused native safari and keyboard proof
+# Diagnostic branch only. Never merged. Signs, uploads and deploys nothing.
 on:
-  pull_request:
-    paths:
-      - 'ios/**'
-      - 'mobile/feature-rpcs.js'
-      - 'scripts/ci/ios-swift.sh'
-      - 'scripts/ci/ios-swift-testflight.sh'
-      - '.github/workflows/swift-testflight.yml'
-      - 'scripts/ci/resume-review/**'
-      - '.github/actions/prepare-resume-review-fixture/**'
-      - 'scripts/ci/ios-swift-static.py'
-      - 'scripts/ci/ios-listing-fixture-server.py'
-      - 'scripts/ci/ios-xcresult-attachments.py'
-      - 'tests/test_ios_swift_static.py'
-      - 'tests/test_resume_review_fixture.py'
-      - 'tests/test_ios_xcresult_attachments.py'
-      - '.github/workflows/ios-swift.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'ios/**'
-      - 'mobile/feature-rpcs.js'
-      - 'scripts/ci/ios-swift.sh'
-      - 'scripts/ci/ios-swift-testflight.sh'
-      - '.github/workflows/swift-testflight.yml'
-      - 'scripts/ci/resume-review/**'
-      - '.github/actions/prepare-resume-review-fixture/**'
-      - 'scripts/ci/ios-swift-static.py'
-      - 'scripts/ci/ios-listing-fixture-server.py'
-      - 'scripts/ci/ios-xcresult-attachments.py'
-      - 'tests/test_ios_swift_static.py'
-      - 'tests/test_resume_review_fixture.py'
-      - 'tests/test_ios_xcresult_attachments.py'
-      - '.github/workflows/ios-swift.yml'
   workflow_dispatch:
-    inputs:
-      listing_error_text:
-        description: Observed Safari connection-error label for this simulator OS and locale
-        required: false
-        default: ''
-        type: string
 permissions:
   contents: read
-concurrency:
-  group: ios-swift-${{ github.event.pull_request.number || github.sha }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  static:
-    name: Swift structure and backend contract
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: '3.12'
-      - uses: ./.github/actions/prepare-resume-review-fixture
-      - name: Verify fixture preparation fails closed
-        run: python3 -m unittest discover -s tests -p test_resume_review_fixture.py -v
-      - name: Check delimiters, types and published backend functions
-        run: python3 -m unittest discover -s tests -p test_ios_swift_static.py -v
-      - name: Check the result-attachment exporter
-        run: python3 -m unittest discover -s tests -p test_ios_xcresult_attachments.py -v
-      - name: Check the Swift sources
-        run: bash scripts/ci/ios-swift.sh static
-
-  build-and-test:
-    name: Build and unit tests (Xcode)
-    needs: static
-    runs-on: macos-14
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: ./.github/actions/prepare-resume-review-fixture
-      - name: Install XcodeGen
-        run: brew install xcodegen
-      - name: Build and test for the simulator
-        env:
-          # The API origin is only compiled into Info.plist; tests use stubbed transport.
-          STACK_API_URL: https://stack.invalid
-          STACK_LISTING_REQUIRE_ACCEPTANCE: '1'
-          STACK_LISTING_ERROR_TEXT: ${{ inputs.listing_error_text || 'Can’t Open Page' }}
-        run: |
-          python3 scripts/ci/ios-listing-fixture-server.py --port 18765 > "$RUNNER_TEMP/listing-fixture.log" 2>&1 &
-          fixture_pid=$!
-          trap 'kill "$fixture_pid" 2>/dev/null || true' EXIT
-          for attempt in {1..30}; do
-            if curl --fail --silent http://127.0.0.1:18765/health; then break; fi
-            sleep 1
-          done
-          curl --fail --silent http://127.0.0.1:18765/health
-          bash scripts/ci/ios-swift.sh test
-      - name: Build the unsigned Release candidate
-        if: always()
-        env:
-          STACK_API_URL: https://stack.invalid
-          STACK_IOS_CONFIGURATION: Release
-        run: bash scripts/ci/ios-swift.sh build
-      # Evidence only: a raw .xcresult cannot be read off macOS, so its kept screenshots are exported to PNG.
-      # This step never changes the job's result; the build and test step above owns it. Failures to export are
-      # written to evidence/manifest.json and shown as warnings.
-      - name: Export kept screenshots from the result bundle
-        if: always()
-        run: |
-          shopt -s nullglob
-          bundles=(.jac/ci-ios-swift/*.xcresult)
-          if [ ${#bundles[@]} -eq 0 ]; then
-            echo "No result bundle was produced; nothing to export."
-            exit 0
-          fi
-          python3 scripts/ci/ios-xcresult-attachments.py --output .jac/ci-ios-swift/evidence "${bundles[@]}"
-      - name: Keep the result bundle and exported screenshots
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: ios-swift-results-${{ github.run_number }}
-          path: |
-            .jac/ci-ios-swift/*.xcresult
-            .jac/ci-ios-swift/evidence
-          if-no-files-found: ignore
-          retention-days: 7
-
-  release-lane:
-    # The TestFlight upload runs this whole suite on this toolchain before archiving. Run it here first so a
-    # release is never the first execution of a test on the shipped SDK.
-    name: Build and tests (Xcode 27 release lane)
-    needs: static
-    runs-on: xcode-27
-    timeout-minutes: 60
+  focused:
+    name: Focused ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 100
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: safari and keyboard proof xcode 27
+            runner: xcode-27
+            developer_dir: /Applications/Xcode_27.0.app/Contents/Developer
+            mode: release
+          - name: safari proof xcode 15.4
+            runner: macos-14
+            developer_dir: ''
+            mode: safari
     env:
-      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      STACK_API_URL: https://stack.invalid
+      STACK_LISTING_REQUIRE_ACCEPTANCE: '1'
+      STACK_LISTING_FIXTURE_PORT: '18765'
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: ./.github/actions/prepare-resume-review-fixture
       - name: Install XcodeGen
         run: brew install xcodegen
-      - name: Build and test for the simulator
+      - name: Run focused repeated tests
         env:
-          STACK_API_URL: https://stack.invalid
-          STACK_LISTING_REQUIRE_ACCEPTANCE: '1'
-          STACK_LISTING_ERROR_TEXT: ${{ inputs.listing_error_text || 'Can’t Open Page' }}
+          MODE: ${{ matrix.mode }}
+          SELECTED_DEVELOPER_DIR: ${{ matrix.developer_dir }}
         run: |
-          xcodebuild -version
-          python3 scripts/ci/ios-listing-fixture-server.py --port 18765 > "$RUNNER_TEMP/listing-fixture.log" 2>&1 &
+          set -uo pipefail
+          if [[ -n "$SELECTED_DEVELOPER_DIR" ]]; then export DEVELOPER_DIR="$SELECTED_DEVELOPER_DIR"; fi
+          out=.jac/focused
+          mkdir -p "$out"
+          xcodebuild -version | tee "$out/toolchain.txt"
+          python3 scripts/ci/ios-listing-fixture-server.py --port 18765 > "$out/fixture.log" 2>&1 &
           fixture_pid=$!
           trap 'kill "$fixture_pid" 2>/dev/null || true' EXIT
           for attempt in {1..30}; do
             if curl --fail --silent http://127.0.0.1:18765/health; then break; fi
             sleep 1
           done
-          curl --fail --silent http://127.0.0.1:18765/health
-          bash scripts/ci/ios-swift.sh test
-      - name: Build the unsigned Release candidate
-        if: always()
-        env:
-          STACK_API_URL: https://stack.invalid
-          STACK_IOS_CONFIGURATION: Release
-        run: bash scripts/ci/ios-swift.sh build
-      - name: Export kept screenshots from the result bundle
+          curl --fail --silent http://127.0.0.1:18765/health || exit 1
+          name=$(xcrun simctl list devices available | sed -n 's/^ *\(iPhone [^(]*[^ (]\) (.*/\1/p' | head -n 1)
+          echo "simulator=$name" | tee -a "$out/toolchain.txt"
+          python3 scripts/ci/resume-review/prepare.py
+          (cd ios && xcodegen generate --spec project.yml --project .)
+          common=(-project ios/Stack.xcodeproj -scheme Stack -configuration Debug
+            -destination "platform=iOS Simulator,name=$name" -derivedDataPath "$out/DerivedData"
+            -parallel-testing-enabled NO)
+          settings=(STACK_LISTING_FIXTURE_PORT=18765 STACK_LISTING_REQUIRE_ACCEPTANCE=1
+            "STACK_LISTING_ERROR_TEXT=Can’t Open Page" STACK_API_URL=https://stack.invalid
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO)
+          xcodebuild build-for-testing "${common[@]}" "${settings[@]}" > "$out/build.log" 2>&1 || { tail -80 "$out/build.log"; exit 1; }
+          status=0
+          run() {
+            local label=$1; shift
+            echo "::group::$label"
+            local code=0
+            xcodebuild test-without-building "${common[@]}" -resultBundlePath "$out/$label.xcresult" "$@" "${settings[@]}" \
+              > "$out/$label.log" 2>&1 || code=$?
+            grep -E "Test Case|error:|Executed|Test Suite|DIAG-SPEECH|SpeechFramework|Restarting after" "$out/$label.log" || true
+            echo "$label exit=$code" | tee -a "$out/summary.txt"
+            echo "::endgroup::"
+            [[ $code -eq 0 || -n "${EXPECT_FAILURE:-}" ]] || status=1
+          }
+          if [[ "$MODE" == safari ]]; then
+            run safari-class-x2 -test-iterations 2 -only-testing:StackUITests/JobListingSafariUITests
+          else
+            run keyboard-x3 -test-iterations 3               -only-testing:StackUITests/AccessFlowTests/testNamedFieldsAndKeyboardValidation
+            run safari-class-x3 -test-iterations 3 -only-testing:StackUITests/JobListingSafariUITests
+          fi
+          cat "$out/summary.txt"
+          exit $status
+      - name: Export screenshots and geometry
         if: always()
         run: |
           shopt -s nullglob
-          bundles=(.jac/ci-ios-swift/*.xcresult)
-          if [ ${#bundles[@]} -eq 0 ]; then
-            echo "No result bundle was produced; nothing to export."
-            exit 0
-          fi
-          python3 scripts/ci/ios-xcresult-attachments.py --output .jac/ci-ios-swift/evidence "${bundles[@]}"
-      - name: Keep the result bundle and exported screenshots
+          bundles=(.jac/focused/*.xcresult)
+          [ ${#bundles[@]} -eq 0 ] || python3 scripts/ci/ios-xcresult-attachments.py --output .jac/focused/evidence "${bundles[@]}"
+      - name: Retain focused evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ios-swift-release-lane-results-${{ github.run_number }}
+          name: focused-${{ matrix.mode }}-${{ matrix.runner }}-${{ github.sha }}
           path: |
-            .jac/ci-ios-swift/*.xcresult
-            .jac/ci-ios-swift/evidence
-          if-no-files-found: ignore
+            .jac/focused/evidence
+            .jac/focused/summary.txt
+            .jac/focused/toolchain.txt
+            .jac/focused/fixture.log
+            .jac/focused/*.log
           retention-days: 7

@@ -12,6 +12,67 @@ uploads are not cancelled. Only trusted main code is executed with signing asset
 Native PR tests use disposable GitHub-hosted runners, read-only permissions, no
 signing environment and no secrets. There is no `pull_request_target` execution.
 
+## Approval for new gates
+
+Adding any CI/CD gate requires Matt's explicit direct verification and approval
+before implementation. A gate is a new blocking check, requirement, matrix or
+release condition, including one added to an existing job or workflow. Agents
+must not add gates on their own.
+
+First present the proposed gate, the reason it is needed and its runtime/coverage
+cost to Matt, including expected added runtime and coverage. Wait for his direct
+verification and explicit approval before adding it. Broad permission to implement
+or merge does not grant gate approval. Existing gates remain in place.
+
+## Change impact routing
+
+`scripts/ci/affected-checks.py` routes steps inside the existing jobs. Required
+check names and workflow triggers stay present for every PR and main push; a
+runtime no-op completes successfully and explains its selection in the run summary.
+No new job, matrix, required check, schedule or framework is introduced. All three
+credential scans still execute, including on documentation-only changes. Backend
+bootstrap, Jac checks, safety cases and startup smoke run together when selected.
+Native tests, unsigned Release compile and proof publication run together when
+selected, retaining the existing identical-tree reuse rules.
+
+| Changed paths | Backend runtime | Native runtime |
+| --- | --- | --- |
+| Root `README.md`, `AGENTS.md`, `THIRD_PARTY_NOTICES.txt`; `docs/**/*.md` prose | No | No |
+| `web/**` only | Yes | No |
+| `ios/**`, including tests, project settings and resources | Yes (existing Swift/static safety cases) | Yes |
+| Shared API/auth/payload producers: `main.jac`, `core/**`, `agents/**`, `discovery/**`, `mobile/**` | Yes | Yes |
+| Dependencies/build/runtime settings: `native/**`, `dependencies/**`, manifests, lockfiles and root config | Yes | Yes |
+| Tests/fixtures (including their READMEs), scripts, `.github/**`, deployment, non-prose docs, unknown paths | Yes | Yes |
+| Manual run, missing refs/identity, malformed event or unavailable diff | Yes | Yes |
+
+This intentionally uses coarse existing suites. Backend implementation and native
+source changes may run extra safety cases because shared contracts, fixtures and
+policy are covered together. Narrower dependency partitions need separate evidence.
+The native runner still starts to report its existing check; a no-op does not install
+XcodeGen, start simulator tests, compile or publish proof.
+
+PR selection verifies the synthetic merge's base/head parents and compares the
+merge tree against their common ancestor. This includes base-side updates since
+branch divergence as well as branch edits. Main pushes compare `event.before` to
+the checked-out `event.after`, including every commit in a multi-commit push.
+Local Git avoids API path limits; NUL-separated paths and disabled rename detection
+include both old/new names and deleted paths. Any unavailable comparison runs both
+existing suites. A routing error cannot turn missing output into a runtime skip.
+
+Native no-op runs publish no proof. An automatic TestFlight follow-up recognizes
+the successful GitHub-owned no-op marker with skipped tests/build/publication,
+or the successful no-upload marker, and returns `upload=false` before requesting
+proof. Upload eligibility keeps the existing native source/script/workflow/feature
+RPC path map, using the complete push range rather than only its last commit.
+Unavailable routing requires full verification and proof before any upload.
+Manual and relevant uploads
+still require the complete-tree proof, backend/security success, current main,
+signing and Apple processing checks. A routing-only success cannot authorize signing.
+The upload script independently uses strict `release-upload` verification: a no-upload
+selection exits with failure before it can prepare source, archive, sign or upload.
+Selector and release-boundary cases join the existing backend offline selection:
+`python -m unittest tests.test_affected_checks tests.test_ios_native_proof -v`.
+
 ## What blocks
 
 The backend job retains the checksum-pinned credential scanner, its complete Git
@@ -25,13 +86,14 @@ and retired application submission boundaries. These checks prevent credential
 exposure, account leakage, lost data, unsafe uploads and unauthorized paid or
 external actions. Do not substitute `make test`, which runs the broader selection.
 
-Native core selects the exact 30 unit cases and four UI journeys in
+Native core selects the exact 30 unit cases and three UI journeys in
 `scripts/ci/ios-core-tests.txt`. They protect account transitions and isolation,
 resume draft/revision/save integrity, durable recording and the real modern Speech
 bridge, feed session isolation and safe listing URLs. The UI journeys exercise
-welcome/login validation, resume save/confirmation, recording pause/stop/retry and
-listing open/close. They use controlled transport and fictional loopback pages;
-they do not prove live sign-in, microphone hardware, speech assets or phone layout.
+welcome/login validation, resume save/confirmation and recording pause/stop/retry.
+The Safari browser journey remains in the existing manual full suite. Selected UI
+journeys use controlled transport; they do not prove live sign-in, microphone
+hardware, speech assets or phone layout.
 Every selected XCTest must execute and pass once. Missing, skipped or duplicate
 execution is failure. An unsigned Release compile also remains required because
 the fixture UI scenes are Debug-only.
@@ -55,8 +117,9 @@ runtime update invalidates reuse. Deployment target remains iOS 17.0.
 | Legacy Expo unsigned archive on PRs | Explicit manual `validate_legacy` input |
 
 Main contains 168 native unit methods and 45 UI methods. Blocking native selection
-is 30 plus four; the other 138 units and 41 UI methods remain intact. Reduced
-blocking coverage includes parser/layout variants, full keyboard and accessibility
+is 30 plus three; the other 138 units and 42 UI methods remain intact. Safari open,
+close, navigation and recovery behavior remain available in the manual full suite.
+Reduced blocking coverage includes parser/layout variants, full keyboard and accessibility
 journeys, browser redirects/history/reload/handoff, filter variants, older compiler
 fallbacks, Windows orchestration, push-provider journeys and broad browser rendering.
 Moving a test does not erase a known defect or certify its behavior.

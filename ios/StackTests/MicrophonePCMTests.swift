@@ -7,8 +7,17 @@ final class MicrophonePCMTests: XCTestCase {
     private func buffer(_ kind: AVAudioCommonFormat = .pcmFormatFloat32, interleaved: Bool = false,
                         channels: AVAudioChannelCount = 2, frames: AVAudioFrameCount = 1600,
                         amplitude: Float = 0.25) throws -> AVAudioPCMBuffer {
-        let format = try XCTUnwrap(AVAudioFormat(commonFormat: kind, sampleRate: 16000,
+        let format: AVAudioFormat
+        if channels > 2 {
+            // The channel-count convenience initializer supports mono/stereo only.
+            // Use an explicit discrete layout to exercise every later channel.
+            let layout = try XCTUnwrap(AVAudioChannelLayout(layoutTag: kAudioChannelLayoutTag_DiscreteInOrder | channels))
+            format = try XCTUnwrap(AVAudioFormat(commonFormat: kind, sampleRate: 16000,
+                                                interleaved: interleaved, channelLayout: layout))
+        } else {
+            format = try XCTUnwrap(AVAudioFormat(commonFormat: kind, sampleRate: 16000,
                                                 channels: channels, interleaved: interleaved))
+        }
         let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: max(frames, 1)))
         buffer.frameLength = frames
         for channel in 0..<Int(channels) {

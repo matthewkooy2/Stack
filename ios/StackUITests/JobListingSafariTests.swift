@@ -153,14 +153,11 @@ final class JobListingSafariUITests: XCTestCase {
         // that tree while Safari covers them, so neither a global first match nor card existence proves dismissal.
         let closeControls = app.otherElements["TopBrowserBar"].buttons
             .matching(NSPredicate(format: "label IN %@", ["Close", "Done"]))
-        // Query the first toolbar button directly while Safari is presenting. Counting the whole lazy
-        // accessibility collection inside a timed waiter previously returned one Close after the waiter
-        // expired; wait for this specific control first, then check toolbar uniqueness and hittability once.
+        // A hit-point query took over15s in the failed10s wait. Poll only the scoped control count, which
+        // proves uniqueness without finding a missing element or repeatedly mapping its hit point.
         let close = closeControls.firstMatch
-        let exists = close.waitForExistence(timeout: 10)
-        let hittable = exists && close.isHittable
-        let unique = exists && closeControls.count == 1
-        if !unique || !hittable {
+        let unique = await poll(closeControls, "count == 1", until: Date().addingTimeInterval(10))
+        if !unique || !close.isHittable {
             dump(app, "no-close")
             await capture("no-close")
             _ = try XCTUnwrap(Optional<Bool>.none, "the native browser has one hittable Close or Done control", file: file, line: line)

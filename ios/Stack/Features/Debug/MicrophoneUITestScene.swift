@@ -51,7 +51,7 @@ struct MicrophoneUITestScene: View {
             .background(Palette.page.ignoresSafeArea())
         }
         .environment(\.dynamicTypeSize, arguments.contains("--microphone-large-type") ? .accessibility5 : .large)
-        .environment(\.accessibilityReduceMotion, arguments.contains("--microphone-reduce-motion"))
+        .environment(\.stackMotionPolicy, arguments.contains("--microphone-reduce-motion") ? .reduced : .system)
         .task { await start() }
         .onDisappear {
             _ = recorder.stop()

@@ -1,5 +1,23 @@
 import SwiftUI
 
+/// Rendering policy can request less motion, while the system accessibility preference always wins.
+enum StackMotionPolicy { case system, reduced }
+
+private struct StackMotionPolicyKey: EnvironmentKey {
+    static let defaultValue: StackMotionPolicy = .system
+}
+
+extension EnvironmentValues {
+    var stackMotionPolicy: StackMotionPolicy {
+        get { self[StackMotionPolicyKey.self] }
+        set { self[StackMotionPolicyKey.self] = newValue }
+    }
+
+    var stackReduceMotion: Bool {
+        accessibilityReduceMotion || stackMotionPolicy == .reduced
+    }
+}
+
 /// Shared motion, ported from the Prep workflow: one easing curve and one set of durations so every
 /// screen moves in step. Entrance motion is skipped and loops stop when Reduce Motion is on.
 enum Motion {
@@ -30,7 +48,7 @@ protocol StageKey: Hashable {
 /// Slides the new page in from the side it was reached from. Re-key it (`.id`) to replay.
 struct StageEntrance: ViewModifier {
     let direction: CGFloat
-    @Environment(\.accessibilityReduceMotion) var reduceMotion
+    @Environment(\.stackReduceMotion) var reduceMotion
     @State var shown = false
 
     func body(content: Content) -> some View {
@@ -90,7 +108,7 @@ struct Reveal: ViewModifier {
     var index = 0
     var delay = 0.0
     var rise: CGFloat = 14
-    @Environment(\.accessibilityReduceMotion) var reduceMotion
+    @Environment(\.stackReduceMotion) var reduceMotion
     @State var shown = false
 
     func body(content: Content) -> some View {
@@ -117,7 +135,7 @@ struct TapStyle: ButtonStyle {
     var pressedScale: CGFloat = 0.97
     var dim: Double = 0.45
     @Environment(\.isEnabled) var isEnabled
-    @Environment(\.accessibilityReduceMotion) var reduceMotion
+    @Environment(\.stackReduceMotion) var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -140,7 +158,7 @@ extension ButtonStyle where Self == TapStyle {
 /// Small springy pop-in for marks such as a completed day.
 struct Pop: ViewModifier {
     var delay = 0.0
-    @Environment(\.accessibilityReduceMotion) var reduceMotion
+    @Environment(\.stackReduceMotion) var reduceMotion
     @State var shown = false
 
     func body(content: Content) -> some View {
@@ -165,7 +183,7 @@ extension View {
 }
 
 struct FadeSwitch: ViewModifier {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.stackReduceMotion) private var reduceMotion
     let show: Bool
     let keep: Bool
 
@@ -185,7 +203,7 @@ struct Halo<Content: View>: View {
     var active = false
     var size: CGFloat = 88
     @ViewBuilder var content: () -> Content
-    @Environment(\.accessibilityReduceMotion) var reduceMotion
+    @Environment(\.stackReduceMotion) var reduceMotion
 
     var body: some View {
         let moving = active && !reduceMotion
@@ -213,7 +231,7 @@ struct Halo<Content: View>: View {
 struct Breathe: ViewModifier {
     var active = true
     var minimum = 0.45
-    @Environment(\.accessibilityReduceMotion) var reduceMotion
+    @Environment(\.stackReduceMotion) var reduceMotion
 
     func body(content: Content) -> some View {
         let moving = active && !reduceMotion

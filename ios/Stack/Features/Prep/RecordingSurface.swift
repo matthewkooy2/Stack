@@ -24,7 +24,7 @@ struct RecordingLevelBars: View {
     var maxHeight: CGFloat = 104
     var showsQuality = true
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.stackReduceMotion) private var reduceMotion
 
     private let width: CGFloat = 18
     private let gap: CGFloat = 12
@@ -173,7 +173,7 @@ struct RecordingSurface: View {
 
     @Environment(\.dynamicTypeSize) private var typeSize
     @Environment(\.verticalSizeClass) private var verticalSize
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.stackReduceMotion) private var reduceMotion
 
     private var compact: Bool { typeSize.isAccessibilitySize || verticalSize == .compact }
     private var fraction: CGFloat {

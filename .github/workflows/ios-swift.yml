@@ -25,6 +25,10 @@ jobs:
             runner: xcode-27
             developer_dir: /Applications/Xcode_27.0.app/Contents/Developer
             mode: release
+          - name: speech evidence xcode 26.6
+            runner: macos-26
+            developer_dir: /Applications/Xcode_26.6.app/Contents/Developer
+            mode: speech
     env:
       STACK_API_URL: https://stack.invalid
       STACK_LISTING_REQUIRE_ACCEPTANCE: '1'
@@ -72,16 +76,24 @@ jobs:
             local code=0
             xcodebuild test-without-building "${common[@]}" -resultBundlePath "$out/$label.xcresult" "$@" "${settings[@]}" \
               > "$out/$label.log" 2>&1 || code=$?
-            grep -E "Test Case|error:|Executed|Test Suite" "$out/$label.log" || true
+            grep -E "Test Case|error:|Executed|Test Suite|DIAG-SPEECH|SpeechFramework|Restarting after" "$out/$label.log" || true
             echo "$label exit=$code" | tee -a "$out/summary.txt"
             echo "::endgroup::"
-            [[ $code -eq 0 ]] || status=1
+            [[ $code -eq 0 || -n "${EXPECT_FAILURE:-}" ]] || status=1
+          }
+          speech() {
+            run speech-fixed-x3 -test-iterations 3               -only-testing:StackTests/MicrophonePCMTests/testSpeechWriterUsesSyntheticPCMWhilePauseAndCloseRetainAudio
+            run speech-format -only-testing:StackTests/DiagSpeechFormatTests/testDiagReportAnalyzerFormat               -only-testing:StackTests/DiagSpeechFormatTests/testDiagInt16AnalyzerInput
+            EXPECT_FAILURE=1 run speech-original-float32               -only-testing:StackTests/DiagSpeechFormatTests/testDiagOriginalFloat32AnalyzerInput
           }
           if [[ "$MODE" == resume ]]; then
             run resume-target-x3 -test-iterations 3 \
               -only-testing:StackUITests/ResumeReviewFlowUITests/testEntriesBulletsAndOrderSurviveClosingAndReopening
             run resume-class -only-testing:StackUITests/ResumeReviewFlowUITests
+          elif [[ "$MODE" == speech ]]; then
+            speech
           else
+            speech
             run keyboard-x3 -test-iterations 3 \
               -only-testing:StackUITests/AccessFlowTests/testNamedFieldsAndKeyboardValidation
             run safari-class-x2 -test-iterations 2 -only-testing:StackUITests/JobListingSafariUITests

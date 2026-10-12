@@ -143,6 +143,7 @@ private struct ResumeReviewScreen: View {
                     }
                     .accessibilityIdentifier("resume-review-discard")
                 }
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("resume-review-conflict")
             } else if controller.restoredDraft {
                 Text("Restored your unsaved edits from this device.")

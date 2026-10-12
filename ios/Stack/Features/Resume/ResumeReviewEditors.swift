@@ -283,6 +283,7 @@ struct ResumeOriginalScreen: View {
                         .accessibilityIdentifier("resume-original-field-\(field.id)")
                     }
                 }
+                .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("resume-original-group-\(group.id)")
             }
             Text("Extracted text").font(Typeface.option).foregroundStyle(Palette.icon).accessibilityAddTraits(.isHeader)

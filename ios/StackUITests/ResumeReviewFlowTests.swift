@@ -71,6 +71,11 @@ final class ResumeReviewFlowUITests: XCTestCase {
                 if target.exists, target.isHittable { return true }
             }
         }
+        let tree = XCTAttachment(string: app.debugDescription)
+        tree.name = "resume-review-unreachable-element-tree"
+        tree.lifetime = .keepAlways
+        add(tree)
+        capture("resume-review-unreachable-element")
         XCTFail("\(what) can be scrolled into view", file: file, line: line)
         return false
     }
@@ -295,6 +300,7 @@ final class ResumeReviewFlowUITests: XCTestCase {
 
         let discard = element(app, id: "resume-review-discard")
         show(discard, app, "Discard my edits and reload")
+        XCTAssertEqual(app.buttons.matching(identifier: "resume-review-discard").count, 1, "the conflict container keeps its child's identifier")
         discard.tap()
         XCTAssertTrue(waitUntil { self.state(app) == "needs-review" })
         openSection(app, "profile")
@@ -363,6 +369,8 @@ final class ResumeReviewFlowUITests: XCTestCase {
         openSection(app, "original")
         let original = element(app, id: "resume-original-field-educations.0.school")
         show(original, app, "Original education")
+        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "resume-original-field-educations.0.school").count, 1,
+                       "the original group keeps its field's identifier")
         XCTAssertTrue(original.label.contains("Example State University"))
         XCTAssertFalse(original.label.contains("Lakeside Community College"))
         XCTAssertTrue(app.staticTexts["Check the extracted dates."].exists)

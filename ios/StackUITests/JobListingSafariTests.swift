@@ -16,7 +16,8 @@ final class JobListingSafariUITests: XCTestCase {
     }
 
     override func setUp() async throws {
-        continueAfterFailure = false
+        continueAfterFailure = true
+        print("SAFARI setup start \(Date().timeIntervalSince1970)")
         fixtureReady = false
         // The default scheme runs this suite too. Without the loopback fixture there is nothing to test against,
         // so skip (never pass): a skip is not native acceptance.
@@ -38,11 +39,13 @@ final class JobListingSafariUITests: XCTestCase {
     }
 
     override func tearDown() async throws {
+        print("SAFARI teardown start \(Date().timeIntervalSince1970)")
         if fixtureReady {
             // A failed recovery assertion must not leave the next case's fixture in failure mode.
             try await control("/control/fail?on=0")
         }
         try await super.tearDown()
+        print("SAFARI teardown complete \(Date().timeIntervalSince1970)")
     }
 
     // MARK: Helpers
@@ -79,17 +82,32 @@ final class JobListingSafariUITests: XCTestCase {
 
     private func capture(_ name: String) async {
         try? await Task.sleep(nanoseconds: 1_000_000_000)
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        let screenshot = XCUIScreen.main.screenshot()
+        rawEvidence(screenshot.pngRepresentation, name + ".png")
+        let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
     }
 
     private func dump(_ app: XCUIApplication, _ name: String) {
-        let attachment = XCTAttachment(string: app.debugDescription)
+        let tree = app.debugDescription
+        rawEvidence(Data(tree.utf8), name + "-accessibility.txt")
+        let attachment = XCTAttachment(string: tree)
         attachment.name = name + "-accessibility"
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    private func rawEvidence(_ data: Data, _ name: String) {
+        do {
+            let root = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("StackDiagnostic", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            let file = root.appendingPathComponent("\(Date().timeIntervalSince1970)-\(name)")
+            try data.write(to: file)
+            print("RAW SAFARI evidence: \(file.path)")
+        } catch { print("RAW SAFARI evidence error: \(error)") }
     }
 
     /// Any element, in the app or its Safari view, whose label contains the text. Label only: web headings and
@@ -101,13 +119,13 @@ final class JobListingSafariUITests: XCTestCase {
     }
 
     private func expect(_ app: XCUIApplication, _ text: String, timeout: TimeInterval = 20, file: StaticString = #filePath,
-                        line: UInt = #line) async {
+                        line: UInt = #line) async throws {
         // waitForExistence also captures a debug description after every miss; this polls the query alone.
         let found = element(app, containing: text)
         if !(await poll(found, "exists == true", until: Date().addingTimeInterval(timeout))) {
             await capture("missing-" + text.prefix(24))
             dump(app, "missing-" + text.prefix(24))
-            XCTFail("expected '\(text)' on screen", file: file, line: line)
+            _ = try XCTUnwrap(Optional<Bool>.none, "expected '\(text)' on screen", file: file, line: line)
         }
     }
 
@@ -115,7 +133,7 @@ final class JobListingSafariUITests: XCTestCase {
         app.buttons["job-card-job-alpha"].tap()
     }
 
-    private func closeBrowser(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) async {
+    private func closeBrowser(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) async throws {
         // The captured native tree places Close in TopBrowserBar. Background deck elements can remain in
         // that tree while Safari covers them, so neither a global first match nor card existence proves dismissal.
         let closeControls = app.otherElements["TopBrowserBar"].buttons
@@ -126,7 +144,7 @@ final class JobListingSafariUITests: XCTestCase {
         if !(await poll(close, "isHittable == true", until: Date().addingTimeInterval(10))) || closeControls.count != 1 {
             dump(app, "no-close")
             await capture("no-close")
-            XCTFail("the native browser has one hittable Close or Done control", file: file, line: line)
+            _ = try XCTUnwrap(Optional<Bool>.none, "the native browser has one hittable Close or Done control", file: file, line: line)
             return
         }
         let addresses = app.otherElements["TopBrowserBar"].buttons.matching(identifier: "URL")
@@ -148,8 +166,8 @@ final class JobListingSafariUITests: XCTestCase {
         if !dismissed {
             dump(app, "after-close")
             await capture("after-close")
-            XCTFail("closing the browser removes its native Close control and returns to one hittable deck card",
-                    file: file, line: line)
+            _ = try XCTUnwrap(Optional<Bool>.none, "closing the browser removes its native Close control and returns to one hittable deck card",
+                             file: file, line: line)
         }
     }
 
@@ -168,70 +186,74 @@ final class JobListingSafariUITests: XCTestCase {
 
     // MARK: Tests
 
-    func testLongTitleListingRendersAndCloses() async {
+    func testDeliberateFailureStillCompletesAsyncCleanup() async throws {
+        _ = try XCTUnwrap(Optional<Bool>.none, "intentional diagnostic assertion; cleanup must finish")
+    }
+
+    func testLongTitleListingRendersAndCloses() async throws {
         let app = await launch(path: "/listing")
         openListing(app)
-        await expect(app, "Senior Principal Staff Machine Learning")
+        try await expect(app, "Senior Principal Staff Machine Learning")
         await capture("safari-long-title-listing")
         dump(app, "safari-long-title-listing")
-        await closeBrowser(app)
+        try await closeBrowser(app)
         await capture("safari-closed-to-deck")
     }
 
-    func testInternalLinkThenBackAndForward() async {
+    func testInternalLinkThenBackAndForward() async throws {
         let app = await launch(path: "/listing")
         openListing(app)
-        await expect(app, "Senior Principal Staff")
+        try await expect(app, "Senior Principal Staff")
         await tapLink(app, "Read the internal detail page")
-        await expect(app, "Reached through an internal link")
+        try await expect(app, "Reached through an internal link")
         await capture("safari-internal-detail")
 
         let back = app.buttons["Back"]
         let backReady = await poll(back, "exists == true", until: Date().addingTimeInterval(10))
         XCTAssertTrue(backReady, "the browser offers Back")
         back.tap()
-        await expect(app, "Fictional listing for UI tests")
+        try await expect(app, "Fictional listing for UI tests")
         await capture("safari-back-to-listing")
 
         let forward = app.buttons["Forward"]
         let forwardReady = await poll(forward, "exists == true", until: Date().addingTimeInterval(10))
         XCTAssertTrue(forwardReady, "the browser offers Forward")
         forward.tap()
-        await expect(app, "Reached through an internal link")
+        try await expect(app, "Reached through an internal link")
         await capture("safari-forward-to-detail")
-        await closeBrowser(app)
+        try await closeBrowser(app)
     }
 
-    func testRedirectLandsOnDestination() async {
+    func testRedirectLandsOnDestination() async throws {
         let app = await launch(path: "/listing")
         openListing(app)
-        await expect(app, "Senior Principal Staff")
+        try await expect(app, "Senior Principal Staff")
         await tapLink(app, "Follow the redirect")
-        await expect(app, "You arrived through a 302 redirect")
+        try await expect(app, "You arrived through a 302 redirect")
         await capture("safari-redirect-destination")
-        await closeBrowser(app)
+        try await closeBrowser(app)
     }
 
-    func testTargetBlankLinkStaysInsideTheBrowser() async {
+    func testTargetBlankLinkStaysInsideTheBrowser() async throws {
         let app = await launch(path: "/listing")
         openListing(app)
-        await expect(app, "Senior Principal Staff")
+        try await expect(app, "Senior Principal Staff")
         await tapLink(app, "Open the new tab page")
-        await expect(app, "Opened by a target=_blank link")
+        try await expect(app, "Opened by a target=_blank link")
         await capture("safari-target-blank")
         XCTAssertEqual(app.state, .runningForeground, "the link did not leave Stack")
-        await closeBrowser(app)
+        try await closeBrowser(app)
     }
 
-    func testCloseThenReopenShowsTheListingAgain() async {
+    func testCloseThenReopenShowsTheListingAgain() async throws {
         let app = await launch(path: "/listing")
         openListing(app)
-        await expect(app, "Senior Principal Staff")
-        await closeBrowser(app)
+        try await expect(app, "Senior Principal Staff")
+        try await closeBrowser(app)
         openListing(app)
-        await expect(app, "Senior Principal Staff")
+        try await expect(app, "Senior Principal Staff")
         await capture("safari-reopened")
-        await closeBrowser(app)
+        try await closeBrowser(app)
         XCTAssertTrue(app.buttons["Save"].isHittable, "Save and Pass are reachable after reopening")
     }
 
@@ -282,16 +304,16 @@ final class JobListingSafariUITests: XCTestCase {
         let reloadReady = await poll(reload, "exists == true", until: Date().addingTimeInterval(10))
         XCTAssertTrue(reloadReady, "the browser offers Reload")
         reload.tap()
-        await expect(app, "The connection works again")
+        try await expect(app, "The connection works again")
         XCTAssertFalse(error.exists, "the error page is gone after recovery")
         await capture("safari-recovered-after-reload")
-        await closeBrowser(app)
+        try await closeBrowser(app)
     }
 
-    func testOpenInSafariHandsOffToTheSystemBrowser() async {
+    func testOpenInSafariHandsOffToTheSystemBrowser() async throws {
         let app = await launch(path: "/listing")
         openListing(app)
-        await expect(app, "Senior Principal Staff")
+        try await expect(app, "Senior Principal Staff")
         let handoff = app.buttons["Open in Safari"]
         let handoffReady = await poll(handoff, "exists == true", until: Date().addingTimeInterval(10))
         XCTAssertTrue(handoffReady, "the browser offers Open in Safari")

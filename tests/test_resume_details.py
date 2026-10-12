@@ -2,11 +2,11 @@
 import copy
 import hashlib
 import json
-from pathlib import Path
 import unittest
 
 from agents import resume_details as D
 from tests.fixtures import resume_layouts as L
+from tests.fixtures.resume_contract import encoded_fixture
 
 
 def flat_truth(expected):
@@ -30,8 +30,7 @@ def positioned(pages):
 
 class DetailsContract(unittest.TestCase):
     def test_swift_fixture_matches_current_parser_contract_and_original_evidence(self):
-        path = Path(__file__).parent / 'fixtures/resume-review-contract.json'
-        raw = path.read_bytes()
+        raw = encoded_fixture()
         self.assertEqual(hashlib.sha256(raw.replace(b'\r\n', b'\n')).hexdigest(),
                          'cc3a78e44470ed1eae1055e9d39c189b6946e66d2fe2eb4b95fc5a564b9fcc31')
         fixture = json.loads(raw)

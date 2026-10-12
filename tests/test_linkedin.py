@@ -194,6 +194,29 @@ class LinkedIn(unittest.TestCase):
         self.assertIn('linkedin:about', generate.call_args.args[3])
         self.assertIn('unknown, not missing', generate.call_args.args[3])
 
+    def test_findings_cannot_cite_unread_or_mismatched_sections(self):
+        sources = provider.sources_for({'linkedin_profile': CAPTURE, 'facts': []})
+        for section, quote in (('skills', 'Software engineer'), ('projects', 'Built a tracker.'), ('about', 'Built a tracker.')):
+            bad = copy.deepcopy(REVIEW);bad['findings'][0].update(section=section, quote=quote)
+            with self.assertRaisesRegex(ValueError, 'captured evidence'): linkedin.validate_review(bad, CAPTURE, sources)
+
+    def test_request_schema_offers_only_captured_sections_without_leaking(self):
+        config = {**contracts.config(), 'provider': 'codex-cli'}
+        shared = copy.deepcopy(provider.SCHEMAS['linkedin_review'])
+        partial = linkedin.snapshot(URL, {'intro': 'Candidate\nSoftware engineer', 'skills': 'Python'})
+        review = copy.deepcopy(REVIEW);review['findings'][0].update(section='skills', quote='Python');review['rewrites'] = []
+        review['evidence'] = [{'source': 'linkedin:skills', 'quote': 'Python', 'claim': 'Listed skill'}]
+        traces = []
+        for capture, result, expected in ((CAPTURE, REVIEW, ['intro', 'about', 'experience']), (partial, review, ['intro', 'skills'])):
+            with patch('agents.local_cli.generate', return_value=copy.deepcopy(result)) as generate:
+                provider.generate('linkedin_review', {'linkedin_profile': capture, 'facts': []}, config,
+                                  observe=lambda kind, data: traces.append(data) if kind == 'model_request' else None)
+            schema = generate.call_args.args[4]
+            self.assertEqual(schema['properties']['findings']['items']['properties']['section']['enum'], expected)
+            self.assertEqual(traces[-1]['schema'], schema)
+            self.assertIn('Captured section IDs: ' + ', '.join(expected) + '.', generate.call_args.args[3])
+        self.assertEqual(provider.SCHEMAS['linkedin_review'], shared)
+
     def test_invalid_analysis_is_blocked_without_requesting_answers(self):
         c = {**contracts.config(), 'provider': 'codex-cli', 'local_cli_owner': 'owner', 'local_cli_daily_limit': 5}
         work = {'step': 'linkedin_review', 'owner': 'owner', 'id': 'run', 'lease': 'lease',

@@ -1,4 +1,5 @@
 """User-requested LinkedIn profile capture. Login stays in an ephemeral browser."""
+import copy;
 import re;
 import time;
 import from urllib.parse { urlsplit, unquote }
@@ -324,6 +325,16 @@ def scan(pool: any, owner: any, run: any, context: any) -> any {
     pool.operation_stage = 'close_session';
     pool.close(owner, run);
     return {'artifact': artifact};
+}
+"""Offer only this capture's sections to the model; the shared schema stays unchanged."""
+def review_schema(schema: any, capture: any) -> any {
+    derived = copy.deepcopy(schema);
+    derived['properties']['findings']['items']['properties']['section']['enum'] = [
+        key
+        for key in SECTIONS
+        if (key in capture.get('sections', {}))
+    ];
+    return derived;
 }
 """Each weakness must cite a captured section, not an inferred missing section."""
 def validate_review(data: any, capture: any, sources: any) -> any {

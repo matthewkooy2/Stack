@@ -60,15 +60,56 @@ final class ResumeReviewFlowUITests: XCTestCase {
         start.press(forDuration: 0.05, thenDragTo: end)
     }
 
+    /// A partially clipped control may be hittable without its default tap point being visible.
+    private func navigationViewport(_ target: XCUIElement, _ app: XCUIApplication) -> CGRect {
+        var viewport = app.windows.firstMatch.frame.insetBy(dx: 0, dy: 44)
+        guard target.exists else { return viewport.insetBy(dx: 8, dy: 8) }
+        let identifier = target.identifier
+        let owners = app.scrollViews.allElementsBoundByIndex.filter {
+            $0.descendants(matching: .button).matching(identifier: identifier).count > 0
+        }
+        if let owner = owners.min(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }) {
+            viewport = viewport.intersection(owner.frame)
+        }
+        let keyboard = app.keyboards.firstMatch
+        if keyboard.exists, keyboard.frame.height > 0, keyboard.frame.minY < viewport.maxY {
+            viewport.size.height = max(0, keyboard.frame.minY - viewport.minY)
+        }
+        return viewport.insetBy(dx: 8, dy: 8)
+    }
+
+    private func fullyVisible(_ target: XCUIElement, _ app: XCUIApplication) -> Bool {
+        guard target.exists, target.isHittable, !target.frame.isEmpty else { return false }
+        return navigationViewport(target, app).contains(target.frame)
+    }
+
+    private func captureNavigation(_ target: XCUIElement, _ app: XCUIApplication, _ name: String) {
+        let exists = target.exists
+        let frame = exists ? target.frame : .zero
+        let identifier = exists ? target.identifier : "missing-target"
+        let geometry = XCTAttachment(string: "identifier=\(identifier); target=\(frame); viewport=\(navigationViewport(target, app)); window=\(app.windows.firstMatch.frame); exists=\(exists); hittable=\(exists && target.isHittable)")
+        geometry.name = "resume-navigation-\(name)-geometry"
+        geometry.lifetime = .keepAlways
+        add(geometry)
+        let tree = XCTAttachment(string: app.debugDescription)
+        tree.name = "resume-navigation-\(name)-accessibility"
+        tree.lifetime = .keepAlways
+        add(tree)
+        let screenshot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        screenshot.name = "resume-navigation-\(name)-screen"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+    }
+
     /// Scrolls until the element can be tapped, down the page first and then back up.
     @discardableResult
     private func show(_ target: XCUIElement, _ app: XCUIApplication, _ what: String,
-                      file: StaticString = #filePath, line: UInt = #line) -> Bool {
-        if target.exists, target.isHittable { return true }
+                      fully: Bool = false, file: StaticString = #filePath, line: UInt = #line) -> Bool {
+        if fully ? fullyVisible(target, app) : (target.exists && target.isHittable) { return true }
         for forward in [true, false] {
             for _ in 0..<8 {
                 if forward { drag(app, from: 0.7, to: 0.3) } else { drag(app, from: 0.3, to: 0.7) }
-                if target.exists, target.isHittable { return true }
+                if fully ? fullyVisible(target, app) : (target.exists && target.isHittable) { return true }
             }
         }
         let tree = XCTAttachment(string: app.debugDescription)
@@ -94,14 +135,19 @@ final class ResumeReviewFlowUITests: XCTestCase {
     private func openSection(_ app: XCUIApplication, _ key: String) {
         let row = element(app, id: "resume-review-section-\(key)")
         XCTAssertTrue(row.waitForExistence(timeout: 10), "the \(key) section row exists")
-        show(row, app, "the \(key) row")
+        guard show(row, app, "the \(key) row", fully: true) else { return }
+        XCTAssertEqual(app.buttons.matching(identifier: "resume-review-section-\(key)").count, 1)
+        captureNavigation(row, app, "\(key)-before-tap")
+        XCTAssertTrue(fullyVisible(row, app), "the full section control is inside the measured viewport before tapping")
         row.tap()
-        XCTAssertTrue(element(app, id: "resume-review-all-sections").waitForExistence(timeout: 5), "the \(key) section opened")
+        let opened = element(app, id: "resume-review-all-sections").waitForExistence(timeout: 5)
+        if !opened { captureNavigation(row, app, "\(key)-failed-to-open") }
+        XCTAssertTrue(opened, "the \(key) section opened")
     }
 
     private func backToSections(_ app: XCUIApplication) {
         let back = element(app, id: "resume-review-all-sections")
-        show(back, app, "All sections")
+        guard show(back, app, "All sections", fully: true) else { return }
         back.tap()
         XCTAssertTrue(element(app, id: "resume-review-section-profile").waitForExistence(timeout: 5))
     }

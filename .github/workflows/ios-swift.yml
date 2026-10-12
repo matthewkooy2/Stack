@@ -1,10 +1,16 @@
 name: Focused native resume add diagnostics
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        default: add
+        options: [add, release-evidence]
 permissions:
   contents: read
 jobs:
   listing-diagnostics:
+    if: inputs.mode != 'release-evidence'
     runs-on: macos-14
     timeout-minutes: 25
     env:
@@ -74,3 +80,31 @@ jobs:
             .jac/listing-diagnostics/resume-add-durable.log
             .jac/listing-diagnostics/fixture.log
           retention-days: 7
+
+  release-evidence:
+    if: inputs.mode == 'release-evidence'
+    runs-on: xcode-27
+    timeout-minutes: 10
+    steps:
+      - name: Export retained fictional UI attachments without checkout or signing
+        env:
+          DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/stack-release-ui-evidence"
+          mkdir -p "$evidence"
+          xcodebuild -version > "$evidence/toolchain.txt"
+          xcrun swiftc --version >> "$evidence/toolchain.txt"
+          xcrun simctl list devices available -j > "$evidence/simulators.json"
+          result="$GITHUB_WORKSPACE/.jac/ci-ios-swift/test.xcresult"
+          test -d "$result"
+          python3 "$GITHUB_WORKSPACE/scripts/ci/ios-xcresult-attachments.py" --output "$evidence/attachments" "$result"
+          printf 'Exported only native fictional UI attachments; no result metadata, signing assets or environment dump.\n'
+      - name: Retain only fictional UI evidence and toolchain facts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-fictional-ui-evidence-${{ github.sha }}
+          path: ${{ runner.temp }}/stack-release-ui-evidence
+          retention-days: 7
+          if-no-files-found: error

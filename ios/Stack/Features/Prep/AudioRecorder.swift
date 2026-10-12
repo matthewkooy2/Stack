@@ -163,6 +163,16 @@ final class AudioRecorder {
 
     func setLiveTranscriptVisible(_ visible: Bool) { showsLiveTranscript = visible }
 
+    #if DEBUG
+    // Rendering fixture only. Synthetic capture never claims to run SpeechAnalyzer.
+    // Release builds and ordinary Debug launches cannot enter this path.
+    func showSyntheticTranscriptForUITest(_ text: String) {
+        guard ProcessInfo.processInfo.arguments.contains("--microphone-ui-fixture") else { return }
+        onDevice = true
+        liveText = text
+    }
+    #endif
+
     func start(owner: String) async throws -> (clientID: String, url: URL) {
         guard !starting, !isRecording, !finalizing, speechCapture == nil, fallbackCapture == nil else { throw APIError(message: "Finish the current recording first.") }
         starting = true

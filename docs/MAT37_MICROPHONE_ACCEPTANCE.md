@@ -23,6 +23,8 @@ These are structural and existing contract checks, not Swift typechecking, XCTes
 
 Injected capture tests prove controller behavior; they do not establish AVAudioEngine interruption/route handling or successful SpeechAnalyzer recognition/finalization. No microphone permission, personal audio or model download was used for development.
 
+`ios/StackUITests/MicrophoneSurfaceTests.swift` renders the actual surface in a Debug-only offline fixture. Generated sine/silence samples feed the real PCM writer and meter; fictional transcript sidecars exercise visibility and retention. The fixture's eligible live-text state simulates rendering, not SpeechAnalyzer eligibility or recognition. Tests cover live on/off, pause/resume/Stop/retry, accurate unavailable control, largest Dynamic Type with Reduce Motion, accessible levels and silence decay. Kept screenshots are exported by hosted CI. Release builds omit the fixture and its transcript setter.
+
 ## Remaining acceptance gates
 
 On the exact candidate, run unsigned `bash scripts/ci/ios-swift.sh test` on hosted macOS with Xcode 26.6, Swift >=6.2 and an iOS >=26 simulator, matching `.github/workflows/speech-restoration.yml`. Keep the result bundle tied to the candidate SHA. Also compile/test the older compiler/fallback route using the existing iOS Swift workflow or an equivalent Xcode 15.4+ environment.

@@ -15,13 +15,16 @@ final class MicrophoneSurfaceUITests: XCTestCase {
     private func visible(_ element: XCUIElement, in app: XCUIApplication, requireHit: Bool = true) {
         let scroll = app.scrollViews["microphone-fixture-scroll"]
         for _ in 0..<10 {
-            if requireHit ? element.isHittable : element.frame.intersects(scroll.frame) { return }
-            // Drag in the outer margin so an expanded live-text ScrollView cannot
-            // swallow the gesture intended to reach Pause or Stop.
-            scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.85))
-                .press(forDuration: 0.01, thenDragTo: scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.2)))
+            let viewport = scroll.frame.insetBy(dx: 0, dy: 16)
+            if element.exists, viewport.contains(element.frame), !requireHit || element.isHittable { return }
+            let above = element.exists && element.frame.minY < viewport.minY
+            // A partially exposed button can be hittable below the home indicator.
+            // Reveal its whole frame before tapping; use the outer margin so live text
+            // cannot swallow the gesture. Reverse if a long swipe passed the target.
+            scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: above ? 0.2 : 0.85))
+                .press(forDuration: 0.01, thenDragTo: scroll.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: above ? 0.85 : 0.2)))
         }
-        XCTAssertTrue(requireHit ? element.isHittable : element.frame.intersects(scroll.frame))
+        XCTAssertTrue(element.exists && scroll.frame.insetBy(dx: 0, dy: 16).contains(element.frame) && (!requireHit || element.isHittable))
     }
 
     private func capture(_ name: String) {
@@ -89,7 +92,12 @@ final class MicrophoneSurfaceUITests: XCTestCase {
         visible(stop, in: app)
         capture("microphone-large-type-controls")
         stop.tap()
-        XCTAssertTrue(app.staticTexts["Saved answer: Reviewed synthetic answer"].waitForExistence(timeout: 5))
+        let clock = app.descendants(matching: .any)["recording-status-clock"]
+        XCTAssertTrue(wait { (clock.value as? String ?? "").hasPrefix("Recording stopped,") })
+        let savedAnswer = app.staticTexts["Saved answer: Reviewed synthetic answer"]
+        visible(savedAnswer, in: app, requireHit: false)
+        XCTAssertTrue(savedAnswer.waitForExistence(timeout: 5))
+        capture("microphone-large-type-saved-answer")
     }
 
     func testGeneratedSilenceLowersAccessibleLevel() {

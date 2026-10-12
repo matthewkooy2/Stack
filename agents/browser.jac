@@ -133,6 +133,10 @@ class BrowserPool {
         import from agents.linkedin { scan }
         return scan(self, owner, run, context);
     }
+    def browser_autofill(self: BrowserPool, owner: any, run: any, context: any) -> any {
+        import from agents.autofill { fill_page }
+        return fill_page(self, owner, run, context);
+    }
     def purge(self: BrowserPool, owner: any) -> any {
         for key in `list(self.sessions) {
             if (key[0] == owner) {
@@ -174,6 +178,9 @@ class BrowserPool {
                 wait_until='domcontentloaded',
                 timeout=5000
             );
+        } elif kind == 'upload_resume' {
+            import from agents.autofill { upload_resume }
+            return upload_resume(self,owner,run,event);
         } elif (kind == 'text') {
             self.guard();
             page.keyboard.insert_text(str(event.get('text', ''))[:8000]);

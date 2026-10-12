@@ -42,7 +42,8 @@ struct TaskDetailView: View {
                             ? "Tailoring started. Stack will show you every change to keep or reject." : ""
                     }
                 }
-                if kind != "linkedin", status == "needs_input", !run["needs_resume_review"].bool { answersBox }
+                if kind != "linkedin", kind != "autofill", status == "needs_input", !run["needs_resume_review"].bool { answersBox }
+                if kind == "autofill" { autofillBox }
                 if kind == "linkedin", status == "needs_input" { linkedinBox }
                 if run["browser"]["available"].bool {
                     BrowserEntryView(id: id, task: run) { Task { await load() } }
@@ -236,6 +237,35 @@ struct TaskDetailView: View {
                 }
                 StackButton(label: "Continue", disabled: busy) { Task { await respond() } }
             }
+        }
+    }
+
+    private var autofillBox: some View {
+        Card(tint: Palette.surfaceRaised, spacing: 12) {
+            SectionLabel(text: "Saved-answer autofill")
+            Text(run["message"].string).font(Typeface.body).foregroundStyle(Palette.text)
+            Text("Take control in the browser to sign in, handle verification, attach your selected resume to supported file controls and move to the next step. Other attachments need the employer site. Resume autofill to fill that page. Review every field and submit yourself; stopping this task does not submit or mark the application submitted.")
+                .font(Typeface.caption).foregroundStyle(Palette.muted)
+            let report = run["artifacts"]["browser_autofill"]
+            if report["truncated"].bool {
+                Text("Only the first 150 visible controls per frame were inspected. Check the remaining fields yourself.")
+                    .font(Typeface.caption).foregroundStyle(Palette.muted)
+            }
+            ForEach(Array(report["fields"].array.enumerated()), id: \.offset) { _, field in
+                Text("\(field["label"].string): \(field["status"].string)\(field["required"].bool ? " (required)" : "")")
+                    .font(Typeface.caption).foregroundStyle(Palette.text)
+            }
+            if status == "needs_input" {
+                ForEach(Array(requests.filter { $0["key"].string != "browser" }.enumerated()), id: \.offset) { _, question in
+                    let key = question["key"].string
+                    StackField(label: question["label"].string,
+                               text: Binding(get: { draft.values[key] ?? "" }, set: { draft.values[key] = $0; remember() }))
+                }
+                Text("Answers entered here become confirmed saved answers for this exact question. Use the displayed option text for a dropdown. Existing form values are preserved; edit them in the browser.")
+                    .font(Typeface.caption).foregroundStyle(Palette.muted)
+                StackButton(label: "Save answers and refill this page", disabled: busy) { Task { await respond() } }
+            }
+            Chip(label: "Open saved facts") { onNavigate("facts") }
         }
     }
 

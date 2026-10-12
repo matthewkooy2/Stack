@@ -276,6 +276,39 @@ final class ScreenFlowUITests: XCTestCase {
 
     // MARK: Applications
 
+    private func openApplicationHelp(_ app: XCUIApplication) {
+        let application = row(app, "Senior Product Data Analyst")
+        XCTAssertTrue(application.waitForExistence(timeout: 10))
+        application.tap()
+        tap(row(app, "Agent help"), in: app, "agent-help")
+    }
+
+    func testAutofillStartsWithoutModelAndOpensReviewTask() {
+        let app = launch("applications")
+        openApplicationHelp(app)
+        let autofill = row(app, "Autofill saved answers")
+        XCTAssertTrue(reveal(autofill, in: app, "autofill-action"))
+        XCTAssertTrue(autofill.isEnabled, "autofill does not require a model provider")
+        XCTAssertTrue(autofill.label.contains("may autosave"))
+        tap(autofill, in: app, "start-autofill")
+        XCTAssertTrue(app.staticTexts["Fixture autofill waiting for your review."].firstMatch.waitForExistence(timeout: 10),
+                      "starting autofill opens its task, using the returned task ID")
+        capture("applications-autofill-review-task")
+    }
+
+    func testMixedAutofillAndModelSetupIsDeduplicatedAndUnavailableActionIsDisabled() {
+        let app = launch("applications-autofill-unavailable")
+        openApplicationHelp(app)
+        let autofill = row(app, "Autofill saved answers")
+        XCTAssertTrue(reveal(autofill, in: app, "unavailable-autofill-action"))
+        XCTAssertFalse(autofill.isEnabled)
+        let browserFix = app.staticTexts["✕ Configure the browser worker for autofill."].firstMatch
+        XCTAssertTrue(reveal(browserFix, in: app, "browser-setup-guidance"))
+        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == %@", "✕ Connect a model provider in Agents.")).count, 1)
+        XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == %@", "✕ Configure the browser worker for autofill.")).count, 1)
+        capture("applications-mixed-autofill-setup")
+    }
+
     func testApplicationDetailDisclosuresAndNotesSaveRecovery() {
         let app = launch("applications")
         let application = row(app, "Senior Product Data Analyst")

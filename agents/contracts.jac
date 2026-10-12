@@ -14,6 +14,7 @@ with entry {
     LOCAL_PROVIDERS = {'ollama', 'lmstudio'};
     PROVIDERS = CLI_PROVIDERS | LOCAL_PROVIDERS | {'openai', 'meta'};
     STEPS = {
+        'autofill': ['browser_autofill'],
         'linkedin': ['linkedin_scan', 'linkedin_review'],
         'live': ['interview'],
         'jobs': ['fit'],
@@ -354,11 +355,16 @@ def context_facts(
     facts: list[dict[(str, any)]], context: dict[(str, any)]
 ) -> list[dict[(str, any)]] {
     selected = context.get('resume_id', '');
-    return [
+    out = [
         f
         for f in facts
         if (not selected or not f.get('resume_id') or (f['resume_id'] == selected))
     ];
+    # Explicit saved Profile name is a task snapshot, never split into inferred names.
+    for f in context.get('autofill_profile',[]) {
+        if f.get('key')=='name' and not [x for x in out if x['key']=='name'] { out.append(f); }
+    }
+    return out;
 }
 def validate_contact(data: dict[(str, any)]) -> dict[(str, any)] {
     (name, email) = (

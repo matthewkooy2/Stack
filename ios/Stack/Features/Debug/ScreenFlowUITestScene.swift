@@ -50,7 +50,7 @@ struct ScreenFlowUITestScene: View {
         case "settings": ProfileView()
         case "resume": ResumeView(onProfile: {})
         case "network": NetworkView(onProfile: {})
-        case "applications": ApplicationsView(onProfile: {}, onNavigate: { _ in })
+        case "applications", "applications-autofill-unavailable": ApplicationsView(onProfile: {}, onNavigate: { _ in })
         case "jobs": ScreenFlowJobHost(job: Job(ScreenFlowServer.job))
         case "onboarding": AccessView()
         case "recovery": InvitationView()
@@ -97,6 +97,7 @@ final class ScreenFlowServer: @unchecked Sendable {
     private var linkedInLoads = 0
     private var notesSaves = 0
     private var modelFailed = false
+    private var autofillStarted = false
 
     func reset(flow: String) {
         lock.lock(); defer { lock.unlock() }
@@ -105,6 +106,7 @@ final class ScreenFlowServer: @unchecked Sendable {
         linkedInLoads = 0
         notesSaves = 0
         modelFailed = false
+        autofillStarted = false
     }
 
     static var job: JSON {
@@ -162,17 +164,33 @@ final class ScreenFlowServer: @unchecked Sendable {
             "key": "model", "label": "Model provider", "ok": false, "optional": false,
             "fix": "Connect a model provider in Agents.", "action": "",
         ]]
+        let browserUnavailable = flow == "applications-autofill-unavailable"
         let features: [JSON] = [[
             "key": "jobs", "title": "Job fit", "state": "setup", "summary": "Explains how a role fits you.",
-            "kinds": ["jobs", "resume", "application"], "checks": .array(setup),
+            "kinds": ["jobs", "resume"], "checks": .array(setup),
+        ], [
+            "key": "autofill", "title": "Saved-answer autofill", "state": .string(browserUnavailable ? "unavailable" : "ready"),
+            "summary": "Fill confirmed saved answers; review and submit yourself.", "kinds": ["autofill"],
+            "alternative": "Open the employer site yourself.",
+            "checks": [["key": "browser", "label": "Browser worker", "ok": .bool(!browserUnavailable), "optional": false,
+                        "fix": "Configure the browser worker for autofill.", "action": ""]],
         ]]
         return [
             "user_id": "fixture-user", "profile": profile, "resumes": .array(resumes), "selected_resume": "resume-1",
             "applications": .array(applications), "people": .array(people), "contacts": .array(contacts),
-            "agents": ["features": .array(features), "runs": [], "active": 0, "attention": 0,
+            "agents": ["features": .array(features), "runs": .array(autofillStarted ? [Self.autofillRun] : []), "active": 0, "attention": 0,
                        "model_provider": ["provider": "", "message": ""]],
             "tailored_resumes": [], "saved_search": [:], "decisions": [], "reminders": [],
         ]
+    }
+
+    private static var autofillRun: JSON {
+        ["id": "autofill-fixture", "kind": "autofill", "target_id": "application-1", "status": "needs_input",
+         "title": "Autofill saved answers", "message": "Fixture autofill waiting for your review.", "step": "browser_autofill",
+         "created_at": 1_700_000_000, "updated_at": 1_700_000_000, "requests": [], "context_label": "Northwind Analytics",
+         "browser": ["supported": true, "available": false],
+         "artifacts": ["browser_autofill": ["family": "lever", "filled": 1, "submission": "user_only",
+                        "fields": [["label": "Email", "status": "filled", "required": true]]]]]
     }
 
     /// The `(status, body)` a request for `name` receives.
@@ -181,6 +199,16 @@ final class ScreenFlowServer: @unchecked Sendable {
         func ok(_ result: JSON) -> (Int, JSON) { (200, ["ok": true, "data": ["result": result]]) }
         func fail(_ message: String) -> (Int, JSON) { (500, ["ok": false, "error": ["message": .string(message)]]) }
         switch name {
+        case "agent_start":
+            guard body["kind"].string == "autofill", body["target_id"].string == "application-1" else {
+                return fail("Unsupported synthetic task.")
+            }
+            guard flow != "applications-autofill-unavailable" else { return fail("Browser worker unavailable.") }
+            autofillStarted = true
+            return ok(Self.autofillRun)
+        case "agent_run":
+            guard autofillStarted, body["id"].string == "autofill-fixture" else { return fail("Unknown synthetic task.") }
+            return ok(Self.autofillRun)
         case "agent_settings":
             if flow == "settings", !modelFailed {
                 modelFailed = true

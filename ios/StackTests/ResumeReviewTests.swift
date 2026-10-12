@@ -669,6 +669,69 @@ final class ResumeReviewControllerTests: XCTestCase {
         XCTAssertNotNil(drafts.load(userID: "user-a", resumeID: "resume-1"), "kept until the save is known to have landed")
     }
 
+    func testConfirmedRawRecordsDoNotConfirmFreshStructuredDetails() async {
+        let fake = FakeBackend()
+        fake.document = Sample.document(confirmed: true)
+        fake.document["details_confirmed"] = false
+        let screen = controller(fake)
+        await screen.load()
+        XCTAssertFalse(screen.recordMode)
+        XCTAssertFalse(screen.confirmed)
+        XCTAssertEqual(screen.statusID, "needs-review")
+        await screen.save(confirm: true)
+        XCTAssertEqual(fake.saves.count, 1, "unchanged parsed values still require explicit structured confirmation")
+        XCTAssertEqual(fake.saves[0].values, Sample.values)
+        XCTAssertTrue(fake.saves[0].confirm)
+        fake.document["details_confirmed"] = true
+        await screen.load()
+        XCTAssertTrue(screen.confirmed, "structured confirmation survives reload")
+    }
+
+    func testRestoredDraftUsesStructuredConfirmationInsteadOfRawConfirmation() async {
+        let fake = FakeBackend()
+        let first = controller(fake)
+        await first.load()
+        first.set("Local correction", at: nameAddress)
+        first.flush()
+        fake.document["confirmed"] = true
+        fake.document["details_confirmed"] = false
+        let reopened = controller(fake)
+        await reopened.load()
+        XCTAssertTrue(reopened.restoredDraft)
+        XCTAssertFalse(reopened.confirmed)
+        XCTAssertEqual(reopened.document.value(at: nameAddress), "Local correction")
+    }
+
+    func testSaveResponseUsesExplicitStructuredConfirmation() async {
+        let fake = FakeBackend()
+        let screen = controller(fake)
+        await screen.load()
+        fake.holdSave = true
+        let saving = Task { await screen.save(confirm: false) }
+        await fake.settle()
+        var response = Sample.document(revision: 2, confirmed: true)
+        response["details_confirmed"] = false
+        fake.heldSave?.resume(returning: response)
+        await saving.value
+        XCTAssertFalse(screen.confirmed)
+        fake.holdSave = false
+        await screen.save(confirm: true)
+        XCTAssertEqual(fake.saves.count, 2, "a raw-confirmed save response cannot suppress structured confirmation")
+    }
+
+    func testRawRecordFallbackKeepsItsOwnConfirmation() async {
+        let fake = FakeBackend()
+        fake.document = ["revision": 1, "confirmed": true, "details_confirmed": false,
+                         "sections": [], "records": [["id": "r0", "kind": "title", "text": "Reviewed raw record"]]]
+        let screen = controller(fake)
+        await screen.load()
+        XCTAssertTrue(screen.recordMode)
+        XCTAssertTrue(screen.confirmed)
+        await screen.save(confirm: true)
+        XCTAssertTrue(fake.recordSaves.isEmpty)
+        XCTAssertTrue(fake.saves.isEmpty)
+    }
+
     func testConfirmOfAnAlreadyConfirmedUntouchedResumeOnlyContinues() async {
         let fake = FakeBackend()
         fake.document = Sample.document(confirmed: true)

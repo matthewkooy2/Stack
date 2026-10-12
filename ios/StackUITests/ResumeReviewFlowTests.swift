@@ -257,6 +257,22 @@ final class ResumeReviewFlowUITests: XCTestCase {
         XCTAssertEqual(state(app), "unsaved", "the first account finds its draft again")
     }
 
+    func testConfirmedRawRecordsStillRequireConfirmingParsedDetails() {
+        var app = launch(["--resume-review-unconfirmed-details"])
+        XCTAssertTrue(element(app, id: "resume-review-state").waitForExistence(timeout: 10))
+        XCTAssertEqual(state(app), "needs-review")
+        let confirm = element(app, id: "resume-review-confirm")
+        show(confirm, app, "Confirm newly parsed details")
+        XCTAssertTrue(confirm.isEnabled)
+        confirm.tap()
+        XCTAssertTrue(waitUntil { self.state(app) == "confirmed" })
+        capture("resume-review-legacy-details-confirmed")
+        app.terminate()
+        app = launch(reset: false)
+        XCTAssertTrue(element(app, id: "resume-review-state").waitForExistence(timeout: 10))
+        XCTAssertEqual(state(app), "confirmed", "the structured confirmation was saved to the server")
+    }
+
     func testSaveThenConfirmClearsTheDraft() {
         var app = launch()
         openSection(app, "profile")

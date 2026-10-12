@@ -195,37 +195,6 @@ class ReleaseProof(unittest.TestCase):
                     proof.release(MACHINE)
 
 
-class MergeReleaseChanges(unittest.TestCase):
-    def test_normal_feature_and_docs_merges_are_compared_to_the_first_parent(self):
-        with tempfile.TemporaryDirectory() as directory, patch.object(proof, 'ROOT', Path(directory)):
-            def command(*args):
-                return subprocess.check_output(['git', *args], cwd=directory, text=True).strip()
-            environment = dict(os.environ, GIT_AUTHOR_NAME='Synthetic', GIT_COMMITTER_NAME='Synthetic',
-                               GIT_AUTHOR_EMAIL='synthetic@example.test', GIT_COMMITTER_EMAIL='synthetic@example.test')
-            def commit(message):
-                subprocess.run(['git', 'add', '.'], cwd=directory, check=True, capture_output=True)
-                subprocess.run(['git', 'commit', '-m', message], cwd=directory, env=environment, check=True, capture_output=True)
-            command('init', '-b', 'main')
-            Path(directory, 'README.md').write_text('baseline')
-            commit('baseline')
-            self.assertEqual(proof.release_changes('HEAD'), ['README.md'])
-            command('switch', '-c', 'feature')
-            Path(directory, 'ios').mkdir()
-            Path(directory, 'ios/Feature.swift').write_text('struct Feature {}')
-            commit('feature')
-            command('switch', 'main')
-            subprocess.run(['git', 'merge', '--no-ff', '-m', 'feature merge', 'feature'], cwd=directory,
-                           env=environment, check=True, capture_output=True)
-            self.assertEqual(proof.release_changes('HEAD'), ['ios/Feature.swift'])
-            command('switch', '-c', 'docs')
-            Path(directory, 'README.md').write_text('documentation only')
-            commit('docs')
-            command('switch', 'main')
-            subprocess.run(['git', 'merge', '--no-ff', '-m', 'docs merge', 'docs'], cwd=directory,
-                           env=environment, check=True, capture_output=True)
-            self.assertEqual(proof.release_changes('HEAD'), ['README.md'])
-
-
 class LogTransport(unittest.TestCase):
     def test_escape_capture_is_scoped_to_raw_job_logs_and_supported_clients(self):
         for help_text, expected in [('old client', False), ('--allow-escape-sequences', True)]:
@@ -239,6 +208,67 @@ class LogTransport(unittest.TestCase):
                 proof.api(path, raw=raw)
                 self.assertEqual(call.call_count, 1)
                 self.assertNotIn('--allow-escape-sequences', call.call_args.args[0])
+
+
+class RoutedRelease(unittest.TestCase):
+    def setUp(self):
+        self.run = {'id': 40, 'run_attempt': 1, 'path': proof.WORKFLOW, 'status': 'completed',
+                    'conclusion': 'success', 'event': 'push', 'head_branch': 'main',
+                    'head_repository': {'full_name': proof.REPO}, 'head_sha': 'c' * 40}
+        self.steps = {'Select affected checks': 'success', 'Report native checks not applicable': 'success',
+                      'Run selected native cases': 'skipped', 'Compile unsigned Release': 'skipped',
+                      'Publish native proof': 'skipped'}
+
+    def jobs(self):
+        return {'jobs': [{'name': proof.JOB, 'conclusion': 'success',
+                         'steps': [{'name': name, 'conclusion': result} for name, result in self.steps.items()]}]}
+
+    def test_only_complete_successful_noop_marker_is_recognized(self):
+        with patch.object(proof, 'api', side_effect=lambda *a: self.jobs()):
+            self.assertTrue(proof.native_not_applicable(self.run))
+            for name, original in list(self.steps.items()):
+                self.steps[name] = 'failure'
+                self.assertFalse(proof.native_not_applicable(self.run))
+                self.steps[name] = original
+            self.run['conclusion'] = 'failure'
+            self.assertFalse(proof.native_not_applicable(self.run))
+
+    def test_automatic_noop_never_reads_proof_signs_or_records(self):
+        with tempfile.TemporaryDirectory() as directory:
+            event = Path(directory, 'event.json')
+            event.write_text(json.dumps({'workflow_run': self.run}))
+            def api(path, raw=False):
+                return {'object': {'sha': 'c' * 40}} if path == 'git/ref/heads/main' else self.jobs()
+            with patch.dict(os.environ, GITHUB_EVENT_PATH=str(event)), patch.object(proof, 'api', side_effect=api), \
+                    patch.object(proof, 'git') as git, patch.object(proof, 'validate') as validate, \
+                    patch.object(proof, 'record') as record, patch.object(proof, 'output') as output:
+                proof.release(MACHINE)
+                output.assert_any_call('upload', 'false')
+                git.assert_not_called()
+                validate.assert_not_called()
+                record.assert_not_called()
+
+    def test_irrelevant_upload_marker_can_only_suppress_upload(self):
+        self.steps = {'Select affected checks': 'success', 'Report native upload not applicable': 'success',
+                      'Run selected native cases': 'success', 'Compile unsigned Release': 'success',
+                      'Publish native proof': 'success'}
+        with patch.object(proof, 'api', side_effect=lambda *a: self.jobs()):
+            self.assertTrue(proof.native_not_applicable(self.run))
+            self.steps['Report native upload not applicable'] = 'skipped'
+            self.assertFalse(proof.native_not_applicable(self.run))
+
+    def test_relevant_and_manual_releases_still_require_proof(self):
+        with tempfile.TemporaryDirectory() as directory:
+            event = Path(directory, 'event.json')
+            for payload in ({'workflow_run': self.run}, {}):
+                event.write_text(json.dumps(payload))
+                with patch.dict(os.environ, GITHUB_EVENT_PATH=str(event), GITHUB_REF='refs/heads/main', GITHUB_SHA='c' * 40), \
+                        patch.object(proof, 'api', return_value={'object': {'sha': 'c' * 40}}), \
+                        patch.object(proof, 'native_not_applicable', return_value=False), \
+                        patch.object(proof, 'git', return_value='tree'), patch.object(proof, 'runs', return_value=[self.run]), \
+                        patch.object(proof, 'proof_for', side_effect=ValueError('Missing proof')), \
+                        self.assertRaisesRegex(ValueError, 'Missing proof'):
+                    proof.release(MACHINE)
 
 
 if __name__ == '__main__':

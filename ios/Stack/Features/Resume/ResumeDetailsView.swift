@@ -107,6 +107,8 @@ private struct ResumeReviewScreen: View {
             ProgressView().tint(Palette.muted).accessibilityLabel("Reading resume")
         }
         MessageLine(text: controller.error).fadeSwitch(!controller.error.isEmpty)
+        MessageLine(text: controller.detailsError).fadeSwitch(!controller.detailsError.isEmpty)
+            .accessibilityIdentifier("resume-review-details-error")
         if !controller.loaded, !controller.error.isEmpty {
             StackButton(label: "Retry parsing", icon: "refresh", kind: .secondary, disabled: controller.initialLoading) {
                 Task { await controller.load(retry: true) }

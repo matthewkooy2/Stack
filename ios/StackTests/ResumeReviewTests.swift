@@ -779,6 +779,50 @@ final class ResumeReviewControllerTests: XCTestCase {
 
     // MARK: Legacy records
 
+    func testUnavailableAndPendingDetailsKeepRealShapeRawRecordsEditable() async {
+        // D.view without details publishes these three placeholder sections, not an empty sections array.
+        let placeholders = Dictionary(uniqueKeysWithValues:
+            ["profile.name", "profile.email", "profile.phone", "profile.location", "profile.url", "profile.summary",
+             "skills.descriptions", "additional.descriptions"].map { ($0, "") })
+        for status in ["unavailable", "pending"] {
+            let fake = FakeBackend()
+            fake.document = Sample.document(placeholders, revision: 4, confirmed: true)
+            fake.document["details_status"] = .string(status)
+            fake.document["details_confirmed"] = false
+            fake.document["details_error"] = "Structured review unavailable for rotated PDF"
+            fake.document["records"] = [["id": "r0", "kind": "title", "text": "Accepted raw fallback", "allow_omit": false]]
+            let screen = controller(fake)
+            await screen.load()
+            XCTAssertEqual(fake.document["sections"].array.count, 3)
+            XCTAssertTrue(screen.recordMode)
+            XCTAssertTrue(screen.confirmed, "raw records retain their separate trust")
+            XCTAssertEqual(screen.detailsError, "Structured review unavailable for rotated PDF")
+            XCTAssertEqual(screen.record(0)["text"].string, "Accepted raw fallback")
+            screen.setRecord(0, key: "text", value: "Raw correction")
+            await screen.save(confirm: false)
+            XCTAssertTrue(fake.saves.isEmpty, "placeholder sections never replace raw records with a details projection")
+            XCTAssertEqual(fake.recordSaves.count, 1)
+            XCTAssertEqual(fake.recordSaves[0].revision.int, 4)
+            XCTAssertEqual(fake.recordSaves[0].records, [["id": "r0", "kind": "title", "text": "Raw correction", "allow_omit": false]])
+            screen.invalidate()
+            XCTAssertTrue(screen.detailsError.isEmpty)
+        }
+    }
+
+    func testReadyDetailsWithRawRecordsUseTheStructuredEditor() async {
+        let fake = FakeBackend()
+        fake.document["details_status"] = "ready"
+        fake.document["details_confirmed"] = false
+        fake.document["records"] = [["id": "r0", "kind": "title", "text": "Accepted raw fallback"]]
+        let screen = controller(fake)
+        await screen.load()
+        XCTAssertFalse(screen.recordMode)
+        XCTAssertEqual(screen.document.value(at: nameAddress), "Ada Example")
+        await screen.save(confirm: true)
+        XCTAssertEqual(fake.saves.count, 1)
+        XCTAssertTrue(fake.recordSaves.isEmpty)
+    }
+
     func testLegacyRecordsAreEditedKeptAndSavedWithTheirRevision() async {
         let fake = FakeBackend()
         fake.document = ["revision": 4, "confirmed": false, "sections": [],

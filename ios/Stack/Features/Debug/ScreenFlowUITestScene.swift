@@ -131,6 +131,7 @@ final class ScreenFlowServer: @unchecked Sendable {
     private var reviewRevision = 1
     private var reviewConfirmed = false
     private var reviewDetailsConfirmed = false
+    private var reviewUnavailable = false
     private var reviewOriginalValues: [String: String] = [:]
     private var reviewProcessing: JSON = .null
     private var reviewImportPolls = 0
@@ -180,6 +181,7 @@ final class ScreenFlowServer: @unchecked Sendable {
         reviewRevision = 1
         reviewConfirmed = false
         reviewDetailsConfirmed = false
+        reviewUnavailable = arguments.contains("--resume-review-unavailable")
         if !arguments.contains("--resume-review-empty"),
            let data = reviewPersistence.data(forKey: reviewPersistenceKey),
            let saved = try? JSONDecoder().decode(JSON.self, from: data) {
@@ -197,6 +199,12 @@ final class ScreenFlowServer: @unchecked Sendable {
         if arguments.contains("--resume-review-unconfirmed-details") {
             reviewConfirmed = true // Previously confirmed raw records remain trusted by the backend.
             reviewDetailsConfirmed = false
+        }
+        if reviewUnavailable {
+            reviewValues = Dictionary(uniqueKeysWithValues:
+                ["profile.name", "profile.email", "profile.phone", "profile.location", "profile.url", "profile.summary",
+                 "skills.descriptions", "additional.descriptions"].map { ($0, "") })
+            reviewOriginalValues = [:]
         }
         if let edit = argument("resume-review-remote-name") { reviewValues["profile.name"] = edit }
         reviewProcessing = argument("resume-review-processing").map {
@@ -468,7 +476,7 @@ final class ScreenFlowServer: @unchecked Sendable {
                          "name": .string(field.name), "label": .string(field.label), "multiline": .bool(field.multiline || field.bullets)]
                     })]
         }
-        return ["revision": .number(Double(reviewRevision)), "confirmed": .bool(reviewConfirmed),
+        var document: JSON = ["revision": .number(Double(reviewRevision)), "confirmed": .bool(reviewConfirmed),
                 "details_confirmed": .bool(reviewDetailsConfirmed), "sections": .array(sections),
                 "values": .object(reviewValues.mapValues { .string($0) }),
                 "original_values": .object(reviewOriginalValues.mapValues { .string($0) }),
@@ -477,6 +485,12 @@ final class ScreenFlowServer: @unchecked Sendable {
                            "summary": 2000, "descriptions": 6000, "bullet": 1500, "text": 60000, "history": 100],
                 "text": "Ada Example, Data analyst", "warnings": [["code": "synthetic", "message": "Check the extracted dates."]],
                 "processing": reviewProcessing]
+        document["details_status"] = reviewUnavailable ? "unavailable" : "ready"
+        if reviewUnavailable {
+            document["details_error"] = "Structured review unavailable for rotated PDF"
+            document["records"] = [["id": "r0", "kind": "title", "text": "Accepted raw fallback", "allow_omit": false]]
+        }
+        return document
     }
 
     private static func pdfBase64() -> String {

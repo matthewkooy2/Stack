@@ -33,7 +33,7 @@ class NativeSelection(unittest.TestCase):
             core.require_passed(self.log() + '\n' + self.log())
 
     @unittest.skipIf(os.name == 'nt', 'Run shell argument boundary on Linux or macOS')
-    def test_build_and_full_test_have_no_empty_selector_and_core_forwards_all_34(self):
+    def test_build_and_full_test_have_no_empty_selector_and_core_forwards_all_33(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'scripts/ci/resume-review').mkdir(parents=True)
@@ -43,7 +43,6 @@ class NativeSelection(unittest.TestCase):
             shutil.copy2(ROOT / 'scripts/ci/ios-swift.sh', script)
             for name in ('ios-swift-static.py', 'resume-review/prepare.py'):
                 (root / 'scripts/ci' / name).write_text('pass\n')
-            shutil.copy2(ROOT / 'scripts/ci/ios-xcodebuild.py', root / 'scripts/ci/ios-xcodebuild.py')
             (root / 'scripts/ci/ios-core.py').write_text('print(' + repr('\n'.join('-only-testing:' + case for case in core.selected())) + ')\n')
             for name, body in [('uname', 'echo Darwin'), ('xcodegen', 'exit 0'),
                                ('xcodebuild', 'printf "%s\\n" "$@" > "$STUB_ARGUMENTS"')]:

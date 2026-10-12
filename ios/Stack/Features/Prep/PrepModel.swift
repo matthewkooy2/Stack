@@ -87,14 +87,14 @@ final class PrepModel {
     @ObservationIgnored private var polling = false
     @ObservationIgnored private var dirty = false
     @ObservationIgnored private var autosaveFailed = false
-    @ObservationIgnored private var pendingCapture: (clientID: String, url: URL)?
+    @ObservationIgnored private var pendingCapture: CapturedRecording?
 
     func bind(_ store: AppStore) {
         guard self.store == nil else { return }
         self.store = store
         boundGeneration = store.sessionGeneration
-        recorder.onAutoStop = { [weak self] clientID, url in
-            Task { @MainActor in await self?.captureStopped(clientID: clientID, url: url) }
+        recorder.onAutoStop = { [weak self] saved in
+            Task { @MainActor in await self?.captureStopped(saved) }
         }
     }
 
@@ -132,14 +132,17 @@ final class PrepModel {
         return catalog.first { $0.id == id }
     }
     var activeSessions: [JSON] { sessions.filter { !$0["data"]["behavioral"]["complete"].bool } }
-    var recordingActive: Bool { recorder.isRecording || recorder.isPaused }
+    var recordingActive: Bool { recorder.isRecording || recorder.isPaused || recorder.finalizing }
     var locked: Bool { busy || saving || recordingActive }
     var coachRun: AgentRun? { run["id"].string.isEmpty ? nil : AgentRun(run) }
     var transcribing: Bool {
         !recording.object.isEmpty && recording["status"].string != "completed"
     }
     var transcriptionUnavailable: Bool { runtime["status"].string == "unavailable" }
-    var autosaveToken: String { "\(page.rawValue)|\(current["id"].string)|\(draft)" }
+    var autosaveToken: String { "\(page.rawValue)|\(current["id"].string)|\(draft)|\(busy)" }
+    var canReviewPhoneText: Bool {
+        !recorder.finalizing && localURL.flatMap { RecordingStore.transcript(at: $0) } != nil
+    }
 
     var strengths: [JSON] { feedback["rubric"].array.filter { $0["score"].double >= 3 } }
     var improvements: [JSON] { feedback["rubric"].array.filter { $0["score"].double < 3 } }
@@ -239,11 +242,25 @@ final class PrepModel {
             let behavioral = current["data"]["behavioral"]
             localClientID = behavioral["local_id"].string
             localURL = RecordingStore.exists(owner: owner, clientID: localClientID)
+            autosaveFailed = false
+            if let url = localURL, let phone = RecordingStore.transcript(at: url), phone.hasPendingEdits || draft.isEmpty {
+                if !draft.isEmpty, draft != phone.text, draft != phone.syncedText {
+                    autosaveFailed = true
+                    error = "Recovered edits saved on this phone. The server answer also changed. Review your answer before saving."
+                }
+                draft = phone.text; dirty = true
+            }
             recording = [:]
             let recordingID = behavioral["recording_id"].string
             if !recordingID.isEmpty {
                 recording = try await call("transcription_get", ["id": .string(recordingID)])
                 if localURL == nil { localURL = try? await cacheAudio(recordingID: recordingID) }
+            }
+            if let url = localURL, let phone = RecordingStore.transcript(at: url), phone.hasPendingEdits,
+               let acknowledged = phone.syncedText, recording["status"].string == "completed",
+               recording["transcript"].string != acknowledged, recording["transcript"].string != phone.text {
+                autosaveFailed = true
+                error = "Recovered edits saved on this phone. The server transcript also changed. Review your answer before saving."
             }
             let activity = try await call("agent_activity")
             run = activity["runs"].array.first {
@@ -251,7 +268,8 @@ final class PrepModel {
                     && $0["session_revision"].int == current["revision"].int
             } ?? [:]
             let state = run["status"].string
-            if !feedback.object.isEmpty { page = .coaching }
+            if localURL.flatMap({ RecordingStore.transcript(at: $0) })?.hasPendingEdits == true { page = .review }
+            else if !feedback.object.isEmpty { page = .coaching }
             else if ["queued", "running", "needs_input", "blocked", "failed", "cancelled"].contains(state) { page = .processing }
             else if !draft.isEmpty || localURL != nil || !recording.object.isEmpty { page = .review }
             else { page = .question }
@@ -281,17 +299,32 @@ final class PrepModel {
     }
 
     private func persistAnswer() async throws {
+        try requireSession()
+        if let url = localURL { try RecordingStore.editTranscript(draft, at: url) }
+        if recording["status"].string == "completed", recording["model"].string == "Apple SpeechTranscriber",
+           recording["transcript"].string != draft {
+            recording = try await call("transcription_action", ["id": recording["id"], "action": "save",
+                                                                 "text": .string(draft), "revision": recording["revision"]])
+        }
         var value = current["data"]
         value["answer"] = .string(draft)
         value["transcript"] = .string(recording.object.isEmpty ? "" : draft)
         value["behavioral"]["local_id"] = .string(localClientID)
         value["behavioral"]["recording_id"] = .string(recording["id"].string)
         if value != current["data"] { try await save(value) }
+        if let url = localURL, recording["status"].string == "completed", recording["model"].string == "Apple SpeechTranscriber",
+           current["data"]["answer"].string == recording["transcript"].string {
+            try RecordingStore.markSynced(recording["id"].string, text: recording["transcript"].string, at: url)
+        }
     }
 
     /// Debounced by the view: runs after typing pauses.
     func autoSave() async {
-        guard !busy, !autosaveFailed, !current["id"].string.isEmpty, current["data"]["answer"].string != draft,
+        let phoneRecording = recording["status"].string == "completed" && recording["model"].string == "Apple SpeechTranscriber"
+        let transcriptPending = phoneRecording && (recording["transcript"].string != draft
+            || localURL.flatMap { RecordingStore.transcript(at: $0) }?.hasPendingEdits == true)
+        guard !busy, !autosaveFailed, !current["id"].string.isEmpty,
+              current["data"]["answer"].string != draft || transcriptPending,
               [.answer, .review].contains(page) else { return }
         busy = true
         saving = true
@@ -308,6 +341,10 @@ final class PrepModel {
         draft = text
         dirty = true
         autosaveFailed = false
+        if let url = localURL {
+            do { try RecordingStore.editTranscript(text, at: url) }
+            catch { fail(error) }
+        }
     }
 
     // MARK: Navigation
@@ -346,9 +383,15 @@ final class PrepModel {
         recording = [:]
         page = .review
         let generation = store?.sessionGeneration
+        let observed = epoch
         Task { @MainActor [weak self] in
             guard let self, let store = self.store, store.phase == .ready,
                   store.sessionGeneration == generation else { return }
+            await saved.finalized.value
+            guard store.sessionGeneration == generation, store.phase == .ready, observed == self.epoch else { return }
+            if let phone = RecordingStore.transcript(at: saved.url) {
+                self.draft = phone.text; self.dirty = true
+            }
             do { try await self.persistAnswer() } catch { self.fail(error) }
         }
     }
@@ -362,7 +405,7 @@ final class PrepModel {
             if let pending = pendingCapture {
                 pendingCapture = nil
                 Task { @MainActor [weak self] in
-                    await self?.captureStopped(clientID: pending.clientID, url: pending.url)
+                    await self?.captureStopped(pending)
                 }
             }
         }
@@ -378,7 +421,10 @@ final class PrepModel {
             dirty = false
             page = .recording
             try await persistAnswer()
-        } catch { fail(error) }
+        } catch {
+            _ = recorder.stop(cancelled: true)
+            fail(error)
+        }
     }
 
     func togglePause() {
@@ -398,26 +444,30 @@ final class PrepModel {
             error = "No audio was saved. Record your answer again."
             return
         }
-        await keepCapture(clientID: saved.clientID, url: saved.url)
+        await keepCapture(saved)
     }
 
-    private func captureStopped(clientID: String, url: URL) async {
+    private func captureStopped(_ saved: CapturedRecording) async {
         guard page == .recording, store?.phase == .ready, store?.sessionGeneration == boundGeneration else { return }
-        if busy { pendingCapture = (clientID, url); return }
+        if busy { pendingCapture = saved; return }
         busy = true
         defer { busy = false }
-        await keepCapture(clientID: clientID, url: url)
+        await keepCapture(saved)
     }
 
-    private func keepCapture(clientID: String, url: URL) async {
-        localClientID = clientID
-        localURL = url
-        draft = ""
-        dirty = false
-        recording = [:]
+    private func keepCapture(_ saved: CapturedRecording) async {
+        let observed = epoch
+        await saved.finalized.value
         do {
-            try await persistAnswer()
+            try requireSession()
+            guard observed == epoch else { return }
+            localClientID = saved.clientID
+            localURL = saved.url
+            draft = RecordingStore.transcript(at: saved.url)?.text ?? ""
+            dirty = !draft.isEmpty
+            recording = [:]
             page = .review
+            try await persistAnswer()
             try await uploadAnswer()
         } catch {
             fail(error)
@@ -430,11 +480,29 @@ final class PrepModel {
         let data = try Data(contentsOf: url)
         guard !data.isEmpty else { throw APIError(message: "This recording has no saved audio. Record another answer.") }
         guard data.count <= 10 * 1024 * 1024 else { throw APIError(message: "Recording must be 10 MB or less.") }
+        let phone = RecordingStore.transcript(at: url)
+        var args: JSON = ["client_id": .string(localClientID), "content": .string(data.base64EncodedString())]
+        if let phone {
+            let capability = try await call("transcription_list")
+            guard capability["client_transcripts"].bool else {
+                throw APIError(message: "Your transcript is saved on this phone. Server sync needs the transcription update.")
+            }
+            args["local_transcript"] = .string(phone.original)
+        }
         recording = try await call(
             "transcription_upload",
-            ["client_id": .string(localClientID), "content": .string(data.base64EncodedString())],
+            args,
             timeout: 90
         )
+        if phone != nil, recording["status"].string == "completed", recording["transcript"].string != draft {
+            if let prior = phone?.syncedText, prior != recording["transcript"].string {
+                autosaveFailed = true
+                throw APIError(message: "The server transcript changed. Your phone edits are retained. Review your answer before saving.")
+            }
+            recording = try await call("transcription_action", ["id": recording["id"], "action": "save",
+                                                                  "text": .string(draft), "revision": recording["revision"]])
+        }
+        if phone == nil { try RecordingStore.markSynced(recording["id"].string, at: url) }
         try await persistAnswer()
     }
 
@@ -447,6 +515,7 @@ final class PrepModel {
     }
 
     func retryTranscription() async {
+        guard !busy else { return }
         let id = recording["id"].string
         guard !id.isEmpty else { return }
         do { recording = try await call("transcription_action", ["id": .string(id), "action": "retry"]) }
@@ -470,7 +539,7 @@ final class PrepModel {
     // MARK: Coaching
 
     func coach() async {
-        guard !busy, !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !busy, !recordingActive, !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         busy = true
         error = ""
         defer { busy = false }

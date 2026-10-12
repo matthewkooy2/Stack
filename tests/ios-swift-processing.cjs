@@ -29,8 +29,10 @@ function request(result) {
 test('exact VALID beta actively available to existing testers completes', async () => {
   await main(env, request(reply()), () => assert.fail('unnecessary wait'));
 });
-test('VALID alone, missing tester detail and a different build cannot pass', async () => {
-  for (const result of [reply('READY_FOR_BETA_TESTING'), reply(undefined, '1018.1'), {...reply(), included:reply().included.slice(0,1)}]) {
+test('VALID alone, missing expiry/detail and a different build cannot pass', async () => {
+  const missingExpiry = reply(); delete missingExpiry.data[0].attributes.expired;
+  for (const result of [reply('READY_FOR_BETA_TESTING'), reply(undefined, '1018.1'),
+    {...reply(), included:reply().included.slice(0,1)}, missingExpiry, reply('IN_BETA_TESTING','1017.1',null)]) {
     await assert.rejects(main(env, request(result), async()=>{}), /remains pending/);
   }
 });

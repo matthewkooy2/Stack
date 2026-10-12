@@ -29,7 +29,7 @@ async function main(env = process.env, request = fetch, pause = ms => new Promis
       const detail = result.included?.find(item => item.type === 'buildBetaDetails' &&
         item.id === build.relationships?.buildBetaDetail?.data?.id)?.attributes;
       const available = ['internalBuildState', 'externalBuildState'].some(name => detail?.[name] === 'IN_BETA_TESTING');
-      if (available) {
+      if (build.attributes.expired === false && available) {
         console.log(`Exact native beta is VALID and available to existing testers (internal: ${detail.internalBuildState}; external: ${detail.externalBuildState}). Phone installation remains a tester action.`);
         return;
       }

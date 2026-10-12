@@ -82,9 +82,25 @@ final class AccessFlowTests: XCTestCase {
         let password = app.secureTextFields["Password"]
         XCTAssertTrue(password.exists)
         // A whole-screen swipe starts over the keyboard rather than the scrollable form.
+        let form = app.scrollViews.firstMatch
+        let before = "scroll=\(form.frame); keyboard=\(app.keyboards.firstMatch.frame); window=\(app.windows.firstMatch.frame); scrollViews=\(app.scrollViews.count)"
         app.scrollViews.firstMatch.swipeUp()
         let dismissed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: app.keyboards.firstMatch)
-        XCTAssertEqual(XCTWaiter.wait(for: [dismissed], timeout: 5), .completed)
+        let waited = XCTWaiter.wait(for: [dismissed], timeout: 5)
+        let geometry = XCTAttachment(string: "before: \(before)
+after: waited=\(waited.rawValue); keyboardExists=\(app.keyboards.firstMatch.exists); keyboard=\(app.keyboards.firstMatch.frame); scroll=\(form.frame)")
+        geometry.name = "diag-keyboard-geometry"
+        geometry.lifetime = .keepAlways
+        add(geometry)
+        let tree = XCTAttachment(string: app.debugDescription)
+        tree.name = "diag-keyboard-after-swipe-accessibility"
+        tree.lifetime = .keepAlways
+        add(tree)
+        let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        shot.name = "diag-keyboard-after-swipe"
+        shot.lifetime = .keepAlways
+        add(shot)
+        XCTAssertEqual(waited, .completed)
         let submit = app.buttons["Sign in"]
         let visible = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isHittable == true"), object: submit)
         XCTAssertEqual(XCTWaiter.wait(for: [visible], timeout: 5), .completed)

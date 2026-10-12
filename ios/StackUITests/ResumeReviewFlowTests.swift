@@ -237,7 +237,8 @@ final class ResumeReviewFlowUITests: XCTestCase {
 
         openSection(app, "projects")
         let addProject = app.buttons["Add project"]
-        show(addProject, app, "Add project")
+        show(addProject, app, "Add project", fully: true)
+        XCTAssertTrue(fullyVisible(addProject, app), "the complete Add project control is inside the measured viewport")
         captureNavigation(addProject, app, "add-project-before-tap")
         addProject.tap()
         let newProjectAppeared = field(app, "Project 2 Project").waitForExistence(timeout: 5)

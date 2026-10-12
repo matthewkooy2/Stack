@@ -209,6 +209,7 @@ final class ResumeReviewController {
     }
 
     func canAddEntry(_ section: String) -> Bool {
+        recordAddEntryProbe("rendered-add-control", section)
         guard let limit = entryLimit(section) else { return true }
         return document.entries(of: section).count < limit
     }

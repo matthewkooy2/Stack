@@ -1,4 +1,4 @@
-name: Focused disclosure tap proof
+name: Focused disclosure transition acceptance
 on:
   workflow_dispatch:
 permissions:
@@ -25,7 +25,7 @@ jobs:
       - uses: ./.github/actions/prepare-resume-review-fixture
       - name: Install XcodeGen
         run: brew install xcodegen
-      - name: Repeat original and measured-center disclosure taps
+      - name: Repeat uninstrumented disclosure transition and its class
         env:
           SELECTED_DEVELOPER_DIR: ${{ matrix.developer_dir }}
         run: |
@@ -44,10 +44,12 @@ jobs:
           settings=(STACK_API_URL=https://stack.invalid CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO)
           xcodebuild build-for-testing "${common[@]}" "${settings[@]}" > "$out/build.log" 2>&1 || { tail -80 "$out/build.log"; exit 1; }
           status=0
-          for method in testMixedAutofillAndModelSetupIsDeduplicatedAndUnavailableActionIsDisabled testMeasuredCenterAgentHelpProbe; do
+          for method in testMixedAutofillAndModelSetupIsDeduplicatedAndUnavailableActionIsDisabled class; do
             code=0
+            iterations=6; selector="StackUITests/ScreenFlowUITests/$method"
+            if [[ "$method" == class ]]; then iterations=1; selector=StackUITests/ScreenFlowUITests; fi
             xcodebuild test-without-building "${common[@]}" -resultBundlePath "$out/$method.xcresult" \
-              -test-iterations 3 "-only-testing:StackUITests/ScreenFlowUITests/$method" "${settings[@]}" > "$out/$method.log" 2>&1 || code=$?
+              -test-iterations "$iterations" "-only-testing:$selector" "${settings[@]}" > "$out/$method.log" 2>&1 || code=$?
             grep -E 'Test Case|error:|Executed|Restarting after' "$out/$method.log" || true
             echo "$method exit=$code" | tee -a "$out/summary.txt"
             [[ $code -eq 0 ]] || status=1

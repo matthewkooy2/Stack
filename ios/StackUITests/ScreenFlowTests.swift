@@ -4,7 +4,6 @@ import XCTest
 /// by a stub URLProtocol. No sign-in, token, network or live data. Every flow keeps screenshot attachments.
 @MainActor
 final class ScreenFlowUITests: XCTestCase {
-    private var measuredAgentHelpTap = false
     private func launch(_ flow: String, extra: [String] = []) -> XCUIApplication {
         continueAfterFailure = false
         let app = XCUIApplication()
@@ -283,22 +282,11 @@ final class ScreenFlowUITests: XCTestCase {
         application.tap()
         let help = row(app, "Agent help")
         XCTAssertTrue(reveal(help, in: app, "agent-help"))
-        let before = XCTAttachment(string: "before Agent help: frame=\(help.frame); window=\(app.windows.firstMatch.frame); value=\(String(describing: help.value)); hittable=\(help.isHittable); measured=\(measuredAgentHelpTap)")
-        before.name = "agent-help-before-tap-geometry"
-        before.lifetime = .keepAlways
-        add(before)
-        diagnose(app, "agent-help-before-tap")
-        if measuredAgentHelpTap {
-            help.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        } else {
-            help.tap()
-        }
-        let after = XCTAttachment(string: "after Agent help: frame=\(help.frame); value=\(String(describing: help.value)); measured=\(measuredAgentHelpTap)")
-        after.name = "agent-help-after-tap-geometry"
-        after.lifetime = .keepAlways
-        add(after)
-        diagnose(app, "agent-help-after-tap")
-        XCTAssertTrue(waitUntil { help.value as? String == "Expanded" }, "one Agent help tap expands its disclosure")
+        // Use the revealed control's measured center and verify the disclosure transition before searching
+        // for its children. The failed capture still had Agent help collapsed, so scrolling for a child hid
+        // the missed transition rather than revealing that action.
+        help.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        require(app, "agent-help-expanded") { help.value as? String == "Expanded" }
     }
 
     func testAutofillStartsWithoutModelAndOpensReviewTask() {
@@ -325,11 +313,6 @@ final class ScreenFlowUITests: XCTestCase {
         XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == %@", "✕ Connect a model provider in Agents.")).count, 1)
         XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == %@", "✕ Configure the browser worker for autofill.")).count, 1)
         capture("applications-mixed-autofill-setup")
-    }
-
-    func testMeasuredCenterAgentHelpProbe() {
-        measuredAgentHelpTap = true
-        testMixedAutofillAndModelSetupIsDeduplicatedAndUnavailableActionIsDisabled()
     }
 
     func testApplicationDetailDisclosuresAndNotesSaveRecovery() {

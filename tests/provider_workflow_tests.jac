@@ -61,7 +61,7 @@ test "provider-aware task reuse preserves terminal and active selections" {
         with tempfile.TemporaryDirectory(prefix="stack-provider-dedupe-") as directory {
             previous=JacRuntime.peek_context();ctx=JacRuntime.create_j_context(None,base_path_dir=directory);JacRuntime.set_context(ctx);
             try {
-                memory=a._agent_memory();memory.model_selection="codex-cli";commit();
+                memory=root ++> a.AgentMemory(policy=a.default_policy(),model_selection="codex-cli");commit();
                 context={"profile":{"name":"Example"}};
                 first=a._agent_start("profile","self",context);first_id=first["id"];
                 first_node=a._owned_run(first_id) as a.AgentRun;first_node.status=terminal_status;
@@ -86,7 +86,7 @@ test "provider-aware task reuse preserves terminal and active selections" {
     with tempfile.TemporaryDirectory(prefix="stack-provider-active-") as directory {
         previous=JacRuntime.peek_context();ctx=JacRuntime.create_j_context(None,base_path_dir=directory);JacRuntime.set_context(ctx);
         try {
-            memory=a._agent_memory();memory.model_selection="codex-cli";commit();
+            memory=root ++> a.AgentMemory(policy=a.default_policy(),model_selection="codex-cli");commit();
             context={"profile":{"name":"Example"}};
             active=a._agent_start("profile","self",context);active_node=a._owned_run(active["id"]) as a.AgentRun;
             memory.model_selection="local";commit();

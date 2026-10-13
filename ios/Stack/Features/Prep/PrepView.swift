@@ -186,12 +186,11 @@ struct PrepView: View {
             Text("Choose your session length").font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink)
             Spacer(minLength: 110)
             VStack(spacing: Spacing.option) {
-                ForEach(Array([1, 3, 5].enumerated()), id: \.element) { index, count in
+                ForEach([1, 3, 5], id: \.self) { count in
                     OptionRow(label: "\(count) \(count == 1 ? "question" : "questions")", icon: "question-file",
-                              oat: count == 3, disabled: model.busy || model.catalog.isEmpty) {
+                              oat: count == 3, disabled: model.busy) {
                         Task { await model.begin(count: count) }
                     }
-                    .reveal(index)
                 }
             }
         }

@@ -82,8 +82,10 @@ test "provider-aware task reuse preserves terminal and active selections" {
                 client.clear_auth();local_claim=rpc(client,"agent_claim",{"token":"dedupe-test-worker"});
                 assert local_claim["id"]==active["id"] and local_claim["model_selection"]=="local";
 
-                client.set_auth_token(token);rpc(client,"agent_save_model",{"selection":"codex-cli"});
-                switched=rpc(client,"agent_start",{"kind":"profile","target_id":"self"});
+                client.set_auth_token(token);
+                session=rpc(client,"prep_create",{"problem_id":"project"});
+                rpc(client,"agent_save_model",{"selection":"codex-cli"});
+                switched=rpc(client,"agent_start",{"kind":"prep","target_id":session["id"]});
                 assert switched["id"]!=active["id"];
                 client.clear_auth();new_claim=rpc(client,"agent_claim",{"token":"dedupe-test-worker"});
                 assert new_claim["id"]==switched["id"] and new_claim["model_selection"]=="codex-cli";

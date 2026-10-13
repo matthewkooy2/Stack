@@ -229,8 +229,9 @@ def _agent_start(kind: str, target_id: str, context: dict[str, any], nonce: str 
     _agent_access();
     if kind not in STEPS { return {"error":"Unknown agent."}; }
     m=_agent_memory();context={**context,"facts":context_facts(m.facts,context),"prompt_version":VERSION};
-    key=digest([kind,target_id,nonce or ("once" if kind=="network" else context)]);
-    for old in [root -->][?:AgentRun] { if old.key==key { return _run_view(old,True); } }
+    identity=nonce or ("once" if kind=="network" else context);
+    legacy_key=digest([kind,target_id,identity]);key=digest([kind,target_id,identity,m.model_selection]);
+    for old in [root -->][?:AgentRun] { if old.key==key or (old.key==legacy_key and old.model_selection==m.model_selection) { return _run_view(old,True); } }
     r=root ++> AgentRun(workflow_version=2,kind=kind,target_id=target_id,context=context,model_selection=m.model_selection,created_at=time.time(),updated_at=time.time(),key=key,policy_revision=m.revision);
     ticket=root.shared ++> AgentTicket(owner=jid(root),run_id=jid(r));
     JacRuntime.allow_root(ticket,UUID(jid(root.shared)),AccessLevel.WRITE); # jac:ignore[E1053]

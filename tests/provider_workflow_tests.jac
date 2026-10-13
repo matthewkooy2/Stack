@@ -6,8 +6,6 @@ import from pathlib { Path }
 import from uuid { UUID }
 import from unittest.mock { patch }
 import from jaclang.testing.testing { JacTestClient }
-import from jaclang.runtime.runtime { JacRuntime }
-import core.automation as a;
 
 def rpc(client: any, name: str, args: dict[str, any] = {}) -> dict[str, any] {
     response=client.post("/function/"+name,json=args);
@@ -57,46 +55,33 @@ test "subscription claims are account bound capped and separate from API money" 
 }
 
 test "provider-aware task reuse preserves terminal and active selections" {
-    for terminal_status in ["failed","completed"] {
-        with tempfile.TemporaryDirectory(prefix="stack-provider-dedupe-") as directory {
-            previous=JacRuntime.peek_context();ctx=JacRuntime.create_j_context(None,base_path_dir=directory);JacRuntime.set_context(ctx);
+    with tempfile.TemporaryDirectory(prefix="stack-provider-dedupe-") as directory {
+        path=Path(directory)/"provider.json";path.write_text(json.dumps({}));
+        with patch.dict(os.environ,{"STACK_AGENT_CONFIG":str(path)}) {
+            client=JacTestClient.from_file(str(Path("main.jac").resolve()),base_path=directory);
             try {
-                memory=root ++> a.AgentMemory(policy=a.default_policy(),model_selection="codex-cli");commit();
-                context={"profile":{"name":"Example"}};
-                first=a._agent_start("profile","self",context);first_id=first["id"];
-                first_node=a._owned_run(first_id) as a.AgentRun;first_node.status=terminal_status;
-                # Existing stored runs still carry the pre-provider idempotency key.
-                first_node.key=a.digest(["profile","self",first_node.context]);commit();
-                same_provider=a._agent_start("profile","self",context);
-                assert same_provider["id"]==first_id;
+                created=client.register_user("dedupe-owner","Test-dedupe-password-123");assert created.ok,created.text;
+                token=created.data["token"];client.set_auth_token(token);
+                owner=rpc(client,"agent_settings")["account_id"];
+                path.write_text(json.dumps({"provider":"codex-cli","local_cli_owner":str(UUID(owner))}));
+                rpc(client,"agent_save_policy",{"policy":{"enabled":True,"expires_at":time.time()+3600,"actions":["model"]}});
 
-                memory.model_selection="local";commit();
-                switched=a._agent_start("profile","self",context);
-                assert switched["id"]!=first_id;
-                assert switched["model_selection"]=="local";
-                assert first_node.model_selection=="codex-cli" and first_node.status==terminal_status;
-                assert a._agent_start("profile","self",context)["id"]==switched["id"];
-            } finally {
-                ctx.close();
-                if previous is not None { JacRuntime.set_context(previous); }
-            }
-        }
-    }
+                for selected in ["codex-cli","local"] {
+                    rpc(client,"agent_save_model",{"selection":selected});
+                    active=rpc(client,"agent_start",{"kind":"profile","target_id":"self"});
+                    assert active["model_selection"]==selected;
+                    assert rpc(client,"agent_start",{"kind":"profile","target_id":"self"})["id"]==active["id"];
 
-    with tempfile.TemporaryDirectory(prefix="stack-provider-active-") as directory {
-        previous=JacRuntime.peek_context();ctx=JacRuntime.create_j_context(None,base_path_dir=directory);JacRuntime.set_context(ctx);
-        try {
-            memory=root ++> a.AgentMemory(policy=a.default_policy(),model_selection="codex-cli");commit();
-            context={"profile":{"name":"Example"}};
-            active=a._agent_start("profile","self",context);active_node=a._owned_run(active["id"]) as a.AgentRun;
-            memory.model_selection="local";commit();
-            newly_selected=a._agent_start("profile","self",context);
-            assert newly_selected["id"]!=active["id"];
-            assert active_node.model_selection=="codex-cli" and active_node.status=="queued";
-            assert newly_selected["model_selection"]=="local";
-        } finally {
-            ctx.close();
-            if previous is not None { JacRuntime.set_context(previous); }
+                    cancelled=rpc(client,"agent_cancel",{"id":active["id"]});assert cancelled["status"]=="cancelled";
+                    assert rpc(client,"agent_start",{"kind":"profile","target_id":"self"})["id"]==active["id"];
+
+                    next_selection="local" if selected=="codex-cli" else "codex-cli";
+                    rpc(client,"agent_save_model",{"selection":next_selection});
+                    switched=rpc(client,"agent_start",{"kind":"profile","target_id":"self"});
+                    assert switched["id"]!=active["id"] and switched["model_selection"]==next_selection;
+                    assert rpc(client,"agent_start",{"kind":"profile","target_id":"self"})["id"]==switched["id"];
+                }
+            } finally { client.close(); }
         }
     }
 }

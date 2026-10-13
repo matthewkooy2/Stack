@@ -66,24 +66,27 @@ test "provider-aware task reuse preserves terminal and active selections" {
                 path.write_text(json.dumps({"provider":"codex-cli","local_cli_owner":str(UUID(owner)),"local_cli_daily_limit":4,"model_options":{"local":{"provider":"ollama","model":"test-only","local_model_url":"http://127.0.0.1:11434"}}}));
                 rpc(client,"agent_save_policy",{"policy":{"enabled":True,"expires_at":time.time()+3600,"actions":["model"]}});
 
-                for selected in ["codex-cli","local"] {
-                    rpc(client,"agent_save_model",{"selection":selected});
-                    active=rpc(client,"agent_start",{"kind":"profile","target_id":"self"});
-                    assert rpc(client,"agent_start",{"kind":"profile","target_id":"self"})["id"]==active["id"];
+                rpc(client,"agent_save_model",{"selection":"codex-cli"});
+                completed=rpc(client,"agent_start",{"kind":"profile","target_id":"self"});
+                assert rpc(client,"agent_start",{"kind":"profile","target_id":"self"})["id"]==completed["id"];
+                client.clear_auth();claimed=rpc(client,"agent_claim",{"token":"dedupe-test-worker"});
+                assert claimed["id"]==completed["id"] and claimed["model_selection"]=="codex-cli";
+                rpc(client,"agent_finish",{"token":"dedupe-test-worker","id":claimed["id"],"owner":claimed["owner"],"lease":claimed["lease"],"result":{"artifact":{"summary":"Synthetic completion"}}});
+                client.set_auth_token(token);
+                assert rpc(client,"agent_start",{"kind":"profile","target_id":"self"})["id"]==completed["id"];
 
-                    # Claim the synthetic job to observe its captured provider; no model call is made.
-                    client.clear_auth();claimed=rpc(client,"agent_claim",{"token":"dedupe-test-worker"});
-                    assert claimed["id"]==active["id"] and claimed["model_selection"]==selected;
-                    client.set_auth_token(token);
-                    cancelled=rpc(client,"agent_cancel",{"id":active["id"]});assert cancelled["status"]=="cancelled";
-                    assert rpc(client,"agent_start",{"kind":"profile","target_id":"self"})["id"]==active["id"];
+                rpc(client,"agent_save_model",{"selection":"local"});
+                active=rpc(client,"agent_start",{"kind":"profile","target_id":"self"});
+                assert active["id"]!=completed["id"];
+                assert rpc(client,"agent_start",{"kind":"profile","target_id":"self"})["id"]==active["id"];
+                client.clear_auth();local_claim=rpc(client,"agent_claim",{"token":"dedupe-test-worker"});
+                assert local_claim["id"]==active["id"] and local_claim["model_selection"]=="local";
 
-                    next_selection="local" if selected=="codex-cli" else "codex-cli";
-                    rpc(client,"agent_save_model",{"selection":next_selection});
-                    switched=rpc(client,"agent_start",{"kind":"profile","target_id":"self"});
-                    assert switched["id"]!=active["id"];
-                    assert rpc(client,"agent_start",{"kind":"profile","target_id":"self"})["id"]==switched["id"];
-                }
+                client.set_auth_token(token);rpc(client,"agent_save_model",{"selection":"codex-cli"});
+                switched=rpc(client,"agent_start",{"kind":"profile","target_id":"self"});
+                assert switched["id"]!=active["id"];
+                client.clear_auth();new_claim=rpc(client,"agent_claim",{"token":"dedupe-test-worker"});
+                assert new_claim["id"]==switched["id"] and new_claim["model_selection"]=="codex-cli";
             } finally { client.close(); }
         }
     }

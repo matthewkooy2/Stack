@@ -184,6 +184,75 @@ final class MicrophonePCMTests: XCTestCase {
 }
 
 @MainActor
+final class PhoneTranscriptTests: XCTestCase {
+    private func recordingURL() throws -> URL {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".wav")
+        try Data(repeating: 0, count: 44).write(to: url)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(at: url.appendingPathExtension("json"))
+        }
+        return url
+    }
+
+    func testPreviewBecomesFinalWithoutLosingTheRecordingOrEdits() throws {
+        let url = try recordingURL()
+        try RecordingStore.saveTranscript(
+            PhoneTranscript(original: "live words", text: "live words", revision: 1, isFinal: false), at: url)
+        XCTAssertEqual(RecordingStore.transcript(at: url)?.text, "live words")
+
+        try RecordingStore.finalizeTranscript("complete words", at: url)
+        let untouched = try XCTUnwrap(RecordingStore.transcript(at: url))
+        XCTAssertEqual(untouched.original, "complete words")
+        XCTAssertEqual(untouched.text, "complete words")
+        XCTAssertTrue(untouched.isFinal)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
+
+        let editedURL = try recordingURL()
+        try RecordingStore.saveTranscript(
+            PhoneTranscript(original: "live words", text: "live words", revision: 1, isFinal: false), at: editedURL)
+        try RecordingStore.editTranscript("my correction", at: editedURL)
+        try RecordingStore.finalizeTranscript("complete words", at: editedURL)
+        let edited = try XCTUnwrap(RecordingStore.transcript(at: editedURL))
+        XCTAssertEqual(edited.original, "complete words")
+        XCTAssertEqual(edited.text, "my correction")
+        XCTAssertEqual(edited.revision, 3)
+        XCTAssertTrue(edited.isFinal)
+    }
+
+    func testServerTranscriptPromotesAnUneditedPreviewAfterLocalTimeout() throws {
+        let url = try recordingURL()
+        try RecordingStore.saveTranscript(
+            PhoneTranscript(original: "live words", text: "live words", revision: 1, isFinal: false), at: url)
+
+        try RecordingStore.markSynced("server-1", text: "server words", at: url)
+        let transcript = try XCTUnwrap(RecordingStore.transcript(at: url))
+        XCTAssertEqual(transcript.original, "server words")
+        XCTAssertEqual(transcript.text, "server words")
+        XCTAssertEqual(transcript.serverID, "server-1")
+        XCTAssertTrue(transcript.isFinal)
+
+        let editedURL = try recordingURL()
+        try RecordingStore.saveTranscript(
+            PhoneTranscript(original: "live words", text: "live words", revision: 1, isFinal: false), at: editedURL)
+        try RecordingStore.editTranscript("my correction", at: editedURL)
+        try RecordingStore.markSynced("server-2", text: "server words", at: editedURL)
+        let edited = try XCTUnwrap(RecordingStore.transcript(at: editedURL))
+        XCTAssertEqual(edited.text, "my correction")
+        XCTAssertEqual(edited.original, "live words")
+        XCTAssertFalse(edited.isFinal)
+        XCTAssertEqual(edited.serverID, "server-2")
+    }
+
+    func testOldTranscriptSidecarsDecodeAsFinal() throws {
+        let legacy = Data(#"{"original":"saved","text":"saved","revision":1,"serverID":null,"syncedText":null}"#.utf8)
+        let transcript = try JSONDecoder().decode(PhoneTranscript.self, from: legacy)
+        XCTAssertTrue(transcript.isFinal)
+        XCTAssertEqual(try JSONDecoder().decode(PhoneTranscript.self, from: JSONEncoder().encode(transcript)), transcript)
+    }
+}
+
+@MainActor
 final class MicrophoneRecorderTests: XCTestCase {
     private final class SyntheticCapture: AudioPCMCapture {
         let meter = PCMLevelMeter()

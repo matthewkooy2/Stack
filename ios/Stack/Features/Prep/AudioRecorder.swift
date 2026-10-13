@@ -3,11 +3,34 @@ import Observation
 import SwiftUI
 
 struct PhoneTranscript: Codable, Equatable {
-    let original: String
+    var original: String
     var text: String
     var revision: Int
     var serverID: String? = nil
     var syncedText: String? = nil
+    var isFinal = true
+
+    init(original: String, text: String, revision: Int, serverID: String? = nil,
+         syncedText: String? = nil, isFinal: Bool = true) {
+        self.original = original
+        self.text = text
+        self.revision = revision
+        self.serverID = serverID
+        self.syncedText = syncedText
+        self.isFinal = isFinal
+    }
+
+    private enum CodingKeys: String, CodingKey { case original, text, revision, serverID, syncedText, isFinal }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        original = try values.decode(String.self, forKey: .original)
+        text = try values.decode(String.self, forKey: .text)
+        revision = try values.decode(Int.self, forKey: .revision)
+        serverID = try values.decodeIfPresent(String.self, forKey: .serverID)
+        syncedText = try values.decodeIfPresent(String.self, forKey: .syncedText)
+        isFinal = try values.decodeIfPresent(Bool.self, forKey: .isFinal) ?? true
+    }
 
     var hasPendingEdits: Bool { text != syncedText }
 }
@@ -68,6 +91,23 @@ enum RecordingStore {
         try JSONEncoder().encode(value).write(to: path, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
 
+    /// Replaces a live transcript preview after SpeechAnalyzer finishes. If the person edited the
+    /// preview while finalization was running, update the source transcript but keep their text.
+    @MainActor static func finalizeTranscript(_ original: String, at url: URL) throws {
+        guard !original.isBlank, original.count <= 30000 else { return }
+        guard var saved = transcript(at: url) else {
+            try saveTranscript(PhoneTranscript(original: original, text: original, revision: 1), at: url)
+            return
+        }
+        guard !saved.isFinal else { return }
+        let edited = saved.text != saved.original
+        saved.original = original
+        saved.isFinal = true
+        if edited { saved.revision += 1 }
+        else { saved.text = original }
+        try saveTranscript(saved, at: url)
+    }
+
     @MainActor static func editTranscript(_ text: String, at url: URL) throws {
         guard var value = transcript(at: url) else { return }
         guard value.text != text else { return }
@@ -78,6 +118,13 @@ enum RecordingStore {
     @MainActor static func markSynced(_ serverID: String, text: String? = nil, at url: URL) throws {
         guard FileManager.default.fileExists(atPath: url.path), !serverID.isEmpty else { throw CancellationError() }
         if var value = transcript(at: url) {
+            // A provisional on-device preview may time out. If the server completed its own
+            // transcription, promote that result unless the person already edited the preview.
+            if !value.isFinal, value.text == value.original, let text, !text.isBlank, text.count <= 30000 {
+                value.original = text
+                value.text = text
+                value.isFinal = true
+            }
             value.serverID = serverID
             value.syncedText = text
             try saveTranscript(value, at: url)
@@ -285,6 +332,13 @@ final class AudioRecorder {
         if #available(iOS 26.0, *), let capture = speechCapture as? StackSpeechSession, let url = fileURL {
             let id = clientID
             capture.halt()
+            if !cancelled, !capture.stoppedTranscript.isBlank, capture.stoppedTranscript.count <= 30000 {
+                do {
+                    try RecordingStore.saveTranscript(
+                        PhoneTranscript(original: capture.stoppedTranscript, text: capture.stoppedTranscript,
+                                        revision: 1, isFinal: false), at: url)
+                } catch { self.error = error.localizedDescription }
+            }
             speechCapture = nil
             isRecording = false; isPaused = false; finalizing = true
             let task = Task { @MainActor [weak self] in
@@ -292,7 +346,7 @@ final class AudioRecorder {
                 self?.elapsed = (result["duration_ms"] as? Double ?? 0) / 1000
                 if let message = result["message"] as? String, !message.isEmpty { self?.stopNotice = message }
                 if result["complete"] as? Bool == true, let original = result["text"] as? String, original.count <= 30000 {
-                    do { try RecordingStore.saveTranscript(PhoneTranscript(original: original, text: original, revision: 1), at: url) }
+                    do { try RecordingStore.finalizeTranscript(original, at: url) }
                     catch is CancellationError { }
                     catch { self?.error = error.localizedDescription }
                 } else if !cancelled {

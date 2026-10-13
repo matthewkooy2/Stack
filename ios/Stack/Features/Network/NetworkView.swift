@@ -104,6 +104,8 @@ private struct NetworkToolSheet: View {
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var task: TaskTarget?
+    @State private var hubPage: AgentPage?
+    @State private var hubAction = ""
 
     var body: some View {
         SheetPage(title: title) {
@@ -114,11 +116,23 @@ private struct NetworkToolSheet: View {
             }
         }
         .sheet(item: $task) { target in AgentTaskSheet(taskID: target.id).environment(store) }
+        .sheet(item: $hubPage) { page in AgentHubView(initialPage: page, initialAction: hubAction).environment(store) }
     }
 
+    /// Rules, facts and Google connection live in the Agents hub, which tab navigation cannot reach, so they open
+    /// over this sheet and closing them returns here. Only tab destinations leave the sheet.
     private func navigate(_ action: String) {
-        dismiss()
-        NotificationCenter.default.post(name: .stackNavigate, object: nil, userInfo: ["destination": action])
+        switch action {
+        case "rules", "facts", "features":
+            hubAction = ""
+            hubPage = action == "facts" ? .facts : (action == "features" ? .features : .rules)
+        case _ where action.hasPrefix("connect:"):
+            hubAction = action
+            hubPage = .rules
+        default:
+            dismiss()
+            NotificationCenter.default.post(name: .stackNavigate, object: nil, userInfo: ["destination": action])
+        }
     }
 }
 

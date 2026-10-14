@@ -38,13 +38,14 @@ The prepared browser extension is documented in
 Its new host authority needs attended approval/bootstrap before activation;
 the historical observations below describe the initial backend-only activation.
 
-`Deploy Stack backend` runs on a push to `main`, including a merged PR. It also
-supports a manual retry on `main`. It checks out the exact triggering SHA,
+`Deploy Stack backend` runs after the `CI` workflow passes for a push to `main`,
+including a merged PR. It also supports a manual retry on `main`, which does not
+wait for CI. It checks out the exact SHA that CI verified,
 packages source-only backend and matching browser source, connects an ephemeral hosted
 Ubuntu runner to Tailscale, and streams the artifact to a fixed SSH command.
 
-There are no PR test workflows, automated test gates, post-deployment health
-gates or automatic rollback. A completed run means the install and restart
+A failed or cancelled CI run on `main` skips deployment. There are no
+post-deployment health gates or automatic rollback. A completed run means the install and restart
 commands exited successfully; it does not certify application readiness.
 
 ## Current activation state

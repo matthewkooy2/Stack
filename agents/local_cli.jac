@@ -145,6 +145,9 @@ def generate(
                 '--output-last-message',
                 str(result_path)
             ];
+            if not schema {
+                command.remove('--output-schema');command.remove(str(schema_path));
+            }
             for feature in (
                 'shell_tool',
                 'unified_exec',
@@ -165,7 +168,7 @@ def generate(
             }
             command += ['-'];
             (status, _) = run(
-                command, tmp, (system + '\nReturn only the requested JSON.\n' + prompt)
+                command, tmp, (system + ('\nReturn only the requested JSON.\n' if schema else '\nRespond in plain text.\n') + prompt)
             );
             raw = None;
             if (result_path.exists() and (result_path.stat().st_size <= 131072)) {
@@ -185,7 +188,7 @@ def generate(
             }
             text = raw;
             if observe { observe("model_response", {"exit_code":status,"text":text,"reported_models":[]}); }
-            return json.loads(text as str);
+            return json.loads(text as str) if schema else {'text': text};
         }
         (status, login) = run([executable, 'auth', 'status'], tmp, seconds=10);
         auth = json.loads(login) if not status else {};
@@ -220,6 +223,7 @@ def generate(
             '--system-prompt',
             system
         ];
+        if not schema { command.remove('--json-schema');command.remove(json.dumps(schema)); }
         if model {
             command += ['--model', model];
         }
@@ -234,6 +238,10 @@ def generate(
             );
         }
         result = json.loads(output);
+        if not schema {
+            if result.get('is_error') { raise ValueError('Claude could not complete the request.'); }
+            return {'text': result.get('result', '')};
+        }
         if (result.get('is_error') or ('structured_output' not in result)) {
             raise ValueError('Claude did not return a completed structured result.');
         }

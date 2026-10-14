@@ -66,13 +66,13 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
     (step, context, artifacts) = (work['step'], work['context'], work['artifacts']);
     auth = {k: work[k] for k in ('id', 'owner', 'lease')};
     auth['token'] = token;
-    if step == 'linkedin_scan' { return browser_call(step, work); }
+    if step in ['linkedin_scan','browser_autofill'] { return browser_call(step, work); }
     if (step == 'research') {
         import from agents.research { contact_source }
         return {'artifact': contact_source(context['contact'])};
     }
-    if (step in ('fit', 'tailor', 'draft', 'coach', 'profile', 'linkedin_review')) {
-        c = config();
+    if (step in ('fit', 'tailor', 'draft', 'coach', 'profile', 'linkedin_review', 'story', 'interview_turn', 'interview_coach')) {
+        c = config(work.get("model_selection", ""));
         if (work.get('provider_config_hash') != digest(c)) {
             return {
                 'needs_input': True,
@@ -82,6 +82,12 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
         }
         model_access(c, work['owner']);
         model_context = {** context, 'research': artifacts.get('research', {}), 'linkedin_profile':artifacts.get('linkedin_scan', {})};
+        if (step == 'story') {
+            # Only this reviewed event goes to inference, not other resume facts
+            # or past answers added by the general agent-memory workflow.
+            import from agents.stories { model_source }
+            model_context = {'story_source': model_source(context['story_source'])};
+        }
         if (step == 'tailor') {
             import from agents.tailoring { prepare }
             try {
@@ -231,6 +237,18 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
     }
     raise ValueError('Unsupported worker step.');
 }
+def notification_once(token: str) -> dict[str, any] {
+    import from agents.notifications { deliver, receipt }
+    notice = call('agent_notification_claim', {'token': token});
+    if notice.get('idle') { return notice; }
+    auth = {'token': token, **{k: notice[k] for k in ('owner', 'id', 'key', 'lease')}};
+    if notice['phase'] == 'send' {
+        call('agent_notification_begin', auth);
+        result = deliver(notice['device'], notice);
+    } else { result = receipt(notice['ticket']); }
+    return call('agent_notification_finish', {**auth, 'result': result});
+}
+
 def main() {
     token = (
         os.environ.get('STACK_AGENT_WORKER_TOKEN', '')
@@ -263,27 +281,7 @@ def main() {
                     );
                 }
             }
-            notice = call('agent_notification_claim', {'token': token});
-            if not notice.get('idle') {
-                import from agents.notifications { deliver }
-                receipts = [];
-                for device in notice['devices'] {
-                    try {
-                        receipts.append(deliver(device, notice));
-                    } except Exception {
-                        ;
-                    }
-                }
-                call(
-                    'agent_notification_finish',
-                    {
-                        'token': token,
-                        'owner': notice['owner'],
-                        'id': notice['id'],
-                        'receipt': ','.join(receipts)
-                    }
-                );
-            }
+            notification_once(token);
             work = call('agent_claim', {'token': token});
             if work.get('idle') {
                 time.sleep(3);

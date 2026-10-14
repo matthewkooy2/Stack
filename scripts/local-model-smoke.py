@@ -51,8 +51,7 @@ def main():
                     start=time.monotonic()
                     with patch('agents.worker.call',side_effect=rpc): result=dispatch(work,'isolated-local-smoke',observe=observe)
                     elapsed=time.monotonic()-start
-                    assert result.get('artifact',{}).get('rubric'),result
-                    assert result['artifact']['evidence'],result
+                    assert result.get('artifact',{}).get('text'),result
                     rpc('agent_finish',{'token':'isolated-local-smoke',**{k:work[k] for k in ('id','owner','lease')},'result':result})
                     client.set_auth_token(token);done=rpc('agent_run',{'id':run['id']})
                     assert done['status']=='completed' and done['cost_cents']==0 and done['subscription_calls']==0,done

@@ -29,7 +29,12 @@ function buildSettings(env = process.env, projectDir = __dirname) {
     throw new Error('STACK_PUSH_ENVIRONMENT must be development or production.');
   }
   if (pushEnabled && !env.STACK_EAS_PROJECT_ID) throw new Error('Remote push requires STACK_EAS_PROJECT_ID and Apple push provisioning.');
-  return {release, apiBaseUrl: url.origin, pushEnabled, pushEnvironment};
+  // CFBundleVersion: App Store Connect requires one to three period-separated integers.
+  const buildNumber = env.STACK_BUILD_NUMBER || undefined;
+  if (buildNumber !== undefined && !/^\d{1,9}(\.\d{1,9}){0,2}$/.test(buildNumber)) {
+    throw new Error('STACK_BUILD_NUMBER must be one to three period-separated integers.');
+  }
+  return {release, apiBaseUrl: url.origin, pushEnabled, pushEnvironment, buildNumber};
 }
 
 function writeSettings(output, env = process.env) {

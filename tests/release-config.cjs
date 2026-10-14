@@ -35,6 +35,7 @@ try {
     }};
     vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../native/app.config.js'), 'utf8'), sandbox);
     const config = sandbox.module.exports();
+    assert.equal(config.ios.config.usesNonExemptEncryption, false);
     const inlinePlugins = config.plugins.filter(plugin => typeof plugin === 'function');
     assert.equal(inlinePlugins.length, 1, 'Expected the notification capabilities plugin');
     return {config, native:inlinePlugins[0](config)};
@@ -51,6 +52,11 @@ try {
     assert.equal(config.extra.pushEnabled, true);
     assert.equal(native.entitlements['aps-environment'], 'production');
   });
+  check(() => assert.equal('buildNumber' in expoConfig(release).config.ios, false));
+  check(() => assert.equal(expoConfig({...release, STACK_BUILD_NUMBER:'41.2'}).config.ios.buildNumber, '41.2'));
+  for (const build of ['0.1.2.3', '41.', '.2', '41-2', 'v41', '41 2', '1234567890']) {
+    check(() => assert.throws(() => buildSettings({...release, STACK_BUILD_NUMBER:build}, directory), /STACK_BUILD_NUMBER/, build));
+  }
   check(() => assert.throws(() => buildSettings({...release, STACK_PUSH_ENABLED:'1'}), /STACK_EAS_PROJECT_ID/));
   check(() => assert.throws(() => buildSettings({...release, STACK_PUSH_ENABLED:'1', STACK_EAS_PROJECT_ID:'fixture', STACK_PUSH_ENVIRONMENT:'wrong'}), /STACK_PUSH_ENVIRONMENT/));
   check(() => {

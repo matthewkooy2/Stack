@@ -197,6 +197,10 @@ def complete(
             }
         };
     }
+    plain = step == 'coach' or step in ['interview_turn', 'interview_coach'];
+    if plain {
+        payload.pop('format', None);payload.pop('response_format', None);
+    }
     headers = {'Content-Type': 'application/json', 'Accept': 'application/json'};
     token = os.environ.get('STACK_LOCAL_MODEL_API_KEY', '');
     if token {
@@ -315,7 +319,7 @@ def complete(
         );
     }
     if provider == 'ollama' {
-        if result.get('done') is not True or result.get('done_reason') != 'stop' {
+        if not plain and (result.get('done') is not True or result.get('done_reason') != 'stop') {
             raise ValueError('The local model did not complete this step.');
         }
         message = result.get('message');
@@ -324,14 +328,13 @@ def complete(
         if not isinstance(choices, `list)
             or len(choices) != 1
             or not isinstance(choices[0], `dict)
-            or choices[0].get('finish_reason') != 'stop' {
+            or (not plain and choices[0].get('finish_reason') != 'stop') {
             raise ValueError('The local model did not complete this step.');
         }
         message = choices[0].get('message');
     }
     if not isinstance(message, `dict)
-        or message.get('tool_calls')
-        or message.get('refusal') {
+        or (not plain and (message.get('tool_calls') or message.get('refusal'))) {
         raise ValueError('The local model did not return a structured proposal.');
     }
     text = message.get('content');
@@ -339,13 +342,14 @@ def complete(
     if not isinstance(text, str)
         or not text.strip()
         or len(text.encode()) > OUTPUT_LIMIT
-        or not isinstance(model, str)
-        or not model.strip() {
+        or (not plain and (not isinstance(model, str) or not model.strip())) {
         raise ValueError(
-            'The local model returned an empty or oversized proposal, or missing model metadata.'
+            'The local model returned no text, exceeded its output limit, or omitted required service metadata. Please retry.'
         );
     }
-    data = decode(text);
-    validate(data, schema);
+    if not plain {
+        data = decode(text);validate(data, schema);
+    }
+    model = model if isinstance(model, str) else c['model'];
     return {'text': text, 'model': model, 'id': result.get('id', ''), 'usage': {}};
 }

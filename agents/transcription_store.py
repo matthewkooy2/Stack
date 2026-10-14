@@ -98,7 +98,12 @@ class Store:
     def view(data) -> dict[str, Any]:
         return {k: v for k, v in data.items() if k not in ('owner', 'lease', 'lease_until')}
 
-    def upload(self, owner, client_id, content) -> dict[str, Any]:
+    def upload(self, owner, client_id, content, local_transcript='') -> dict[str, Any]:
+        # Client text is a user-provided original, not independently verified recognition.
+        # Validate it before replay lookup; originals cannot be replaced by a retry.
+        if not isinstance(local_transcript, str) or len(local_transcript) > 30000:
+            raise ValueError('Transcript must be 30,000 characters or less.')
+        original = local_transcript.strip()
         if not isinstance(client_id, str) or not re.fullmatch(r'[a-zA-Z0-9_-]{12,80}', client_id):
             raise ValueError('A stable recording identifier is required.')
         if not isinstance(content, str) or len(content) > (MAX_BYTES + 2) // 3 * 4:
@@ -115,23 +120,27 @@ class Store:
             if previous:
                 if previous['digest'] != digest:
                     raise ValueError('This recording identifier already belongs to different audio.')
-                return self.view(json.loads(previous['data']))
+                saved = json.loads(previous['data'])
+                if original and (saved['model'] != 'Apple SpeechTranscriber' or saved['original_transcript'] != original):
+                    raise ValueError('This recording identifier already belongs to another transcription. Reopen the saved recording.')
+                return self.view(saved)
             owned = db.execute('SELECT COUNT(*), COALESCE(SUM(size),0) FROM recordings WHERE owner=?', (owner,)).fetchone()
             queued = db.execute("SELECT COUNT(*) FROM recordings WHERE owner=? AND status NOT IN ('completed','failed','cancelled')", (owner,)).fetchone()[0]
             total = db.execute('SELECT COALESCE(SUM(size),0) FROM recordings').fetchone()[0]
             pending = db.execute("SELECT COUNT(*) FROM recordings WHERE status NOT IN ('completed','failed','cancelled')").fetchone()[0]
             if owned[0] >= 50 or owned[1] + len(raw) > 500 * 1024 * 1024:
                 raise ValueError('Recording storage is full. Delete a saved recording before uploading another.')
-            if queued >= 3 or pending >= 100 or total + len(raw) > 5 * 1024**3:
+            if (not original and (queued >= 3 or pending >= 100)) or total + len(raw) > 5 * 1024**3:
                 raise ValueError('The transcription queue is full. Your recording stays on this phone; retry later.')
             now = time.time()
             data = dict(id=str(uuid.uuid4()), owner=owner, client_id=client_id, created_at=now,
-                        duration_seconds=seconds, size=len(raw), status='queued', attempts=0,
-                        lease='', lease_until=0, stage_at=now, percent=None, error='',
-                        original_transcript='', transcript='', revision=0,
-                        model='whisper.cpp/base.en', timings={'transfer_ms': None, 'queue_ms': 0, 'decode_ms': 0, 'load_ms': 0, 'transcribe_ms': 0})
+                        duration_seconds=seconds, size=len(raw), status='completed' if original else 'queued', attempts=0,
+                        lease='', lease_until=0, stage_at=now, percent=100 if original else None, error='',
+                        original_transcript=original, transcript=original, revision=1 if original else 0,
+                        model='Apple SpeechTranscriber' if original else 'whisper.cpp/base.en',
+                        timings={'transfer_ms': None, 'queue_ms': 0, 'decode_ms': 0, 'load_ms': 0, 'transcribe_ms': 0})
             db.execute('INSERT INTO recordings VALUES (?,?,?,?,?,?,?,?,?,?)',
-                       (data['id'], owner, client_id, digest, len(raw), now, 'queued', 0, json.dumps(data), raw))
+                       (data['id'], owner, client_id, digest, len(raw), now, data['status'], 0, json.dumps(data), raw))
             return self.view(data)
 
     def list(self, owner) -> list[dict[str, Any]]:

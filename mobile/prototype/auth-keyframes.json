@@ -1,0 +1,821 @@
+{
+  "layer-build": [
+    {
+      "at": 0,
+      "transform": "translateY(0)",
+      "opacity": "1"
+    },
+    {
+      "at": 0.15,
+      "transform": "translateY(0)",
+      "opacity": "1"
+    },
+    {
+      "at": 0.4,
+      "transform": "translateY(-3px)",
+      "opacity": ".35"
+    },
+    {
+      "at": 0.6,
+      "transform": "translateY(1px)",
+      "opacity": "1"
+    },
+    {
+      "at": 0.85,
+      "transform": "translateY(0)",
+      "opacity": "1"
+    },
+    {
+      "at": 1,
+      "transform": "translateY(0)",
+      "opacity": "1"
+    }
+  ],
+  "apple-leaf-travel": [
+    {
+      "at": 0,
+      "transform": "translate(var(--home-x),var(--home-y)) scale(var(--home-scale))"
+    },
+    {
+      "at": 0.03,
+      "transform": "translate(var(--home-x),var(--home-y)) scale(var(--home-scale))"
+    },
+    {
+      "at": 0.11,
+      "transform": "translate(var(--leaf-x),var(--leaf-y)) scale(1)"
+    },
+    {
+      "at": 0.73,
+      "transform": "translate(var(--leaf-x),var(--leaf-y)) scale(1)"
+    },
+    {
+      "at": 0.85,
+      "transform": "translate(var(--home-x),var(--home-y)) scale(var(--home-scale))"
+    },
+    {
+      "at": 1,
+      "transform": "translate(var(--home-x),var(--home-y)) scale(var(--home-scale))"
+    }
+  ],
+  "apple-leaf-assemble": [
+    {
+      "at": 0,
+      "transform": "translate(0,0) scale(0)"
+    },
+    {
+      "at": 0.03,
+      "transform": "translate(0,0) scale(0)"
+    },
+    {
+      "at": 0.11,
+      "transform": "translate(var(--leaf-x),var(--leaf-y)) scale(1)"
+    },
+    {
+      "at": 0.76,
+      "transform": "translate(var(--leaf-x),var(--leaf-y)) scale(1)"
+    },
+    {
+      "at": 0.88,
+      "transform": "translate(0,0) scale(1)"
+    },
+    {
+      "at": 1,
+      "transform": "translate(0,0) scale(1)"
+    }
+  ],
+  "apple-leaf-morph": [
+    {
+      "at": 0,
+      "d": "var(--morph-from)",
+      "animation-timing-function": "cubic-bezier(.3,0,.3,1)"
+    },
+    {
+      "at": 0.76,
+      "d": "var(--morph-from)",
+      "animation-timing-function": "cubic-bezier(.3,0,.3,1)"
+    },
+    {
+      "at": 0.84,
+      "d": "var(--morph-mid)",
+      "animation-timing-function": "cubic-bezier(.25,0,.2,1)"
+    },
+    {
+      "at": 0.94,
+      "d": "var(--morph-to)"
+    },
+    {
+      "at": 1,
+      "d": "var(--morph-to)"
+    }
+  ],
+  "apple-cradle-bottom": [
+    {
+      "at": 0,
+      "transform": "translate(0,0) rotate(0deg) scale(0)"
+    },
+    {
+      "at": 0.03,
+      "transform": "translate(0,0) rotate(0deg) scale(0)"
+    },
+    {
+      "at": 0.11,
+      "transform": "translate(0,12.8px) rotate(0deg) scale(1)"
+    },
+    {
+      "at": 0.76,
+      "transform": "translate(0,12.8px) rotate(0deg) scale(1)",
+      "animation-timing-function": "cubic-bezier(.4,0,.2,1)"
+    },
+    {
+      "at": 0.818,
+      "transform": "translate(0,1.4px) rotate(0deg) scale(1)",
+      "animation-timing-function": "cubic-bezier(.4,0,.2,1)"
+    },
+    {
+      "at": 0.8759999999999999,
+      "transform": "translate(0,0) rotate(0deg) scale(1)"
+    },
+    {
+      "at": 1,
+      "transform": "translate(0,0) rotate(0deg) scale(1)"
+    }
+  ],
+  "apple-cradle-left": [
+    {
+      "at": 0,
+      "transform": "translate(0,0) rotate(0deg) scale(0)"
+    },
+    {
+      "at": 0.03,
+      "transform": "translate(0,0) rotate(0deg) scale(0)"
+    },
+    {
+      "at": 0.11,
+      "transform": "translate(-12.8px,0) rotate(0deg) scale(1)"
+    },
+    {
+      "at": 0.76,
+      "transform": "translate(-12.8px,0) rotate(0deg) scale(1)"
+    },
+    {
+      "at": 0.797,
+      "transform": "translate(-12.8px,0) rotate(0deg) scale(1)",
+      "animation-timing-function": "cubic-bezier(.4,0,.2,1)"
+    },
+    {
+      "at": 0.866,
+      "transform": "translate(-3.4px,-.2px) rotate(-22deg) scale(1)",
+      "animation-timing-function": "cubic-bezier(.4,0,.2,1)"
+    },
+    {
+      "at": 0.935,
+      "transform": "translate(0,0) rotate(0deg) scale(1)"
+    },
+    {
+      "at": 1,
+      "transform": "translate(0,0) rotate(0deg) scale(1)"
+    }
+  ],
+  "apple-cradle-right": [
+    {
+      "at": 0,
+      "transform": "translate(0,0) rotate(0deg) scale(0)"
+    },
+    {
+      "at": 0.03,
+      "transform": "translate(0,0) rotate(0deg) scale(0)"
+    },
+    {
+      "at": 0.11,
+      "transform": "translate(12.8px,0) rotate(0deg) scale(1)"
+    },
+    {
+      "at": 0.76,
+      "transform": "translate(12.8px,0) rotate(0deg) scale(1)"
+    },
+    {
+      "at": 0.807,
+      "transform": "translate(12.8px,0) rotate(0deg) scale(1)",
+      "animation-timing-function": "cubic-bezier(.4,0,.2,1)"
+    },
+    {
+      "at": 0.8765000000000001,
+      "transform": "translate(3.4px,-.2px) rotate(22deg) scale(1)",
+      "animation-timing-function": "cubic-bezier(.4,0,.2,1)"
+    },
+    {
+      "at": 0.946,
+      "transform": "translate(0,0) rotate(0deg) scale(1)"
+    },
+    {
+      "at": 1,
+      "transform": "translate(0,0) rotate(0deg) scale(1)"
+    }
+  ],
+  "apple-cradle-bottom-shape": [
+    {
+      "at": 0,
+      "d": "var(--morph-from)"
+    },
+    {
+      "at": 0.76,
+      "d": "var(--morph-from)"
+    },
+    {
+      "at": 0.818,
+      "d": "var(--morph-mid)"
+    },
+    {
+      "at": 0.8759999999999999,
+      "d": "var(--morph-to)"
+    },
+    {
+      "at": 1,
+      "d": "var(--morph-to)"
+    }
+  ],
+  "apple-cradle-left-shape": [
+    {
+      "at": 0,
+      "d": "var(--morph-from)"
+    },
+    {
+      "at": 0.797,
+      "d": "var(--morph-from)"
+    },
+    {
+      "at": 0.866,
+      "d": "var(--morph-mid)"
+    },
+    {
+      "at": 0.935,
+      "d": "var(--morph-to)"
+    },
+    {
+      "at": 1,
+      "d": "var(--morph-to)"
+    }
+  ],
+  "apple-cradle-right-shape": [
+    {
+      "at": 0,
+      "d": "var(--morph-from)"
+    },
+    {
+      "at": 0.807,
+      "d": "var(--morph-from)"
+    },
+    {
+      "at": 0.8765000000000001,
+      "d": "var(--morph-mid)"
+    },
+    {
+      "at": 0.946,
+      "d": "var(--morph-to)"
+    },
+    {
+      "at": 1,
+      "d": "var(--morph-to)"
+    }
+  ],
+  "apple-leaf-appear": [
+    {
+      "at": 0,
+      "opacity": "0"
+    },
+    {
+      "at": 0.03,
+      "opacity": "0"
+    },
+    {
+      "at": 0.1,
+      "opacity": "1"
+    },
+    {
+      "at": 0.96,
+      "opacity": "1"
+    },
+    {
+      "at": 0.97,
+      "opacity": "0"
+    },
+    {
+      "at": 1,
+      "opacity": "0"
+    }
+  ],
+  "apple-leaf-pulse": [
+    {
+      "at": 0,
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.11,
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.14,
+      "transform": "translate(var(--pulse-x),var(--pulse-y))"
+    },
+    {
+      "at": 0.18,
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.225,
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.26,
+      "transform": "translate(var(--nudge-x),var(--nudge-y))"
+    },
+    {
+      "at": 0.295,
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.38,
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.415,
+      "transform": "translate(var(--nudge-x),var(--nudge-y))"
+    },
+    {
+      "at": 0.45,
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.535,
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.57,
+      "transform": "translate(var(--nudge-x),var(--nudge-y))"
+    },
+    {
+      "at": 0.605,
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.69,
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.725,
+      "transform": "translate(var(--nudge-x),var(--nudge-y))"
+    },
+    {
+      "at": 0.76,
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 1,
+      "transform": "translate(0,0)"
+    }
+  ],
+  "apple-leaf-orbit": [
+    {
+      "at": 0,
+      "transform": "rotate(0)"
+    },
+    {
+      "at": 0.14,
+      "transform": "rotate(0)"
+    },
+    {
+      "at": 0.26,
+      "transform": "rotate(90deg)"
+    },
+    {
+      "at": 0.295,
+      "transform": "rotate(90deg)"
+    },
+    {
+      "at": 0.415,
+      "transform": "rotate(180deg)"
+    },
+    {
+      "at": 0.45,
+      "transform": "rotate(180deg)"
+    },
+    {
+      "at": 0.57,
+      "transform": "rotate(270deg)"
+    },
+    {
+      "at": 0.605,
+      "transform": "rotate(270deg)"
+    },
+    {
+      "at": 0.725,
+      "transform": "rotate(360deg)"
+    },
+    {
+      "at": 1,
+      "transform": "rotate(360deg)"
+    }
+  ],
+  "apple-orbit-body": [
+    {
+      "at": 0,
+      "transform": "scale(1)"
+    },
+    {
+      "at": 0.03,
+      "transform": "scale(1)"
+    },
+    {
+      "at": 0.11,
+      "transform": "scale(.94)"
+    },
+    {
+      "at": 0.76,
+      "transform": "scale(.94)"
+    },
+    {
+      "at": 0.94,
+      "transform": "scale(1)"
+    },
+    {
+      "at": 1,
+      "transform": "scale(1)"
+    }
+  ],
+  "apple-bite-one": [
+    {
+      "at": 0,
+      "transform": "translate(8px,0)"
+    },
+    {
+      "at": 0.225,
+      "transform": "translate(8px,0)"
+    },
+    {
+      "at": 0.26,
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.985,
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.9851000000000001,
+      "transform": "translate(8px,0)"
+    },
+    {
+      "at": 1,
+      "transform": "translate(8px,0)"
+    }
+  ],
+  "apple-bite-two": [
+    {
+      "at": 0,
+      "transform": "translate(-7px,0)"
+    },
+    {
+      "at": 0.38,
+      "transform": "translate(-7px,0)"
+    },
+    {
+      "at": 0.415,
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.985,
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.9851000000000001,
+      "transform": "translate(-7px,0)"
+    },
+    {
+      "at": 1,
+      "transform": "translate(-7px,0)"
+    }
+  ],
+  "apple-bite-three": [
+    {
+      "at": 0,
+      "transform": "translate(0,9px)"
+    },
+    {
+      "at": 0.535,
+      "transform": "translate(0,9px)"
+    },
+    {
+      "at": 0.57,
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.985,
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.9851000000000001,
+      "transform": "translate(0,9px)"
+    },
+    {
+      "at": 1,
+      "transform": "translate(0,9px)"
+    }
+  ],
+  "apple-bite-four": [
+    {
+      "at": 0,
+      "transform": "translate(0,-11px)"
+    },
+    {
+      "at": 0.69,
+      "transform": "translate(0,-11px)"
+    },
+    {
+      "at": 0.725,
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.985,
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.9851000000000001,
+      "transform": "translate(0,-11px)"
+    },
+    {
+      "at": 1,
+      "transform": "translate(0,-11px)"
+    }
+  ],
+  "apple-body-handoff": [
+    {
+      "at": 0,
+      "transform": "translateY(-24px)"
+    },
+    {
+      "at": 0.9599,
+      "transform": "translateY(-24px)"
+    },
+    {
+      "at": 0.96,
+      "transform": "translateY(0)"
+    },
+    {
+      "at": 0.995,
+      "transform": "translateY(0)"
+    },
+    {
+      "at": 0.9951000000000001,
+      "transform": "translateY(-24px)"
+    },
+    {
+      "at": 1,
+      "transform": "translateY(-24px)"
+    }
+  ],
+  "apple-recoil": [
+    {
+      "at": 0,
+      "transform": "translate(0,0) rotate(0)"
+    },
+    {
+      "at": 0.225,
+      "transform": "translate(0,0) rotate(0)"
+    },
+    {
+      "at": 0.26,
+      "transform": "translate(-.35px,.1px) rotate(-2deg)"
+    },
+    {
+      "at": 0.28,
+      "transform": "translate(.08px,0) rotate(.4deg)"
+    },
+    {
+      "at": 0.3,
+      "transform": "translate(0,0) rotate(0)"
+    },
+    {
+      "at": 0.38,
+      "transform": "translate(0,0) rotate(0)"
+    },
+    {
+      "at": 0.415,
+      "transform": "translate(.35px,.1px) rotate(2deg)"
+    },
+    {
+      "at": 0.435,
+      "transform": "translate(-.08px,0) rotate(-.4deg)"
+    },
+    {
+      "at": 0.455,
+      "transform": "translate(0,0) rotate(0)"
+    },
+    {
+      "at": 0.535,
+      "transform": "translate(0,0) rotate(0)"
+    },
+    {
+      "at": 0.57,
+      "transform": "translate(0,-.35px) rotate(-1deg)"
+    },
+    {
+      "at": 0.59,
+      "transform": "translate(0,.08px) rotate(.3deg)"
+    },
+    {
+      "at": 0.61,
+      "transform": "translate(0,0) rotate(0)"
+    },
+    {
+      "at": 1,
+      "transform": "translate(0,0) rotate(0)"
+    }
+  ],
+  "apple-crumb-one": [
+    {
+      "at": 0,
+      "opacity": "0",
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.25,
+      "opacity": "0",
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.26,
+      "opacity": ".45",
+      "transform": "translate(.3px,-.2px)"
+    },
+    {
+      "at": 0.32,
+      "opacity": "0",
+      "transform": "translate(1.6px,.9px)"
+    },
+    {
+      "at": 1,
+      "opacity": "0",
+      "transform": "translate(1.6px,.9px)"
+    }
+  ],
+  "apple-crumb-two": [
+    {
+      "at": 0,
+      "opacity": "0",
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.405,
+      "opacity": "0",
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.415,
+      "opacity": ".45",
+      "transform": "translate(-.3px,-.2px)"
+    },
+    {
+      "at": 0.475,
+      "opacity": "0",
+      "transform": "translate(-1.6px,.9px)"
+    },
+    {
+      "at": 1,
+      "opacity": "0",
+      "transform": "translate(-1.6px,.9px)"
+    }
+  ],
+  "apple-crumb-three": [
+    {
+      "at": 0,
+      "opacity": "0",
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.56,
+      "opacity": "0",
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.57,
+      "opacity": ".4",
+      "transform": "translate(.1px,.3px)"
+    },
+    {
+      "at": 0.63,
+      "opacity": "0",
+      "transform": "translate(.4px,1.4px)"
+    },
+    {
+      "at": 1,
+      "opacity": "0",
+      "transform": "translate(.4px,1.4px)"
+    }
+  ],
+  "apple-crumb-four": [
+    {
+      "at": 0,
+      "opacity": "0",
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.715,
+      "opacity": "0",
+      "transform": "translate(0,0)"
+    },
+    {
+      "at": 0.725,
+      "opacity": ".35",
+      "transform": "translate(0,.2px)"
+    },
+    {
+      "at": 0.76,
+      "opacity": "0",
+      "transform": "translate(0,1px)"
+    },
+    {
+      "at": 1,
+      "opacity": "0",
+      "transform": "translate(0,1px)"
+    }
+  ],
+  "google-orbit": [
+    {
+      "at": 0,
+      "transform": "rotate(0) scale(.88)",
+      "opacity": ".5"
+    },
+    {
+      "at": 0.1,
+      "transform": "rotate(0) scale(.88)",
+      "opacity": ".5"
+    },
+    {
+      "at": 0.35,
+      "transform": "rotate(90deg) scale(1)",
+      "opacity": "1"
+    },
+    {
+      "at": 0.6,
+      "transform": "rotate(180deg) scale(.88)",
+      "opacity": ".6"
+    },
+    {
+      "at": 0.85,
+      "transform": "rotate(270deg) scale(1)",
+      "opacity": "1"
+    },
+    {
+      "at": 1,
+      "transform": "rotate(360deg) scale(.88)",
+      "opacity": ".5"
+    }
+  ],
+  "google-focus": [
+    {
+      "at": 0,
+      "transform": "scale(1)"
+    },
+    {
+      "at": 0.35,
+      "transform": "scale(1.08)"
+    },
+    {
+      "at": 0.6,
+      "transform": "scale(1)"
+    },
+    {
+      "at": 0.85,
+      "transform": "scale(1.08)"
+    },
+    {
+      "at": 1,
+      "transform": "scale(1)"
+    }
+  ],
+  "google-color-spin": [
+    {
+      "at": 0,
+      "transform": "rotate(0)"
+    },
+    {
+      "at": 0.1,
+      "transform": "rotate(0)"
+    },
+    {
+      "at": 0.35,
+      "transform": "rotate(-90deg)"
+    },
+    {
+      "at": 0.6,
+      "transform": "rotate(-180deg)"
+    },
+    {
+      "at": 0.85,
+      "transform": "rotate(-270deg)"
+    },
+    {
+      "at": 1,
+      "transform": "rotate(-360deg)"
+    }
+  ]
+}

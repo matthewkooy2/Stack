@@ -29,6 +29,33 @@ class Providers(unittest.TestCase):
         self.path.write_text(json.dumps(changes))
         return contracts.config()
 
+    def test_explicit_choices_are_private_configured_and_do_not_change_default(self):
+        self.configure(provider='codex-cli', model='', local_cli_owner='alice', local_cli_daily_limit=5,
+                       model_options={'local': {'provider':'lmstudio', 'model':'fixture-local', 'local_model_url':'http://127.0.0.1:1234'}})
+        self.assertEqual(contracts.config('local')['model'], 'fixture-local')
+        self.assertEqual(contracts.config('local')['provider'], 'lmstudio')
+        self.assertEqual(contracts.config('codex-cli')['model'], '')
+        self.assertEqual(contracts.config()['provider'], 'codex-cli')
+        self.assertTrue(contracts.model_status('alice', 'local')['configured'])
+        self.assertFalse(contracts.model_status('bob', 'codex-cli')['configured'])
+        with self.assertRaises(ValueError): contracts.config('https://untrusted.invalid')
+
+    def test_unconfigured_local_is_visible_without_fallback(self):
+        for options in ({}, {'local': {'provider':'openai','model':'cloud'}}, {'local': {'model':'unknown'}}):
+            self.configure(provider='codex-cli', model='', model_options=options)
+            status = contracts.model_status('alice', 'local')
+            self.assertFalse(status['configured'])
+            self.assertEqual(status['provider'], 'ollama')
+            self.assertIn('installed local model', status['message'])
+
+    def test_codex_interview_accepts_complete_raw_plain_text(self):
+        c = self.configure(provider='codex-cli', local_cli_owner='alice', local_cli_daily_limit=5)
+        text = '{broken JSON. Useful coaching without scores.'
+        with patch.object(local_cli, 'generate', return_value={'text':text}):
+            for step in ('coach','interview_turn','interview_coach'):
+                result = provider.generate(step, {'interview':{'turns':[]}}, c)
+                self.assertEqual(result['artifact']['text'], text)
+
     def test_default_api_remains_disabled(self):
         self.assertFalse(contracts.model_status('owner')['configured'])
         self.assertEqual(contracts.config()['provider'], 'openai')
@@ -76,6 +103,39 @@ class Providers(unittest.TestCase):
             with patch.object(local_cli, 'generate', return_value=bad):
                 with self.assertRaisesRegex(ValueError, 'validated'): provider.generate('fit', CONTEXT)
 
+    def test_story_transport_selects_private_ids_and_resolves_exact_quotes(self):
+        from agents.stories import FIELDS, selection_contract
+        self.configure(provider='codex-cli')
+        source = {'key': 'fact:resume.private', 'text':
+                  'A release failed. I wrote a retry test. Our team deployed it. Errors stopped.'}
+        contract = selection_contract(source)
+        ids = {quote: key for key, quote in contract['quotes'].items()}
+        selected = {'fields': {field: '' for field in FIELDS}, 'topics': ['ownership']}
+        selected['fields'].update(action=ids['I wrote a retry test.'],
+                                  personal=ids['I wrote a retry test.'],
+                                  team=ids['Our team deployed it.'], result=ids['Errors stopped.'])
+        with patch.object(local_cli, 'generate', return_value=selected) as generate:
+            result = provider.generate('story', {'story_source': source,
+                                               'facts': [{'key': 'resume.other', 'value': 'Private other event', 'verified': True}]})
+        request = json.loads(generate.call_args.args[3])
+        self.assertEqual(generate.call_args.args[4], contract['schema'])
+        self.assertEqual(request['sources'], {source['key']: source['text']})
+        self.assertEqual(request['context'], {'story_quotes': contract['quotes']})
+        self.assertNotIn('Private other event', generate.call_args.args[3])
+        for claim in result['artifact']['evidence']:
+            self.assertEqual(claim['source'], source['key'])
+            self.assertIn(claim['quote'], source['text'])
+        self.assertEqual(result['artifact']['fields']['personal']['quote'], 'I wrote a retry test.')
+        rejected = {**selected, 'fields': {**selected['fields'], 'result': 'foreign:q0'}}
+        attempts = []
+        def received_response(*args, **kwargs):
+            kwargs['record_response'](json.dumps(rejected), 'model_json')
+            return rejected
+        with patch.object(local_cli, 'generate', side_effect=received_response):
+            with self.assertRaisesRegex(ValueError, 'validated'):
+                provider.generate('story', {'story_source': source}, record=attempts.append)
+        self.assertEqual(attempts[-1]['status'], 'rejected')
+
     def test_meta_uses_own_key_and_structured_output(self):
         self.configure(provider='meta', model='muse-test', input_cents_per_million=100, output_cents_per_million=500)
         result = {'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps(REPORT)}}],
@@ -120,6 +180,23 @@ class Providers(unittest.TestCase):
         self.assertIn('shell_tool', command);self.assertIn('plugins', command)
         self.assertFalse(Path(directory).exists())
 
+    def test_plain_coaching_clis_have_no_schema_or_json_acceptance(self):
+        text='<img src=x onerror=alert(1)> {broken JSON. Partial:'
+        for name in ('codex-cli','claude-cli'):
+            calls=[]
+            def run(command,directory,prompt='',**kwargs):
+                calls.append(command)
+                if command[1:3]==['login','status']:return 0,'Logged in using ChatGPT'
+                if command[1:3]==['auth','status']:return 0,json.dumps({'loggedIn':True,'authMethod':'claude.ai','apiProvider':'firstParty'})
+                if name=='codex-cli':
+                    Path(command[command.index('--output-last-message')+1]).write_text(text)
+                    return 0,''
+                return 0,json.dumps({'is_error':False,'result':text})
+            c={**contracts.config(),'provider':name,'model':'test'}
+            with patch.object(local_cli.shutil,'which',return_value='/tools/cli'),patch.object(local_cli,'run',side_effect=run):
+                self.assertEqual(provider.generate('coach',{'session':{'answer':'My answer'}},c)['artifact']['text'],text)
+            self.assertNotIn('--output-schema',calls[-1]);self.assertNotIn('--json-schema',calls[-1])
+
     def test_codex_refuses_api_login_before_generation(self):
         with patch.object(local_cli.shutil, 'which', return_value='/tools/codex'), patch.object(local_cli, 'run', return_value=(0, 'Logged in using an API key')) as run:
             with self.assertRaisesRegex(ValueError, 'codex login'):
@@ -134,7 +211,7 @@ class Providers(unittest.TestCase):
                 return 0, json.dumps({'loggedIn': True, 'authMethod': 'claude.ai', 'apiProvider': 'firstParty'})
             return 0, json.dumps({'is_error': False, 'structured_output': REPORT})
         with patch.object(local_cli.shutil, 'which', return_value='/tools/claude'), patch.object(local_cli, 'run', side_effect=run):
-            self.assertEqual(local_cli.generate('claude-cli', '', '', '', {}), REPORT)
+            self.assertEqual(local_cli.generate('claude-cli', '', '', '', provider.SCHEMAS['fit']), REPORT)
         self.assertEqual(calls[-1][calls[-1].index('--tools')+1], '')
         self.assertIn('--safe-mode', calls[-1]);self.assertNotIn('--bare', calls[-1])
         self.assertIn('--strict-mcp-config', calls[-1])

@@ -27,6 +27,7 @@ import UIKit
   private var paused = false
   private var naturalFormat: AVAudioFormat?
   private var stoppedSnapshot: (seconds: Double, error: String)?
+  private(set) var stoppedTranscript = ""
   private(set) var isActive = false
   /// Amplitude of the PCM this capture delivers. Owned by this capture alone, so a stale
   /// session can never move a newer recording's bars.
@@ -162,6 +163,7 @@ import UIKit
     if writer != nil { engine.inputNode.removeTap(onBus: 0) }
     stoppedSnapshot = writer?.close() ?? (seconds: 0, error: "")
     input?.finish()
+    stoppedTranscript = transcript(finalOnly: false)
     for observer in observers { NotificationCenter.default.removeObserver(observer) }
     observers.removeAll()
     try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)

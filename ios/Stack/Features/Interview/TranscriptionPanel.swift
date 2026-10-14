@@ -17,6 +17,7 @@ struct TranscriptionPanel: View {
     @State private var recordings: [JSON] = []
     @State private var phoneRecordings: [CapturedRecording] = []
     @State private var runtime: JSON = [:]
+    @State private var supportsClientTranscripts: Bool?
     @State private var current: JSON = [:]
     @State private var text = ""
     @State private var dirty = false
@@ -140,8 +141,16 @@ struct TranscriptionPanel: View {
     private var detail: some View {
         Card(spacing: 10) {
             let percent = current["percent"]
-            Text(status.capitalized + (percent.isNull ? "" : " · \(Int(percent.double.rounded()))%"))
+            Text((current["phone_finalizing"].bool ? "Finishing your transcript" : status.capitalized)
+                 + (percent.isNull ? "" : " · \(Int(percent.double.rounded()))%"))
                 .font(Typeface.option).foregroundStyle(Palette.icon)
+            if current["phone_finalizing"].bool {
+                Text("Your recording and live transcript are saved on this phone while on-device recognition finishes.")
+                    .font(Typeface.caption).foregroundStyle(Palette.muted)
+            } else if current["phone_preview"].bool {
+                Text("On-device recognition did not finish. Your audio and transcript preview are saved on this phone.")
+                    .font(Typeface.caption).foregroundStyle(Palette.muted)
+            }
             if transcribing {
                 Text("Working on your transcript…").font(Typeface.caption).foregroundStyle(Palette.muted).breathe(true)
             }
@@ -176,7 +185,7 @@ struct TranscriptionPanel: View {
 
     // MARK: Actions
 
-    private func refresh() async {
+    private func refresh(afterRecordingSync: Bool = false) async {
         if boundGeneration == nil { boundGeneration = store.sessionGeneration }
         do {
             try requireSession()
@@ -184,6 +193,7 @@ struct TranscriptionPanel: View {
             let list = try await sessionCall("transcription_list")
             recordings = list["recordings"].array
             runtime = list["runtime"]
+            supportsClientTranscripts = list["client_transcripts"].bool
             let id = current["id"].string
             if !id.isEmpty, !busy, !current["phone_only"].bool {
                 let latest = try await sessionCall("transcription_get", ["id": .string(id)])
@@ -191,7 +201,14 @@ struct TranscriptionPanel: View {
                 current = latest
                 if !dirty { text = latest["transcript"].string }
             }
-        } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
+        } catch {
+            guard !(error is CancellationError) else { return }
+            if afterRecordingSync {
+                self.error = "Recording synced, but refreshing its status failed (\(failureCategory(error))).\(failureDetail(error))"
+            } else {
+                self.error = error.localizedDescription
+            }
+        }
     }
 
     private func retrySetup() async {
@@ -226,6 +243,8 @@ struct TranscriptionPanel: View {
             notice = "Recording cancelled. The partial audio stays on this phone."
             return
         }
+        pendingUpload = saved
+        showPhoneTranscript(saved)
         await upload(saved)
     }
 
@@ -250,47 +269,116 @@ struct TranscriptionPanel: View {
         busy = true
         error = ""
         defer { busy = false }
+        var stage = "finishing the on-device transcript"
+        var uploadConfirmed = false
         do {
             await saved.finalized.value
             try requireSession()
             pendingUpload = saved
             let phone = RecordingStore.transcript(at: saved.url)
-            if let phone, current["id"].string != saved.clientID {
-                current = ["id": .string(saved.clientID), "phone_only": true, "status": "completed",
-                           "original_transcript": .string(phone.original), "transcript": .string(phone.text), "revision": .number(Double(phone.revision))]
-                text = phone.text; dirty = false
-            }
+            if let phone { showPhoneTranscript(saved, phone: phone) }
+            stage = "reading the saved audio"
             let data = try Data(contentsOf: saved.url)
-            guard !data.isEmpty else { throw APIError(message: "This recording has no saved audio. Record another answer.") }
-            guard data.count <= 10 * 1024 * 1024 else { throw APIError(message: "Recording must be 10 MB or less.") }
+            guard !data.isEmpty else {
+                throw APIError(message: "This recording has no saved audio. Record another answer.",
+                               failureCategory: "local audio validation")
+            }
+            guard data.count <= 10 * 1024 * 1024 else {
+                throw APIError(message: "Recording must be 10 MB or less.", failureCategory: "local audio validation")
+            }
             var args: JSON = ["client_id": .string(saved.clientID), "content": .string(data.base64EncodedString())]
-            if let phone {
-                let capability = try await sessionCall("transcription_list")
-                guard capability["client_transcripts"].bool else { throw APIError(message: "Transcript saved on this phone. Server sync needs the transcription update.") }
+            if let phone, phone.isFinal {
+                let supported: Bool
+                if let cached = supportsClientTranscripts {
+                    supported = cached
+                } else {
+                    stage = "checking transcript sync support"
+                    let capability = try await sessionCall("transcription_list")
+                    supported = capability["client_transcripts"].bool
+                    supportsClientTranscripts = supported
+                }
+                guard supported else {
+                    throw APIError(message: "Transcript saved on this phone. Server sync needs the transcription update.",
+                                   failureCategory: "server capability")
+                }
                 args["local_transcript"] = .string(phone.original)
             }
+            stage = "uploading audio"
             var result = try await sessionCall("transcription_upload", args, timeout: 90)
-            if phone != nil, result["status"].string == "completed", result["transcript"].string != text {
+            uploadConfirmed = true
+            if phone?.isFinal == true, result["status"].string == "completed", result["transcript"].string != text {
                 if let prior = phone?.syncedText, prior != result["transcript"].string {
                     current = result; dirty = true
-                    throw APIError(message: "The server transcript changed. Your phone edits are retained. Review them before saving.")
+                    stage = "reconciling transcript edits"
+                    throw APIError(message: "The server transcript changed. Your phone edits are retained. Review them before saving.",
+                                   failureCategory: "transcript conflict")
                 }
+                stage = "saving transcript edits on Stack"
                 result = try await sessionCall("transcription_action", ["id": result["id"], "action": "save", "text": .string(text), "revision": result["revision"]])
             }
+            stage = "saving sync status on this phone"
             try RecordingStore.markSynced(result["id"].string, text: result["transcript"].string, at: saved.url)
             // Save edits made while network requests were in flight to the phone as well.
-            if phone != nil { try RecordingStore.editTranscript(text, at: saved.url) }
+            if phone != nil {
+                stage = "saving transcript edits on this phone"
+                try RecordingStore.editTranscript(text, at: saved.url)
+            }
             pendingUpload = nil
             current = result
             if !dirty { text = result["transcript"].string }
             dirty = text != result["transcript"].string
-            notice = phone == nil ? "Audio saved. Transcription continues if you close Stack." : "Audio and on-device transcript saved."
-            await refresh()
+            notice = phone?.isFinal == true ? "Audio and on-device transcript saved." : "Audio saved. Transcription continues if you close Stack."
+            await refresh(afterRecordingSync: true)
         } catch {
             guard boundGeneration == store.sessionGeneration else { return }
             pendingUpload = saved
-            if !(error is CancellationError) { self.error = error.localizedDescription }
+            guard !(error is CancellationError) else { return }
+            let category = failureCategory(error)
+            let detail = failureDetail(error)
+            if category == "transcript conflict" {
+                self.error = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+                return
+            }
+            if uploadConfirmed {
+                self.error = "Audio is uploaded, but \(stage) failed (\(category)). The phone copy is retained; retry sync to reconcile.\(detail)"
+            } else if stage == "uploading audio", (error as? APIError)?.failureCategory != nil {
+                self.error = "Stack did not confirm the audio upload (\(category)). The recording remains saved on this phone; retry sync is safe."
+            } else {
+                self.error = "Could not complete sync while \(stage) (\(category)). The recording remains saved on this phone; retry sync.\(detail)"
+            }
         }
+    }
+
+    private func failureCategory(_ error: Error) -> String {
+        guard let apiError = error as? APIError else { return "local operation" }
+        if let category = apiError.failureCategory { return category }
+        if apiError.status > 0 { return "HTTP \(apiError.status)" }
+        return "Stack API error"
+    }
+
+    private func failureDetail(_ error: Error) -> String {
+        guard let apiError = error as? APIError else { return "" }
+        if apiError.failureCategory?.hasPrefix("network ") == true
+            || apiError.failureCategory == "offline"
+            || apiError.failureCategory == "host lookup failure"
+            || apiError.failureCategory == "host connection failure"
+            || apiError.failureCategory == "connection lost"
+            || apiError.failureCategory == "TLS failure" {
+            return ""
+        }
+        return " \(apiError.message)"
+    }
+
+    private func showPhoneTranscript(_ saved: CapturedRecording, phone: PhoneTranscript? = nil) {
+        guard let phone = phone ?? RecordingStore.transcript(at: saved.url) else { return }
+        let sameRecording = current["id"].string == saved.clientID
+        let isEditing = sameRecording && dirty
+        current = ["id": .string(saved.clientID), "phone_only": true, "status": "completed",
+                   "phone_finalizing": .bool(!phone.isFinal && recorder.finalizing),
+                   "phone_preview": .bool(!phone.isFinal),
+                   "original_transcript": .string(phone.original), "transcript": .string(phone.text),
+                   "revision": .number(Double(phone.revision))]
+        if !isEditing { text = phone.text; dirty = false }
     }
 
     private func open(_ id: String) async {

@@ -33,7 +33,7 @@ class NativeSelection(unittest.TestCase):
             core.require_passed(self.log() + '\n' + self.log())
 
     @unittest.skipIf(os.name == 'nt', 'Run shell argument boundary on Linux or macOS')
-    def test_build_and_full_test_have_no_empty_selector_and_core_forwards_all_34(self):
+    def test_build_and_full_test_have_no_empty_selector_and_core_forwards_all_33(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / 'scripts/ci/resume-review').mkdir(parents=True)

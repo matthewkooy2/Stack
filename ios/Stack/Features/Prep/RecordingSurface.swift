@@ -13,9 +13,46 @@ enum AppSettings {
     }
 }
 
-/// Six rounded bars whose heights are the measured microphone amplitude. There is no
-/// decorative loop: while nothing is recording the schedule is paused and the bars rest at
-/// their minimum. Reduce Motion samples the meter less often and applies no animation.
+/// Display-side easing between measured bar levels. It only moves each bar toward the latest
+/// measured value (fast on the way up, a little slower on the way down), so capture buffers
+/// that arrive about every 100 ms read as continuous. It adds no activity of its own: with a
+/// constant target it settles on that target; every transition stays between the previous
+/// displayed level and the measured target.
+struct LevelBarSmoother: Equatable {
+    static let rise = 0.025
+    static let fall = 0.07
+
+    private(set) var values: [Float]
+
+    init(count: Int = PCMLevelTracker.barCount) { values = Array(repeating: 0, count: count) }
+
+    mutating func reset() { values = Array(repeating: 0, count: values.count) }
+
+    /// `elapsed` is the time since the previous frame. Zero or non-finite elapsed holds the values.
+    mutating func advance(toward targets: [Float], elapsed: TimeInterval, smoothing: Bool = true) -> [Float] {
+        for index in values.indices {
+            let target = index < targets.count && targets[index].isFinite ? min(max(targets[index], 0), 1) : 0
+            if !smoothing { values[index] = target; continue }
+            guard elapsed > 0, elapsed.isFinite else { continue }
+            let tau = target > values[index] ? Self.rise : Self.fall
+            values[index] += (target - values[index]) * Float(1 - exp(-elapsed / tau))
+            if abs(target - values[index]) < 0.004 { values[index] = target }
+        }
+        return values
+    }
+}
+
+/// Reference box so the frame-to-frame display state survives view updates without publishing.
+@MainActor
+private final class LevelBarDisplay {
+    var smoother = LevelBarSmoother()
+    var lastFrame: Date?
+}
+
+/// Six slim rounded bars whose heights are the measured microphone amplitude. There is no
+/// decorative loop: while nothing is recording the schedule is paused and the bars rest as
+/// small dots in a quiet tone. Sampled at 60 Hz with a brief display-side ease toward each
+/// measured level; Reduce Motion samples less often and shows measured values directly.
 @MainActor
 struct RecordingLevelBars: View {
     let meter: PCMLevelMeter?
@@ -26,20 +63,29 @@ struct RecordingLevelBars: View {
 
     @Environment(\.stackReduceMotion) private var reduceMotion
 
-    private let width: CGFloat = 18
-    private let gap: CGFloat = 12
-    private var minHeight: CGFloat { max(14, maxHeight * 0.14) }
+    @State private var display = LevelBarDisplay()
+
+    private let width: CGFloat = 8
+    private let gap: CGFloat = 14
+    /// At rest each bar is a round dot.
+    private var minHeight: CGFloat { width }
+
+    /// Bar height for a 0...1 measured level; out-of-range values are clamped.
+    static func barHeight(level: Float, minHeight: CGFloat, maxHeight: CGFloat) -> CGFloat {
+        let value = CGFloat(min(max(level.isFinite ? level : 0, 0), 1))
+        return minHeight + (maxHeight - minHeight) * value
+    }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: reduceMotion ? 0.25 : 1.0 / 30.0, paused: !running)) { _ in
+        TimelineView(.animation(minimumInterval: reduceMotion ? 0.25 : 1.0 / 60.0, paused: !running)) { context in
             let snapshot = running ? (meter?.snapshot() ?? .idle) : .idle
-            VStack(spacing: 14) {
+            let bars = shownBars(snapshot, at: context.date)
+            VStack(spacing: 16) {
                 HStack(alignment: .center, spacing: gap) {
                     ForEach(0..<PCMLevelTracker.barCount, id: \.self) { index in
-                        let value = CGFloat(min(max(snapshot.bars[index], 0), 1))
                         RoundedRectangle(cornerRadius: width / 2, style: .continuous)
-                            .fill(snapshot.quality == .clipping ? Palette.danger : Palette.ink)
-                            .frame(width: width, height: minHeight + (maxHeight - minHeight) * value)
+                            .fill(running ? (snapshot.quality == .clipping ? Palette.danger : Palette.dark) : Palette.ring)
+                            .frame(width: width, height: Self.barHeight(level: bars[index], minHeight: minHeight, maxHeight: maxHeight))
                     }
                 }
                 .frame(maxWidth: .infinity, minHeight: maxHeight)
@@ -60,6 +106,17 @@ struct RecordingLevelBars: View {
             .accessibilityLabel("Microphone level")
             .accessibilityValue(Self.spoken(snapshot, running: running))
         }
+    }
+
+    /// Heights to draw this frame. A stopped or paused meter shows rest immediately.
+    private func shownBars(_ snapshot: PCMLevelSnapshot, at date: Date) -> [Float] {
+        guard running else {
+            display.smoother.reset(); display.lastFrame = nil
+            return snapshot.bars
+        }
+        let elapsed = display.lastFrame.map { date.timeIntervalSince($0) } ?? 0.1
+        display.lastFrame = date
+        return display.smoother.advance(toward: snapshot.bars, elapsed: min(max(elapsed, 0), 0.1), smoothing: !reduceMotion)
     }
 
     static func caption(_ quality: PCMInputQuality, running: Bool) -> String {
@@ -94,6 +151,10 @@ struct RecordingLevelBars: View {
 @MainActor
 struct LiveTranscriptControl: View {
     let recorder: AudioRecorder
+    /// Height of the text well; the surface shortens it on compact screens.
+    var textHeight: CGFloat = 160
+
+    @Environment(\.stackReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -107,35 +168,35 @@ struct LiveTranscriptControl: View {
             Button { recorder.setLiveTranscriptVisible(!shown) } label: {
                 HStack(spacing: 10) {
                     GlyphView(name: "chat", size: 18)
-                    Text(shown ? "Live transcription: on" : "Live transcription: off")
+                    Text("Live transcription")
                         .font(Typeface.caption).foregroundStyle(Palette.icon)
                         .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    Text(shown ? "On" : "Off")
+                        .font(Typeface.caption.weight(.semibold))
+                        .foregroundStyle(shown ? Palette.onDark : Palette.muted)
+                        .padding(.horizontal, 12).padding(.vertical, 4)
+                        .background(shown ? Palette.dark : Palette.halo, in: Capsule())
                 }
+                .padding(.horizontal, 16)
                 .frame(maxWidth: .infinity, minHeight: 48)
                 .background(Palette.oat, in: Capsule())
                 .contentShape(Capsule())
+                .animation(reduceMotion ? nil : Motion.fadeAnimation, value: shown)
             }
             .buttonStyle(.tap(scale: 0.98))
             .accessibilityLabel("Live transcription")
             .accessibilityValue(shown ? "On" : "Off")
             .accessibilityHint("Only changes whether the text is shown. Recording and transcription continue.")
             if shown {
-                ScrollView {
-                    Text(recorder.liveText.isEmpty ? "Listening for speech…" : recorder.liveText)
-                        .font(Typeface.body).foregroundStyle(Palette.text)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(16)
-                }
-                .frame(maxHeight: 160)
-                .background(Palette.field, in: RoundedRectangle(cornerRadius: Spacing.radius, style: .continuous))
-                .accessibilityLabel("Live transcript")
-                .transition(.opacity)
+                LiveTranscriptText(text: recorder.liveText, height: textHeight)
             } else {
                 Text("Transcribing on this iPhone. Hiding the text does not stop it.")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
+                    .transition(.asymmetric(insertion: .opacity, removal: .identity))
             }
         }
-        .fadeSwitch(true)
+        .animation(reduceMotion ? nil : Motion.fadeAnimation, value: shown)
     }
 
     private var unavailable: some View {
@@ -152,6 +213,68 @@ struct LiveTranscriptControl: View {
             Text("\(recorder.engineMessage) Live text cannot be shown, but your audio is still recorded and saved.")
                 .font(Typeface.caption).foregroundStyle(Palette.muted)
         }
+    }
+}
+
+/// The scrolling live text. It opens on the latest words and follows new text while the reader
+/// is at the end; once they scroll up it stays put until they return to the end. Following
+/// uses an immediate scroll, so it needs no animation and respects Reduce Motion.
+@MainActor
+private struct LiveTranscriptText: View {
+    let text: String
+    let height: CGFloat
+
+    @State private var following = true
+    @State private var lastContent: CGFloat = 0
+
+    private static let space = "live-transcript-scroll"
+    private static let end = "live-transcript-end"
+    /// Within this many points of the end counts as at the end.
+    private static let tolerance: CGFloat = 24
+
+    fileprivate struct Metrics: Equatable { var offset: CGFloat; var content: CGFloat }
+    fileprivate struct MetricsKey: PreferenceKey {
+        static let defaultValue = Metrics(offset: 0, content: 0)
+        static func reduce(value: inout Metrics, nextValue: () -> Metrics) { value = nextValue() }
+    }
+
+    var body: some View {
+        let empty = text.isEmpty
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 0) {
+                    Text(empty ? "Listening for speech…" : text)
+                        .font(Typeface.body)
+                        .foregroundStyle(empty ? Palette.muted : Palette.text)
+                        .lineSpacing(3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
+                        .accessibilityAddTraits(.updatesFrequently)
+                    Color.clear.frame(height: 1).id(Self.end)
+                }
+                .background(GeometryReader { geometry in
+                    let frame = geometry.frame(in: .named(Self.space))
+                    Color.clear.preference(key: MetricsKey.self, value: Metrics(offset: -frame.minY, content: frame.height))
+                })
+            }
+            .coordinateSpace(name: Self.space)
+            .scrollIndicators(.hidden)
+            .onPreferenceChange(MetricsKey.self) { metrics in
+                if metrics.content != lastContent {
+                    // First layout or new text: keep the reader's place unless they are following.
+                    lastContent = metrics.content
+                    if following { proxy.scrollTo(Self.end, anchor: .bottom) }
+                } else {
+                    following = metrics.offset + height >= metrics.content - Self.tolerance
+                }
+            }
+        }
+        .frame(height: height)
+        .background(Palette.field, in: RoundedRectangle(cornerRadius: Spacing.radius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Spacing.radius, style: .continuous).stroke(Palette.rule.opacity(0.6), lineWidth: 1))
+        .accessibilityLabel("Live transcript")
+        // Insert softly; remove at once so hidden text is never left on screen or readable.
+        .transition(.asymmetric(insertion: .opacity, removal: .identity))
     }
 }
 
@@ -209,6 +332,7 @@ struct RecordingSurface: View {
                     }
                 }
                 .frame(height: 4)
+                .animation(reduceMotion ? nil : Motion.stageAnimation, value: fraction)
                 Text("Question \(questionNumber) of \(questionCount)")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
@@ -228,10 +352,12 @@ struct RecordingSurface: View {
                         Circle().fill(recorder.isRecording && !recorder.isPaused ? Palette.icon : Color.clear)
                             .overlay(Circle().stroke(Palette.icon, lineWidth: 1.5))
                             .frame(width: 10, height: 10)
+                            .animation(reduceMotion ? nil : Motion.fadeAnimation, value: recorder.isPaused)
+                            .accessibilityHidden(true)
                         Text(status).font(Typeface.body).foregroundStyle(Palette.muted)
                     }
                     Text(recordingSurfaceClock(recorder.elapsed))
-                        .font(.system(.largeTitle, design: .monospaced).weight(.medium))
+                        .font(Font.system(.largeTitle, design: .default).weight(.medium).monospacedDigit())
                         .foregroundStyle(Palette.ink)
                         .minimumScaleFactor(0.6).lineLimit(1)
                         .contentTransition(reduceMotion ? .identity : .numericText())
@@ -245,7 +371,7 @@ struct RecordingSurface: View {
             }
             .frame(maxWidth: .infinity)
 
-            if live || recorder.finalizing { LiveTranscriptControl(recorder: recorder) }
+            if live || recorder.finalizing { LiveTranscriptControl(recorder: recorder, textHeight: compact ? 112 : 160) }
             MessageLine(text: recorder.stopNotice, isError: false).fadeSwitch(!recorder.stopNotice.isEmpty)
 
             Spacer(minLength: compact ? 8 : 24)

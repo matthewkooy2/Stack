@@ -38,7 +38,7 @@ def finish(client: any, state: str, verifier: str = 'v'*64, code: str = 'fixture
 test "Google registration repeat login explicit linking denial and account isolation" {
     with tempfile.TemporaryDirectory(prefix='stack-signin-') as directory {
         config=MagicMock();config.get_sso_config.return_value={'host':'https://stack.example','client_auth_callback_url':'https://stack.example/auth/google','google':{'client_id':'fixture-id','client_secret':'fixture-secret'}};
-        agent_config=Path(directory)/'agents.json';agent_config.write_text('{}');
+        agent_config=Path(directory)/'agents.json';agent_config.write_text('{"invite_only":false}');
         exchange: any = AsyncMock(return_value={'access_token':'fixture-access'});
         info: any = AsyncMock(return_value=SSOUserInfo(email='one@example.test',external_id='google-one',display_name='One'));
         with patch.dict(os.environ,{'STACK_AGENT_CONFIG':str(agent_config)}), patch.object(auth,'get_scale_config',return_value=config), patch.object(ext,'get_scale_config',return_value=config), patch.object(GoogleSSOProvider,'_exchange_code',new=exchange), patch.object(GoogleSSOProvider,'fetch_user',new=info) {

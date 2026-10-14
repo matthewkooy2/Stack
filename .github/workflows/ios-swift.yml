@@ -1,0 +1,130 @@
+name: Stack SwiftUI app
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      full_suite:
+        description: Run all existing native tests instead of the blocking selection
+        type: boolean
+        default: false
+      repeatability:
+        description: Run the selected suite three times sequentially without retries
+        type: boolean
+        default: false
+      listing_error_text:
+        description: Observed Safari error label for full-suite failure/reload acceptance
+        type: string
+        default: ''
+      release_only:
+        description: Compile unsigned Release only; no tests or native proof publication
+        type: boolean
+        default: false
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: ios-swift-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  native:
+    name: ${{ inputs.release_only && 'Unsigned Release compile (manual)' || 'Native core (Xcode 27)' }}
+    runs-on: xcode-27
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && (inputs.full_suite || inputs.repeatability) && 60 || 20 }}
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+      STACK_API_URL: https://stack.invalid
+      STACK_IOS_DESTINATION: platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0
+      STACK_LISTING_REQUIRE_ACCEPTANCE: '1'
+      STACK_LISTING_ERROR_TEXT: ${{ inputs.listing_error_text || '' }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Select affected checks
+        id: affected
+        run: python3 scripts/ci/affected-checks.py
+      - name: Report native checks not applicable
+        if: steps.affected.outputs.native == 'false'
+        run: echo 'No native runtime changes; no tests, build or release proof.'
+      - name: Report native upload not applicable
+        if: steps.affected.outputs.native_upload == 'false'
+        run: echo 'No automatic native upload changes in the complete event range.'
+      - name: Install XcodeGen
+        if: steps.affected.outputs.native != 'false'
+        run: brew install xcodegen
+      - name: Verify identical native tree
+        if: steps.affected.outputs.native != 'false'
+        id: reuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/ios-native-proof.py reuse
+      - uses: ./.github/actions/prepare-resume-review-fixture
+        if: steps.affected.outputs.native != 'false' && steps.reuse.outputs.reused_run == '0'
+      - name: Run selected native cases
+        if: steps.affected.outputs.native != 'false' && steps.reuse.outputs.reused_run == '0' && !inputs.release_only
+        env:
+          FULL_SUITE: ${{ inputs.full_suite || false }}
+          REPEATABILITY: ${{ inputs.repeatability || false }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/ios-listing-fixture-server.py --port 18765 > "$RUNNER_TEMP/listing-fixture.log" 2>&1 &
+          fixture_pid=$!
+          trap 'kill "$fixture_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:18765/health; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:18765/health
+          mode=core
+          [ "$FULL_SUITE" != true ] || mode=test
+          repeats=1
+          [ "$REPEATABILITY" != true ] || repeats=3
+          mkdir -p .jac/ci-ios-swift
+          for ((iteration=1; iteration<=repeats; iteration++)); do
+            export STACK_IOS_RESULT_NAME="test-$iteration"
+            started=$SECONDS
+            bash scripts/ci/ios-swift.sh "$mode" 2>&1 | tee ".jac/ci-ios-swift/test-$iteration.log"
+            python3 scripts/ci/ios-core.py ".jac/ci-ios-swift/test-$iteration.log"
+            echo "Native iteration $iteration: $((SECONDS - started)) seconds"
+          done
+      - name: Compile unsigned Release
+        if: steps.affected.outputs.native != 'false' && steps.reuse.outputs.reused_run == '0'
+        env:
+          STACK_IOS_CONFIGURATION: Release
+        run: bash scripts/ci/ios-swift.sh build
+      - name: Record native proof
+        if: steps.affected.outputs.native != 'false' && !inputs.release_only
+        env:
+          NATIVE_REUSED_RUN: ${{ steps.reuse.outputs.reused_run }}
+        run: python3 scripts/ci/ios-native-proof.py record
+      - name: Publish native proof
+        if: steps.affected.outputs.native != 'false' && !inputs.release_only
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-proof-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .jac/native-proof.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Export kept screenshots
+        if: always() && steps.affected.outputs.native != 'false'
+        run: |
+          shopt -s nullglob
+          bundles=(.jac/ci-ios-swift/*.xcresult)
+          if [ ${#bundles[@]} -gt 0 ]; then
+            python3 scripts/ci/ios-xcresult-attachments.py --output .jac/ci-ios-swift/evidence "${bundles[@]}"
+          fi
+      - name: Keep native diagnostics
+        if: always() && steps.affected.outputs.native != 'false'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: native-results-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .jac/ci-ios-swift/*.xcresult
+            .jac/ci-ios-swift/*.log
+            .jac/ci-ios-swift/evidence
+            ${{ runner.temp }}/listing-fixture.log
+          if-no-files-found: ignore
+          retention-days: 7

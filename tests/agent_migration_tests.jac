@@ -76,7 +76,7 @@ test "provider configuration and budget reservations preserve checkpoint" {
             for settings in [{}, {"provider": "codex-cli", "local_cli_owner": "alice", "local_cli_daily_limit": 3},
                 {"model": "test", "monthly_cents": 100, "user_monthly_cents": 50,
                  "input_cents_per_million": 100, "output_cents_per_million": 500}] {
-                path.write_text(json.dumps(settings));
+                path.write_text(json.dumps({**settings, "invite_only": False}));
                 expected=legacy("contracts").config();expected.pop("certified_adapters",None);actual=importlib.import_module("agents.contracts").config();
                 assert {k:v for (k,v) in actual.items() if k!="sandbox_available"}==expected;
                 assert actual["sandbox_available"] is False;

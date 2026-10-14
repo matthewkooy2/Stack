@@ -24,7 +24,7 @@ with entry:__main__ {
     args = parser.parse_args();
     with tempfile.TemporaryDirectory(prefix="stack-live-coaching-") as directory {
         path = Path(directory) / "provider.json";
-        path.write_text(json.dumps({}));
+        path.write_text(json.dumps({"invite_only":False}));
         with patch.dict(os.environ, {"STACK_AGENT_CONFIG": str(path), "STACK_AGENT_WORKER_TOKEN": "isolated-smoke-worker"}) {
             client = JacTestClient.from_file(str(Path("main.jac").resolve()), base_path=directory);
             try {
@@ -32,7 +32,7 @@ with entry:__main__ {
                 assert registered.ok, registered.text;
                 token = registered.data["token"];
                 owner = rpc(client, "agent_settings")["account_id"];
-                path.write_text(json.dumps({"provider": args.provider, "local_cli_owner": str(UUID(owner)), "local_cli_daily_limit": 1}));
+                path.write_text(json.dumps({"invite_only":False,"provider": args.provider, "local_cli_owner": str(UUID(owner)), "local_cli_daily_limit": 1}));
                 rpc(client, "agent_save_policy", {"policy": {"enabled": True, "expires_at": time.time() + 3600, "actions": ["model"]}});
                 session = rpc(client, "prep_create", {"problem_id": "project"});
                 data = session["data"];

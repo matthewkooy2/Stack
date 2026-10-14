@@ -77,7 +77,7 @@ def lever_job(client: any, token: str, discovery: str) -> str {
 
 test "agents never launch implicitly and outbound steps wait for review of the exact payload" {
     with tempfile.TemporaryDirectory(prefix="stack-experience-test-") as directory {
-        path=Path(directory)/"agents.json";path.write_text(json.dumps({}));
+        path=Path(directory)/"agents.json";path.write_text(json.dumps({"invite_only":False}));
         discovery_file=Path("storage/discovery/worker-token");discovery_file.parent.mkdir(parents=True,exist_ok=True);
         if not discovery_file.exists() { discovery_file.write_text(secrets.token_urlsafe(32)); }
         discovery=discovery_file.read_text().strip();
@@ -93,7 +93,7 @@ test "agents never launch implicitly and outbound steps wait for review of the e
                 assert [c for c in features["networking"]["checks"] if c["key"]=="rules" and c["action"]=="rules" and not c["ok"]];
                 assert features["code"]["alternative"] and "applications" not in features;
                 assert state["agents"]["active"]==0 and state["agents"]["attention"]==0;
-                path.write_text(json.dumps({"provider":"codex-cli","local_cli_owner":owner,"local_cli_daily_limit":20,"action_daily_limits":{"send_email":5}}));
+                path.write_text(json.dumps({"invite_only":False,"provider":"codex-cli","local_cli_owner":owner,"local_cli_daily_limit":20,"action_daily_limits":{"send_email":5}}));
                 limits={"send_email":5,"calendar_write":5};
                 policy={"enabled":True,"expires_at":time.time()+3600,"actions":["model","send_email","gmail_read","calendar_write"],"domains":["jobs.lever.co","example.com"],"daily_limits":limits,"followup_limit":1};
                 assert not rpc(client,"agent_save_policy",{"policy":policy}).get("error");
@@ -181,14 +181,14 @@ test "agents never launch implicitly and outbound steps wait for review of the e
 
 test "an uploaded LaTeX source is checked, compiled, and tailored without confirmed details" {
     with tempfile.TemporaryDirectory(prefix="stack-latex-test-") as directory {
-        path=Path(directory)/"agents.json";path.write_text(json.dumps({}));
+        path=Path(directory)/"agents.json";path.write_text(json.dumps({"invite_only":False}));
         discovery=Path("storage/discovery/worker-token").read_text().strip();
         with patch.dict(os.environ,{"STACK_AGENT_CONFIG":str(path),"STACK_AGENT_WORKER_TOKEN":WORKER}) {
             client=JacTestClient.from_file(str(Path("main.jac").resolve()),base_path=directory);resume_id="";
             try {
                 signed=client.register_user("latex-owner","Latex-test-password-1");assert signed.ok,signed.text;
                 token=signed.data["token"];owner=rpc(client,"bootstrap")["user_id"];
-                path.write_text(json.dumps({"provider":"codex-cli","local_cli_owner":owner,"local_cli_daily_limit":20}));
+                path.write_text(json.dumps({"invite_only":False,"provider":"codex-cli","local_cli_owner":owner,"local_cli_daily_limit":20}));
                 rpc(client,"agent_save_policy",{"policy":{"enabled":True,"expires_at":time.time()+3600,"actions":["model"]}});
                 # The job is saved before any resume exists, so it has no resume of its own.
                 job=lever_job(client,token,discovery);client.set_auth_token(token);

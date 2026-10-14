@@ -16,13 +16,13 @@ def rpc(client: JacTestClient, name: str, args: dict[str, any] | None = None) ->
 
 test "traces and feedback are persistent private and bound to reviewed output" {
     with tempfile.TemporaryDirectory(prefix="stack-traces-") as directory {
-        path=Path(directory)/"config.json";path.write_text("{}");
+        path=Path(directory)/"config.json";path.write_text('{"invite_only":false}');
         with patch.dict(os.environ,{"STACK_AGENT_CONFIG":str(path),"STACK_AGENT_WORKER_TOKEN":"trace-test-worker"}) {
             client=JacTestClient.from_file(str(Path("main.jac").resolve()),base_path=directory);
             try {
                 registered=client.register_user("trace-owner","Trace-password-123");assert registered.ok;
                 token=registered.data["token"];owner=rpc(client,"agent_settings")["account_id"];
-                path.write_text(json.dumps({"provider":"codex-cli","local_cli_owner":owner,"local_cli_daily_limit":10,"capture_agent_content":True}));
+                path.write_text(json.dumps({"invite_only":False,"provider":"codex-cli","local_cli_owner":owner,"local_cli_daily_limit":10,"capture_agent_content":True}));
                 rpc(client,"agent_save_policy",{"policy":{"enabled":True,"expires_at":time.time()+3600,"actions":["model"]}});
                 session=rpc(client,"prep_create",{"problem_id":"project"});
                 session=rpc(client,"prep_save",{"id":session["id"],"revision":session["revision"],"data":{**session["data"],"answer":"Synthetic project answer"}});
@@ -78,7 +78,7 @@ test "traces and feedback are persistent private and bound to reviewed output" {
                 client.clear_auth();assert client.post("/function/agent_traces",json={"id":run["id"]}).status_code==401;
                 client.set_auth_token(token);
                 # Capture is deployment opt-in; metadata remains useful without prompts.
-                path.write_text(json.dumps({"provider":"codex-cli","local_cli_owner":owner,"local_cli_daily_limit":10}));
+                path.write_text(json.dumps({"invite_only":False,"provider":"codex-cli","local_cli_owner":owner,"local_cli_daily_limit":10}));
                 next_session=rpc(client,"prep_create",{"problem_id":"disagreement"});
                 next_run=rpc(client,"agent_start",{"kind":"prep","target_id":next_session["id"]});
                 client.clear_auth();next_work=rpc(client,"agent_claim",{"token":"trace-test-worker"});

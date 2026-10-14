@@ -26,7 +26,7 @@ test "both stored workflow versions retire without losing results or allowing re
     with tempfile.TemporaryDirectory(prefix="stack-application-retirement-") as directory {
         previous=JacRuntime.peek_context();ctx=JacRuntime.create_j_context(None,base_path_dir=directory);JacRuntime.set_context(ctx);
         try {
-            root ++> a.AgentMemory(policy=default_policy());commit();ids=[];
+            root ++> a.AgentMemory(policy=default_policy(),admitted=True);commit();ids=[];
             assert "error" in a._agent_start("application","saved-job",{});
             for version in [1,2] {
                 for status in ["queued","running","review","blocked","needs_input","paused","failed","completed","cancelled"] {

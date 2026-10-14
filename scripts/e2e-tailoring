@@ -24,7 +24,7 @@ trap cleanup EXIT INT TERM
 "$PG_BIN/pg_ctl" -D "$WORK/pg" -l "$WORK/pg.log" -o "-p $PG_PORT -k '' -c listen_addresses=127.0.0.1 -c max_connections=200 -c max_pred_locks_per_transaction=1024" start >/dev/null
 "$PG_BIN/psql" -h 127.0.0.1 -p "$PG_PORT" -U jac -d postgres -qc "CREATE DATABASE stack_e2e"
 
-echo '{}' > "$WORK/agents.json"
+echo '{"invite_only":false}' > "$WORK/agents.json"
 export JAC_DB_URL="postgresql://jac@127.0.0.1:$PG_PORT/stack_e2e"
 export STACK_AGENT_CONFIG="$WORK/agents.json" STACK_E2E_AGENT_CONFIG="$WORK/agents.json"
 export STACK_AGENT_WORKER_TOKEN=$(openssl rand -hex 24)

@@ -22,7 +22,7 @@ class ResumeProcessing(unittest.TestCase):
         scratch.mkdir(parents=True, exist_ok=True)
         self.directory = tempfile.TemporaryDirectory(dir=scratch)
         config = Path(self.directory.name) / 'config.json'
-        config.write_text('{}')
+        config.write_text('{"invite_only":false}')
         self.environment = patch.dict(os.environ, {'STACK_AGENT_CONFIG': str(config), 'STACK_AGENT_WORKER_TOKEN': TOKEN})
         self.environment.start()
         self.client = JacTestClient.from_file(str(ROOT / 'main.jac'), base_path=self.directory.name)

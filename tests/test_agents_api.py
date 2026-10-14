@@ -104,7 +104,7 @@ class AgentAPI(unittest.TestCase):
         path=Path(os.environ['STACK_TEST_AGENT_CONFIG']);before=path.read_text()
         try:
             baseline=sum(u['cents'] for u in self.worker_call('agent_report')['usage'] if u['key']=='cost:'+time.strftime('%Y-%m',time.gmtime()))
-            path.write_text(json.dumps({'monthly_cents':baseline+1,'user_monthly_cents':1,'model':'test-only', 'input_cents_per_million':1,'output_cents_per_million':1,'max_output_tokens':256}))
+            path.write_text(json.dumps({'invite_only':False,'monthly_cents':baseline+1,'user_monthly_cents':1,'model':'test-only', 'input_cents_per_million':1,'output_cents_per_million':1,'max_output_tokens':256}))
             runs=[]
             for token in (self.a,self.b):
                 rpc(token,'agent_save_policy',policy={'enabled':True,'expires_at':time.time()+3600,'actions':['model']})

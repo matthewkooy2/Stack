@@ -66,13 +66,13 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
     (step, context, artifacts) = (work['step'], work['context'], work['artifacts']);
     auth = {k: work[k] for k in ('id', 'owner', 'lease')};
     auth['token'] = token;
-    if step == 'linkedin_scan' { return browser_call(step, work); }
+    if step in ['linkedin_scan','browser_autofill'] { return browser_call(step, work); }
     if (step == 'research') {
         import from agents.research { contact_source }
         return {'artifact': contact_source(context['contact'])};
     }
     if (step in ('fit', 'tailor', 'draft', 'coach', 'profile', 'linkedin_review', 'story', 'interview_turn', 'interview_coach')) {
-        c = config();
+        c = config(work.get("model_selection", ""));
         if (work.get('provider_config_hash') != digest(c)) {
             return {
                 'needs_input': True,

@@ -130,6 +130,27 @@ class Journey:
         return current
 
 class InterviewAcceptance(unittest.TestCase):
+    def test_model_selection_persists_isolates_and_new_runs_keep_choice(self):
+        with tempfile.TemporaryDirectory() as directory,fixture_model() as (url,state):
+            journey=Journey(directory,url)
+            try:
+                saved=journey.rpc('agent_save_model',{'selection':'local'})
+                self.assertEqual(saved['model_selection'],'local')
+                journey.client.reload();journey.client.set_auth_token(journey.tokens[0])
+                self.assertEqual(journey.rpc('agent_settings')['model_selection'],'local')
+                journey.client.set_auth_token(journey.tokens[1])
+                journey.rpc('agent_save_model',{'selection':'codex-cli'})
+                journey.client.set_auth_token(journey.tokens[0])
+                self.assertEqual(journey.rpc('agent_settings')['model_selection'],'local')
+                self.assertIn('error',journey.rpc('agent_save_model',{'selection':'openai'},True))
+                journey.answer(ANSWER1)
+                journey.rpc('agent_save_model',{'selection':'codex-cli'})
+                work,result=journey.work()
+                self.assertEqual(work['model_selection'],'local')
+                self.assertEqual(len(state['requests']),1)
+                self.assertTrue(result['artifact']['text'])
+            finally: journey.close()
+
     def test_complete_persisted_worker_journey_and_account_isolation(self):
         with tempfile.TemporaryDirectory() as directory,fixture_model() as (url,state):
             journey=Journey(directory,url)

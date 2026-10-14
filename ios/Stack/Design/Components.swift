@@ -40,6 +40,7 @@ enum Glyph {
         case "refresh": return "arrow.clockwise"
         case "star": return "star"
         case "trash": return "trash"
+        case "details": return "info.circle"
         default: return "circle"
         }
     }
@@ -226,6 +227,7 @@ struct Chip: View {
             .animation(Motion.fadeAnimation, value: selected)
         if let action {
             Button(action: action) { chip }.buttonStyle(.tap(scale: 0.95, dim: 1)).accessibilityLabel(label)
+                .accessibilityAddTraits(selected ? .isSelected : [])
         } else {
             chip
         }

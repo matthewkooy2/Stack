@@ -8,14 +8,11 @@ struct JobsView: View {
     @Environment(\.scenePhase) private var scenePhase
     var onProfile: () -> Void
 
-    @State var jobs: [Job] = []
-    @State var loaded = false
-    @State var loadError = ""
-    @State private var nextCursor = ""
-    @State private var loading = false
+    @State private var feed = JobDeckFeed()
     @State var drag: CGSize = .zero
     @State var hidden: Set<String> = []
     @State var detail: Job?
+    @State var listing: JobListing?
     @State var search = JobSearch()
     @State var sheet: JobSheet?
     @State var started = false
@@ -27,7 +24,7 @@ struct JobsView: View {
 
     private var deck: [Job] {
         let decided = store.account.decidedJobIDs
-        return jobs.filter { !decided.contains($0.id) && !hidden.contains($0.id) }
+        return feed.jobs.filter { !decided.contains($0.id) && !hidden.contains($0.id) }
     }
 
     var body: some View {
@@ -35,7 +32,15 @@ struct JobsView: View {
             ScreenHeader(title: "Jobs", subtitle: deck.isEmpty ? "" : "\(deck.count) to review", onProfile: onProfile)
                 .padding(.horizontal, Spacing.page)
                 .reveal(0)
-            JobSearchBar(search: search, sheet: $sheet, onUseProfile: { Task { await resetSearch() } })
+            JobSearchBar(search: search, sheet: $sheet, disabled: feed.busy,
+                         onChange: { query, filters in
+                             let event = reserveChange()
+                             Task { await applySearch(event, query: query, filters: filters) }
+                         },
+                         onReset: {
+                             let event = reserveChange()
+                             Task { await resetSearch(event) }
+                         })
             if let pending = pendingDecision {
                 HStack {
                     Text(pending.save ? "Saved \(pending.job.title)" : "Passed \(pending.job.title)")
@@ -44,9 +49,9 @@ struct JobsView: View {
                     Chip(label: "Undo") { undoDecision() }
                 }.padding(.horizontal, Spacing.page)
             }
-            if !loadError.isEmpty || !banner.isEmpty || !search.notices.isEmpty {
+            if !feed.loadError.isEmpty || !banner.isEmpty || !search.notices.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    MessageLine(text: loadError).fadeSwitch(!loadError.isEmpty && deck.first != nil)
+                    MessageLine(text: feed.loadError).fadeSwitch(!feed.loadError.isEmpty && deck.first != nil)
                     MessageLine(text: banner, isError: false).fadeSwitch(!banner.isEmpty)
                     ForEach(search.notices, id: \.self) { MessageLine(text: $0) }
                 }
@@ -58,16 +63,35 @@ struct JobsView: View {
         .padding(.top, 8)
         .task { await start() }
         .task(id: importID) { await watchImport() }
-        .onDisappear { commitDecision() }
+        .onDisappear {
+            // A full-screen cover reports the screen underneath as disappeared. It is still the same visit:
+            // keep the pending Undo and the paging in flight until the browser or sheet closes.
+            guard !JobsLifecycle.isCovered(listing: listing, detail: detail, sheet: sheet) else { return }
+            commitDecision()
+            feed.cancel()
+        }
+        .onChange(of: listing) { old, new in
+            // Paging that stopped short while the browser was open picks up again.
+            guard old != nil, new == nil, feed.loaded, !feed.nextCursor.isEmpty, !feed.busy,
+                  deck.count < JobDeckFeed.targetDeck else { return }
+            Task { await load(refresh: false, more: true) }
+        }
+        .onChange(of: store.sessionGeneration) { _, _ in resetForSession() }
+        .onChange(of: store.phase) { _, phase in if phase != .ready { resetForSession() } }
         .onChange(of: scenePhase) { _, phase in if phase != .active { commitDecision() } }
         .onReceive(NotificationCenter.default.publisher(for: .stackProfileSaved)) { _ in
-            Task { await load(refresh: false) }
+            let event = reserveChange()
+            Task { await profileSaved(event) }
         }
         .sheet(item: $detail) { job in JobDetailView(job: job).environment(store) }
+        .jobListingBrowser(item: $listing)
         .sheet(item: $sheet) { value in
             switch value {
             case .filters:
-                JobFiltersSheet(search: search) { query, filters in await applySearch(query: query, filters: filters) }
+                JobFiltersSheet(search: search) { query, filters in
+                    let event = reserveChange()
+                    return { await applySearch(event, query: query, filters: filters) }
+                }
                     .environment(store)
             case .timeline:
                 JobTimelineSheet(graduation: store.account.graduationMonth, availableFrom: store.account.availableFrom) {
@@ -90,21 +114,33 @@ struct JobsView: View {
 
     @ViewBuilder
     private var content: some View {
-        if !loaded {
+        if !feed.loaded {
             VStack { ProgressView().tint(Palette.muted) }.frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let top = deck.first {
             VStack(spacing: 20) {
                 ZStack {
                     ForEach(Array(deck.prefix(3).enumerated().reversed()), id: \.element.id) { offset, job in
+                        let canOpenListing = JobListing(job: job) != nil
                         JobCard(job: job)
                             .scaleEffect(1 - CGFloat(offset) * 0.04)
                             .offset(y: CGFloat(offset) * 12)
                             .offset(offset == 0 ? drag : .zero)
                             .rotationEffect(.degrees(offset == 0 ? Double(drag.width / 18) : 0))
-                            .overlay(alignment: .topLeading) { if offset == 0 { stamp(for: drag.width) } }
+                            .overlay(alignment: .topLeading) {
+                                if offset == 0, drag.width != 0 { stamp(for: drag.width).accessibilityHidden(true) }
+                            }
                             .gesture(swipe(top), including: offset == 0 ? .all : .none)
-                            .onTapGesture { if offset == 0 { detail = job } }
+                            .onTapGesture { if offset == 0 { open(job) } }
+                            .accessibilityElement(children: .combine)
                             .accessibilityHidden(offset != 0)
+                            .accessibilityIdentifier("job-card-" + job.id)
+                            .accessibilityHint(canOpenListing ? "Opens the listing" : "Opens the job details")
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityActions {
+                                // A job without a safe link has no browser to open; its tap goes to details.
+                                if canOpenListing { Button("Open listing") { open(job) } }
+                                Button("Job details") { detail = job }
+                            }
                             .accessibilityAction(named: "Save") { decide(top, save: true) }
                             .accessibilityAction(named: "Pass") { decide(top, save: false) }
                     }
@@ -113,6 +149,7 @@ struct JobsView: View {
                 .frame(maxHeight: .infinity)
                 HStack(spacing: 18) {
                     roundButton(icon: "pass", label: "Pass") { decide(top, save: false) }
+                    roundButton(icon: "details", label: "Job details", size: 52) { detail = top }
                     roundButton(icon: "save", label: "Save", filled: true) { decide(top, save: true) }
                 }
                 .padding(.bottom, 12)
@@ -124,17 +161,18 @@ struct JobsView: View {
                     title: emptyTitle,
                     message: emptyMessage
                 )
-                if !nextCursor.isEmpty {
-                    StackButton(label: "Load more roles", icon: "refresh", disabled: loading) {
+                if search.missingGraduation {
+                    StackButton(label: "Set graduation", icon: "clock") { sheet = .timeline }
+                } else if !feed.nextCursor.isEmpty {
+                    StackButton(label: "Load more roles", icon: "refresh", disabled: feed.busy) {
                         Task { await load(refresh: false, more: true) }
                     }
-                }
-                HStack(spacing: Spacing.option) {
-                    StackButton(label: "Refresh jobs", icon: "refresh", kind: .secondary, disabled: loading) {
+                } else {
+                    StackButton(label: "Refresh jobs", icon: "refresh", disabled: feed.busy) {
                         Task { await load(refresh: true) }
                     }
-                    StackButton(label: "Import a job link", icon: "link", kind: .secondary) { sheet = .importLink }
                 }
+                StackButton(label: "Import a job link", kind: .secondary) { sheet = .importLink }
             }
             .padding(.horizontal, Spacing.page)
             Spacer()
@@ -142,29 +180,40 @@ struct JobsView: View {
     }
 
     private var emptyTitle: String {
-        if !loadError.isEmpty { return "Could not load roles" }
-        if !nextCursor.isEmpty { return "More roles to review" }
+        if !feed.loadError.isEmpty { return "Could not load roles" }
+        if search.missingGraduation { return "Add your graduation month" }
+        if !feed.nextCursor.isEmpty { return "More roles to review" }
         if search.filters["timeline"].string == "confirmed" { return "No confirmed timeline matches." }
         return "You are all caught up"
     }
 
     private var emptyMessage: String {
-        if !loadError.isEmpty { return loadError }
-        if !nextCursor.isEmpty { return "Continue to the next page of verified roles." }
+        if !feed.loadError.isEmpty { return feed.loadError }
+        if search.missingGraduation {
+            return "Add your graduation month so timelines can be confirmed, or relax the timeline in Filters."
+        }
+        if !feed.nextCursor.isEmpty { return "More verified roles are ready." }
         if search.filters["timeline"].string == "confirmed" {
-            return "Many listings lack a clear graduation window. Add your graduation date, or choose Hide timeline mismatches to include unclear listings."
+            return "Many listings do not state a graduation window. Relax the timeline in Filters to see them."
         }
         if !search.excluded.isEmpty {
             let reasons = search.excluded.prefix(4).map { "\($0["reason"].string) (\($0["count"].int))" }.joined(separator: ", ")
-            return "Hidden by your requirements: \(reasons). Mark some as nice to have in Filters or your profile to see them ranked lower."
+            return "Hidden by your requirements: \(reasons). Mark some as nice to have to see them ranked lower."
         }
-        return "New verified roles appear here as they are found. Try another role or location, or refresh after sources finish."
+        return "New verified roles appear here as they are found."
     }
 
-    private func roundButton(icon: String, label: String, filled: Bool = false, action: @escaping () -> Void) -> some View {
+    /// A tap reads the listing in the in-app browser; a job without a safe web link opens its details instead.
+    private func open(_ job: Job) {
+        guard listing == nil, detail == nil, leavingID == nil else { return }
+        if let next = JobListing(job: job) { listing = next } else { detail = job }
+    }
+
+    private func roundButton(icon: String, label: String, filled: Bool = false, size: CGFloat = 68,
+                             action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            GlyphView(name: icon, size: 26, color: filled ? Palette.onDark : Palette.icon)
-                .frame(width: 68, height: 68)
+            GlyphView(name: icon, size: size > 60 ? 26 : 22, color: filled ? Palette.onDark : Palette.icon)
+                .frame(width: size, height: size)
                 .background(filled ? Palette.dark : Palette.button, in: Circle())
         }
         .buttonStyle(.tap(scale: 0.92))
@@ -212,11 +261,19 @@ struct JobsView: View {
             pendingDecision = (job, save, generation)
             if scenePhase != .active { commitDecision(); return }
             undoTimer = Task {
-                do { try await Task.sleep(for: .milliseconds(2400)) } catch { return }
+                do { try await Task.sleep(for: undoWindow) } catch { return }
                 guard !Task.isCancelled else { return }
                 commitDecision()
             }
         }
+    }
+
+    /// How long Undo stays offered. UI tests lengthen it so a slow machine cannot expire it mid-assertion.
+    private var undoWindow: Duration {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--long-undo-window") { return .seconds(60) }
+        #endif
+        return .milliseconds(2400)
     }
 
     private func undoDecision() {
@@ -238,47 +295,65 @@ struct JobsView: View {
             guard pending.generation == store.sessionGeneration else { return }
             if !saved {
                 withAnimation(reduceMotion ? nil : Motion.release) { _ = hidden.remove(pending.job.id) }
-                loadError = store.error.isEmpty ? "This decision was not saved. Please try again." : store.error
+                feed.loadError = store.error.isEmpty ? "This decision was not saved. Please try again." : store.error
             }
         }
     }
 
     /// Applies the saved search (profile defaults plus its overrides) and queues collection once.
+    /// Coming back after the view was torn down only reloads when nothing was ever shown.
     private func start() async {
-        guard !started else { return }
+        if started {
+            if !feed.loaded { await load(refresh: false) }
+            return
+        }
         started = true
-        search.query = store.account.savedSearch["query"].string
-        search.filters = store.account.savedSearch["filters"]
-        if search.filters.isNull { search.filters = [:] }
+        search.adopt(saved: store.account.savedSearch)
         await load(refresh: true)
     }
 
-    private func applySearch(query: String, filters: JSON) async {
-        commitDecision()
-        do {
-            let stored = try await store.call("save_search", ["query": .string(query), "filters": filters])
-            search.query = stored["query"].string
-            search.filters = stored["filters"].isNull ? [:] : stored["filters"]
-            nextCursor = ""
-            jobs = []
-            hidden = []
-            sheet = nil
-            await load(refresh: true)
-        } catch { if !(error is CancellationError) { loadError = error.localizedDescription } }
+    /// Called synchronously from the user's event, so the place in line and the account it belongs to are both
+    /// fixed before any task starts. A task that begins after the session changed is rejected by the feed.
+    private func reserveChange() -> JobChangeEvent {
+        JobChangeEvent(ticket: feed.reserveChange(), generation: store.sessionGeneration)
     }
 
-    private func resetSearch() async {
-        guard !loading else { return }
+    /// Another account or a signed-out session must never keep paging or showing the previous deck.
+    private func resetForSession() {
+        feed.invalidate(clearing: true)
+        hidden = []
+    }
+
+    /// A profile edit may have cleared saved overrides (a changed role drops the query and any_role).
+    /// Paging stops at once; the account's refreshed saved search is adopted when the gate is free.
+    private func profileSaved(_ event: JobChangeEvent) async {
         commitDecision()
-        do {
-            try await store.call("reset_search")
-            search.query = ""
-            search.filters = [:]
-            nextCursor = ""
-            jobs = []
+        await feed.change(ticket: event.ticket, refresh: false, clearing: false, isCurrent: { isCurrent(event.generation) }, makeSource: { makeSource() },
+                          accepted: { search.adopt(saved: store.account.savedSearch) })
+    }
+
+    private func applySearch(_ event: JobChangeEvent, query: String, filters: JSON) async {
+        commitDecision()
+        var stored: JSON = .null
+        await feed.change(ticket: event.ticket, refresh: true, clearing: true, isCurrent: { isCurrent(event.generation) }, makeSource: { makeSource() },
+                          save: { stored = try await store.call("save_search", ["query": .string(query), "filters": filters]) },
+                          accepted: {
+            search.adopt(saved: stored)
+            store.account.raw["saved_search"] = ["query": .string(search.query), "filters": search.filters]
             hidden = []
-            await load(refresh: true)
-        } catch { if !(error is CancellationError) { loadError = error.localizedDescription } }
+            sheet = nil
+        })
+    }
+
+    private func resetSearch(_ event: JobChangeEvent) async {
+        commitDecision()
+        await feed.change(ticket: event.ticket, refresh: true, clearing: true, isCurrent: { isCurrent(event.generation) }, makeSource: { makeSource() },
+                          save: { try await store.call("reset_search") },
+                          accepted: {
+            search.adopt(saved: [:])
+            store.account.raw["saved_search"] = ["query": "", "filters": [:]]
+            hidden = []
+        })
     }
 
     /// Follows an imported link until the server has verified it or given up.
@@ -298,7 +373,7 @@ struct JobsView: View {
                     return
                 }
             } catch {
-                if !(error is CancellationError) { loadError = error.localizedDescription }
+                if !(error is CancellationError) { feed.loadError = error.localizedDescription }
                 importID = ""
                 return
             }
@@ -306,39 +381,36 @@ struct JobsView: View {
         }
     }
 
-    func load(refresh: Bool, more: Bool = false) async {
-        guard !loading, store.phase == .ready else { return }
-        let generation = store.sessionGeneration
-        loading = true
-        loadError = ""
-        var pages = 0
-        defer { loading = false }
-        repeat {
-            pages += 1
-            let continuing = more || pages > 1
-            do {
-                let result = try await store.api.call("search_jobs", [
-                    "query": .string(search.query),
-                    "filters": search.filters,
-                    "refresh": .bool(refresh && pages == 1),
-                    "cursor": .string(continuing ? nextCursor : ""),
-                ])
-                guard generation == store.sessionGeneration, store.phase == .ready, !Task.isCancelled else { return }
-                let incoming = result["jobs"].array.map(Job.init)
-                withAnimation(reduceMotion ? nil : Motion.fadeAnimation) {
-                    jobs = continuing ? jobs + incoming.filter { incomingJob in !jobs.contains { $0.id == incomingJob.id } } : incoming
-                }
-                nextCursor = result["next_cursor"].string
-                search.apply(result)
-            } catch is CancellationError { return }
-            catch {
-                if generation == store.sessionGeneration { loadError = error.localizedDescription }
-                break
-            }
-            // Keep a few cards ahead without waiting for the person to ask for the next page.
-        } while !nextCursor.isEmpty && deck.count < 5 && pages < 6
-        loaded = true
+    private func isCurrent(_ generation: Int) -> Bool {
+        generation == store.sessionGeneration && store.phase == .ready
     }
+
+    /// Captures the search as it is now, so a page can never be requested with filters that were replaced mid-flight.
+    private func makeSource() -> JobDeckSource {
+        let generation = store.sessionGeneration
+        let query = search.query, filters = search.filters
+        return JobDeckSource(
+            fetch: { [store] cursor, refresh in
+                try await store.api.call("search_jobs", [
+                    "query": .string(query), "filters": filters, "refresh": .bool(refresh), "cursor": .string(cursor),
+                ])
+            },
+            deckCount: { deck.count },
+            isCurrent: { isCurrent(generation) },
+            received: { search.apply($0) },
+            animate: { change in withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { change() } })
+    }
+
+    func load(refresh: Bool, more: Bool = false) async {
+        guard store.phase == .ready else { return }
+        await feed.load(refresh: refresh, more: more, source: makeSource())
+    }
+}
+
+/// A search or profile change as the person made it: its queue ticket and the session it belongs to.
+struct JobChangeEvent {
+    let ticket: Int
+    let generation: Int
 }
 
 @MainActor
@@ -366,12 +438,13 @@ struct JobCard: View {
             if !job.fit.isEmpty || !job.reason.isEmpty {
                 Text(job.fit.isEmpty ? job.reason : job.fit)
                     .font(Typeface.body).foregroundStyle(Palette.text)
+                    .lineLimit(3)
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Palette.surfaceRaised, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             if !job.tags.isEmpty {
-                FlowLayout(spacing: 8) { ForEach(job.tags.prefix(6), id: \.self) { Chip(label: $0) } }
+                FlowLayout(spacing: 8) { ForEach(job.tags.prefix(3), id: \.self) { Chip(label: $0) } }
             }
             Spacer(minLength: 0)
         }
@@ -392,7 +465,7 @@ struct JobDetailView: View {
     @State private var loading = true
     private var displayed: Job { fullJob ?? job }
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.openURL) private var openURL
+    @State private var listing: JobListing?
 
     var body: some View {
         let raw = displayed.raw
@@ -412,58 +485,86 @@ struct JobDetailView: View {
                 if !loadError.isEmpty {
                     StackButton(label: "Retry details", icon: "refresh") { Task { await loadDetails() } }
                 }
-                if let url = URL(string: displayed.url), !displayed.url.isEmpty {
-                    StackButton(label: "Open application page", icon: "link", kind: .dark) { openURL(url) }.reveal(2)
+                if let next = JobListing(job: displayed) {
+                    StackButton(label: "Open application page", icon: "link", kind: .dark) { listing = next }.reveal(2)
+                } else if !displayed.url.isBlank {
+                    Text("This listing's link can't be opened safely in the app.")
+                        .font(Typeface.caption).foregroundStyle(Palette.muted)
                 }
                 if !match.object.isEmpty { matchSection(match) }
-                if !raw["timeline"].object.isEmpty { timelineSection(raw["timeline"]) }
+                if !match["confirm"].strings.isEmpty { confirmSection(match["confirm"].strings) }
+                if !raw["timeline"].object.isEmpty {
+                    DisclosureSection(raw["timeline"]["label"].string.isEmpty ? "Timeline" : raw["timeline"]["label"].string) {
+                        timelineSection(raw["timeline"])
+                    }
+                }
                 if !displayed.requirements.isEmpty {
-                    Card {
-                        Text("What they look for").font(Typeface.section).foregroundStyle(Palette.ink)
-                        ForEach(displayed.requirements, id: \.self) { item in
-                            HStack(alignment: .top, spacing: 10) {
-                                GlyphView(name: "check", size: 14, color: Palette.muted).padding(.top, 5)
-                                Text(item).font(Typeface.body).foregroundStyle(Palette.text)
+                    DisclosureSection("What they look for") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(displayed.requirements, id: \.self) { item in
+                                HStack(alignment: .top, spacing: 10) {
+                                    GlyphView(name: "check", size: 14, color: Palette.muted).padding(.top, 5)
+                                    Text(item).font(Typeface.body).foregroundStyle(Palette.text)
+                                }
                             }
                         }
                     }
-                    .reveal(3)
                 }
+                fitSection
                 descriptionSection(raw)
                 attribution(raw)
             }
         }
         .task(id: job.id) { await loadDetails() }
+        .jobListingBrowser(item: $listing)
     }
 
     private func matchSection(_ match: JSON) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SectionLabel(text: "How this matches you")
-            if !match["label"].string.isEmpty {
-                Text(match["label"].string).font(Typeface.section).foregroundStyle(Palette.ink)
+        DisclosureSection(match["label"].string.isEmpty ? "How this matches you" : match["label"].string,
+                          detail: match["label"].string.isEmpty ? "" : "How this matches you") {
+            VStack(alignment: .leading, spacing: 10) {
+                ForEach(Array(match["checks"].array.enumerated()), id: \.offset) { _, check in
+                    HStack(alignment: .top, spacing: 10) {
+                        Text(mark(check["status"].string)).font(Typeface.body).foregroundStyle(Palette.muted).frame(width: 18)
+                        Text("\(check["label"].string)\(check["required"].bool ? "" : " (nice to have)"): \(check["detail"].string)")
+                            .font(Typeface.body).foregroundStyle(Palette.text)
+                    }
+                }
+                Text("✓ confirmed · ? unclear · ~ caveat · ✕ conflicts with a nice-to-have")
+                    .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
-            ForEach(Array(match["checks"].array.enumerated()), id: \.offset) { _, check in
-                HStack(alignment: .top, spacing: 10) {
-                    Text(mark(check["status"].string)).font(Typeface.body).foregroundStyle(Palette.muted).frame(width: 18)
-                    Text("\(check["label"].string)\(check["required"].bool ? "" : " (nice to have)"): \(check["detail"].string)")
-                        .font(Typeface.body).foregroundStyle(Palette.text)
+        }
+    }
+
+    /// The deck card clamps the fit note and tags; the full text lives here, on demand.
+    @ViewBuilder
+    private var fitSection: some View {
+        let fit = displayed.fit.isBlank ? displayed.reason : displayed.fit
+        if !fit.isBlank || !displayed.tags.isEmpty {
+            DisclosureSection("Fit and tags") {
+                VStack(alignment: .leading, spacing: 12) {
+                    if !fit.isBlank { Text(fit).font(Typeface.body).foregroundStyle(Palette.text) }
+                    if !displayed.tags.isEmpty {
+                        FlowLayout(spacing: 8) { ForEach(displayed.tags, id: \.self) { Chip(label: $0) } }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
             }
-            Text("✓ confirmed · ? not stated or unclear · ~ fits with a caveat · ✕ conflicts with a nice-to-have")
-                .font(Typeface.caption).foregroundStyle(Palette.muted)
-            if !match["confirm"].strings.isEmpty {
-                SectionLabel(text: "Confirm before applying")
-                ForEach(match["confirm"].strings, id: \.self) { Text("• \($0)").font(Typeface.body).foregroundStyle(Palette.text) }
-            }
+        }
+    }
+
+    private func confirmSection(_ items: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Confirm before applying").font(Typeface.caption.weight(.semibold)).foregroundStyle(Palette.muted)
+            ForEach(items, id: \.self) { Text("• \($0)").font(Typeface.body).foregroundStyle(Palette.text) }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func timelineSection(_ timeline: JSON) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(timeline["label"].string).font(Typeface.section).foregroundStyle(Palette.ink)
             Text(timeline["reason"].string).font(Typeface.body).foregroundStyle(Palette.text)
-            Text("Timeline check only · Not a guarantee of eligibility. Based on the listing text below.")
+            Text("Timeline check only, not a guarantee of eligibility.")
                 .font(Typeface.caption).foregroundStyle(Palette.muted)
             ForEach(Array(timeline["evidence"].array.enumerated()), id: \.offset) { _, item in
                 Card(spacing: 6) {
@@ -481,25 +582,32 @@ struct JobDetailView: View {
         let blocks = [raw["description"].string, raw["qualifications"].string, raw["eligibility"].string, raw["remote_eligibility"].string]
             .filter { !$0.isBlank }
         if !blocks.isEmpty || !displayed.summary.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(snippet ? "Description excerpt — read the full listing at the source." : "Employer listing")
-                    .font(Typeface.caption).foregroundStyle(Palette.muted)
-                ForEach(blocks.isEmpty ? [displayed.summary] : blocks, id: \.self) {
-                    Text($0).font(Typeface.body).foregroundStyle(Palette.text)
+            DisclosureSection(snippet ? "Listing excerpt" : "Employer listing") {
+                VStack(alignment: .leading, spacing: 12) {
+                    if snippet {
+                        Text("Read the full listing at the source.").font(Typeface.caption).foregroundStyle(Palette.muted)
+                    }
+                    ForEach(blocks.isEmpty ? [displayed.summary] : blocks, id: \.self) {
+                        Text($0).font(Typeface.body).foregroundStyle(Palette.text)
+                    }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
     @ViewBuilder
     private func attribution(_ raw: JSON) -> some View {
         let a = raw["attribution"]
-        if a["label"].string == "Jobs by Adzuna", let url = URL(string: a["url"].string) {
-            Button { openURL(url) } label: {
-                Text("Jobs by Adzuna").font(Typeface.caption).foregroundStyle(Palette.dark).underline()
+        if a["label"].string == "Jobs by Adzuna" {
+            // The attribution is always shown; it is only a link when the URL passes the same http(s) check.
+            if let next = JobListing(job: displayed, link: a["url"].string) {
+                Button { listing = next } label: {
+                    Text("Jobs by Adzuna").font(Typeface.caption).foregroundStyle(Palette.dark).underline()
+                }
+                .accessibilityLabel("Jobs by Adzuna")
+            } else {
+                Text("Jobs by Adzuna").font(Typeface.caption).foregroundStyle(Palette.muted)
             }
-            .accessibilityLabel("Jobs by Adzuna")
         } else if !raw["source_name"].string.isEmpty {
             let checked = raw["checked_at"].double
             Text("Source: \(raw["source_name"].string)\(checked > 0 ? " · Checked \(shortDate(checked))" : "")")

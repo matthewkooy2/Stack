@@ -16,6 +16,9 @@ settings:
     # Opt in only after the reviewed App ID/provisioning and backend activation gates.
     STACK_APPLE_SIGN_IN_ENABLED: "NO"
     STACK_APPLE_ENTITLEMENTS: ""
+    STACK_LISTING_FIXTURE_PORT: "18765"
+    STACK_LISTING_REQUIRE_ACCEPTANCE: "0"
+    STACK_LISTING_ERROR_TEXT: ""
 targets:
   Stack:
     type: application
@@ -69,6 +72,11 @@ schemes:
       targets:
         Stack: all
     test:
+      macroExpansion: Stack
+      environmentVariables:
+        STACK_LISTING_FIXTURE_PORT: $(STACK_LISTING_FIXTURE_PORT)
+        STACK_LISTING_REQUIRE_ACCEPTANCE: $(STACK_LISTING_REQUIRE_ACCEPTANCE)
+        STACK_LISTING_ERROR_TEXT: $(STACK_LISTING_ERROR_TEXT)
       targets:
         - StackTests
         - StackUITests

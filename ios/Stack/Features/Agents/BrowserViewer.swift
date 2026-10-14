@@ -284,6 +284,15 @@ struct RemoteBrowserView: View {
                 screen
                 MessageLine(text: model.error).fadeSwitch(!model.error.isEmpty)
                 if model.owned {
+                    if task["kind"].string == "autofill" {
+                        ForEach(Array(task["artifacts"]["browser_autofill"]["fields"].array.filter { !$0["upload_token"].string.isEmpty }.enumerated()), id: \.offset) { _, field in
+                            StackButton(label: "Attach selected resume: " + task["resume_name"].string,
+                                        disabled: !model.canInput || task["resume_id"].string.isEmpty) {
+                                flush()
+                                model.send(["type":"upload_resume", "upload_token":field["upload_token"]])
+                            }
+                        }
+                    }
                     Text("Tap a field to focus it, type below, and send. Swipe the page to scroll. Closing this view leaves the agent paused.")
                         .font(Typeface.caption).foregroundStyle(Palette.muted)
                     HStack(spacing: 8) {

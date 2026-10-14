@@ -10,8 +10,14 @@ struct StackApp: App {
     var body: some Scene {
         WindowGroup {
             #if DEBUG
-            if ProcessInfo.processInfo.arguments.contains("--local-draft-ui-test") {
+            if ProcessInfo.processInfo.arguments.contains("--microphone-ui-fixture") {
+                MicrophoneUITestScene()
+            } else if ProcessInfo.processInfo.arguments.contains("--local-draft-ui-test") {
                 LocalDraftUITestScene()
+            } else if ProcessInfo.processInfo.arguments.contains("--job-filters-ui-test") {
+                JobFiltersUITestScene()
+            } else if ProcessInfo.processInfo.arguments.contains(where: { $0.hasPrefix("--screen-flow=") }) {
+                ScreenFlowUITestScene()
             } else {
                 mainScene
             }

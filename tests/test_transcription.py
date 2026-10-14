@@ -148,6 +148,59 @@ class Jobs(unittest.TestCase):
         with self.assertRaises(ValueError): self.store.upload('a','../escape','YWJj')
         with self.assertRaises(ValueError): self.store.transfer('owner-a',self.store.list('owner-a')[0]['id'],float('nan'))
 
+    def test_phone_original_is_completed_durable_and_never_claimed(self):
+        args = ('owner-a', 'phone-recording-000001', base64.b64encode(self.raw).decode(), 'I tested retries.')
+        accepted = self.store.upload(*args)
+        self.assertEqual((accepted['status'], accepted['model'], accepted['revision']),
+                         ('completed', 'Apple SpeechTranscriber', 1))
+        self.assertEqual(self.store.claim(), {'idle': True})
+        edited = self.store.action('owner-a', accepted['id'], 'save', 'I tested safe retries.', 1)
+        reopened = Store(self.directory.name).upload(*args)
+        self.assertEqual(reopened['id'], accepted['id'])
+        self.assertEqual(reopened['original_transcript'], 'I tested retries.')
+        self.assertEqual(reopened['transcript'], edited['transcript'])
+        self.assertEqual(base64.b64decode(self.store.audio('owner-a', accepted['id'])['content']), self.raw)
+        with self.assertRaisesRegex(ValueError, 'another transcription'):
+            self.store.upload(*args[:3], 'A replacement original.')
+        with self.assertRaisesRegex(ValueError, 'another device'):
+            self.store.action('owner-a', accepted['id'], 'save', 'Stale', 1)
+        with self.assertRaises(ValueError): self.store.action('owner-b', accepted['id'], 'save', 'Other owner', 2)
+        with self.assertRaises(ValueError): self.store.action('owner-a', accepted['id'], 'retry')
+        self.store.delete_owner('owner-a')
+        with self.assertRaises(ValueError): self.store.upload(*args)
+
+    def test_phone_upload_preserves_audio_checks_and_quotas(self):
+        for i in range(3): self.upload(ident='queued-recording-00000'+str(i))
+        # A completed phone transcript consumes storage, but no pending queue slot.
+        args = ('owner-a', 'phone-recording-000001', base64.b64encode(self.raw).decode())
+        self.assertEqual(self.store.upload(*args, 'Already recognized.')['status'], 'completed')
+        for bad in (None, 42, 'x' * 30001):
+            with self.subTest(text_type=type(bad).__name__):
+                with self.assertRaises(ValueError): self.store.upload(*args, bad)
+        for raw in (wav(value=0), wav(rate=8000), self.raw[:-20], wav(seconds=301)):
+            with self.subTest(size=len(raw)):
+                with self.assertRaises(ValueError):
+                    self.store.upload('owner-a', 'invalid-phone-000001', base64.b64encode(raw).decode(), 'Text cannot bypass WAV checks.')
+        for i in range(46):
+            self.store.upload('owner-a', 'phone-quota-'+str(i).zfill(8), args[2], 'Completed.')
+        with self.assertRaisesRegex(ValueError, 'storage is full'):
+            self.store.upload('owner-a', 'phone-quota-overflow', args[2], 'Completed.')
+
+    def test_phone_replay_is_concurrent_and_cannot_replace_queued_or_active_jobs(self):
+        args = ('owner-a', 'phone-recording-000001', base64.b64encode(self.raw).decode(), 'Original.')
+        self.store.upload(*args)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda _: self.store.upload(*args), range(2)))
+        self.assertEqual(results[0], results[1])
+        queued = self.upload()
+        with self.assertRaisesRegex(ValueError, 'another transcription'):
+            self.store.upload('owner-a', 'recording-000001', args[2], 'Late phone original.')
+        work = self.store.claim()
+        with self.assertRaisesRegex(ValueError, 'another transcription'):
+            self.store.upload('owner-a', 'recording-000001', args[2], 'Late phone original.')
+        self.store.finish(**self.auth(work), result={'text': 'PC original.'})
+        self.assertEqual(self.store.get('owner-a', queued['id'])['original_transcript'], 'PC original.')
+
 
 class Child(unittest.TestCase):
     def setUp(self):

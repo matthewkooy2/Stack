@@ -10,10 +10,6 @@ INSTRUCTIONS = {
     'interview_coach': 'Give useful coaching on this reviewed interview for the saved role. '
         'Describe strengths, improvements, and next practice. Respond in plain text.'}
 
-def local_qwen(configuration):
-    if configuration.get('provider') not in ('ollama', 'lmstudio') or 'qwen' not in configuration.get('model', '').lower():
-        raise ValueError('This interview requires a locally configured Qwen model. Answers remain saved; retry after local setup. No cloud fallback is used.')
-
 def create(job, facts, application_id, resume_id) -> dict[str, Any]:
     description = str(job.get('description', '')).strip()
     if not description or len(description) > 12000:

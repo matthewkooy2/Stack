@@ -106,7 +106,7 @@ def body(template: any, values: any) -> any {
                 rows += [
                     '    \\resumeSubheading',
                     ('      {' + escape(school) + '}{' + escape(v((p + 'date'))) + '}'),
-                    ('      {' + escape(degree) + '}{}')
+                    ('      {' + escape(degree) + '}{' + escape(v((p + 'location'))) + '}')
                 ];
             } elif (section == 'workExperiences') {
                 (title_, company) = (v((p + 'jobTitle')), v((p + 'company')));
@@ -122,7 +122,7 @@ def body(template: any, values: any) -> any {
                         + escape(v((p + 'date')))
                         + '}'
                     ),
-                    ('      {' + escape(company if title_ else '') + '}{}')
+                    ('      {' + escape(company if title_ else '') + '}{' + escape(v((p + 'location'))) + '}')
                 ];
             } else {
                 project = v((p + 'project'));

@@ -11,8 +11,10 @@ import from uuid { UUID }
 with entry {
     VERSION = 1;
     CLI_PROVIDERS = {'codex-cli', 'claude-cli'};
-    PROVIDERS = CLI_PROVIDERS | {'openai', 'meta'};
+    LOCAL_PROVIDERS = {'ollama', 'lmstudio'};
+    PROVIDERS = CLI_PROVIDERS | LOCAL_PROVIDERS | {'openai', 'meta'};
     STEPS = {
+        'autofill': ['browser_autofill'],
         'linkedin': ['linkedin_scan', 'linkedin_review'],
         'live': ['interview'],
         'jobs': ['fit'],
@@ -20,11 +22,14 @@ with entry {
         'network': ['research', 'draft', 'send'],
         'profile': ['profile'],
         'prep': ['coach'],
+        'stories': ['story'],
+        'interview_turn': ['interview_turn'],
+        'interview_coach': ['interview_coach'],
         'sync': ['sync'],
         'code': ['execute'],
         'calendar': ['calendar']
     };
-    PAID = {'fit', 'tailor', 'draft', 'coach', 'profile', 'linkedin_review'};
+    PAID = {'fit', 'tailor', 'draft', 'coach', 'profile', 'linkedin_review', 'story', 'interview_turn', 'interview_coach'};
     EXTERNAL = {
         'send': 'send_email',
         'calendar': 'calendar_write'
@@ -50,9 +55,21 @@ def digest(value: any) -> str {
     ).hexdigest();
 }
 """Deployment config is private, never accepted from a mobile client."""
-def config() -> dict[(str, any)] {
+def config(selection: str = "") -> dict[(str, any)] {
     path = Path(os.environ.get('STACK_AGENT_CONFIG', 'storage/agents/config.json'));
     raw = json.loads(path.read_text()) if path.exists() else {};
+    if selection not in ('', 'codex-cli', 'local') { raise ValueError('Choose Codex CLI or Local model.'); }
+    if selection {
+        chosen = raw.get('model_options', {}).get(selection, {});
+        if selection == 'codex-cli' {
+            raw = {**raw, 'model': raw.get('model', '') if raw.get('provider') == 'codex-cli' else '', **chosen, 'provider': 'codex-cli'};
+        } else {
+            if not chosen and raw.get('provider') not in LOCAL_PROVIDERS {
+                raw = {**raw, 'provider': 'ollama', 'model': '', 'local_model_url': ''};
+            } else { raw = {**raw, **chosen}; }
+            if raw.get('provider') not in LOCAL_PROVIDERS { raw = {**raw, 'provider': 'ollama', 'model': '', 'local_model_url': ''}; }
+        }
+    }
     return {
         'provider': str(raw.get('provider', 'openai')),
         'local_cli_owner': str(raw.get('local_cli_owner', '')),
@@ -60,6 +77,9 @@ def config() -> dict[(str, any)] {
         'monthly_cents': int(raw.get('monthly_cents', 0)),
         'user_monthly_cents': int(raw.get('user_monthly_cents', 0)),
         'model': str(raw.get('model', '')),
+        'local_model_url': str(raw.get('local_model_url', '')),
+        'local_model_timeout': min(90, max(5, int(raw.get('local_model_timeout', 90)))),
+        'local_model_context_tokens': min(32768, max(1024, int(raw.get('local_model_context_tokens', 8192)))),
         'input_cents_per_million': int(raw.get('input_cents_per_million', 0)),
         'output_cents_per_million': int(raw.get('output_cents_per_million', 0)),
         'max_output_tokens': min(
@@ -89,6 +109,10 @@ def model_access(c: dict[(str, any)], owner: str) {
         if not (1 <= c['local_cli_daily_limit'] <= 100) {
             raise ValueError('Set a local CLI daily request limit between 1 and 100.');
         }
+    } elif (c['provider'] in LOCAL_PROVIDERS) {
+        import from agents.local_model { origin }
+        origin(c['provider'], c.get('local_model_url', ''));
+        if not c['model'].strip() { raise ValueError('Choose an installed local model.'); }
     } elif (
         not all(
             (c[k] > 0)
@@ -106,12 +130,14 @@ def model_access(c: dict[(str, any)], owner: str) {
         );
     }
 }
-def model_status(owner: str) -> dict[(str, any)] {
-    c = config();
+def model_status(owner: str, selection: str = "") -> dict[(str, any)] {
+    c = config(selection);
     try {
         model_access(c, owner);
         message = 'Local subscription selected; CLI sign-in and provider limits still apply.'
             if (c['provider'] in CLI_PROVIDERS)
+            else 'Local inference configured; the installed model and service are checked when a task runs.'
+            if (c['provider'] in LOCAL_PROVIDERS)
             else 'API billing configured; provider credentials are checked when a task runs.';
         ready = True;
     } except ValueError as exc {
@@ -121,7 +147,7 @@ def model_status(owner: str) -> dict[(str, any)] {
         'provider': c['provider'],
         'model': c['model'],
         'configured': ready,
-        'billing': 'subscription' if (c['provider'] in CLI_PROVIDERS) else 'api',
+        'billing': 'subscription' if (c['provider'] in CLI_PROVIDERS) else 'local' if (c['provider'] in LOCAL_PROVIDERS) else 'api',
         'message': message,
         'daily_limit': c['local_cli_daily_limit']
             if (c['provider'] in CLI_PROVIDERS)
@@ -130,6 +156,7 @@ def model_status(owner: str) -> dict[(str, any)] {
 }
 def reserve_cents(context: dict[(str, any)]) -> int {
     c = config();
+    if (c['provider'] in LOCAL_PROVIDERS) { return 0; }
     if (c['provider'] in CLI_PROVIDERS) {
         raise ValueError(
             'Local subscriptions use request limits, not API spend reservations.'
@@ -328,11 +355,16 @@ def context_facts(
     facts: list[dict[(str, any)]], context: dict[(str, any)]
 ) -> list[dict[(str, any)]] {
     selected = context.get('resume_id', '');
-    return [
+    out = [
         f
         for f in facts
         if (not selected or not f.get('resume_id') or (f['resume_id'] == selected))
     ];
+    # Explicit saved Profile name is a task snapshot, never split into inferred names.
+    for f in context.get('autofill_profile',[]) {
+        if f.get('key')=='name' and not [x for x in out if x['key']=='name'] { out.append(f); }
+    }
+    return out;
 }
 def validate_contact(data: dict[(str, any)]) -> dict[(str, any)] {
     (name, email) = (

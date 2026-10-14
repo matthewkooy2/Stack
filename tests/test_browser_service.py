@@ -33,8 +33,29 @@ class Pool:
         assert self.release.wait(5), 'test capture timed out'
         return {'artifact': 'capture'}
 
+    def browser_autofill(self, owner, run, context):
+        return self.linkedin_scan(owner, run, context)
+
 
 class BrowserService(unittest.TestCase):
+    def test_autofill_dispatch_uses_same_guarded_executor_and_owner_scope(self):
+        host=BrowserHost(Pool)
+        try:
+            host.pool.release.set()
+            result=host.dispatch('/browser_autofill',dict(owner='owner',id='run',context={}))
+            self.assertEqual(result,{'artifact':'capture'})
+            self.assertEqual(host.dispatch('/frame',dict(owner='other',id='run')),{'pending':True})
+        finally:host.executor.shutdown()
+
+    def test_autofill_rejects_old_generation_after_user_takeover(self):
+        host=BrowserHost(Pool);key=('owner','run')
+        try:
+            host.control.transition(key,'take',0,'viewer-autofill-fixture',host.control.instance)
+            result=host.dispatch('/browser_autofill',dict(owner='owner',id='run',context={'browser_generation':0,'browser_instance':host.control.instance}))
+            self.assertTrue(result.get('interrupted'),result)
+            self.assertFalse(host.pool.started.is_set())
+        finally:host.executor.shutdown()
+
     def test_scan_failure_retains_only_safe_stage_type_and_duration(self):
         host=BrowserHost(Pool)
         def failed(owner,run,context):

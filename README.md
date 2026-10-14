@@ -8,7 +8,36 @@ LinkedIn profile review is available from Network: sign in through the browser h
 
 See [job-discovery setup, source coverage, and budget controls](docs/JOB_DISCOVERY.md). Provider credentials are optional for public feeds and required for Adzuna, TheirStack, and USAJOBS.
 
-## Run on your iPhone
+## Develop on Linux or Windows/WSL2
+
+From a clean public clone on Ubuntu 24.04 or Windows with Ubuntu 24.04 in WSL2:
+
+```sh
+make setup
+make doctor
+make dev
+# In another Linux/WSL2 terminal:
+make test
+```
+
+Open **http://127.0.0.1:8080**, create a local account, and use **Account** to find
+its ID. The core backend/browser workspace requires no Xcode, CocoaPods, Docker,
+model subscription, or maintainer secrets. Setup provisions pinned local tools
+and initializes private configuration without replacing existing data.
+
+For local AI features, install and sign in to your own Codex or Claude CLI in the
+same Linux environment: `make login PROVIDER=codex OWNER=YOUR_ACCOUNT_ID` (or
+`PROVIDER=claude`). Then explicitly enable **Model** in the browser's **Account**
+page. Subscription request caps and external-action approvals still apply; CLI
+failures never fall back to a paid API.
+
+See [local contributor development](docs/LOCAL_DEVELOPMENT.md) for Windows/WSL2
+machine prerequisites, Python command equivalents, optional integrations,
+troubleshooting, verification limits, and cleanup that preserves accounts,
+uploads, and credentials. Keep credentials in private CLI home files or ignored
+local configuration; never copy them into source files or commit history.
+
+## Run on your iPhone (Mac only)
 
 For a bundled iPhone app using a Windows PC backend across networks, see
 [personal remote hosting](docs/REMOTE_HOSTING.md). Use `scripts/ios-release` with
@@ -34,12 +63,12 @@ Both devices must be on the same network, and that network must allow Bonjour an
 
 Jac screen saves recompile and trigger Metro refresh; backend saves restart the API. Logs are in `.jac/logs/`. The development server must be running for accounts, data, and PDFs. Already scheduled local notifications can fire while the Mac is asleep.
 
-## Recreate the development build
+## Recreate the iOS development build (Mac only)
 
 The existing workspace is already provisioned. For a fresh checkout, install/use Jac **0.37.21**, Node **22.22.0**, CocoaPods **1.17.0**, and Xcode with an Apple Development identity, then run:
 
 ```sh
-./scripts/setup
+./scripts/setup --ios
 ./scripts/dev
 # In a second terminal:
 ./scripts/ios

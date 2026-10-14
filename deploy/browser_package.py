@@ -6,8 +6,9 @@ SOURCE_FILES = frozenset({
     "agents/browser.jac", "agents/browser_service.jac", "agents/contracts.jac",
     "agents/linkedin.jac", "discovery/transport.py", "deploy/browser-service.jac",
     "agents/browser_control.py", "agents/browser_stream.py",
+    "agents/autofill.py",
 })
-OPTIONAL_FILES = frozenset({"agents/browser_control.py", "agents/browser_stream.py"})
+OPTIONAL_FILES = frozenset({"agents/browser_control.py", "agents/browser_stream.py", "agents/autofill.py"})
 CONTRACT_FILES = frozenset({
     "deploy/browser.Dockerfile", "deploy/browser.jac.toml",
     "deploy/browser-entrypoint", "deploy/install-browser.jac",

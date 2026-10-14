@@ -9,13 +9,14 @@ with entry:__main__ {
     parser = argparse.ArgumentParser();
     parser.add_argument('action', choices=['init', 'invite', 'status', 'provider']);
     parser.add_argument(
-        '--provider', choices=['openai', 'codex-cli', 'claude-cli', 'meta']
+        '--provider', choices=['openai', 'codex-cli', 'claude-cli', 'meta', 'ollama', 'lmstudio']
     );
     parser.add_argument(
         '--owner', help='Stack account ID shown under Agent activity > Rules'
     );
     parser.add_argument('--daily-limit', `type=int, `default=10);
     parser.add_argument('--model', `default='');
+    parser.add_argument('--local-model-url', `default='', help='Local inference origin as reached by the worker; omit for loopback defaults');
     args = parser.parse_args();
     directory = Path('storage/agents');
     if (args.action == 'init') {
@@ -41,7 +42,7 @@ with entry:__main__ {
         print(call('agent_invite', {'token': token})['invite']);
     } elif (args.action == 'provider') {
         import from uuid { UUID }
-        import from agents.contracts { CLI_PROVIDERS }
+        import from agents.contracts { CLI_PROVIDERS, LOCAL_PROVIDERS }
         if not args.provider {
             parser.error('provider requires --provider');
         }
@@ -57,11 +58,18 @@ with entry:__main__ {
                 parser.error('--daily-limit must be between 1 and 100');
             }
         }
+        if args.provider in LOCAL_PROVIDERS {
+            import from agents.local_model { origin }
+            try { origin(args.provider, args.local_model_url); }
+            except ValueError as exc { parser.error(str(exc)); }
+            if not args.model.strip() { parser.error('local inference requires --model with an installed model identifier'); }
+        }
         path = Path(
             os.environ.get('STACK_AGENT_CONFIG', str((directory / 'config.json')))
         );
         raw = json.loads(path.read_text()) if path.exists() else {};
         raw.update(provider=args.provider, model=args.model);
+        if args.provider in LOCAL_PROVIDERS { raw['local_model_url'] = args.local_model_url; }
         if (args.provider in CLI_PROVIDERS) {
             raw.update(local_cli_owner=owner, local_cli_daily_limit=args.daily_limit);
         }
@@ -74,7 +82,7 @@ with entry:__main__ {
         }
         temporary.replace(path);
         print(
-            'Provider saved. CLI sign-in, account permissions, and provider limits still apply. API providers also require credentials, prices, and budgets.'
+            'Provider saved. Local inference requires a running service and installed model. CLI sign-in, account permissions, and provider limits still apply. API providers also require credentials, prices, and budgets.'
         );
     } else {
         import from agents.contracts { config }
@@ -86,6 +94,9 @@ with entry:__main__ {
                     for k in (
                         'provider',
                         'model',
+                        'local_model_url',
+                        'local_model_timeout',
+                        'local_model_context_tokens',
                         'local_cli_owner',
                         'local_cli_daily_limit',
                         'invite_only',

@@ -7,12 +7,13 @@ default-app = "Stack"
 
 [dependencies]
 pypdf = "==6.19.0"
+reportlab = "==4.4.10"
 cryptography = "==50.0.2"
 websockets = "==17.0.1"
 google-auth = "==2.40.3"
 requests = "==2.33.1"
 
-python-dotenv = ">=1.2.1,<2.0.0"
+python-dotenv = "==1.2.4"
 
 [dependencies.npm]
 react = "19.2.3"
@@ -30,13 +31,13 @@ typescript = "^5.3.3"
 "@types/react-dom" = "^19.2.0"
 
 [dev-dependencies]
-# Only the synthetic PDF fixture generator uses ReportLab.
-reportlab = "==4.4.10"
+# Synthetic fixture generators use the same locked PDF renderer as the worker.
 watchdog = "==6.0.0"
 
 # Preserve the Python-backed execution of migrated backend helpers.
 [placement.pins]
 "agents.*" = "server"
+"mobile.prototype.Views" = "client"
 
 [apps.Stack]
 kind = "service"
@@ -78,6 +79,16 @@ lucide-react-native = "1.48.0"
 
 [scale.admin]
 enabled = false
+
+# Jac owns identity-only Google SSO; optional Gmail/Calendar use /oauth/google.
+# Runtime environment supplies credentials. Empty values leave SSO disabled.
+[scale.sso]
+host = "${STACK_SSO_HOST:-http://localhost:8000}"
+client_auth_callback_url = "${STACK_SSO_CALLBACK_URL:-}"
+
+[scale.sso.google]
+client_id = "${GOOGLE_CLIENT_ID:-}"
+client_secret = "${GOOGLE_CLIENT_SECRET:-}"
 
 [database]
 indexes = { JobAlias = ["key"], CatalogJob = ["key", "canonical_url", "identity", "active", "checked_at"], JobSource = ["key", "next_at"], DiscoveryRequest = ["status", "key"], AgentRun = ["key", "status", "created_at"], AgentTicket = ["state", "due_at"], AgentUsage = ["key"], AgentEvent = ["key"], PrepSession = ["updated_at"], ResumeTicket = ["status", "created_at", "lease_until"] }

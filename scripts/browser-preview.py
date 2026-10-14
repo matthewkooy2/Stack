@@ -14,7 +14,7 @@ FILES = ('deploy/browser.Dockerfile', 'deploy/browser.jac.toml',
          'deploy/browser-entrypoint', 'deploy/browser-service.jac', 'deploy/install-browser.jac',
          'agents/browser_service.jac', 'agents/browser.jac',
          'agents/browser_control.py', 'agents/browser_stream.py', 'agents/linkedin.jac',
-         'agents/contracts.jac', 'discovery/transport.py')
+         'agents/contracts.jac', 'agents/autofill.py', 'discovery/transport.py')
 
 
 def image_name():

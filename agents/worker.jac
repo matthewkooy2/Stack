@@ -3,6 +3,7 @@ import json;
 import os;
 import from pathlib { Path }
 import time;
+import from agents.release_readiness { worker_smoke }
 import urllib.request;
 import from agents.contracts { CLI_PROVIDERS, LOCAL_PROVIDERS, config, digest, model_access }
 import from agents.tracing { trace_data }
@@ -262,6 +263,7 @@ def main() {
     last_tick = 0.0;
     while True {
         try {
+            worker_smoke(call, token);
             if ((time.time() - last_tick) > 60) {
                 call('agent_schedule', {'token': token});
                 last_tick = time.time();

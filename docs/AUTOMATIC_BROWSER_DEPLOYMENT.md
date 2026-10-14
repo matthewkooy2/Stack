@@ -1,5 +1,9 @@
 # Automatic isolated-browser deployment
 
+The prepared [MAT-30 health and rollback protocol](DEPLOYMENT_HEALTH_ROLLBACK.md)
+adds browser smoke and recovery gates after attended bootstrap; the historical
+activation details below do not establish those gates on the current host.
+
 The existing main-only GitHub workflow packages matching backend and browser
 source from one exact commit. The PC builds a browser image only when its
 curated browser application files change. Ordinary backend changes retain the

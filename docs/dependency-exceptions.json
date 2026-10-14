@@ -1,0 +1,25 @@
+{
+  "reviewed_on": "2026-10-05",
+  "exceptions": [
+    {
+      "advisory": "GHSA-vfj7-8cjw-p6xm",
+      "package": "braces",
+      "version": "3.0.3",
+      "scope": "Expo CLI and generated web React Native peers' Metro tooling; not in checked iOS/web exports",
+      "reason": "No upstream patch; reviewed project-controlled glob patterns do not accept API/user input.",
+      "mitigation": "Review build configuration, keep Metro local, and do not accept untrusted glob patterns.",
+      "owner": "Stack maintainers",
+      "review_by": "2026-11-04"
+    },
+    {
+      "advisory": "GHSA-86w9-cpqp-85rv",
+      "package": "node-forge",
+      "version": "1.4.0",
+      "scope": "Expo CLI local certificates/development signing; not in the checked iOS export",
+      "reason": "No upstream patch; no Stack forge verification of untrusted signatures or OTA updates.",
+      "mitigation": "Use trusted local certificates, keep development signing local, and reassess before enabling OTA verification.",
+      "owner": "Stack maintainers",
+      "review_by": "2026-11-04"
+    }
+  ]
+}

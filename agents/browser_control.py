@@ -5,14 +5,14 @@ import time
 
 # A small public vocabulary, never exception text, URLs, selectors or inputs.
 BROWSER_ERROR_MESSAGE = 'Browser operation failed. Review the session or resume the task.'
-BROWSER_OPERATIONS = frozenset({'linkedin_scan', 'inspect', 'fill', 'submit'})
+BROWSER_OPERATIONS = frozenset({'linkedin_scan', 'browser_autofill'})
 BROWSER_STAGES = frozenset({
     'operation', 'control_check', 'expire_session', 'validate_profile',
     'validate_session', 'create_session', 'configure_session', 'open_login',
     'check_login', 'check_profile_url', 'navigate_profile', 'verify_profile_page',
     'prepare_capture', 'capture_frame', 'wait_profile_header', 'expand_profile',
     'read_sections', 'scroll_profile', 'wait_section', 'build_capture', 'close_session',
-    'rpc_transport', 'rpc_result',
+    'rpc_transport', 'rpc_result', 'open_application', 'read_form', 'fill_field',
 })
 BROWSER_ERROR_TYPES = frozenset({
     'Exception', 'Error', 'TimeoutError', 'TargetClosedError', 'ValueError',

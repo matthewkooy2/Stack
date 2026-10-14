@@ -7,31 +7,26 @@ import time
 import unittest
 from unittest.mock import patch
 from agents import contracts, google, prep, sandbox
-from agents.browser import field_key
 
 
 class Contracts(unittest.TestCase):
     def policy(self):
         return contracts.validate_policy({'enabled': True, 'expires_at': time.time()+3600,
-            'actions': ['submit_application', 'model'], 'domains': ['jobs.lever.co'], 'daily_limits': {'submit_application': 2}})
+            'actions': ['send_email', 'model'], 'domains': ['example.com'], 'daily_limits': {'send_email': 2}})
 
     def test_disabled_by_default(self):
         with self.assertRaises(ValueError):
             contracts.authorize(contracts.default_policy(), 'model')
 
     def test_exact_domain_and_expiry(self):
-        p=self.policy();contracts.authorize(p,'submit_application','https://jobs.lever.co/example')
-        for url in ('https://jobs.lever.co.attacker.test/job','https://evil.test/job'):
-            with self.assertRaises(ValueError):contracts.authorize(p,'submit_application',url)
+        p=self.policy();contracts.authorize(p,'send_email','person@example.com')
+        for address in ('person@example.com.attacker.test','person@evil.test'):
+            with self.assertRaises(ValueError):contracts.authorize(p,'send_email',address)
         with self.assertRaises(ValueError):contracts.authorize(p,'model',now=time.time()+7200)
 
     def test_wildcards_and_invalid_limits(self):
         for changes in ({'domains':['*']},{'daily_limits':{'send_email':-1}},{'expires_at':float('nan')},{'followup_limit':100}):
             with self.assertRaises(ValueError):contracts.validate_policy({**self.policy(),**changes})
-
-    def test_unconfirmed_facts_not_answers(self):
-        rows=contracts.validate_facts([{'key':'phone','value':'123','verified':False},{'key':'name','value':'Alice','verified':True}])
-        self.assertEqual(contracts.answers(rows),{'name':'Alice'})
 
     def test_source_quote_validation(self):
         contracts.validate_evidence([{'source':'a','quote':'built systems'}],{'a':'I built systems.'})
@@ -46,16 +41,6 @@ class Contracts(unittest.TestCase):
             path=Path(d)/'config.json';path.write_text(json.dumps({'monthly_cents':100,'user_monthly_cents':50,'model':'test','input_cents_per_million':100,'output_cents_per_million':500,'max_output_tokens':500}))
             with patch.dict(os.environ,{'STACK_AGENT_CONFIG':str(path)}):
                 self.assertGreater(contracts.reserve_cents({'a':'x'*50000}),contracts.reserve_cents({}))
-
-    def test_adapter_destinations(self):
-        self.assertEqual(contracts.adapter_for('https://jobs.lever.co/acme/id'),'lever')
-        self.assertEqual(contracts.adapter_for('https://jobs.lever.co.bad.test/acme/id'),'')
-        self.assertEqual(contracts.adapter_for('http://jobs.lever.co/acme/id'),'')
-
-    def test_form_unknown_answers_never_guessed(self):
-        self.assertEqual(field_key({'label':'Email *'}),'email')
-        key=field_key({'label':'Are you authorized to work in Canada?'})
-        self.assertTrue(key.startswith('answer:'));self.assertNotEqual(key,'work_authorization')
 
     def test_two_sum_checks_indices_and_alternative_solutions(self):
         good=prep.evaluate_outputs('two-sum',[[1,0],[0,1],[],[0,2],[]]);self.assertEqual(good['passed'],5)

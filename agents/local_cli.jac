@@ -54,7 +54,7 @@ def run(
             );
         } except OSError {
             raise ValueError(
-                'The local CLI could not start. Check its installation on the Mac.'
+                'The local CLI could not start. Check its installation in the worker environment.'
             ) from None;
         }
         selector = selectors.DefaultSelector();
@@ -105,7 +105,7 @@ def generate(
     executable = shutil.which('codex' if (provider == 'codex-cli') else 'claude');
     if not executable {
         raise ValueError(
-            ('Install and sign in to ' + provider + ' on the Mac running Stack.')
+            ('Install and sign in to ' + provider + ' in the environment running Stack.')
         );
     }
     with tempfile.TemporaryDirectory(prefix='stack-model-') as tmp {
@@ -117,7 +117,7 @@ def generate(
             );
             if (status or ('Logged in using ChatGPT' not in login)) {
                 raise ValueError(
-                    'Sign in on the Mac with codex login before running this agent.'
+                    'Sign in in the worker environment with codex login before running this agent.'
                 );
             }
             schema_path = directory / 'schema.json';
@@ -145,6 +145,9 @@ def generate(
                 '--output-last-message',
                 str(result_path)
             ];
+            if not schema {
+                command.remove('--output-schema');command.remove(str(schema_path));
+            }
             for feature in (
                 'shell_tool',
                 'unified_exec',
@@ -165,7 +168,7 @@ def generate(
             }
             command += ['-'];
             (status, _) = run(
-                command, tmp, (system + '\nReturn only the requested JSON.\n' + prompt)
+                command, tmp, (system + ('\nReturn only the requested JSON.\n' if schema else '\nRespond in plain text.\n') + prompt)
             );
             raw = None;
             if (result_path.exists() and (result_path.stat().st_size <= 131072)) {
@@ -185,7 +188,7 @@ def generate(
             }
             text = raw;
             if observe { observe("model_response", {"exit_code":status,"text":text,"reported_models":[]}); }
-            return json.loads(text as str);
+            return json.loads(text as str) if schema else {'text': text};
         }
         (status, login) = run([executable, 'auth', 'status'], tmp, seconds=10);
         auth = json.loads(login) if not status else {};
@@ -195,7 +198,7 @@ def generate(
             or (auth.get('apiProvider') != 'firstParty')
         ) {
             raise ValueError(
-                'Sign in to your Claude subscription on the Mac with claude auth login.'
+                'Sign in to your Claude subscription in the worker environment with claude auth login.'
             );
         }
         command = [
@@ -220,6 +223,7 @@ def generate(
             '--system-prompt',
             system
         ];
+        if not schema { command.remove('--json-schema');command.remove(json.dumps(schema)); }
         if model {
             command += ['--model', model];
         }
@@ -234,6 +238,10 @@ def generate(
             );
         }
         result = json.loads(output);
+        if not schema {
+            if result.get('is_error') { raise ValueError('Claude could not complete the request.'); }
+            return {'text': result.get('result', '')};
+        }
         if (result.get('is_error') or ('structured_output' not in result)) {
             raise ValueError('Claude did not return a completed structured result.');
         }

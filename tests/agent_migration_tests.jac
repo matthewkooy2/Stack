@@ -12,7 +12,7 @@ import from unittest.mock { patch }
 
 glob BASELINE = "0cc0c4495d8a97e78f7b62d20af4a38278b1ade1";
 glob MODULES = ["contracts", "contacts", "prep", "study", "provider", "research",
-                "documents", "security", "notifications", "pubsub", "google", "local_cli", "worker"];
+                "security", "notifications", "pubsub", "google", "local_cli", "worker"];
 
 def legacy(name: str) -> ModuleType {
     source = subprocess.check_output(["git", "show", BASELINE + ":agents/" + name + ".py"], text=True);
@@ -62,8 +62,6 @@ test "permissions facts and validation preserve checkpoint behavior" {
             [[{"key": "email", "value": "bad address"}]], [[{"key": "x", "value": "a"}, {"key": "x", "value": "b"}]]]);
         compare("contracts", "validate_contact", [[{"name": "A", "email": "A@example.com"}],
             [{"name": "A", "email": "A\nB@example.com"}], [{"name": "A", "source_url": "http://example.com"}]]);
-        compare("contracts", "adapter_for", [[url] for url in ["https://jobs.lever.co/a", "http://jobs.lever.co/a",
-            "https://jobs.lever.co.attacker.test/a", "https://boards.greenhouse.io/a", "https://jobs.ashbyhq.com/a"]]);
         compare("contracts", "authorize", [
             [{}, "model"], [{"enabled": True, "expires_at": 2000, "actions": ["model"]}, "model"],
             [{"enabled": True, "expires_at": 900, "actions": ["model"]}, "model"]
@@ -79,7 +77,7 @@ test "provider configuration and budget reservations preserve checkpoint" {
                 {"model": "test", "monthly_cents": 100, "user_monthly_cents": 50,
                  "input_cents_per_million": 100, "output_cents_per_million": 500}] {
                 path.write_text(json.dumps(settings));
-                expected=legacy("contracts").config();actual=importlib.import_module("agents.contracts").config();
+                expected=legacy("contracts").config();expected.pop("certified_adapters",None);actual=importlib.import_module("agents.contracts").config();
                 assert {k:v for (k,v) in actual.items() if k!="sandbox_available"}==expected;
                 assert actual["sandbox_available"] is False;
                 compare("contracts", "model_status", [["alice"], ["bob"], [""]]);
@@ -161,18 +159,6 @@ test "security failures preserve exception messages and hide causes" {
             module.http("https://example.com");
         }
     }
-}
-
-test "PDF output preserves text checks metadata and diff" {
-    modules = [legacy("documents"), importlib.import_module("agents.documents")];
-    results = [];
-    for module in modules {
-        result = module.render_variant("Alice", "Original", [{"key": "resume.work", "value": "Built a tracker.\nUsed Python."}]);
-        results.append({k: v for (k, v) in result.items() if k != "content"});
-        assert "Built a tracker." in module.extract(result["content"]);
-    }
-    assert results[1].pop("original_text")=="Original";
-    assert results[0] == results[1], repr(results);
 }
 
 test "operator compatibility command preserves private configuration" {

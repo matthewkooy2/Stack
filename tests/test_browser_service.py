@@ -33,8 +33,29 @@ class Pool:
         assert self.release.wait(5), 'test capture timed out'
         return {'artifact': 'capture'}
 
+    def browser_autofill(self, owner, run, context):
+        return self.linkedin_scan(owner, run, context)
+
 
 class BrowserService(unittest.TestCase):
+    def test_autofill_dispatch_uses_same_guarded_executor_and_owner_scope(self):
+        host=BrowserHost(Pool)
+        try:
+            host.pool.release.set()
+            result=host.dispatch('/browser_autofill',dict(owner='owner',id='run',context={}))
+            self.assertEqual(result,{'artifact':'capture'})
+            self.assertEqual(host.dispatch('/frame',dict(owner='other',id='run')),{'pending':True})
+        finally:host.executor.shutdown()
+
+    def test_autofill_rejects_old_generation_after_user_takeover(self):
+        host=BrowserHost(Pool);key=('owner','run')
+        try:
+            host.control.transition(key,'take',0,'viewer-autofill-fixture',host.control.instance)
+            result=host.dispatch('/browser_autofill',dict(owner='owner',id='run',context={'browser_generation':0,'browser_instance':host.control.instance}))
+            self.assertTrue(result.get('interrupted'),result)
+            self.assertFalse(host.pool.started.is_set())
+        finally:host.executor.shutdown()
+
     def test_scan_failure_retains_only_safe_stage_type_and_duration(self):
         host=BrowserHost(Pool)
         def failed(owner,run,context):
@@ -95,6 +116,15 @@ class BrowserService(unittest.TestCase):
             host.executor.shutdown()
         self.assertEqual(results, [{'artifact': 'capture'}])
 
+    def test_retired_application_operations_are_rejected(self):
+        host = BrowserHost(Pool)
+        try:
+            for operation in ('inspect', 'fill', 'submit'):
+                with self.assertRaisesRegex(ValueError, 'Unknown browser operation'):
+                    host.dispatch('/' + operation, dict(owner='owner', id='run', context={}))
+        finally:
+            host.executor.shutdown()
+
     def test_idle_snapshots_stay_on_playwright_thread(self):
         host = BrowserHost(Pool)
         try:
@@ -126,7 +156,7 @@ class BrowserHandoffService(unittest.TestCase):
             else:
                 state = host.dispatch('/control', dict(owner='owner', id='run', action='resume', generation=1, controller='viewer-synthetic-test'))
                 self.assertEqual(state['mode'], 'agent')
-                stale = host.dispatch('/inspect', dict(owner='owner', id='run', context={}))
+                stale = host.dispatch('/linkedin_scan', dict(owner='owner', id='run', context={}))
                 self.assertTrue(stale['interrupted'], 'old agent generation must not run after resume')
         finally:
             host.pool.release.set();thread.join(3);host.executor.shutdown()

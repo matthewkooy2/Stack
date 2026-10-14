@@ -10,7 +10,7 @@ import from .ScoreCard { ScoreCard }
 glob DRAFTS: dict[str, any] = {};
 glob STATUS_LABELS: dict[str, str] = {"queued":"Queued","running":"Working","waiting":"Ready","needs_input":"Needs your answers","blocked":"Paused · setup","review":"Needs your review","uncertain":"Confirm what happened","failed":"Stopped","completed":"Done","cancelled":"Cancelled"};
 glob STATE_LABELS: dict[str, str] = {"ready":"Ready","setup":"Needs setup","unavailable":"Unavailable"};
-glob APPROVE_LABELS: dict[str, str] = {"approve_resume":"Apply the changes I kept","fill":"Approve sharing these answers","submit":"Approve submission","send":"Approve and send","calendar":"Approve calendar change"};
+glob APPROVE_LABELS: dict[str, str] = {"approve_resume":"Apply the changes I kept","send":"Approve and send","calendar":"Approve calendar change"};
 glob TERMINAL: list[str] = ["completed","cancelled","failed"];
 glob CHANGE_LABELS: dict[str, str] = {"rewrite":"Reworded","omit":"Removed","reorder":"Reordered"};
 glob ATTENTION: list[str] = ["needs_input","blocked","review","uncertain","failed"];
@@ -306,11 +306,6 @@ def:pub TaskDetail(id: str, features: list[dict[str, any]], webUrl: str, onBack:
             {<View style={s.reviewBox}>
                 <Text style={s.eyebrow}>NOTHING IS SHARED UNTIL YOU APPROVE</Text>
                 <Text style={s.heading}>{review.get("title","")}</Text>
-                {<Text style={s.small}>{"Destination: "+review["destination"]}</Text> if review.get("destination") else <View/>}
-                {<View style={{gap:6}}><Text style={s.label}>ANSWERS STACK WILL ENTER</Text>{[<Text key={a["label"]} style={s.body}>{a["label"]+": "+a["value"]}</Text> for a in review.get("answers",[])]}</View> if len(review.get("answers",[]))>0 else <View/>}
-                {<View style={{gap:6}}><Text style={s.label}>DOCUMENTS STACK WILL UPLOAD</Text>{[<Text key={d["name"]} style={s.body}>{d["label"]+": "+d["name"]}</Text> for d in review.get("documents",[])]}</View> if len(review.get("documents",[]))>0 else <View/>}
-                {<Button label="Preview the resume that will be uploaded" secondary={True} icon="resume" onPress={lambda { preview(run["artifacts"]["tailor"]["pdf"]); }}/> if review.get("step")=="fill" and run.get("artifacts",{}).get("tailor",{}).get("pdf",{}).get("content") else <View/>}
-                {<Text style={s.small}>{"What changed in your resume:\n"+review["diff"]}</Text> if review.get("diff") else <View/>}
                 {<View style={{gap:10}}>
                     {<Text style={s.body}>{review["summary"]}</Text> if review.get("summary") else <View/>}
                     {<ScoreCard after={review["score"]["after"]} before={review["score"].get("before") or {}} title="SCORE FOR THIS JOB · WITH EVERY CHANGE"/> if review.get("score",{}).get("after") else <View/>}
@@ -394,7 +389,6 @@ def:pub AgentLaunch(application: dict[str, any], runs: list[dict[str, any]], fea
     actions=[
         {"kind":"jobs","label":"Explain my fit","text":"Strengths, gaps, and unknowns, quoted from the listing and your confirmed facts. Nothing leaves Stack."},
         {"kind":"resume","label":"Tailor my resume","text":"Rewords, reorders, and trims your LaTeX resume to one page for this job, in your format. You keep or reject every change."},
-        {"kind":"application","label":"Prepare & apply","text":"Reads the form, explains fit, tailors, and fills it. You approve the answers and documents, then approve submission separately."},
         {"kind":"plan","label":"Build interview plan","text":"Adds practice sessions to Prep based on this job. No model needed."}
     ];
     async def start(kind: str) -> None {
@@ -405,7 +399,7 @@ def:pub AgentLaunch(application: dict[str, any], runs: list[dict[str, any]], fea
         } except Exception as e { error=errorText(e); }
         busy=False;
     }
-    started=runsFor(runs,target,["application","jobs","resume"]);
+    started=runsFor(runs,target,["jobs","resume"]);
     <View style={{gap:12}}>
         {<View style={{gap:8}}><View style={s.row}><Icon name="sparkles" color="#3765E8"/><Text style={s.heading}>Agent help</Text></View>
             <Text style={s.body}>Optional. Nothing starts until you choose it, and nothing is sent without your approval.</Text></View> if not compact else <View/>}
@@ -416,7 +410,7 @@ def:pub AgentLaunch(application: dict[str, any], runs: list[dict[str, any]], fea
             {<Text style={s.small}>{a["text"]}</Text> if not compact else <View/>}
             {[<Text key={c["key"]} style={s.small}>{"✕ "+c["fix"]}</Text> for c in missingChecks(featureFor(features,a["kind"])) if not c["optional"]] if a["kind"]!="plan" and not compact else []}
             {<Text style={s.small}>{"Meanwhile: "+featureFor(features,a["kind"])["alternative"]}</Text> if a["kind"]!="plan" and featureFor(features,a["kind"]).get("state","")=="unavailable" and not compact else <View/>}
-            <Button label={a["label"]} secondary={a["kind"]!="application"} disabled={busy or (a["kind"]!="plan" and featureFor(features,a["kind"]).get("state","")=="unavailable")} onPress={lambda { start(a["kind"]); }}/>
+            <Button label={a["label"]} secondary={True} disabled={busy or (a["kind"]!="plan" and featureFor(features,a["kind"]).get("state","")=="unavailable")} onPress={lambda { start(a["kind"]); }}/>
         </View> for a in actions] if not compact else []}
         {<View style={s.noticeBox}><Text style={s.noticeText}>{message}</Text>{<Chip label="Open Prep" onPress={lambda { onNavigate("prep"); }}/> if message[0:5]=="Added" else <View/>}</View> if message else <View/>}
         {<Text style={s.errorText}>{error}</Text> if error else <View/>}
@@ -479,7 +473,7 @@ def:pub AgentHub(summary: dict[str, any], features: list[dict[str, any]], applic
         enabled: bool = False, actions: list[str] = [], domains: str = "", daily: str = "5", followups: str = "0", analyzeTop: bool = False,
         factKey: str = "", factValue: str = "", eventApp: dict[str, str] = {}, eventStatus: dict[str, str] = {};
     def fillRules(policy: dict[str, any]) -> None {
-        enabled=policy["enabled"];actions=policy["actions"];domains=", ".join(policy["domains"]);followups=str(policy["followup_limit"]);analyzeTop=policy.get("analyze_top_matches",False);
+        enabled=policy["enabled"];actions=[a for a in policy["actions"] if a not in ["browser_fill","submit_application"]];domains=", ".join(policy["domains"]);followups=str(policy["followup_limit"]);analyzeTop=policy.get("analyze_top_matches",False);
         limits=[v for (k,v) in policy.get("daily_limits",{}).items()];
         if len(limits)>0 { daily=str(limits[0]); }
         rulesDirty=False;
@@ -515,7 +509,7 @@ def:pub AgentHub(summary: dict[str, any], features: list[dict[str, any]], applic
     async def savePolicy -> None {
         limit=0;count=0;
         try { limit=int(daily);count=int(followups); } except Exception { error="Enter whole numbers for daily and follow-up limits.";return; }
-        await perform("agent_save_policy",{"policy":{"enabled":enabled,"actions":actions,"domains":[d.strip().lower() for d in domains.split(",") if d.strip()],"daily_limits":{"browser_fill":limit,"submit_application":limit,"send_email":limit,"calendar_write":limit},"expires_at":Date.now()/1000+30*86400,"followup_limit":count,"followup_days":7,"analyze_top_matches":analyzeTop}},"Standing permissions saved for 30 days.");
+        await perform("agent_save_policy",{"policy":{"enabled":enabled,"actions":actions,"domains":[d.strip().lower() for d in domains.split(",") if d.strip()],"daily_limits":{"send_email":limit,"calendar_write":limit},"expires_at":Date.now()/1000+30*86400,"followup_limit":count,"followup_days":7,"analyze_top_matches":analyzeTop}},"Standing permissions saved for 30 days.");
     }
     def go(action: str) -> None {
         if action=="rules" { page="Rules";taskId=""; }
@@ -556,7 +550,7 @@ def:pub AgentHub(summary: dict[str, any], features: list[dict[str, any]], applic
                 <View style={s.mutedBox}><Text style={s.strong}>{"Model provider: "+summary.get("model_provider",{}).get("provider","Not configured")}</Text><Text style={s.small}>{summary.get("model_provider",{}).get("message","")}</Text></View>
             </View> if page=="Activity" else <View/>}
 
-            {<View style={{gap:12}}><Text style={s.body}>Every agent, what it needs, and where to start it. Stack never sends, submits, or changes your calendar without your approval.</Text>{[<View key={f["key"]}><FeatureCard feature={f} onNavigate={go}/></View> for f in features]}</View> if page=="Features" else <View/>}
+            {<View style={{gap:12}}><Text style={s.body}>Every agent, what it needs, and where to start it. Stack never sends email or changes your calendar without your approval.</Text>{[<View key={f["key"]}><FeatureCard feature={f} onNavigate={go}/></View> for f in features]}</View> if page=="Features" else <View/>}
 
             {<View style={{gap:12}}>
                 <FeatureCard feature={featureByKey(features,"email")} onNavigate={go} compact={True}/>
@@ -578,13 +572,13 @@ def:pub AgentHub(summary: dict[str, any], features: list[dict[str, any]], applic
             </View> if page=="Email & calendar" else <View/>}
 
             {<View style={{gap:14}}>
-                <Text style={s.body}>Standing permissions let agents work toward your goals. They never replace per-action review: you approve every application answer, submission, email, and calendar change.</Text>
+                <Text style={s.body}>Standing permissions let agents work toward your goals. They never replace per-action review: you approve every email and calendar change.</Text>
                 <View style={s.between}><Text style={s.strong}>Enable standing permissions</Text><Switch value={enabled} onValueChange={lambda (v: bool) { enabled=v;rulesDirty=True; }}/></View>
                 {<Text style={s.small}>{"Current permissions expire "+dateTime(settings["policy"]["expires_at"])+"."}</Text> if settings.get("policy",{}).get("enabled") and settings["policy"].get("expires_at",0)>0 else <View/>}
-                <View style={s.wrap}>{[<Chip key={a} label={a.replace("_"," ").title()} active={a in actions} onPress={lambda { actions=[x for x in actions if x!=a] if a in actions else actions+[a];rulesDirty=True; }}/> for a in ["model","browser_fill","submit_application","gmail_read","send_email","calendar_write"]]}</View>
+                <View style={s.wrap}>{[<Chip key={a} label={a.replace("_"," ").title()} active={a in actions} onPress={lambda { actions=[x for x in actions if x!=a] if a in actions else actions+[a];rulesDirty=True; }}/> for a in ["model","gmail_read","send_email","calendar_write"]]}</View>
                 <View style={s.between}><Text style={[s.strong,{flex:1}]}>Analyze up to three top matches daily</Text><Switch value={analyzeTop} onValueChange={lambda (v: bool) { analyzeTop=v;rulesDirty=True; }}/></View>
-                <Field label="Allowed destination domains" value={domains} onChange={lambda (v: str) { domains=v;rulesDirty=True; }} placeholder="jobs.lever.co, job-boards.greenhouse.io, company.com" multiline={True}/>
-                <Text style={s.small}>Application sites and email recipients must be on this list. Use exact domains.</Text>
+                <Field label="Allowed destination domains" value={domains} onChange={lambda (v: str) { domains=v;rulesDirty=True; }} placeholder="company.com" multiline={True}/>
+                <Text style={s.small}>Email recipients must be on this list. Use exact domains.</Text>
                 <Field label="Daily limit per action" value={daily} onChange={lambda (v: str) { daily=v;rulesDirty=True; }}/><Field label="Follow-ups per contact (0–3)" value={followups} onChange={lambda (v: str) { followups=v;rulesDirty=True; }}/>
                 <Text style={s.small}>Permissions expire after 30 days. Follow-ups are drafted seven days apart, wait for your approval, and stop when a reply arrives.</Text>
                 <Button label={"Save standing permissions"+(" · unsaved changes" if rulesDirty else "")} onPress={savePolicy} disabled={busy}/>

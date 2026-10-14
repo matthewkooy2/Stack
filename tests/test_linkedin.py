@@ -142,7 +142,7 @@ class LinkedIn(unittest.TestCase):
         linkedin.scan(pool, 'a', 'run', {'linkedin_url': URL})
         linkedin.scan(pool, 'b', 'run', {'linkedin_url': URL})
         self.assertEqual(len(pool.sessions), 2)
-        pool.checkpoint('a', 'run')
+        self.assertFalse(hasattr(pool, 'checkpoint'))
         page.evaluate.assert_not_called()
         pool.browser.new_context.return_value.storage_state.assert_not_called()
         pool.close('a', 'run')
@@ -169,7 +169,7 @@ class LinkedIn(unittest.TestCase):
     def test_profile_handoff_refuses_file_upload(self):
         pool, page = self.pool()
         linkedin.scan(pool, 'a', 'run', {'linkedin_url': URL})
-        with self.assertRaisesRegex(ValueError, 'does not upload'):
+        with self.assertRaisesRegex(ValueError, 'Unknown browser input'):
             pool.handoff('a', 'run', {'type': 'file'})
         with self.assertRaisesRegex(ValueError, 'unavailable'):
             pool.handoff('other', 'run', {'type': 'snapshot'})

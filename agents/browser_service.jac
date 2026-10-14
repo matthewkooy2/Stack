@@ -38,7 +38,7 @@ class BrowserHost {
     }
     def controlled(self: BrowserHost, path: any, data: any) -> any {
         key=(data['owner'],data.get('id',''));
-        guarded=path in ['/linkedin_scan','/inspect','/fill','/submit'] or (path=='/handoff' and data.get('event',{}).get('type','snapshot')!='snapshot');
+        guarded=path in ['/linkedin_scan','/browser_autofill'] or (path=='/handoff' and data.get('event',{}).get('type','snapshot')!='snapshot');
         began=False;
         started=time.monotonic();self.pool.operation_stage='control_check';
         try {
@@ -91,14 +91,7 @@ class BrowserHost {
         if (path == '/linkedin_scan') {
             return self.pool.linkedin_scan(owner, run, data['context']);
         }
-        if (path == '/inspect') {
-            return self.pool.inspect(owner, run, data['context']);
-        }
-        if (path in ('/fill', '/submit')) {
-            return getattr(self.pool, path[1:])(
-                owner, run, data['context'], data['artifacts']
-            );
-        }
+        if path == '/browser_autofill' { return self.pool.browser_autofill(owner,run,data['context']); }
         raise ValueError('Unknown browser operation.');
     }
     def expire(self: BrowserHost) -> any {
@@ -167,9 +160,7 @@ def main() -> any {
                     '/close',
                     '/purge',
                     '/linkedin_scan',
-                    '/inspect',
-                    '/fill',
-                    '/submit'
+                    '/browser_autofill'
                 )
             ) {
                 self.send_error(404);

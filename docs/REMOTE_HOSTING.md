@@ -37,6 +37,22 @@ Jac 0.37.21 reads `JAC_SERVE_DOCS` and `JAC_SERVE_GRAPH`, not names ending in
 `_ENABLED`. The API explicitly binds loopback and uses **one process**: Stack's
 write and idempotence locks are process-local.
 
+For local preparation, the completed `deploy/api.env`, `deploy/worker.env`,
+`deploy/discovery.env`, and `deploy/pc-host/stack-browser-prepared/browser.env`
+files are ignored; their `.example` templates remain visible. Discovery credentials
+belong in `storage/discovery/credentials.json` as described in
+[Job discovery](JOB_DISCOVERY.md); the adjacent `discovery/credentials.json` copy
+is also ignored as a staging safeguard, but is not the runtime destination.
+
+Keep optional Google service-account JSON and SSH/PEM private keys under the
+ignored `storage/` directory or in an operator-owned location outside the checkout.
+Restrict private files to their owner (`chmod 600`). Set `GOOGLE_APPLICATION_CREDENTIALS`
+to the service-account file's path on the worker host; local staging does not change
+the deployed service paths. Ordinary JSON and PEM files elsewhere remain visible.
+Before committing, inspect the staged diff and use secret scanning as a separate,
+complementary control: ignore rules do not protect already tracked files or detect
+secrets inside otherwise legitimate source files.
+
 Use `stack-api.service`, `stack-gateway.service`, `stack-discovery.service` and
 `stack-worker.service`. They listen/use private ports 8000 and 8080. Do not enable
 `stack-voice.service`, browser automation or the candidate-code sandbox initially.

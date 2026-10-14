@@ -3,6 +3,7 @@ import Foundation
 struct APIError: LocalizedError {
     let message: String
     var status: Int = 0
+    var failureCategory: String? = nil
     var errorDescription: String? { message }
     var isUnauthorized: Bool { status == 401 }
 }
@@ -55,9 +56,15 @@ final class APIClient {
         do { (data, response) = try await session.data(for: request) }
         catch is CancellationError { throw CancellationError() }
         catch let error as URLError where error.code == .cancelled { throw CancellationError() }
+        catch let error as URLError {
+            guard generation == sessionGeneration else { throw CancellationError() }
+            throw APIError(message: "Cannot reach Stack. Check your connection and retry.",
+                           failureCategory: Self.safeNetworkCategory(error.code))
+        }
         catch {
             guard generation == sessionGeneration else { throw CancellationError() }
-            throw APIError(message: "Cannot reach Stack. Check your connection and retry.")
+            throw APIError(message: "Cannot reach Stack. Check your connection and retry.",
+                           failureCategory: "network transport")
         }
         guard generation == sessionGeneration, !Task.isCancelled else { throw CancellationError() }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -78,8 +85,22 @@ final class APIClient {
     func call(_ name: String, _ args: JSON = [:], timeout: TimeInterval = 25) async throws -> JSON {
         let data = try await post("/function/" + name, args, timeout: timeout)
         let result = data["result"]
-        if case .string(let message) = result["error"], !message.isEmpty { throw APIError(message: message) }
+        if case .string(let message) = result["error"], !message.isEmpty {
+            throw APIError(message: message, failureCategory: "Stack API response")
+        }
         return result
+    }
+
+    private static func safeNetworkCategory(_ code: URLError.Code) -> String {
+        switch code {
+        case .timedOut: return "network timeout"
+        case .notConnectedToInternet: return "offline"
+        case .cannotFindHost, .dnsLookupFailed: return "host lookup failure"
+        case .cannotConnectToHost: return "host connection failure"
+        case .networkConnectionLost: return "connection lost"
+        case .secureConnectionFailed: return "TLS failure"
+        default: return "network transport"
+        }
     }
 
     func authenticate(username: String, password: String, signUp: Bool) async throws {

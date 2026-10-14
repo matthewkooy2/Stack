@@ -4,7 +4,7 @@ import unittest
 import json
 import os
 from io import BytesIO
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 from agents import worker
 from agents.browser_control import browser_diagnostic, sanitize_browser_diagnostic, BROWSER_ERROR_MESSAGE
 from agents.browser import BrowserFrames, BrowserPool
@@ -212,5 +212,28 @@ class HandoffInput(unittest.TestCase):
         for key in ('Control+W', 'F5', 'Meta+L'):
             with self.assertRaisesRegex(ValueError, 'Unknown browser input'):
                 pool.handoff('owner', 'run', {'type': 'key', 'key': key})
+
+    def test_short_pastes_and_legacy_line_breaks_never_send_keys(self):
+        for text, extra in (
+            ('password-from-clipboard', {'paste': True}),
+            ('First line\nSecond line', {'paste': True}),
+            ('First line\nSecond line', {}),
+            ('First line\rSecond line', {}),
+            ('First line\r\nSecond line', {}),
+        ):
+            with self.subTest(text=text, extra=extra):
+                pool, page = self.pool()
+                pool.handoff('owner', 'run', {'type': 'text', 'text': text, **extra})
+                page.keyboard.insert_text.assert_called_once_with(text)
+                page.keyboard.type.assert_not_called()
+                page.keyboard.press.assert_not_called()
+
+    def test_typing_cutoff_applies_to_each_chunk(self):
+        pool, page = self.pool()
+        pool.handoff('owner', 'run', {'type': 'text', 'text': 'a' * 500})
+        pool.handoff('owner', 'run', {'type': 'text', 'text': 'b' * 501})
+        pool.handoff('owner', 'run', {'type': 'text', 'text': 'c'})
+        self.assertEqual(page.keyboard.type.call_args_list, [call('a' * 500), call('c')])
+        page.keyboard.insert_text.assert_called_once_with('b' * 501)
 
 if __name__ == '__main__': unittest.main()

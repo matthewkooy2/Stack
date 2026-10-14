@@ -91,7 +91,11 @@ export function BrowserView({image,onEvent,sessionId,onFrame}){
   }
  }
  function input(e){if(composing.current||e.nativeEvent?.isComposing)return;const value=e.currentTarget.value;e.currentTarget.value='';insert(value);}
- function paste(e){e.preventDefault();insert(e.clipboardData.getData('text/plain'));flush();}
+ function paste(e){
+  e.preventDefault();flush();const value=e.clipboardData.getData('text/plain');
+  if(value.length>8000){setInputError('Paste up to 8,000 characters at a time.');return;}
+  if(value)send({type:'text',text:value,paste:true});
+ }
  return React.createElement('div',{},
  React.createElement('p',{'aria-live':'polite'},connection==='connected'?(!safe.current?'Input unconfirmed':age>=5000?'Waiting for a fresh view…':owned?'You have control':control.current.mode==='pausing'?'Pausing agent…':control.current.mode==='stopped'?'Task stopped':'Agent is working'):'Reconnecting…'),
  React.createElement('div',{},React.createElement('button',{onClick:()=>action(owned&&safe.current?'resume':'take'),disabled:sending||connection!=='connected'||!['agent','user'].includes(control.current.mode)},owned&&safe.current?'Resume agent':'Take control'),React.createElement('button',{onClick:()=>action('stop'),disabled:['stopping','stopped'].includes(control.current.mode)},'Stop task')),

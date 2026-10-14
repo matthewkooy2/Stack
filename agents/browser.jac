@@ -15,7 +15,7 @@ with entry {
         'ArrowLeft': 'ArrowLeft', 'ArrowRight': 'ArrowRight', 'Home': 'Home', 'End': 'End',
         'SelectAll': 'ControlOrMeta+A'
     };
-    # Typed text sends key events so typeahead and masked fields react; longer pastes insert at once.
+    # Short single-line typing sends key events; pastes and line breaks insert as text.
     TYPED_TEXT_LIMIT = 500;
 }
 """Latest live frame only, in memory, scoped to the account and task."""
@@ -195,7 +195,12 @@ class BrowserPool {
         } elif (kind == 'text') {
             self.guard();
             text = str(event.get('text', ''))[:8000];
-            if (len(text) <= TYPED_TEXT_LIMIT) {
+            if (
+                (len(text) <= TYPED_TEXT_LIMIT)
+                and not event.get('paste', False)
+                and ('\n' not in text)
+                and ('\r' not in text)
+            ) {
                 page.keyboard.type(text);
             } else {
                 page.keyboard.insert_text(text);

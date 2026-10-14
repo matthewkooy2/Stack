@@ -43,6 +43,10 @@ class PrivateConfigurationIgnore(unittest.TestCase):
             ".env", ".env.local", "deploy/.env", "deploy/.env.production",
             "signing/fixture.key", "signing/fixture.p8", "signing/fixture.p12",
             "signing/fixture.mobileprovision",
+            ".codex/auth.json", ".codex/config.toml", ".claude/.credentials.json",
+            ".claude/settings.json", "storage/contributor/runtime.json",
+            "storage/agents/config.json", "storage/agents/worker-token",
+            "storage/discovery/worker-token", ".jac/tool-cache/pg/main/PG_VERSION",
         }
         self.assertEqual(self.ignored(paths), paths)
 
@@ -57,6 +61,7 @@ class PrivateConfigurationIgnore(unittest.TestCase):
             "credentials.json", "service-account.json", "id_rsa",
             "tests/fixtures/discovery/credentials.json", "tests/fixtures/deploy/api.env",
             "deploy/api.env.schema.json", "main.jac", "jac.toml",
+            "tests/fixtures/.codex/auth.json", "tests/fixtures/.claude/.credentials.json",
         }
         self.assertEqual(self.ignored(paths), set())
 

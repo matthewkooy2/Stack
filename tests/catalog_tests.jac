@@ -17,9 +17,54 @@ test "reading a SmartRecruiters listing preserves its application and identity" 
 }
 
 glob counters: dict[str, catalog.Usage] = {};
+
+test "duplicate source keys complete the exact claimed lease" {
+    sid="greenhouse:duplicate-lease-fixture";
+    config={"adapter":"greenhouse","name":"Duplicate lease fixture"};
+    first=root.shared ++> catalog.JobSource(key=sid,config=config,lease="unrelated",status="collecting");
+    claimed=root.shared ++> catalog.JobSource(key=sid,config=config,lease="claimed",status="collecting");
+    with patch.object(catalog,"_worker_allowed",return_value=True),patch.object(catalog,"_fresh",return_value=None),patch.object(catalog,"commit",return_value=None) {
+        result=catalog.discovery_complete("fixture",sid,"claimed",{"complete":True});
+        assert result.get("saved") is True;
+        assert claimed.lease=="" and claimed.status=="ready" and claimed.last_success>0;
+        assert first.lease=="unrelated" and first.last_success==0;
+        assert catalog.discovery_complete("fixture",sid,"claimed",{}).get("error")=="Lease expired or already completed.";
+        claimed.lease="unrelated";
+        assert catalog.discovery_complete("fixture",sid,"unrelated",{}).get("error")=="Lease expired or already completed.";
+        assert first.lease=="unrelated" and claimed.lease=="unrelated";
+        assert catalog.discovery_complete("fixture",sid,"",{}).get("error")=="Lease expired or already completed.";
+    }
+    del first;del claimed;
+}
 def fake_usage(key: str) -> catalog.Usage {
     if key not in counters { counters[key]=catalog.Usage(key=key); }
     return counters[key];
+}
+
+test "municipal absence removal waits for two clean cycles and a day" {
+    now=time.time();sid="smartrecruiters:municipal-lifecycle-test";
+    source=root.shared ++> catalog.JobSource(key=sid,config={"adapter":"smartrecruiters","name":"Municipal lifecycle fixture"},lease="one",cycle="one");
+    listing=root.shared ++> catalog.CatalogJob(key="municipal-lifecycle-job",canonical_url="https://example.com/lifecycle",identity="lifecycle",data={"title":"Municipal fixture"},checked_at=now,discovered_at=now);
+    listing.observations={sid:{"active":True,"last_seen":now-86399,"missing":0}};
+    with patch.object(catalog,"_worker_allowed",return_value=True),patch.object(catalog,"_fresh",return_value=None),patch.object(catalog,"commit",return_value=None) {
+        catalog.discovery_complete("fixture",sid,"one",{"complete":True});
+        assert listing.active and listing.observations[sid]["missing"]==1;
+        source.lease="two";source.cycle="two";
+        catalog.discovery_complete("fixture",sid,"two",{"complete":True});
+        assert listing.active and listing.observations[sid]["missing"]==2;
+        listing.observations[sid]["last_seen"]=now-86401;
+        source.lease="invalid";source.cycle="invalid";
+        catalog.discovery_complete("fixture",sid,"invalid",{"complete":True,"invalid":1});
+        assert listing.active and listing.observations[sid]["missing"]==2;
+        source.lease="three";source.cycle="three";source.cycle_invalid=0;
+        catalog.discovery_complete("fixture",sid,"three",{"complete":True});
+        assert not listing.active and not listing.observations[sid]["active"];
+        listing.observations["independent"]={"active":True,"last_seen":now};
+        source.lease="four";source.cycle="four";
+        catalog.discovery_complete("fixture",sid,"four",{"complete":True});
+        assert listing.active;
+    }
+    del listing;del source;
 }
 test "provider budgets reject requests at every boundary" {
     with patch.object(catalog,"_usage",side_effect=fake_usage) {

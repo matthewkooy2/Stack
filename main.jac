@@ -20,7 +20,7 @@ import from core.agents { _demo_status }
 import from core.automation {
     AgentMemory, AgentAction, AgentNotification, AgentPushDevice, AgentTicket, AgentRun, AgentContact, AgentConnection, AgentEvent, AgentAdmission, AgentInterview, PrepSession,
     _agent_access, _agent_memory, _agent_summary, _agent_start, _agent_fresh, _agent_system, _agent_owner, _owned_run, _agent_leased, _run_view, _steps, agent_upgrade_workflows,
-    agent_settings, agent_report, agent_admission, agent_register_push, agent_remove_push, agent_notification_claim, agent_notification_finish, agent_save_facts, agent_save_policy, agent_activity, agent_run, agent_cancel, agent_respond, agent_reconcile,
+    agent_settings, agent_save_model, agent_report, agent_admission, agent_register_push, agent_remove_push, agent_notification_claim, agent_notification_begin, agent_notification_finish, agent_notification_status, agent_save_facts, agent_save_policy, agent_activity, agent_run, agent_cancel, agent_respond, agent_reconcile,
     agent_contacts, agent_save_contact, agent_stop_contact, agent_import_contacts, agent_events, agent_claim, agent_model_log, agent_model_logs, agent_authorize, _agent_complete, agent_worker_connection, agent_approve, agent_retry, agent_dismiss, agent_trace, agent_traces, agent_feedback,
     agent_invite, agent_accept_invite, agent_google_start, agent_google_finish, agent_disconnect, agent_export,
     prep_progress, prep_live, agent_live_claim, agent_live_check, agent_live_finish, prep_catalog, prep_sessions, prep_create, prep_get, prep_save
@@ -31,7 +31,11 @@ import from agents.scoring { score as resume_score, summary as score_summary }
 import from agents.tailoring { resume_text }
 import from agents.pdf_safety { inspect_pdf, inspect_file }
 import from agents.resume_templates { TEMPLATES as LATEX_TEMPLATES, fill as fill_template }
+import from agents.record_resume { validate_upload, validate_records, check_documents }
+import from agents.resume_details { view as details_view, save as details_save, facts_for as details_facts, is_resume_fact, attach_import, DetailsError }
+import from agents.bullet_bank { save_review as bank_save_review, compose as bank_compose, KIND as BANK_KIND }
 import from agents.linkedin { profile_url }
+import from agents.autofill { application_url }
 import from agents.voice { voice_settings }
 import from agents.prep { problem, validate_session }
 import from agents.study { plan as study_plan }
@@ -39,7 +43,128 @@ import from agents.experience { feature_status }
 import from agents.google { SCOPES }
 import from core.transcription { transcription_upload, transcription_list, transcription_get, transcription_audio, transcription_action, transcription_transfer_complete, transcription_processing_claim, transcription_processing_progress, transcription_processing_finish, transcription_retry_setup, transcription_processing_runtime }
 import from agents.transcription_store { Store as TranscriptionStore }
+import from core.stories { story_get, story_list, story_save, story_generate, story_delete }
+import from core.automation { BehavioralStory }
+import from agents.stories { empty as empty_story }
 import os;
+import agents.interview as interview_flow;
+
+def _owned_interview(id: str) -> PrepSession {
+    _agent_access();
+    for p in [root -->][?:PrepSession] { if jid(p)==id and p.data.get("mode")=="interview" { return p; } }
+    raise ValueError("Interview session not found.");
+}
+
+def:priv interview_create(application_id: str, client_id: str) -> dict[str, any] {
+    _agent_access();
+    if not client_id or len(client_id)>100 { return {"error":"A bounded request ID is required."}; }
+    with _write_lock {
+        _agent_fresh();
+        for p in [root -->][?:PrepSession] { if p.data.get("mode")=="interview" and p.data.get("client_id")==client_id { return interview_get(jid(p)); } }
+        apps=[a for a in [root -->][?:Application] if jid(a)==application_id and not a.demo];
+        if not apps { return {"error":"Choose one of your saved roles."}; }
+        a=apps[0];resume=_application_resume(a);resume_id=jid(resume) if resume is not None else "";
+        try { data=interview_flow.create(_application_job(a),_agent_memory().facts,application_id,resume_id); }
+        except ValueError as e { return {"error":str(e)}; }
+        data["client_id"]=client_id;
+        p=root ++> PrepSession(data=data,created_at=time.time(),updated_at=time.time());commit();return interview_get(jid(p));
+    }
+}
+
+def:priv interview_get(id: str) -> dict[str, any] {
+    try {
+        p=_owned_interview(id);out=prep_get(id);out["data"]=interview_flow.client_data(p.data);
+        pending=p.data.get("pending","");r=_owned_run(pending) if pending else None;
+        out["run"]=_run_view(r,True) if r is not None else {};return out;
+    } except ValueError as e { return {"error":str(e)}; }
+}
+
+def:priv interview_sessions() -> dict[str, any] {
+    _agent_access();
+    sessions=[p for p in [root --> [?:PrepSession, -updated_at]] if p.data.get("mode")=="interview"];
+    return {"sessions":[{"id":jid(p),"data":p.data,"revision":p.revision,"updated_at":p.updated_at} for p in sessions[:50]]};
+}
+
+def _interview_queue(p: PrepSession, final: bool = False) -> None {
+    kind="interview_coach" if final else "interview_turn";
+    attempt=int(p.data.get("model_attempt",0))+1;
+    run=_agent_start(kind,jid(p),interview_flow.context(p.data,p.revision,final),str(p.revision)+":"+str(attempt),False);
+    p.data={**p.data,"pending":run["id"],"model_attempt":attempt};
+}
+
+def:priv interview_answer(id: str, revision: int, answer: str, client_id: str, recording_id: str = "") -> dict[str, any] {
+    with _write_lock {
+        _agent_fresh();
+        try {
+            p=_owned_interview(id);text=interview_flow.answer_text(answer);
+            if not client_id or len(client_id)>100 { raise ValueError("A bounded answer request ID is required."); }
+            if any(t.get("client_id")==client_id for t in p.data["turns"]) { return interview_get(id); }
+            if revision!=p.revision { raise ValueError("This transcript changed. Reopen it before saving; your typed draft is retained."); }
+            if p.data["status"]!="active" or p.data.get("pending") or len(p.data["turns"])>=len(p.data["questions"]) { raise ValueError("Continue or finish the saved interview before answering."); }
+            if len(p.data["turns"])>=6 { raise ValueError("Finish this short interview after six answers."); }
+            original=text;
+            if recording_id {
+                recording=TranscriptionStore().get(jid(root),recording_id);
+                if recording["status"]!="completed" { raise ValueError("Wait for local transcription, or type your answer."); }
+                original=recording["original_transcript"];
+            }
+            question=p.data["questions"][len(p.data["turns"])];
+            p.data={**p.data,"turns":p.data["turns"]+[{"question":question,"original":original,"answer":text,"recording_id":recording_id,"client_id":client_id}],"coaching":{}};
+            p.revision+=1;p.updated_at=time.time();_interview_queue(p);commit();return interview_get(id);
+        } except ValueError as e { return {"error":str(e)}; }
+    }
+}
+
+def:priv interview_correct(id: str, revision: int, index: int, answer: str) -> dict[str, any] {
+    with _write_lock {
+        _agent_fresh();
+        try {
+            p=_owned_interview(id);text=interview_flow.answer_text(answer);
+            if p.revision!=revision or index<0 or index>=len(p.data["turns"]) { raise ValueError("This transcript changed. Reopen it before correcting."); }
+            # Cancel any claimed attempt before changing its evidence.
+            pending=_owned_run(p.data.get("pending",""));
+            if pending is not None and pending.status not in ["completed","cancelled","failed"] { pending.status="cancelled";pending.lease="";pending.lease_until=0; }
+            p.data=interview_flow.correct(p.data,index,text);p.revision+=1;p.updated_at=time.time();commit();return interview_get(id);
+        } except ValueError as e { return {"error":str(e)}; }
+    }
+}
+
+def:priv interview_continue(id: str, revision: int, action: str = "followup") -> dict[str, any] {
+    with _write_lock {
+        _agent_fresh();
+        try {
+            p=_owned_interview(id);
+            if revision!=p.revision { raise ValueError("This interview changed. Reopen it before continuing."); }
+            if action=="finish" {
+                if p.data["status"]=="finished" { return interview_get(id); }
+                if len(p.data["turns"])<2 { raise ValueError("Review at least two answers before finishing."); }
+                pending=_owned_run(p.data.get("pending",""));
+                if pending is not None and pending.status not in ["completed","cancelled","failed"] { pending.status="cancelled";pending.lease="";pending.lease_until=0; }
+                if p.data["status"]!="finished" { p.data={**p.data,"status":"finished","pending":"","finished_at":time.time()};p.revision+=1; }
+            } elif action=="analyze" {
+                if not p.data["turns"] or p.data.get("pending") { raise ValueError("Wait for the current task, or retry it below."); }
+                _interview_queue(p,p.data["status"]=="finished");
+            } elif action in ["followup","next"] {
+                if p.data["status"]!="active" or not p.data["turns"] { raise ValueError("Save a reviewed answer before continuing."); }
+                if action=="next" {
+                    pending=_owned_run(p.data.get("pending",""));
+                    if pending is not None and pending.status not in ["completed","cancelled","failed"] { pending.status="cancelled";pending.lease="";pending.lease_until=0; }
+                    p.data={**p.data,"pending":""};
+                } elif p.data.get("pending") { raise ValueError("Wait for analysis before requesting a follow-up."); }
+                count=len(p.data["turns"]);
+                if action=="followup" {
+                    analysis=p.data["analysis"].get(str(count));
+                    if not analysis { raise ValueError("Analyze the reviewed answer first, or continue with the saved role question."); }
+                    if count>=6 { raise ValueError("This short interview has reached six answers. Finish and review it."); }
+                    question={"question":interview_flow.followup(analysis,p.data),"evidence":[],"kind":"followup","basis_revision":p.revision};
+                    questions=p.data["questions"][:count]+[question]+[q for q in p.data["questions"][count:] if q["kind"]!="followup"];
+                    p.data={**p.data,"questions":questions};p.revision+=1;
+                } elif count>=len(p.data["questions"]) { raise ValueError("All saved role questions are answered. Finish, or request a follow-up."); }
+            } else { raise ValueError("Unknown interview action."); }
+            p.updated_at=time.time();commit();return interview_get(id);
+        } except ValueError as e { return {"error":str(e)}; }
+    }
+}
 
 node Profile {
     has linkedin_url: str = "", linkedin_target_role: str = "";
@@ -53,7 +178,7 @@ node Resume { has name: str, file_key: str, size: int, created_at: float, review
 node TailoredResume {
     has name: str, run_id: str, application_id: str, job_title: str, company: str, source_resume_id: str, source_name: str,
         pdf_key: str, tex: str, created_at: float, outline: list[dict[str, any]] = [], pages: int = 1, format: str = "", parse: dict[str, any] = {},
-        score: dict[str, any] = {};
+        score: dict[str, any] = {}, docx_key: str = "", change_record: dict[str, any] = {}, records: list[dict[str, any]] = [];
 }
 node ResumeTicket {
     has owner: str, resume_id: str, kind: str, input_key: str, fingerprint: str,
@@ -98,8 +223,69 @@ def _profile() -> Profile {
 }
 def _settings() -> Settings { _profile(); return [root -->][?:Settings][0]; }
 def _owned_resume(id: str) -> Resume | None {
-    for r in [root -->][?:Resume] { if jid(r) == id { return r; } }
+    for r in [root -->][?:Resume] { if jid(r) == id and r.review.get("kind")!=BANK_KIND { return r; } }
     return None;
+}
+
+def _bank_view(r: Resume) -> dict[str, any] {
+    return {"id":jid(r),"name":r.name,"records":r.review.get("records",[]),"revision":r.review_revision,
+        "confirmed":r.review_confirmed,"editable":r.review.get("kind")==BANK_KIND,
+        "upload_digest":r.upload_digest,"confirmed_at":r.review.get("confirmed_at",0.0),
+        "source":r.review.get("source","Imported resume: "+r.name),"history":r.review.get("history",r.review.get("record_history",[]))};
+}
+
+def:priv resume_bank() -> dict[str, any] {
+    _agent_access();
+    return {"sources":[_bank_view(r) for r in [root -->][?:Resume] if r.review.get("records")],
+        "resumes":[{"id":jid(r),"name":r.name,"revision":r.review_revision,"confirmed":r.review_confirmed,
+            "selection":r.review.get("bank_selection",[])} for r in [root -->][?:Resume] if r.review.get("records") and r.review.get("kind")!=BANK_KIND and not r.template.get("kind")],
+        "limits":{"groups":100,"records_per_group":300,"records_per_resume":300}};
+}
+
+def:priv resume_bank_save(name: str, source: str, records: list[dict[str, any]], confirm: bool = False, id: str = "", revision: int = 0) -> dict[str, any] {
+    _agent_access();
+    # The pinned RPC adapter stringifies omitted defaults. Edits still require a revision.
+    if id is None { id=""; }
+    if not id and (revision is None or revision=="0") { revision=0; }
+    if confirm is None or confirm=="False" { confirm=False; }
+    with _write_lock {
+        _agent_fresh();items=[r for r in [root -->][?:Resume] if r.review.get("kind")==BANK_KIND];
+        current=[r for r in items if jid(r)==id];
+        if id and not current { return _error("Experience not found."); }
+        if not id and (revision!=0 or len(items)>=100) { return _error("Create up to 100 experience groups."); }
+        r=current[0] if current else None;
+        if r is not None and r.review_revision!=revision { return _error("Experience changed. Reload before saving."); }
+        try { review=bank_save_review(r.review if r is not None else {},name,source,records,confirm,revision,time.time()); }
+        except ValueError as e { return _error(str(e)); }
+        if r is None { r=root ++> Resume(name=name.strip(),file_key="",size=0,created_at=time.time()); }
+        r.name=name.strip();r.review=dict(review);r.review_revision=revision+1;r.review_confirmed=confirm;
+        commit();return resume_bank();
+    }
+}
+
+def:priv resume_bank_delete(id: str, revision: int) -> dict[str, any] {
+    _agent_access();
+    with _write_lock {
+        _agent_fresh();items=[r for r in [root -->][?:Resume] if jid(r)==id and r.review.get("kind")==BANK_KIND];
+        if not items { return _error("Experience not found."); }
+        r=items[0];
+        if r.review_revision!=revision { return _error("Experience changed. Reload before deleting."); }
+        del r;commit();return resume_bank();
+    }
+}
+
+def:priv resume_bank_select(id: str, revision: int, selection: list[dict[str, any]]) -> dict[str, any] {
+    _agent_access();
+    with _write_lock {
+        _agent_fresh();r=_owned_resume(id);
+        if r is None { return _error("Resume not found."); }
+        if revision!=r.review_revision { return _error("Resume changed. Reload before choosing experience."); }
+        if not r.review_confirmed or not r.review.get("records") or r.template.get("kind") { return _error("Use a confirmed PDF/DOCX record resume for bullet bank selection."); }
+        try { bank_compose(r.review["records"],selection,[_bank_view(x) for x in [root -->][?:Resume] if jid(x)!=id and x.review.get("records")]); }
+        except ValueError as e { return _error(str(e)); }
+        checked=[{"id":x["id"],"revision":x["revision"],"record_ids":x["record_ids"]} for x in selection];
+        r.review={**r.review,"bank_selection":checked};r.review_revision+=1;commit();return resume_bank();
+    }
 }
 def _file_path(key: str) -> Path {
     directory = Path("storage/resumes") / hashlib.sha256(jid(root).encode()).hexdigest();
@@ -129,7 +315,7 @@ def:priv bootstrap() -> dict[str, any] {
       "applications":[_app_view(a) for a in [root -->][?:Application]],
       "people":PEOPLE,
       "contacts":[{"id":jid(c),"person_id":c.person_id,"saved":c.saved,"draft":c.draft,"notes":c.notes} for c in [root -->][?:Contact]],
-      "resumes":[{"id":jid(r),"name":r.name,"size":r.size,"created_at":r.created_at,"details_status":"Confirmed" if r.review_confirmed else "Unavailable","processing":r.processing,"format":_resume_format(r)} for r in [root -->][?:Resume]],
+      "resumes":[{"id":jid(r),"name":r.name,"size":r.size,"created_at":r.created_at,"details_status":"Confirmed" if r.review_confirmed else "Review" if r.review.get("records") else "Processing","review_revision":r.review_revision,"processing":r.processing,"format":_resume_format(r)} for r in [root -->][?:Resume] if r.review.get("kind")!=BANK_KIND],
       "selected_resume":_settings().selected_resume,
       "tailored_resumes":[_tailored_view(x) for x in [root --> [?:TailoredResume, -created_at]]],
       "agents":{**_agent_summary(),"features":_features()},
@@ -210,25 +396,25 @@ def:priv save_contact(id: str, saved: bool, draft: str, notes: str) -> dict[str,
 }
 def:priv upload_resume(name: str, content: str, transfer_ms: float = 0.0) -> dict[str, any] {
     _profile();
-    if len(content)>13981016 { return _error("PDF must be 10 MB or smaller."); }
-    try { raw = base64.b64decode(content,validate=True); } except Exception { return _error("Invalid PDF encoding."); }
-    if len(raw)>10485760 or not raw.startswith(b"%PDF-") { return _error("Choose a valid PDF, 10 MB or smaller."); }
-    try {
-        inspect_pdf(raw);
-    } except ValueError as e { return _error(str(e)); }
-    except Exception { return _error("This PDF could not be opened. Please export a new copy."); }
     if not name.strip() or len(name)>160 { return _error("Use a filename under 160 characters."); }
+    if len(content)>13981016 { return _error("Resume must be 10 MB or smaller."); }
+    try { raw = base64.b64decode(content,validate=True); } except Exception { return _error("Invalid resume encoding."); }
+    try {
+        suffix=validate_upload(name,raw);
+    } except ValueError as e { return _error(str(e)); }
+    except Exception { return _error("This resume could not be opened. Please export a new copy."); }
     fingerprint=hashlib.sha256(raw).hexdigest();
     with _write_lock {
         _agent_fresh();
         for existing in [root -->][?:Resume] {
             if existing.upload_digest==fingerprint and existing.name==Path(name).name { return bootstrap(); }
         }
-        key = "upload-"+hashlib.sha256(Path(name).name.encode()+raw).hexdigest()+".pdf";
+        key = "upload-"+hashlib.sha256(Path(name).name.encode()+raw).hexdigest()+suffix;
         used_keys={existing.file_key for existing in [root -->][?:Resume]};
-        while key in used_keys { key="upload-"+hashlib.sha256(key.encode()).hexdigest()+".pdf"; }
+        while key in used_keys { key="upload-"+hashlib.sha256(key.encode()).hexdigest()+suffix; }
         _write_private(key,raw);
         r = root ++> Resume(name=Path(name).name, file_key=key, size=len(raw), created_at=time.time(),upload_digest=fingerprint);
+        _queue_resume(r,"import",key,fingerprint,transfer_ms,Path(name).name);
         settings = _settings(); if not settings.selected_resume { settings.selected_resume=jid(r); }
         commit();
     }
@@ -243,7 +429,10 @@ def _resume_format(r: Resume) -> dict[str, any] {
     if t.get("kind")=="builtin" {
         return {"kind":"builtin","template":t["builtin"],"label":LATEX_TEMPLATES[t["builtin"]],"pages":t.get("pages",0),"summary":t.get("summary",{}),"skipped":[]};
     }
-    return {"kind":"","template":"","label":"No LaTeX yet","pages":0,"summary":{},"skipped":[]};
+    if r.review.get("records") {
+        return {"kind":"records","template":r.review.get("template","classic"),"label":"Stack reviewed records","pages":0,"summary":{},"skipped":[]};
+    }
+    return {"kind":"","template":"","label":"Review imported content","pages":0,"summary":{},"skipped":[]};
 }
 def _remove_template_files(r: Resume) -> None {
     for key in ["files_key","preview_key"] {
@@ -259,7 +448,7 @@ def _owned_tailored(id: str) -> TailoredResume | None {
 }
 def _tailored_view(x: TailoredResume) -> dict[str, any] {
     return {"id":jid(x),"name":x.name,"job_title":x.job_title,"company":x.company,"application_id":x.application_id,"run_id":x.run_id,
-        "source_name":x.source_name,"created_at":x.created_at,"pages":x.pages,"format":x.format,"parse":x.parse,"score":x.score};
+        "source_name":x.source_name,"created_at":x.created_at,"pages":x.pages,"format":x.format,"parse":x.parse,"score":x.score,"has_docx":bool(x.docx_key)};
 }
 def _tailored_filename(x: TailoredResume) -> str {
     return "Resume - "+" - ".join([p for p in [x.company,x.job_title] if p])[:120].replace("/","-")+".pdf";
@@ -271,10 +460,12 @@ def _save_tailored(r: AgentRun) -> str {
     for x in [root -->][?:TailoredResume] { if x.run_id==jid(r) { return ""; } }
     job=r.context.get("job",{});title=str(job.get("title",""));company=str(job.get("company",""));key=str(uuid4())+".pdf";
     _write_private(key,base64.b64decode(t["pdf"]["content"]));
+    docx_key="";
+    if t.get("docx",{}).get("content") { docx_key=key.replace(".pdf",".docx");_write_private(docx_key,base64.b64decode(t["docx"]["content"])); }
     x=root ++> TailoredResume(name=(title+" at "+company if title and company else title or company or "Tailored resume")[:200],run_id=jid(r),application_id=r.context.get("application_id",""),
         job_title=title[:200],company=company[:200],source_resume_id=r.context.get("resume_id",""),source_name=r.context.get("resume_name",""),
         pdf_key=key,tex=str(t.get("tex",""))[:400000],created_at=time.time(),outline=t.get("outline",[]),pages=int(t["pdf"].get("pages",1)),format=str(t.get("format","")),
-        score=t.get("score",{}));
+        score=t.get("score",{}),docx_key=docx_key,change_record=t.get("change_record",{}),records=t.get("records",[]));
     return jid(x);
 }
 """Once per account: saves tasks that finished before tailored resumes were kept separately.
@@ -294,12 +485,16 @@ def _backfill_tailored() -> None {
         settings.tailored_backfilled=True;commit();
     }
 }
-"""Parser checks are unavailable until an independently implemented parser is integrated."""
+"""Independently check approved record documents; legacy checks remain unavailable."""
 def _check_tailored(id: str) -> None {
     with _write_lock {
         _agent_fresh();x=_owned_tailored(id);
         if x is not None {
-            x.parse={"available":False,"ok":False,"error":"PDF parser checks are temporarily unavailable.","checks":[],"passed":0,"total":0,"checked_at":time.time()};commit();
+            if x.format=="records" and x.docx_key {
+                try { x.parse={**check_documents(_file_path(x.pdf_key).read_bytes(),_file_path(x.docx_key).read_bytes(),x.records),"checked_at":time.time()};x.parse.pop("text",None); }
+                except (ValueError, OSError) as e { x.parse={"available":True,"ok":False,"error":str(e),"checked_at":time.time()}; }
+            } else { x.parse={"available":False,"ok":False,"error":"PDF parser checks are temporarily unavailable.","checks":[],"passed":0,"total":0,"checked_at":time.time()}; }
+            commit();
         }
     }
 }
@@ -309,7 +504,13 @@ def:priv read_tailored_resume(id: str) -> dict[str, any] {
     if x is None { return _error("Tailored resume not found."); }
     path=_file_path(x.pdf_key);
     if not path.exists() { return _error("This file is unavailable."); }
-    return {"id":id,"name":x.name,"pdf":{"name":_tailored_filename(x),"content":base64.b64encode(path.read_bytes()).decode()},"tex":x.tex};
+    out={"id":id,"name":x.name,"pdf":{"name":_tailored_filename(x),"content":base64.b64encode(path.read_bytes()).decode()},"tex":x.tex,"change_record":x.change_record};
+    if x.docx_key {
+        docx=_file_path(x.docx_key);
+        if not docx.exists() { return _error("The editable DOCX is unavailable."); }
+        out["docx"]={"name":_tailored_filename(x).replace(".pdf",".docx"),"content":base64.b64encode(docx.read_bytes()).decode()};
+    }
+    return out;
 }
 def:priv check_tailored_resume(id: str) -> dict[str, any] {
     if _owned_tailored(id) is None { return _error("Tailored resume not found."); }
@@ -324,17 +525,25 @@ def:priv score_resume(application_id: str) -> dict[str, any] {
     r: Resume = found;
     if not _tailor_source(r) { return _error("PDF-only scoring is temporarily unavailable. Upload your LaTeX source to score this resume."); }
     try {
-        source=_resume_source(r);structure=latex_parse(source);
+        source=_resume_source(r);
         facts=[f for f in _agent_memory().facts if f.get("verified")];
-        result=score_summary(resume_score(latex_outline(structure),_application_job(apps[0]),facts,text=resume_text(structure["tex"])));
+        if source["format"]=="records" {
+            import agents.record_resume as record_resume;
+            prepared=record_resume.prepare(source);
+            result=score_summary(resume_score(prepared["outline"],_application_job(apps[0]),facts,text="\n".join(record["text"] for record in prepared["records"])));
+        } else {
+            structure=latex_parse(source);
+            result=score_summary(resume_score(latex_outline(structure),_application_job(apps[0]),facts,text=resume_text(structure["tex"])));
+        }
     } except ValueError as e { return _error(str(e)); }
-    return {"application_id":application_id,"resume_name":r.name,"source":"latex","score":result};
+    return {"application_id":application_id,"resume_name":r.name,"source":source["format"],"score":result};
 }
 
 def:priv delete_tailored_resume(id: str) -> dict[str, any] {
     with _write_lock {
         _agent_fresh();x=_owned_tailored(id);
         if x is None { return _error("Tailored resume not found."); }
+        if x.docx_key { _file_path(x.docx_key).unlink(missing_ok=True); }
         _file_path(x.pdf_key).unlink(missing_ok=True);del x;commit();
     }
     return bootstrap();
@@ -346,8 +555,12 @@ def _resume_source(r: Resume) -> dict[str, any] {
         if not path.exists() { raise ValueError("Your LaTeX source is unavailable. Upload it again on the Resume tab."); }
         return {**latex_unpack(path.read_bytes()),"format":"latex"};
     }
-    if r.template.get("kind")!="builtin" { raise ValueError("Upload the LaTeX for "+r.name+" on the Resume tab before tailoring."); }
-    if not r.review_confirmed { raise ValueError("Confirm the details for "+r.name+" to fill its built-in template."); }
+    if r.template.get("kind")!="builtin" {
+        if not r.review_confirmed or not r.review.get("records") { raise ValueError("Review and confirm the imported records for "+r.name+" before tailoring."); }
+        composed=bank_compose(r.review["records"],r.review.get("bank_selection",[]),[_bank_view(x) for x in [root -->][?:Resume] if jid(x)!=jid(r) and x.review.get("records")]);
+        return {"format":"records",**composed,"template":r.review.get("template","classic"),"revision":r.review_revision,"upload_digest":r.upload_digest};
+    }
+    if not r.review_confirmed or not r.review.get("details",{}).get("confirmed") or r.review.get("records_source")!="details" { raise ValueError("Confirm the details for "+r.name+" to fill its built-in template."); }
     return {**fill_template(r.template["builtin"],r.review.get("values",{})),"format":"builtin"};
 }
 def _save_template(id: str, template: dict[str, any], files: dict[str, any]) -> dict[str, any] {
@@ -393,6 +606,10 @@ def:priv use_resume_template(id: str, template: str) -> dict[str, any] {
         }
         if template not in LATEX_TEMPLATES { return _error("Choose one of the built-in templates."); }
         if not r.review_confirmed { return _error("Confirm your resume details first, so Stack can fill the template."); }
+        if r.review.get("records") and r.review.get("records_source")!="details" {
+            _cancel_resume_work(r,"source");_remove_template_files(r);r.template={};
+            r.review={**r.review,"template":template};r.review_revision+=1;commit();return bootstrap();
+        }
         data=__import__("json").dumps({"template":template,"values":r.review.get("values",{})}).encode();
         fingerprint=hashlib.sha256(data).hexdigest();
         if r.processing.get("source",{}).get("fingerprint")==fingerprint { return bootstrap(); }
@@ -407,6 +624,7 @@ def:priv read_resume_source(id: str) -> dict[str, any] {
     if r is None { return _error("Resume not found."); }
     name=r.name;view=_resume_format(r);key=str(r.template.get("preview_key",""));
     try { source=_resume_source(r); } except ValueError as e { return _error(str(e)); }
+    if source["format"]=="records" { return {"id":id,"name":name,"format":view,"source":source}; }
     data: bytes = b"";
     if key and _file_path(key).exists() { data=_file_path(key).read_bytes(); }
     else {
@@ -436,27 +654,29 @@ def:pub agent_worker_resume_source(token: str, id: str, owner: str, lease: str) 
                 # The resume lost its LaTeX (or was deleted) after the task started. Record it so the task
                 # pauses on the LaTeX step instead of asking a generic question.
                 r.context={**r.context,"resume_format":""};commit();
-                raise ValueError("Choose a resume for this application on the Resume tab, then try again." if resume is None else "Upload the LaTeX for "+resume.name+" to tailor it.");
+                raise ValueError("Choose a resume for this application on the Resume tab, then try again." if resume is None else "Review and confirm the imported records for "+resume.name+" or upload its LaTeX.");
             }
             source=_resume_source(resume);
-            return {**latex_encode(source),"format":source["format"]};
+            return source if source["format"]=="records" else {**latex_encode(source),"format":source["format"]};
         } except ValueError as e { return {"error":str(e)}; }
     }
 }
 def:priv read_resume(id: str) -> dict[str, any] {
     r = _owned_resume(id); if r is None { return _error("Resume not found."); }
+    if r.review.get("kind")==BANK_KIND { return _error("This experience has records, not an uploaded file."); }
     path = _file_path(r.file_key);
     if not path.exists() { return _error("This file is unavailable. Please upload it again."); }
-    return {"name":r.name,"content":base64.b64encode(path.read_bytes()).decode(),"review":{}};
+    return {"name":r.name,"content":base64.b64encode(path.read_bytes()).decode(),"review":{**r.review,"revision":r.review_revision,"confirmed":r.review_confirmed}};
 }
 def:priv change_resume(id: str, action: str, name: str = "") -> dict[str, any] {
     r = _owned_resume(id); if r is None { return _error("Resume not found."); }
+    if r.review.get("kind")==BANK_KIND { return _error("Manage this experience in the bullet bank."); }
     if action=="select" { _settings().selected_resume=id; }
     elif action=="rename" {
         if not name.strip() or len(name)>160 { return _error("Enter a name under 160 characters."); }
         r.name=name.strip();
     } elif action=="delete" {
-        _cancel_resume_work(r);_file_path(r.file_key).unlink(missing_ok=True);_remove_template_files(r);
+        _cancel_resume_work(r);_file_path(r.file_key).unlink(missing_ok=True);_remove_template_files(r);_withdraw_resume_facts(r);
         if _settings().selected_resume==id { _settings().selected_resume=""; }
         for a in [root -->][?:Application] { if a.resume_id==id { a.resume_id=""; } }
         del r;
@@ -496,7 +716,7 @@ Jobs saved before any resume was uploaded have no resume of their own."""
 def _application_resume(a: Application) -> Resume | None {
     r=_owned_resume(a.resume_id);
     if r is None { r=_owned_resume(_settings().selected_resume); }
-    resumes=[root -->][?:Resume];
+    resumes=[r for r in [root -->][?:Resume] if r.review.get("kind")!=BANK_KIND];
     if r is None and len(resumes)==1 { r=resumes[0]; }
     return r;
 }
@@ -505,7 +725,11 @@ A PDF alone is never tailored."""
 def _tailor_source(r: Resume | None) -> str {
     if r is None { return ""; }
     if r.template.get("kind")=="upload" { return "latex"; }
-    return "builtin" if r.template.get("kind")=="builtin" and r.review_confirmed else "";
+    if r.review_confirmed {
+        if r.template.get("kind")=="builtin" { return "builtin"; }
+        if r.review.get("records") { return "records"; }
+    }
+    return "";
 }
 def _application_agent_context(a: Application) -> dict[str, any] {
     job=_application_job(a);p=_profile();resume=_application_resume(a);
@@ -513,7 +737,8 @@ def _application_agent_context(a: Application) -> dict[str, any] {
     if resume is not None {
         context["resume_name"]=resume.name;
         try {
-            context["resume_text"]=inspect_file(_file_path(resume.file_key),True)["text"];
+            if _tailor_source(resume)=="records" { context["resume_text"]="\n".join(record["text"] for record in _resume_source(resume)["records"]); }
+            else { context["resume_text"]=inspect_file(_file_path(resume.file_key),True)["text"]; }
         } except Exception { context["resume_text"]=""; }
     }
     return context;
@@ -523,14 +748,26 @@ def:priv agent_start(kind: str, target_id: str) -> dict[str, any] {
     if kind=="application" { return _error("The application assistant has been retired. Apply on the employer site yourself."); }
     with _write_lock {
         _agent_fresh();
-        if kind in ["jobs","resume"] {
+        if kind in ["jobs","resume","autofill"] {
             for a in [root -->][?:Application] {
                 if jid(a)==target_id and not a.demo {
                     job=_application_job(a);
+                    if kind=="autofill" {
+                        try { destination=application_url(job.get("url","")); }
+                        except ValueError as e { return _error(str(e)); }
+                        if not os.environ.get("STACK_BROWSER_URL","") or not os.environ.get("STACK_BROWSER_TOKEN","") { return _error("Autofill needs the isolated browser worker. Configure it before starting."); }
+                        for old in [root -->][?:AgentRun] {
+                            if old.kind=="autofill" and old.target_id==target_id and old.status not in ["completed","cancelled","failed"] { return _run_view(old,True); }
+                        }
+                        # No model, inferred facts, resume contents or credentials enter this task.
+                        selected_resume=_application_resume(a);
+                        profile=_profile();profile_facts=[{"key":"name","value":profile.name,"verified":True,"source":"Saved Profile name"}] if profile.onboarded and profile.name else [];
+                        return _agent_start("autofill",target_id,{"application_id":jid(a),"job":job,"application_url":destination["url"],"autofill_profile":profile_facts,"resume_id":jid(selected_resume) if selected_resume is not None else "","resume_name":selected_resume.name if selected_resume is not None else ""},str(uuid4()));
+                    }
                     context=_application_agent_context(a);
-                    # Tailoring edits LaTeX. Refuse up front rather than create a task that can only pause.
+                    # Refuse unconfirmed or unavailable sources before queueing tailoring.
                     if kind=="resume" and not context["resume_id"] { return _error("Upload your resume on the Resume tab first."); }
-                    if kind=="resume" and not context["resume_format"] { return _error("Upload the LaTeX for "+context["resume_name"]+" to tailor it."); }
+                    if kind=="resume" and not context["resume_format"] { return _error("Review and confirm the imported records for "+context["resume_name"]+" or upload its LaTeX."); }
                     # Attach the resolved resume so the job shows, and keeps, the resume it was tailored from.
                     if context["resume_id"] and a.resume_id!=context["resume_id"] { a.resume_id=context["resume_id"]; }
                     return _agent_start(kind,target_id,context);
@@ -545,6 +782,7 @@ def:priv agent_start(kind: str, target_id: str) -> dict[str, any] {
         } elif kind in ["prep","code"] {
             for p in [root -->][?:PrepSession] {
                 if jid(p)==target_id {
+                    if p.data.get("mode")=="interview" { return {"error":"Use the interview controls for this session."}; }
                     context={"session":p.data,"session_revision":p.revision,"problem":problem(str(p.data["problem_id"])),"test_results":[r for r in p.results if r["revision"]==p.revision]};
                     for a in [root -->][?:Application] { if jid(a)==p.data.get("application_id") { context["job"]=_application_job(a); } }
                     return _agent_start(kind,target_id,context,str(p.revision));
@@ -575,7 +813,7 @@ def:priv agent_continue_tailoring(id: str, resume_id: str = "") -> dict[str, any
         r.context={**r.context,**{k:v for (k,v) in context.items() if k.startswith("resume_")}};r.updated_at=time.time();
         commit();
         if not context["resume_id"] { return _error("Upload a resume on the Resume tab first."); }
-        if not context["resume_format"] { return _error("Upload the LaTeX for "+context["resume_name"]+" to tailor it."); }
+        if not context["resume_format"] { return _error("Review and confirm the imported records for "+context["resume_name"]+" or upload its LaTeX."); }
     }
     return agent_respond(id,[],False);
 }
@@ -619,21 +857,129 @@ def:priv agent_linkedin_start(url: str = "", target_role: str = "") -> dict[str,
         return _agent_start("linkedin","self",{"linkedin_url":url,"target_role":target_role or p.role,"profile":{"name":p.name}},str(uuid4()));
     }
 }
+"""Editable sections for an imported resume: the raw records plus structured details over immutable parser evidence."""
+def _resume_review(r: Resume) -> dict[str, any] {
+    plain={k:v for (k,v) in r.review.items() if k not in ["details","values"]};
+    trusted=r.review.get("records_source","records") if r.review_confirmed else "";
+    return {**plain,**details_view(r.review),"revision":r.review_revision,"confirmed":r.review_confirmed,"trusted_source":trusted,"processing":r.processing.get("import",{})};
+}
 def:priv agent_extract_resume(id: str) -> dict[str, any] {
     _agent_access();
-    if _owned_resume(id) is None { return _error("Resume not found."); }
-    return _error("PDF detail extraction is temporarily unavailable. Your uploaded PDF is still saved.");
+    with _write_lock {
+        _agent_fresh();r=_owned_resume(id);
+        if r is None { return _error("Resume not found."); }
+        if r.review.get("records") {
+            # Uploads made before structured extraction get one details-only parse; reviewed records stay untouched.
+            current=r.processing.get("import",{}).get("status","completed");
+            if not r.review.get("details") and not r.review.get("details_error") and current=="completed" and Path(r.file_key).suffix in [".pdf",".docx"] {
+                _queue_resume(r,"import",r.file_key,r.upload_digest,0.0,r.name);commit();
+            }
+            return _resume_review(r);
+        }
+        if not r.processing.get("import") { _queue_resume(r,"import",r.file_key,r.upload_digest,0.0,r.name);commit(); }
+        return {"processing":r.processing.get("import",{}),"revision":r.review_revision,"confirmed":False,**details_view({}),"trusted_source":""};
+    }
 }
 
+"""Save edited imported records with optimistic revision checks and explicit confirmation."""
+def:priv resume_save_records(id: str, revision: int, records: list[dict[str, any]], confirm: bool = False, template: str = "classic") -> dict[str, any] {
+    _agent_access();
+    if template not in ["classic","jake"] { return _error("Choose the Classic or Jake template."); }
+    try { checked=validate_records(records); } except ValueError as e { return _error(str(e)); }
+    with _write_lock {
+        _agent_fresh();r=_owned_resume(id);
+        if r is None { return _error("Resume not found."); }
+        if r.review_revision!=revision { return _error("Resume review changed. Reload it before saving."); }
+        if not r.review.get("imported_records") { return _error("Wait for resume import before reviewing its records."); }
+        history=r.review.get("record_history",[]);
+        if not history {
+            history=[{"revision":revision,"records":r.review["records"],"confirmed":r.review_confirmed,
+                "source":"Previously reviewed import: "+r.name,"saved_at":r.review.get("confirmed_at",0.0)}];
+        }
+        if len(history)>=100 { return _error("This resume has 100 record revisions. Export before importing a new copy."); }
+        _cancel_resume_work(r,"import");
+        _invalidate_builtin_resume(r);
+        r.review={**r.review,"records":checked,"template":template,"confirmed_at":time.time() if confirm else 0.0,"records_source":"records",
+            "record_history":history+[{"revision":revision+1,"records":checked,"confirmed":confirm,"source":"User-reviewed import: "+r.name,"saved_at":time.time()}]};
+        # Raw records and structured details are separate versions; the latest explicit confirmation is the only trusted one.
+        if isinstance(r.review.get("details"),dict) { r.review["details"]={**r.review["details"],"confirmed":False,"confirmed_at":0.0}; }
+        _withdraw_resume_facts(r);
+        r.review_revision+=1;r.review_confirmed=confirm;commit();
+        return {**{k:v for (k,v) in r.review.items() if k not in ["details","values"]},"revision":r.review_revision,"confirmed":r.review_confirmed,"trusted_source":"records" if confirm else ""};
+    }
+}
+
+def:priv story_sources() -> dict[str, any] {
+    _agent_access();sources=[];
+    for r in [root -->][?:Resume] {
+        if r.review_confirmed and r.review.get("records") {
+            sources.append({"key":"resume:"+jid(r),"kind":"reviewed_resume_records","revision":digest({"revision":r.review_revision,"records":r.review["records"]}),
+                "text":"\n".join(record["text"] for record in r.review["records"]),"resume_id":jid(r),"provenance":"User-confirmed imported resume records","review_revision":r.review_revision});
+        }
+    }
+    for f in _agent_memory().facts {
+        if f.get("verified") and str(f["key"]).startswith("resume.") {
+            sources.append({"key":"fact:"+f["key"],"kind":"reviewed_resume_fact","revision":digest(f),"text":f["value"],"resume_id":f.get("resume_id",""),"provenance":f.get("source","")});
+        }
+    }
+    for r in TranscriptionStore().list(jid(root)) {
+        if r["status"]=="completed" and r["transcript"].strip() {
+            sources.append({"key":"recording:"+r["id"],"kind":"recorded_answer","revision":str(r["revision"]),"text":r["transcript"],"original_transcript":r["original_transcript"],"model":r["model"]});
+        }
+    }
+    return {"sources":sources};
+}
+
+def:priv story_create(source_key: str, source_revision: str, excerpt: str, title: str, reviewed_single_event: bool = False) -> dict[str, any] {
+    _agent_access();
+    if not reviewed_single_event { return _error("Review the excerpt and confirm it describes one event before saving a story."); }
+    if not title.strip() or len(title)>160 or not excerpt.strip() or len(excerpt)>8000 { return _error("Use a title under 160 characters and a single event excerpt under 8,000 characters."); }
+    with _write_lock {
+        _agent_fresh();sources=[s for s in story_sources()["sources"] if s["key"]==source_key];
+        if not sources or sources[0]["revision"]!=source_revision { return _error("The source changed or is unavailable. Review its current version."); }
+        source=sources[0];
+        if excerpt not in source["text"] { return _error("Select an exact excerpt from the reviewed source."); }
+        source={**source,"text":excerpt,"full_text":source["text"],"reviewed_single_event":True,"reviewed_at":time.time()};
+        s=root ++> BehavioralStory(title=title.strip(),source=source,content=empty_story(source),created_at=time.time(),updated_at=time.time());
+        commit();return story_get(jid(s));
+    }
+}
+
+def _withdraw_resume_facts(r: Resume) -> None {
+    m=_agent_memory();keep=[f for f in m.facts if not is_resume_fact(f,jid(r))];
+    if len(keep)!=len(m.facts) { m.facts=keep;m.revision+=1; }
+}
+"""Withdraw previews and work generated from earlier details, preserving uploaded LaTeX sources."""
+def _invalidate_builtin_resume(r: Resume) -> None {
+    t=_resume_ticket(str(r.processing.get("source",{}).get("id","")));
+    if t is not None and Path(t.input_key).suffix==".json" { _cancel_resume_work(r,"source"); }
+    if r.template.get("kind")=="builtin" { _remove_template_files(r);r.template={}; }
+}
+"""Replace a resume's editable details with the complete map sent. Absent fields are deleted and indices renumbered.
+Confirming makes these details the trusted resume (records and facts); any draft withdraws both."""
 def:priv resume_save_details(id: str, revision: int, values: dict[str, any], confirm: bool = False) -> dict[str, any] {
     _agent_access();
-    if _owned_resume(id) is None { return _error("Resume not found."); }
-    return _error("PDF detail editing is temporarily unavailable. Existing confirmed facts are preserved.");
+    with _write_lock {
+        _agent_fresh();r=_owned_resume(id);
+        if r is None { return _error("Resume not found."); }
+        if r.review_revision!=revision { return _error("Resume review changed. Reload it before saving."); }
+        if not r.review.get("records") { return _error("Wait for resume import before editing its details."); }
+        try {
+            review=details_save(r.review,values,bool(confirm),revision,time.time(),r.name);
+            facts=validate_facts(details_facts(jid(r),r.name,review["values"])) if confirm else [];
+        } except ValueError as e { return _error(str(e)); }
+        _cancel_resume_work(r,"import");
+        _invalidate_builtin_resume(r);
+        _withdraw_resume_facts(r);
+        if facts { m=_agent_memory();m.facts=m.facts+facts;m.revision+=1; }
+        r.review=dict(review);r.review_revision=revision+1;r.review_confirmed=bool(confirm);commit();
+        return _resume_review(r);
+    }
 }
 
 def _browser_run(id: str) -> AgentRun | None {
     _agent_access();r=_owned_run(id);
-    if r is None or r.kind!="linkedin" or r.status in ["completed","cancelled","failed"] { return None; }
+    if r is None or r.kind not in ["linkedin","autofill"] or r.status in ["completed","cancelled","failed"] { return None; }
     if r.kind=="linkedin" and r.index!=0 { return None; }
     return r;
 }
@@ -646,7 +992,7 @@ def:priv agent_browser_subscribe(id: str) -> dict[str, any] {
 }
 def:priv agent_browser_control(id: str, action: str, generation: int = -1, controller: str = "", instance: str = "") -> dict[str, any] {
     _agent_access();r=_owned_run(id);
-    if r is None or r.kind!="linkedin" { return {"error":"This task has no browser."}; }
+    if r is None or r.kind not in ["linkedin","autofill"] { return {"error":"This task has no browser."}; }
     if action=="stop" {
         result=agent_cancel(id);
         try { result["control"]=browser_worker.browser_call("control",{"owner":jid(root),"id":id,"action":"status"},2); }
@@ -680,6 +1026,7 @@ def:priv agent_browser_control(id: str, action: str, generation: int = -1, contr
         } elif action=="resume" {
             if r.status!="paused" { return {"error":"This task is not paused for browser control."}; }
             r.status=previous if previous in ["review","uncertain"] else "needs_input" if any(q["key"]!="browser" for q in r.requests) else "queued";
+            if r.kind=="autofill" { r.status="queued"; }
             if r.status=="queued" { r.requests=[];r.attempts=0;r.next_at=0.0; }
             r.context.pop("browser_return",None);r.message="Browser returned to the agent.";
         }
@@ -693,6 +1040,19 @@ def:priv agent_browser(id: str, event: dict[str, any]) -> dict[str, any] {
     kind=event.get("type","snapshot");
     if kind in ["take","resume","stop"] { return agent_browser_control(id,kind,event.get("generation",-1),event.get("controller",""),event.get("instance","")); }
     if kind!="snapshot" and r.status!="paused" { return {"error":"Take control before using the browser."}; }
+    if kind=="upload_resume" {
+        if r.kind!="autofill" { return _error("This task does not support application resume upload."); }
+        selected_resume=_owned_resume(r.context.get("resume_id",""));
+        if selected_resume is None or selected_resume.size>8*1024*1024 { return _error("Choose a PDF or DOCX resume up to 8 MB for this application, then start a new autofill task."); }
+        document=read_resume(jid(selected_resume));
+        if document.get("error") { return document; }
+        # Never accept client-supplied file bytes or a cross-account resume ID.
+        # Display names can be renamed; the validated stored extension remains authoritative.
+        suffix=Path(selected_resume.file_key).suffix.lower();
+        if suffix not in [".pdf",".docx"] { return _error("This application needs an uploaded PDF or DOCX resume."); }
+        upload_name=Path(str(document["name"]).replace("\\","/")).stem+suffix;
+        event={**event,"document":{"name":upload_name,"content":document["content"]}};
+    }
     try {
         identity={"owner":jid(root),"id":id};
         result=browser_worker.browser_call("frame" if kind=="snapshot" else "handoff",{**identity,"event":event},10);
@@ -727,10 +1087,10 @@ def _notify_agent(r: AgentRun) -> None {
 def _create_study_plan(application_id: str) -> list[dict[str, any]] {
     applications=[a for a in [root -->][?:Application] if jid(a)==application_id and not a.demo];
     if not applications { return []; }
-    feedback=[f["data"] for p in [root -->][?:PrepSession] for f in p.feedback[-1:]];
+    feedback=[f["data"] for p in [root -->][?:PrepSession] if p.data.get("mode")!="interview" for f in p.feedback[-1:]];
     recommendations=study_plan(_application_job(applications[0]),feedback);out=[];
     for item in recommendations {
-        existing=[p for p in [root -->][?:PrepSession] if p.data.get("application_id")==application_id and p.data["problem_id"]==item["problem_id"]];
+        existing=[p for p in [root -->][?:PrepSession] if p.data.get("mode")!="interview" and p.data.get("application_id")==application_id and p.data["problem_id"]==item["problem_id"]];
         if existing { session=existing[0]; }
         else {
             spec=problem(str(item["problem_id"]));data=validate_session({"problem_id":item["problem_id"],"language":item["language"],"code":spec.get("starter",{}).get(item["language"],"")});data["application_id"]=application_id;
@@ -837,15 +1197,15 @@ def _features() -> list[dict[str, any]] {
     if not voice_error and not (c["monthly_cents"]>0 and c["user_monthly_cents"]>0) { voice_error="Live interviews need an API budget; subscription providers cannot run them."; }
     facts=m.facts;real=[a for a in [root -->][?:Application] if not a.demo];
     # The resume a newly tailored job uses; see _application_resume.
-    default_resume=_owned_resume(_settings().selected_resume);resumes=[root -->][?:Resume];
+    default_resume=_owned_resume(_settings().selected_resume);resumes=[r for r in [root -->][?:Resume] if r.review.get("kind")!=BANK_KIND];
     if default_resume is None and len(resumes)==1 { default_resume=resumes[0]; }
     return feature_status({
-        "now":time.time(),"policy":m.policy,"model":model_status(jid(root)),"google_scopes":scopes,
+        "now":time.time(),"policy":m.policy,"model":model_status(jid(root),m.model_selection),"google_scopes":scopes,
         "google_client":bool(os.environ.get("GOOGLE_CLIENT_ID","")) and os.environ.get("GOOGLE_REDIRECT_URI","").startswith("https://"),
         "browser":bool(os.environ.get("STACK_BROWSER_URL","")) and bool(os.environ.get("STACK_BROWSER_TOKEN","")),
         "sandbox":bool(os.environ.get("STACK_SANDBOX_URL","")) or c["sandbox_available"],"voice_error":voice_error,"web_url":c["web_url"],
         "operator_limits":c["action_daily_limits"],
-        "resumes":len([root -->][?:Resume]),"applications":len(real),
+        "resumes":len(resumes),"applications":len(real),
         "tailor_source":_tailor_source(default_resume),"tailor_resume":default_resume.name if default_resume is not None else "",
         "resume_facts":len([f for f in facts if f.get("verified") and str(f["key"]).startswith("resume.")]),
         "verified_facts":len([f for f in facts if f.get("verified")]),
@@ -855,6 +1215,7 @@ def _features() -> list[dict[str, any]] {
 def:priv agent_features() -> dict[str, any] { _agent_access();return {"features":_features()}; }
 
 def _export_resume(r: Resume) -> dict[str, any] {
+    if r.review.get("kind")==BANK_KIND { return {**_bank_view(r),"review":r.review,"created_at":r.created_at}; }
     out={"id":jid(r),**read_resume(jid(r)),"format":_resume_format(r)};
     if r.template {
         try { out["source"]=latex_encode(_resume_source(r)); }
@@ -863,7 +1224,7 @@ def _export_resume(r: Resume) -> dict[str, any] {
     return out;
 }
 def:priv account_export() -> dict[str, any] {
-    _agent_access();return {"account":bootstrap(),"agents":agent_export(),"recordings":TranscriptionStore().list(jid(root)),"resumes":[_export_resume(r) for r in [root -->][?:Resume]],"tailored_resumes":[read_tailored_resume(jid(x)) for x in [root -->][?:TailoredResume]]};
+    _agent_access();return {"account":bootstrap(),"agents":agent_export(),"stories":story_list()["stories"],"recordings":TranscriptionStore().list(jid(root)),"resumes":[_export_resume(r) for r in [root -->][?:Resume]],"tailored_resumes":[read_tailored_resume(jid(x)) for x in [root -->][?:TailoredResume]]};
 }
 def:priv account_delete(username: str, password: str) -> dict[str, any] {
     _agent_access();
@@ -881,8 +1242,11 @@ def:priv account_delete(username: str, password: str) -> dict[str, any] {
             }
         }
         try { importlib.import_module("agents.worker").browser_call("purge",{"owner":owner}); } except Exception { cleanup_failed=True; }
-        for r in [root -->][?:Resume] { _cancel_resume_work(r);_file_path(r.file_key).unlink(missing_ok=True);_remove_template_files(r); }
-        for x in [root -->][?:TailoredResume] { _file_path(x.pdf_key).unlink(missing_ok=True); }
+        for r in [root -->][?:Resume] { _cancel_resume_work(r);if r.file_key { _file_path(r.file_key).unlink(missing_ok=True); }_remove_template_files(r); }
+        for x in [root -->][?:TailoredResume] {
+            _file_path(x.pdf_key).unlink(missing_ok=True);
+            if x.docx_key { _file_path(x.docx_key).unlink(missing_ok=True); }
+        }
         for n in [root -->] { if jid(n)!=jid(m) { del n; } }
         TranscriptionStore().delete_owner(owner);
         commit();manager.delete_user(user["user_id"]);return {"deleted":True};
@@ -935,7 +1299,7 @@ def:priv retry_resume_processing(id: str, kind: str) -> dict[str, any] {
     _agent_access();
     with _write_lock {
         _agent_fresh();r=_owned_resume(id);
-        if r is None or kind not in ["pdf","source"] { return _error("Resume processing not found."); }
+        if r is None or kind not in ["pdf","source","import"] { return _error("Resume processing not found."); }
         if kind=="pdf" { return _error("PDF detail extraction is temporarily unavailable."); }
         t=_resume_ticket(str(r.processing.get(kind,{}).get("id","")));
         if t is None or t.owner!=jid(root) { return _error("Resume processing not found."); }
@@ -1008,6 +1372,13 @@ def:pub resume_processing_finish(token: str, id: str, owner: str, lease: str, re
         }
         if result.get("error") {
             t.status="failed";_resume_progress(t,r);r.processing[t.kind]["error"]=str(result["error"])[:500];
+        } elif t.kind=="import" {
+            try { records=validate_records(result.get("records",[])); } except ValueError as e { return _error(str(e)); }
+            # New parses are drafts. A details-only re-parse of an older upload keeps reviewed records and confirmation.
+            merged=attach_import(r.review,result,records,r.upload_digest);
+            r.review=dict(merged[0]);r.review_revision+=1;
+            if merged[1] { r.review_confirmed=False; }
+            t.status="completed";_resume_progress(t,r);
         } else {
             files={suffix:base64.b64decode(data,validate=True) for (suffix,data) in result["files"].items()};
             if set(files)-{".zip",".pdf"} or ".pdf" not in files { return _error("Invalid compiler output."); }

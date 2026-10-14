@@ -62,6 +62,7 @@ Adzuna uses its required redirect links and bundled official logo. Its snippets 
 
 - `discovery/employers.json`: 200 employer discovery candidates across twelve sectors. Registration does **not** mean verified job coverage.
 - `discovery/sources.json`: public Greenhouse, Ashby, Lever, SmartRecruiters feeds and GitHub list/directory configurations, plus weekly repository discovery.
+- The reviewed San Francisco municipal SmartRecruiters source uses a persisted public ID manifest, a 1,000-posting ceiling and ten-detail batches. Its explicit Close Date field expires at the end of that day in Pacific time. A disposable worker/catalog/account run measured 158 active government listings and verified ten exact samples; see [municipal discovery evidence](MAT19_DISCOVERY.md). Existing installations that previously discovered this board must use `configure smartrecruiters:CityAndCountyOfSanFrancisco1` to apply this configuration.
 - Curated GitHub sources produce destination links, not jobs. Newly discovered repositories enter review; Stack never executes repository code.
 - Company pages use robots-checked HTML/JSON-LD. Same-host career links inherit the approved employer policy, with bounded link counts and depth. Known public ATS links become feed candidates. Other external hosts require review.
 - Workday, Taleo, iCIMS, and similar sites are not treated as universal open APIs. Unsupported sites remain visibly in review; they are expected coverage gaps until a provider or tested adapter covers them.

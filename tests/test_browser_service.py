@@ -4,10 +4,10 @@ import unittest
 import json
 import os
 from io import BytesIO
-from unittest.mock import patch
+from unittest.mock import MagicMock, call, patch
 from agents import worker
 from agents.browser_control import browser_diagnostic, sanitize_browser_diagnostic, BROWSER_ERROR_MESSAGE
-from agents.browser import BrowserFrames
+from agents.browser import BrowserFrames, BrowserPool
 from agents.browser_service import BrowserHost
 
 
@@ -181,5 +181,60 @@ class BrowserHandoffService(unittest.TestCase):
 
     def test_take_is_out_of_band_and_fences_old_worker_commands(self): self.exercise('take')
     def test_stop_interrupts_and_closes_on_the_playwright_thread(self): self.exercise('stop')
+
+
+class HandoffInput(unittest.TestCase):
+    def pool(self):
+        pool = BrowserPool.__new__(BrowserPool)
+        pool.frames = BrowserFrames()
+        page = MagicMock(url='https://apply.example.test/form', viewport_size={'width': 430, 'height': 780})
+        page.screenshot.return_value = b'fake-jpeg'
+        pool.sessions = {('owner', 'run'): {'page': page, 'touched': 0}}
+        return pool, page
+
+    def test_typed_text_sends_key_events_and_long_paste_inserts(self):
+        pool, page = self.pool()
+        pool.handoff('owner', 'run', {'type': 'text', 'text': 'Ann Arbor'})
+        page.keyboard.type.assert_called_once_with('Ann Arbor')
+        page.keyboard.insert_text.assert_not_called()
+        letter = 'x' * 9000
+        pool.handoff('owner', 'run', {'type': 'text', 'text': letter, 'paste': True})
+        page.keyboard.insert_text.assert_called_once_with(letter[:8000])
+        self.assertEqual(page.keyboard.type.call_count, 1)
+
+    def test_only_form_keys_are_forwarded_and_others_rejected(self):
+        pool, page = self.pool()
+        for key in ('Tab', 'Enter', 'Backspace'):
+            pool.handoff('owner', 'run', {'type': 'key', 'key': key})
+            page.keyboard.press.assert_called_with(key)
+        pool.handoff('owner', 'run', {'type': 'key', 'key': 'Tab', 'shift': True})
+        page.keyboard.press.assert_called_with('Shift+Tab')
+        for key in ('Control+W', 'F5', 'Meta+L', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'Delete', 'Escape', 'ArrowUp', 'ArrowDown', 'SelectAll'):
+            with self.assertRaisesRegex(ValueError, 'Unknown browser input'):
+                pool.handoff('owner', 'run', {'type': 'key', 'key': key})
+
+    def test_short_pastes_and_legacy_line_breaks_never_send_keys(self):
+        for text, extra in (
+            ('password-from-clipboard', {'paste': True}),
+            ('First line\nSecond line', {'paste': True}),
+            ('First line\nSecond line', {}),
+            ('First line\rSecond line', {}),
+            ('First line\r\nSecond line', {}),
+        ):
+            with self.subTest(text=text, extra=extra):
+                pool, page = self.pool()
+                pool.handoff('owner', 'run', {'type': 'text', 'text': text, **extra})
+                page.keyboard.insert_text.assert_called_once_with(text)
+                page.keyboard.type.assert_not_called()
+                page.keyboard.press.assert_not_called()
+
+    def test_typing_has_no_length_cutoff_and_keeps_the_payload_cap(self):
+        pool, page = self.pool()
+        pool.handoff('owner', 'run', {'type': 'text', 'text': 'a' * 500})
+        pool.handoff('owner', 'run', {'type': 'text', 'text': 'b' * 501})
+        pool.handoff('owner', 'run', {'type': 'text', 'text': 'c'})
+        pool.handoff('owner', 'run', {'type': 'text', 'text': 'd' * 9000})
+        self.assertEqual(page.keyboard.type.call_args_list, [call('a' * 500), call('b' * 501), call('c'), call('d' * 8000)])
+        page.keyboard.insert_text.assert_not_called()
 
 if __name__ == '__main__': unittest.main()

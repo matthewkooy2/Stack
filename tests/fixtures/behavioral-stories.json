@@ -1,0 +1,42 @@
+{
+  "label": "Fictional acceptance histories; no real person or employer",
+  "events": [
+    {
+      "id": "retry",
+      "text": "Our fictional library app lost requests during outages. My task was to investigate retries. I wrote a retry test and chose a bounded backoff. Our team reviewed the test and shipped the change. The duplicate requests stopped in the fixture replay. I learned to test interrupted responses before release.",
+      "fields": {
+        "situation": "Our fictional library app lost requests during outages.",
+        "task": "My task was to investigate retries.",
+        "action": "I wrote a retry test and chose a bounded backoff.",
+        "personal": "I wrote a retry test and chose a bounded backoff.",
+        "team": "Our team reviewed the test and shipped the change.",
+        "result": "The duplicate requests stopped in the fixture replay.",
+        "learning": "I learned to test interrupted responses before release."
+      },
+      "topics": ["ownership", "decisions", "learning"]
+    },
+    {
+      "id": "disagreement",
+      "text": "A fictional museum team disagreed about cache lifetime. I listened to a teammate and compared two traces. We chose a shorter cache lifetime. The release has not happened, so I do not know the outcome.",
+      "fields": {
+        "situation": "A fictional museum team disagreed about cache lifetime.",
+        "task": "",
+        "action": "I listened to a teammate and compared two traces.",
+        "personal": "I listened to a teammate and compared two traces.",
+        "team": "We chose a shorter cache lifetime.",
+        "result": "",
+        "learning": ""
+      },
+      "topics": ["conflict", "decisions"]
+    },
+    {
+      "id": "sparse",
+      "text": "Built a fictional school scheduling prototype.",
+      "fields": {
+        "situation": "", "task": "", "action": "Built a fictional school scheduling prototype.",
+        "personal": "", "team": "", "result": "", "learning": ""
+      },
+      "topics": ["ownership"]
+    }
+  ]
+}

@@ -13,11 +13,13 @@ function notificationCapabilities(config, pushEnabled, pushEnvironment) {
   });
 }
 module.exports = () => {
-  const {release, apiBaseUrl, pushEnabled, pushEnvironment} = buildSettings(process.env, __dirname);
+  const {release, apiBaseUrl, pushEnabled, pushEnvironment, buildNumber} = buildSettings(process.env, __dirname);
   const development = !release;
   return {
     name:'Stack', slug:'stack', version:'0.1.0', orientation:'portrait', userInterfaceStyle:'light',
-    ios:{supportsTablet:false,bundleIdentifier:'com.matthewkooy.stack',infoPlist:development ? {
+    // Prebuild writes this literally into CFBundleVersion; Xcode build settings cannot override it.
+    // Only exempt encryption: iOS HTTPS/Keychain; revisit when adding encryption SDKs.
+    ios:{config:{usesNonExemptEncryption:false},icon:'./app-icon.png',supportsTablet:false,bundleIdentifier:'com.matthewkooy.stack',...(buildNumber ? {buildNumber} : {}),infoPlist:development ? {
       NSLocalNetworkUsageDescription:'Connect to your Mac for Stack development.',
       NSAppTransportSecurity:{NSAllowsArbitraryLoads:true,NSAllowsLocalNetworking:true},
     } : {}},

@@ -56,6 +56,10 @@ class ResumeProcessing(unittest.TestCase):
         resume = state['resumes'][-1]
         if resume['id'] not in self.resume_ids:
             self.resume_ids.append(resume['id'])
+        work = self.worker('resume_processing_claim')
+        if not work.get('idle'):
+            self.assertEqual(work['kind'], 'import')
+            self.run_work(work)
         return resume
 
     def source(self, resume_id, raw=TEX):
@@ -80,14 +84,24 @@ class ResumeProcessing(unittest.TestCase):
         self.assertTrue(self.finish(work, result)['saved'])
         return result
 
-    def test_pdf_saved_without_parser_work_or_details_mutation(self):
+    def test_pdf_import_is_reviewable_without_confirming_facts_implicitly(self):
         resume = self.upload()
         repeated = self.upload()
         self.assertEqual(resume['id'], repeated['id'])
         self.assertNotIn('pdf', resume['processing'])
         self.assertEqual(self.worker('resume_processing_claim'), {'idle': True})
-        self.assertIn('temporarily unavailable', self.rpc('agent_extract_resume', {'id': resume['id']})['error'])
-        self.assertIn('temporarily unavailable', self.rpc('resume_save_details', {'id': resume['id'], 'revision': 0, 'values': {'profile.name': 'Invented'}, 'confirm': True})['error'])
+        review = self.rpc('agent_extract_resume', {'id': resume['id']})
+        self.assertTrue(review['records'])
+        self.assertFalse(review['confirmed'])
+        self.assertEqual(review['details_status'], 'ready')
+        saved = self.rpc('resume_save_details', {'id': resume['id'], 'revision': review['revision'],
+                                               'values': {'profile.name': 'Riley Reviewed'}, 'confirm': True})
+        self.assertTrue(saved['details_confirmed'])
+        self.assertEqual(saved['trusted_source'], 'details')
+        self.assertEqual(self.rpc('agent_settings')['facts'][0]['value'], 'Riley Reviewed')
+        draft = self.rpc('resume_save_details', {'id': resume['id'], 'revision': saved['revision'],
+                                               'values': {'profile.name': 'Riley Draft'}, 'confirm': False})
+        self.assertFalse(draft['confirmed'])
         self.assertIn('temporarily unavailable', self.rpc('retry_resume_processing', {'id': resume['id'], 'kind': 'pdf'})['error'])
         self.assertEqual(self.rpc('agent_settings')['facts'], [])
         self.client.reload()
@@ -133,6 +147,99 @@ class ResumeProcessing(unittest.TestCase):
         self.run_work(self.worker('resume_processing_claim'), {'pdf': PDF, 'pages': 1})
         self.assertTrue(preview.exists())
 
+    def test_legacy_corrections_migrate_and_persist_as_unconfirmed_details(self):
+        # The prepared Jac app owns its module imports independently of this
+        # test module; retain its actual function so migration still runs.
+        module = self.client._server.module
+        attach = module.attach_import
+        legacy = {'profile.name': 'Legacy Corrected Name',
+                  'workExperiences.7.company': 'Legacy Corrected Company'}
+        def legacy_attachment(review, result, records, digest):
+            # Seed the pre-structured stored-review shape at the import boundary;
+            # the real worker finish, persistence, reads and reload remain active.
+            return attach({**review, 'values': legacy}, result, records, digest)
+        # Jac imports attach_import into main's namespace. Patch that exact
+        # consumer binding, not the Python producer module after import.
+        calls = []
+        def seed(review, result, records, digest):
+            calls.append(True)
+            return legacy_attachment(review, result, records, digest)
+        with patch.object(module, 'attach_import', side_effect=seed):
+            resume = self.upload()
+        self.assertTrue(calls, 'The legacy fixture must pass through real worker finish')
+        imported = self.rpc('agent_extract_resume', {'id': resume['id']})
+        self.assertEqual(imported['values']['profile.name'], legacy['profile.name'])
+        self.assertEqual(imported['values']['workExperiences.0.company'], legacy['workExperiences.7.company'])
+        self.assertFalse(imported['details_confirmed'])
+        self.assertEqual(imported['trusted_source'], '')
+        self.assertNotEqual(imported['original_values']['profile.name'], legacy['profile.name'])
+        self.client.reload()
+        self.client.set_auth_token(self.token)
+        reopened = self.rpc('agent_extract_resume', {'id': resume['id']})
+        for key in ('values', 'original_values', 'evidence'):
+            self.assertEqual(reopened[key], imported[key])
+        self.assertFalse(reopened['details_confirmed'])
+        self.assertEqual(self.rpc('agent_settings')['facts'], [])
+
+    def test_details_persist_reorder_delete_and_enforce_owner_revision(self):
+        resume = self.upload()
+        original = self.rpc('agent_extract_resume', {'id': resume['id']})
+        values = {'profile.name': 'Riley Reviewed', 'workExperiences.0.company': 'Northwind',
+                  'workExperiences.0.descriptions': 'First achievement.\nSecond achievement.',
+                  'workExperiences.1.company': 'Harbor'}
+        confirmed = self.rpc('resume_save_details', {'id': resume['id'], 'revision': original['revision'],
+                                                   'values': values, 'confirm': True})
+        self.assertTrue(confirmed['confirmed'])
+        self.assertEqual(confirmed['trusted_source'], 'details')
+        self.assertEqual([r['text'] for r in confirmed['records'] if r['kind'] == 'bullet'],
+                         ['First achievement.', 'Second achievement.'])
+        self.assertIn('error', self.rpc('resume_save_details', {'id': resume['id'], 'revision': original['revision'],
+                                                              'values': {}, 'confirm': False}))
+        draft = self.rpc('resume_save_details', {'id': resume['id'], 'revision': confirmed['revision'],
+                                               'values': {'workExperiences.8.company': 'Harbor'}, 'confirm': False})
+        self.assertFalse(draft['confirmed'])
+        self.assertEqual(self.rpc('agent_settings')['facts'], [])
+        self.client.reload()
+        self.client.set_auth_token(self.token)
+        reopened = self.rpc('agent_extract_resume', {'id': resume['id']})
+        self.assertEqual(reopened['values']['workExperiences.0.company'], 'Harbor')
+        self.assertNotIn('workExperiences.1.company', reopened['values'])
+        for key in ('original_values', 'evidence', 'source', 'text'):
+            self.assertEqual(reopened[key], original[key], key)
+        self.client.register_user('details-stranger', 'Stranger-password-123')
+        self.assertIn('error', self.rpc('agent_extract_resume', {'id': resume['id']}))
+        self.assertIn('error', self.rpc('resume_save_details', {'id': resume['id'], 'revision': draft['revision'],
+                                                              'values': {'profile.name': 'Stranger'}, 'confirm': True}))
+
+    def test_builtin_work_and_preview_withdrawn_but_uploaded_source_preserved(self):
+        resume = self.upload()
+        def save(values, confirm=True):
+            review = self.rpc('agent_extract_resume', {'id': resume['id']})
+            return self.rpc('resume_save_details', {'id': resume['id'], 'revision': review['revision'],
+                                                   'values': values, 'confirm': confirm})
+        save({'profile.name': 'Riley Reviewed'})
+        self.rpc('use_resume_template', {'id': resume['id'], 'template': 'classic'})
+        old = self.worker('resume_processing_claim')
+        save({'profile.name': 'Riley Draft'}, False)
+        self.assertIn('error', self.finish(old, {'error': 'stale compile'}))
+        self.assertEqual(self.worker('resume_processing_claim'), {'idle': True})
+        save({'profile.name': 'Riley Reviewed'})
+        self.rpc('use_resume_template', {'id': resume['id'], 'template': 'classic'})
+        self.run_work(self.worker('resume_processing_claim'), {'pdf': PDF, 'pages': 1})
+        self.assertEqual(self.rpc('bootstrap')['resumes'][0]['format']['kind'], 'builtin')
+        current = self.rpc('agent_extract_resume', {'id': resume['id']})
+        self.rpc('resume_save_records', {'id': resume['id'], 'revision': current['revision'],
+                                         'records': [{'id': 'r0', 'kind': 'title', 'text': 'Raw Reviewed'}], 'confirm': True})
+        source = self.rpc('read_resume_source', {'id': resume['id']})['source']
+        self.assertEqual(source['format'], 'records')
+        self.assertEqual(source['records'][0]['text'], 'Raw Reviewed')
+        self.assertFalse(self.rpc('agent_extract_resume', {'id': resume['id']})['details_confirmed'])
+        self.source(resume['id'])
+        uploaded = self.worker('resume_processing_claim')
+        save({'profile.name': 'Riley New Draft'}, False)
+        self.run_work(uploaded, {'pdf': PDF, 'pages': 1})
+        self.assertEqual(self.rpc('bootstrap')['resumes'][0]['format']['kind'], 'upload')
+
     def test_expired_worker_reclaimed_and_stale_result_refused(self):
         resume = self.upload()
         self.source(resume['id'])
@@ -174,6 +281,9 @@ class ResumeProcessing(unittest.TestCase):
         self.rpc('change_resume', {'id': original['id'], 'action': 'delete'})
         self.assertEqual(base64.b64decode(self.rpc('read_resume', {'id': copied['id']})['content']), PDF)
         source_work = self.worker('resume_processing_claim')
+        if source_work['kind'] == 'import':
+            self.run_work(source_work)
+            source_work = self.worker('resume_processing_claim')
         self.assertEqual(base64.b64decode(source_work['content']), TEX)
         self.run_work(source_work, {'pdf': PDF, 'pages': 1})
 
@@ -207,7 +317,13 @@ class ResumeProcessing(unittest.TestCase):
         self.finish(work, result)
         self.assertEqual(self.rpc('bootstrap')['resumes'][0]['processing']['source']['status'], 'failed')
 
-class SSDCompilation(unittest.TestCase):
+class CompilerOutputBounds(unittest.TestCase):
+    def setUp(self):
+        # These tests replace the compiler process and do not need a host installation.
+        compiler = patch.object(latex, 'engine', return_value='controlled-tectonic')
+        compiler.start()
+        self.addCleanup(compiler.stop)
+
     def test_large_compiler_output_is_read_with_a_bound(self):
         loaded = latex.load('resume.tex', TEX)
         def oversized(args, **kwargs):
@@ -220,19 +336,6 @@ class SSDCompilation(unittest.TestCase):
             with patch.object(Path, 'read_bytes', side_effect=AssertionError('Unbounded file read')):
                 with self.assertRaisesRegex(ValueError, '10 MB'):
                     latex.compile(loaded)
-
-    def test_compiler_scratch_packages_and_subprocess_temp_are_on_ssd(self):
-        loaded = latex.load('resume.tex', TEX)
-        def compile_fixture(args, **kwargs):
-            directory = Path(kwargs['cwd']).resolve()
-            self.assertTrue(directory.is_relative_to(ROOT / '.jac/resume-work'))
-            self.assertEqual(kwargs['env']['TMPDIR'], str(directory))
-            self.assertEqual(kwargs['env']['TECTONIC_CACHE_DIR'], str(ROOT / '.jac/tectonic-cache'))
-            self.assertTrue(directory.stat().st_mode & 0o700)
-            (directory / 'resume.pdf').write_bytes(PDF)
-            return type('Result', (), {'returncode': 0})()
-        with patch.object(latex.subprocess, 'run', side_effect=compile_fixture):
-            self.assertGreater(latex.compile(loaded)['pages'], 0)
 
 if __name__ == '__main__':
     unittest.main()

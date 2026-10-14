@@ -5,6 +5,13 @@
   "user_monthly_cents": 0,
   "model": "",
   "provider": "openai",
+  "model_options": {
+    "codex-cli": {"model": ""},
+    "local": {"provider": "ollama", "model": "", "local_model_url": ""}
+  },
+  "local_model_url": "",
+  "local_model_timeout": 90,
+  "local_model_context_tokens": 8192,
   "local_cli_owner": "",
   "local_cli_daily_limit": 0,
   "input_cents_per_million": 0,

@@ -22,6 +22,15 @@ STATE = Path("/var/lib/stack-release")
 SERVICES = ("stack-gateway.service", "stack-worker.service", "stack-api.service")
 
 
+def deployment_services():
+    # Preserve the operator's activation choice. Never activate an absent or
+    # disabled collector as a side effect of publishing application code.
+    state = subprocess.run(["systemctl", "is-enabled", "stack-discovery.service"],
+                           capture_output=True, text=True, timeout=30)
+    return (("stack-discovery.service",) + SERVICES
+            if state.returncode == 0 and state.stdout.strip() == "enabled" else SERVICES)
+
+
 def run(args, cwd=None):
     # Do not send dependency/service logs containing private host values to CI.
     result = subprocess.run(args, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=300)
@@ -124,7 +133,8 @@ def main():
         (backup / "source-state.json").write_bytes(canonical(policy))
         # No readiness/test gates or automatic rollback: command failures surface.
         # A private source backup remains available for an attended correction.
-        for service in SERVICES:
+        services = deployment_services()
+        for service in services:
             run(["systemctl", "stop", service])
         if browser_plan and browser_plan["changed"]:
             run(["systemctl", "stop", "stack-browser.service"])
@@ -138,7 +148,7 @@ def main():
             browser_release.promote(browser_plan, backup, write_atomic)
             if browser_plan["changed"]:
                 run(["systemctl", "start", "stack-browser.service"])
-        for service in reversed(SERVICES):
+        for service in reversed(services):
             run(["systemctl", "start", service])
         result = {"status": "restart_commands_completed", "commit": manifest["commit"], "sha256": sha,
                   "source_backup": str(backup), "health_checks_run": False}

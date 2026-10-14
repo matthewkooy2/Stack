@@ -51,6 +51,14 @@ def _job(id: str) -> CatalogJob | None {
     for j in [root.shared -->][?:CatalogJob][?key==id] { return j; }
     return None;
 }
+
+def _leased_source(source_key: str, token_lease: str) -> JobSource | None {
+    if not token_lease { return None; }
+    # A source key can occur more than once in retained graph data. Complete
+    # only the record actually leased by claim, and reject ambiguous leases.
+    matches=[root.shared --> [?:JobSource, key==source_key, lease==token_lease]][:2];
+    return matches[0] if len(matches)==1 else None;
+}
 def _listing_url(data: dict[str, any]) -> str {
     url=str(data.get("url", ""));
     # SmartRecruiters applyUrl skips the description when oga is present.
@@ -106,7 +114,7 @@ def _criteria(query: str, filters: dict[str, any]) -> dict[str, any] {
     return c;
 }
 def _criteria_view(c: dict[str, any]) -> dict[str, any] {
-    keys=["roles","location","modes","stage","years","education","employment_types","salary_min","salary_period","exclude_companies","exclude_terms","soft","levels","graduation_month","available_from","confirmed_only","timeline","sources","notices"];
+    keys=["roles","location","modes","stage","years","education","employment_types","salary_min","salary_period","exclude_companies","exclude_terms","soft","levels","graduation_month","available_from","confirmed_only","confirmed_level","timeline","sources","notices"];
     return {k:c[k] for k in keys};
 }
 def _enqueue(kind: str, payload: dict[str, any]) -> DiscoveryRequest {
@@ -193,7 +201,7 @@ def:priv reset_search() -> dict[str, any] {
 """Profile edits win over older search overrides of the same inputs."""
 def _drop_overrides(keys: list[str]) -> None {
     for s in [root -->][?:SavedSearch] {
-        if "roles" in keys { s.query=""; }
+        if "roles" in keys { s.query="";s.filters.pop("any_role",None); }
         s.filters={k:v for (k,v) in s.filters.items() if k not in keys and not (k=="salary_period" and "salary_min" in keys)};
     }
 }
@@ -332,7 +340,7 @@ def _upsert(data: dict[str, any], source: JobSource) -> bool {
 def:pub discovery_complete(token: str, id: str, lease: str, result: dict[str, any] = {}, error: str = "") -> dict[str, any] {
     if not _worker_allowed(token) { return {"error":"Worker authorization required."}; }
     with _catalog_lock {
-        _fresh();s=_source(id);
+        _fresh();s=_leased_source(id,lease);
         if s is None or s.lease!=lease or not lease { return {"error":"Lease expired or already completed."}; }
         s.lease="";s.lease_until=0;now=time.time();
         if error {

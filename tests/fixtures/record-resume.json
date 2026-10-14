@@ -1,0 +1,12 @@
+[
+  {"id":"r0","kind":"title","text":"Alex Éxample"},
+  {"id":"r1","kind":"paragraph","text":"alex@example.com | Detroit, MI"},
+  {"id":"r2","kind":"heading","text":"Experience"},
+  {"id":"r3","kind":"paragraph","text":"Analyst | Example Co | Jan 2022 – Dec 2024"},
+  {"id":"r4","kind":"bullet","text":"I built Python dashboards that reduced review time by 25%."},
+  {"id":"r5","kind":"bullet","text":"Successfully documented SQL queries for the team."},
+  {"id":"r6","kind":"bullet","text":"Kept test notes for internal training."},
+  {"id":"r7","kind":"heading","text":"Education & credentials"},
+  {"id":"r8","kind":"paragraph","text":"BSc Computer Science | 2021 | AWS Certified Cloud Practitioner"},
+  {"id":"r9","kind":"paragraph","text":"Did not lead a team or hold a CPA license."}
+]

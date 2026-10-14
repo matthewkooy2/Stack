@@ -61,6 +61,14 @@ final class JobDeckFeed {
         }
     }
 
+    /// Restores server-matched cards before starting network work. A cached cursor is never reused.
+    func restore(_ result: JSON) {
+        guard !busy, jobs.isEmpty else { return }
+        jobs = result["jobs"].array.map(Job.init)
+        loaded = !jobs.isEmpty
+        nextCursor = ""
+    }
+
     /// Returns once the person has something to review, or once the results are known to be empty or failed.
     /// Remaining pages (up to `maxPages` in total) continue in the background.
     func load(refresh: Bool, more: Bool = false, source: JobDeckSource) async {

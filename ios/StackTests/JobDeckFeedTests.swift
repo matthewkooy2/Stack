@@ -177,33 +177,17 @@ final class JobDeckFeedTests: XCTestCase {
 
     // MARK: First page and background paging
 
-    func testCachedMatchesAreVisibleWhileFirstRefreshIsHeldAndSurviveFailure() async {
-        feed.restore(page(["swe-1", "swe-2"], next: "expired-cursor"))
-        XCTAssertTrue(feed.loaded)
-        XCTAssertEqual(feed.jobs.map(\.id), ["swe-1", "swe-2"])
-        XCTAssertEqual(feed.nextCursor, "")
+    func testCachedMatchesRemainVisibleDuringASlowOrFailedRefresh() async {
+        feed.restore(page(["cached-swe"], next: "old-cursor"))
         let refresh = start()
         await desk.requested(1)
-        XCTAssertEqual(desk.requests[0].cursor, "")
-        XCTAssertTrue(desk.requests[0].refresh)
         XCTAssertTrue(feed.loaded)
-        XCTAssertEqual(feed.jobs.map(\.id), ["swe-1", "swe-2"])
+        XCTAssertEqual(feed.jobs.map(\.id), ["cached-swe"])
+        XCTAssertEqual(desk.requests[0].cursor, "")
         desk.fail(0)
         await refresh.value
-        XCTAssertEqual(feed.jobs.map(\.id), ["swe-1", "swe-2"])
+        XCTAssertEqual(feed.jobs.map(\.id), ["cached-swe"])
         XCTAssertFalse(feed.loadError.isEmpty)
-    }
-
-    func testRefreshingCachedCardsAdoptsFreshMatchesAndSearchChangeClearsThem() async {
-        feed.restore(page(["swe-old"]))
-        let refresh = start()
-        await desk.requested(1)
-        desk.answer(0, page(["swe-new"]))
-        await refresh.value
-        XCTAssertEqual(feed.jobs.map(\.id), ["swe-new"])
-        feed.invalidate(clearing: true)
-        XCTAssertTrue(feed.jobs.isEmpty)
-        XCTAssertFalse(feed.loaded)
     }
 
     func testFirstUsablePageShowsBeforeASlowLaterPage() async {

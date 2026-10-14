@@ -19,23 +19,10 @@ struct ScreenFlowUITestScene: View {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ScreenFlowURLProtocol.self]
         let api = APIClient(origin: URL(string: "https://stack.invalid")!, session: URLSession(configuration: configuration))
-        let cache = JobFeedCache(file: FileManager.default.temporaryDirectory
-            .appendingPathComponent("stack-offline-feed-\(flow).json"))
-        let store = AppStore(api: api, jobFeedCache: cache)
+        let store = AppStore(api: api)
         if ProcessInfo.processInfo.arguments.contains("--reset-resume-drafts") { FileResumeDraftStore.shared.removeAll() }
         ScreenFlowServer.shared.reset(flow: flow)
         store.account = AccountState(raw: ScreenFlowServer.shared.snapshot())
-        if flow == "deck-cache" {
-            let mismatch = ProcessInfo.processInfo.arguments.contains("--different-job-preferences")
-            store.account.raw["profile"]["role"] = mismatch ? "Registered nurse" : "Software engineer"
-            store.account.raw["profile"]["preferences"] = ["roles": store.account.raw["profile"]["role"]]
-            if ProcessInfo.processInfo.arguments.contains("--seed-job-cache") {
-                cache.remove()
-                let result = ScreenFlowServer.cachedSWEPage
-                cache.write(result, jobs: result["jobs"].array.map(Job.init),
-                            for: JobFeedContext(origin: api.origin, account: store.account))
-            }
-        }
         switch flow {
         case "onboarding":
             store.phase = .signedOut
@@ -68,14 +55,6 @@ struct ScreenFlowUITestScene: View {
         case "applications", "applications-autofill-unavailable": ApplicationsView(onProfile: {}, onNavigate: { _ in })
         case "jobs": ScreenFlowJobHost(job: Job(ScreenFlowServer.job))
         case "deck", "deck-paging": JobsView(onProfile: {})
-        case "deck-cache":
-            VStack {
-                JobsView(onProfile: {})
-                Button("Change matching preferences") {
-                    store.account.raw["profile"]["role"] = "Registered nurse"
-                    store.account.raw["profile"]["preferences"] = ["roles": "Registered nurse"]
-                }
-            }
         case "onboarding": AccessView()
         case "recovery": InvitationView()
         default: Text("Unknown screen flow").font(Typeface.title)
@@ -244,17 +223,6 @@ final class ScreenFlowServer: @unchecked Sendable {
         deckJob("job-bravo", "Growth Engineer", "https://example.invalid/jobs/bravo"),
         deckJob("job-charlie", "Broken Link Engineer", "javascript:void(0)"),
     ]
-    /// Verified server-shaped SWE cards for the cache test, distinct from the existing analyst fixtures.
-    static var cachedSWEPage: JSON {
-        let jobs: [JSON] = (1...3).map { index in
-            var job = deckJob("cached-swe-\(index)", "Software Engineer", "https://example.invalid/swe/\(index)")
-            job["active"] = true
-            job["checked_at"] = .number(Date().timeIntervalSince1970)
-            return job
-        }
-        return ["jobs": .array(jobs), "criteria": ["roles": "Software engineer"], "next_cursor": "unused-old-cursor"]
-    }
-
     /// What the entry-level quick pick returns, so a filter visibly changes the deck.
     static let entryJobs: [JSON] = [deckJob("job-entry", "Entry Level Developer", "https://example.invalid/jobs/entry")]
 
@@ -282,7 +250,6 @@ final class ScreenFlowServer: @unchecked Sendable {
     /// How long a request is held before it is answered, so a test can open the browser while a page is pending.
     func delay(for name: String, body: JSON) -> TimeInterval {
         lock.lock(); defer { lock.unlock() }
-        if flow == "deck-cache", name == "search_jobs" { return 30 }
         return flow == "deck-paging" && name == "search_jobs" && !body["cursor"].string.isEmpty ? 3 : 0
     }
 

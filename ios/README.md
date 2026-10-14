@@ -50,24 +50,11 @@ touch the TestFlight workflow.
 | `Stack/Features/Agents` | agent hub, task review and approval, remote browser |
 | `Stack/Features/Profile` | profile, matching preferences, follow-up reminders |
 
-## Immediate Jobs on returning visits
+## Jobs cache
 
-The Swift app keeps at most 25 reviewable, server-matched cards in its disposable local cache.
-After authenticated bootstrap confirms the current account and preferences, Jobs restores matching
-cards synchronously and refreshes the first page in the background. Cache identity includes the API
-origin, account, matching preferences, graduation/availability, saved query and every search filter.
-Preference edits (including changes received from another client) clear the old deck and reject older
-responses. Saved/passed jobs, known closed or expired listings and listings beyond the backend's
-seven-day verification window are excluded. The cache expires after six hours and sign-out deletes it.
-
-A first installation, changed search, expired/evicted cache, or no remaining cached matches requires
-an initial server response. The app does not use sample jobs or broaden preferences to fill the deck.
-This change takes effect in an updated native build; merging alone cannot change an installed binary.
-
-The manual `JobFeedCacheTests`, `JobDeckFeedTests` and `JobsDeckFlowUITests` suites cover cache isolation,
-slow/failing refreshes, process relaunch and preference changes. The cache UI fixture holds the first
-network response for 30 seconds and requires cached SWE cards within three seconds of launch.
-Existing CI selection and release requirements are unchanged.
+Jobs restores up to 25 server-matched cards for the authenticated account's exact preferences and saved search, then replaces them with fresh first-page results.
+The cache expires after six hours; sign-out removes it. Preference changes, decided jobs, and known closed, expired or stale listings cannot reuse those cards.
+A first install or missing valid cache still needs a server response. This behavior requires an updated native build after merge.
 
 ## Native listing-browser tests (manual loopback server)
 

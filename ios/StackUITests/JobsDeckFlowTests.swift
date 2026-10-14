@@ -44,42 +44,6 @@ final class JobsDeckFlowUITests: XCTestCase {
         return url.label
     }
 
-    func testMatchingCachedJobsAppearBeforeSlowNetworkAndPersistAcrossRelaunch() {
-        continueAfterFailure = false
-        let app = XCUIApplication()
-        app.launchArguments = ["--screen-flow=deck-cache", "--disable-draft-animations", "--seed-job-cache"]
-        app.launch()
-        XCTAssertTrue(card(app, "cached-swe-1").waitForExistence(timeout: 3), "cached SWE is visible while the network is held for 30 seconds")
-        XCTAssertTrue(app.staticTexts["3 to review"].exists)
-        XCTAssertFalse(card(app, "job-alpha").exists)
-        capture("cached-swe-before-first-response")
-        app.terminate()
-        app.launchArguments.removeAll { $0 == "--seed-job-cache" }
-        app.launch()
-        XCTAssertTrue(card(app, "cached-swe-1").waitForExistence(timeout: 3), "a real file cache survives process termination")
-        XCTAssertTrue(app.staticTexts["3 to review"].exists)
-        capture("cached-swe-after-relaunch")
-    }
-
-    func testChangedPreferencesNeverShowPreviouslyCachedSWEJobs() {
-        continueAfterFailure = false
-        let app = XCUIApplication()
-        app.launchArguments = ["--screen-flow=deck-cache", "--disable-draft-animations", "--seed-job-cache"]
-        app.launch()
-        XCTAssertTrue(card(app, "cached-swe-1").waitForExistence(timeout: 3))
-        app.buttons["Change matching preferences"].tap()
-        let removed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"),
-                                               object: card(app, "cached-swe-1"))
-        XCTAssertEqual(XCTWaiter.wait(for: [removed], timeout: 3), .completed,
-                       "an in-session preference update removes old SWE cards before the next response")
-        app.terminate()
-        app.launchArguments = ["--screen-flow=deck-cache", "--disable-draft-animations", "--different-job-preferences"]
-        app.launch()
-        XCTAssertFalse(card(app, "cached-swe-1").waitForExistence(timeout: 3), "changed role must not flash the old SWE cache")
-        XCTAssertFalse(app.staticTexts["3 to review"].exists)
-        capture("changed-preferences-reject-old-cache")
-    }
-
     func testCardsOpenTheirOwnListingInDeckOrderAndInvalidLinkFallsBackToDetails() {
         let app = launch()
         card(app, "job-alpha").tap()

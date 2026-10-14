@@ -50,6 +50,12 @@ touch the TestFlight workflow.
 | `Stack/Features/Agents` | agent hub, task review and approval, remote browser |
 | `Stack/Features/Profile` | profile, matching preferences, follow-up reminders |
 
+## Jobs cache
+
+Jobs restores up to 25 server-matched cards for the authenticated account's exact preferences and saved search, then replaces them with fresh first-page results.
+The cache expires after six hours; sign-out removes it. Preference changes, decided jobs, and known closed, expired or stale listings cannot reuse those cards.
+A first install or missing valid cache still needs a server response. This behavior requires an updated native build after merge.
+
 ## Native listing-browser tests (manual loopback server)
 
 `JobListingSafariUITests` drives the real in-app Safari view against fictional pages on loopback. Start the

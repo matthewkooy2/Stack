@@ -147,6 +147,8 @@ def prepare(value):
         raise ValueError('Choose the Classic or Jake template.')
     payload = {'records': records, 'template': template,
                'upload_digest': value['upload_digest'], 'revision': value['revision']}
+    if value.get('bank_sources'):
+        payload['bank_sources'] = value['bank_sources']
     digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
     outline = []
     for record in records:
@@ -337,6 +339,7 @@ def finalize(prepared, tailored, job=None, facts=()):
                        'change_record': {'source_digest': prepared['digest'], 'rejected': sorted(rejected),
                                          'upload_digest': prepared['upload_digest'], 'review_revision': prepared['revision'],
                                          'reviewed_records': prepared['records'],
+                                         'bank_sources': prepared.get('bank_sources', []),
                                          'changes': tailored['changes'], 'notes': tailored.get('notes', [])},
                        **documents(records, prepared['template'])}}
 

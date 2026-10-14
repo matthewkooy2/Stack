@@ -6,6 +6,7 @@ with entry {
     ATTENTION = {'needs_input', 'blocked', 'uncertain', 'review'};
     ACTIVE = {'queued', 'running', 'waiting'};
     KIND_TITLES = {
+        'autofill': 'Saved-answer autofill',
         'linkedin': 'LinkedIn profile review',
         'application': 'Archived application assistant',
         'jobs': 'Job-fit analysis',
@@ -13,12 +14,16 @@ with entry {
         'network': 'Networking outreach',
         'profile': 'Profile suggestions',
         'prep': 'Interview coaching',
+        'stories': 'Behavioral story drafting',
+        'interview_turn': 'Local interview follow-up',
+        'interview_coach': 'Local interview coaching',
         'code': 'Code practice run',
         'live': 'Live interview',
         'sync': 'Email tracking',
         'calendar': 'Calendar assistant'
     };
     STEP_LABELS = {
+        'browser_autofill': 'Fill this page from saved answers',
         'linkedin_scan':'Sign in and read your profile', 'linkedin_review':'Analyze recruiter appeal',
         'inspect': 'Read the application form',
         'fit': 'Analyze job fit',
@@ -31,12 +36,16 @@ with entry {
         'send': 'Send the email',
         'profile': 'Draft profile suggestions',
         'coach': 'Coach your answer',
+        'story': 'Organize your reviewed event into STAR',
+        'interview_turn': 'Analyze reviewed answer',
+        'interview_coach': 'Coach reviewed interview',
         'sync': 'Check Gmail for updates',
         'execute': 'Run your code',
         'calendar': 'Add the interview to Calendar',
         'interview': 'Live practice interview'
     };
     RESULTS = {
+        'autofill': 'This task and its backend browser. Review every field and submit yourself.',
         'linkedin':'Network → LinkedIn profile review, and this task. Copy suggested edits into LinkedIn yourself.',
         'application': 'Saved results from the retired application assistant.',
         'jobs': 'Applications → this job → Agent help, and this task.',
@@ -44,6 +53,9 @@ with entry {
         'network': 'Network → your contacts, and this task. Sent emails appear in your Gmail Sent folder.',
         'profile': 'This task. Copy the suggestions you like into your profile yourself.',
         'prep': 'Prep → your practice session → Coaching.',
+        'stories': 'Your private story bank API and this task. Review source quotations and fill missing details.',
+        'interview_turn': 'Web workspace → Interview → your saved conversation.',
+        'interview_coach': 'Web workspace → Interview → Final coaching.',
         'code': 'Prep → your practice session → Test results.',
         'live': 'Web workspace → Practice → your session transcript.',
         'sync': 'Applications (status history) and Agents → Needs you (messages to confirm).',
@@ -216,6 +228,13 @@ def present(
 }
 with entry {
     FEATURES = [
+        {
+            'key':'autofill','kinds':['autofill'],'title':'Saved-answer autofill','where':'Applications',
+            'summary':'Fills visible hosted Greenhouse, Ashby, Lever and Workday controls from your confirmed saved answers. Custom widgets and repeated records may need your input.',
+            'input':'A saved real job with a supported hosted ATS URL and confirmed facts in Agents > Facts.',
+            'review':'Starting shares matched saved values with the employer form, which may autosave. You handle sign-in, page navigation, missing answers, review and final submission in the browser. No model is used.',
+            'alternative':'Open the employer application page and complete unsupported variants yourself.'
+        },
         {
             'key': 'linkedin',
             'kinds': ['linkedin'],
@@ -433,6 +452,11 @@ def feature_status(facts: dict[(str, any)]) -> list[dict[(str, any)]] {
     }
     model_checks = [provider(), rules(), permission('model')];
     table: dict[str, any] = {
+        'autofill': [
+            check('browser','Browser worker available',facts.get('browser'),'The operator must configure the isolated browser worker.','',user=False),
+            check('applications','A saved real job',facts.get('applications',0)>0,'Save a real job on Jobs first.','jobs'),
+            check('facts','Confirmed saved answers',facts.get('verified_facts',0)>0,'Save confirmed answers in Agents > Facts.','facts',optional=True)
+        ],
         'linkedin': (
             model_checks
             + [

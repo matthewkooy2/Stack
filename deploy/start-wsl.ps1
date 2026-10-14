@@ -1,6 +1,16 @@
-# Example Task Scheduler action at Windows startup, running as the distro owner.
-# Registration and host settings are separate, explicitly approved operator steps.
-param([string]$Distribution = "Ubuntu")
+# Run after approved setup, as the Windows distro owner. Retain the WSL keeper.
+param(
+    [Parameter(Mandatory=$true)][ValidatePattern('^[A-Za-z0-9_.-]+$')][string]$Distribution,
+    [Parameter(Mandatory=$true)][ValidatePattern('^https://[a-zA-Z0-9.-]+\.ts\.net(:[0-9]+)?/?$')][string]$PhoneOrigin,
+    [ValidateRange(20,900)][int]$TimeoutSeconds = 240,
+    [ValidatePattern('^/[A-Za-z0-9_./-]+$')][string]$HelperPath = '/usr/local/libexec/stack-startup.py'
+)
 $ErrorActionPreference = "Stop"
-wsl.exe --distribution $Distribution --user root --exec /usr/bin/systemctl start postgresql.service stack-api.service stack-gateway.service stack-discovery.service stack-worker.service
-if ($LASTEXITCODE -ne 0) { throw "Stack WSL services failed to start. Inspect journalctl in the selected distribution." }
+. "$PSScriptRoot/startup/windows-startup.ps1"
+try {
+    Invoke-StackStartup -Distribution $Distribution -PhoneOrigin $PhoneOrigin -TimeoutSeconds $TimeoutSeconds -HelperPath $HelperPath
+} catch {
+    # Never print URLs, private names, command output or exception text.
+    Write-Output '{"stage":"windows-startup","status":"failed","phone_acceptance":"not_run"}'
+    exit 1
+}

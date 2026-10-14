@@ -16,5 +16,20 @@ glob:pub s = StyleSheet.create({
  pill:{paddingHorizontal:9,paddingVertical:4,borderRadius:9,alignSelf:"flex-start"}, pillText:{fontSize:11,fontWeight:"700"},
  taskCard:{backgroundColor:"#FFFFFF",borderRadius:18,padding:16,gap:8,borderWidth:1,borderColor:"#E8ECF3"}, actionRow:{gap:8,paddingVertical:12,borderTopWidth:1,borderTopColor:"#EDF0F5"},
  reviewBox:{backgroundColor:"#FFFFFF",borderRadius:18,padding:18,gap:10,borderWidth:2,borderColor:"#F2C99E"}, noticeBox:{padding:14,backgroundColor:"#EAF1FF",borderRadius:13,gap:8},
- savedCard:{backgroundColor:"#FFFFFF",borderRadius:22,padding:18,gap:10,borderWidth:2,borderColor:"#9FD8C4"}
+ savedCard:{backgroundColor:"#FFFFFF",borderRadius:22,padding:18,gap:10,borderWidth:2,borderColor:"#9FD8C4"},
+ accessScreen:{flex:1,backgroundColor:"#FFFFFF"}, accessPage:{flexGrow:1,paddingHorizontal:32,paddingTop:24,paddingBottom:30},
+ welcomePage:{flexGrow:1,paddingHorizontal:32,paddingTop:40,paddingBottom:54,justifyContent:"space-between"},
+ welcomeIntro:{flex:1,justifyContent:"center",paddingBottom:48,gap:12}, welcomeBrand:{fontSize:48,lineHeight:54,fontWeight:"700",letterSpacing:-2.1,color:"#111111"},
+ welcomeSubtitle:{fontSize:17,lineHeight:24,fontWeight:"500",letterSpacing:-0.3,color:"#555555"}, welcomeActions:{gap:10},
+ accessButton:{minHeight:52,paddingVertical:14,paddingHorizontal:18,borderRadius:6,backgroundColor:"#111111",borderWidth:1,borderColor:"#111111",flexDirection:"row",alignItems:"center",justifyContent:"center",gap:10},
+ accessButtonText:{fontSize:16,fontWeight:"600",color:"#FFFFFF",textAlign:"center"}, accessOutline:{backgroundColor:"#FFFFFF",borderColor:"#777777"}, accessOutlineText:{color:"#111111"},
+ accessBack:{width:44,height:44,marginLeft:-12,alignItems:"center",justifyContent:"center"}, accessIntro:{gap:12,marginTop:46,marginBottom:42},
+ accessTitle:{fontSize:34,lineHeight:40,fontWeight:"600",letterSpacing:-1.2,color:"#111111"}, accessBody:{fontSize:15,lineHeight:23,color:"#707070"},
+ accessFields:{gap:26}, accessLabel:{fontSize:13,fontWeight:"500",color:"#505050"}, accessInput:{minHeight:52,borderBottomWidth:1,borderBottomColor:"#D8D8D8",fontSize:18,lineHeight:24,color:"#111111",paddingVertical:12,paddingHorizontal:0,backgroundColor:"#FFFFFF"},
+ accessFooter:{marginTop:"auto",paddingTop:40,gap:8}, accessLink:{fontSize:13,lineHeight:20,color:"#555555",textAlign:"center"}, accessQuiet:{fontSize:13,lineHeight:20,color:"#707070"}, accessError:{fontSize:13,lineHeight:20,color:"#A13224",paddingVertical:6},
+ onboardingHeader:{flexDirection:"row",alignItems:"center",justifyContent:"space-between"}, onboardingCount:{fontSize:12,color:"#888888",letterSpacing:1},
+ onboardingProgress:{flexDirection:"row",gap:5,marginTop:18}, onboardingTrack:{flex:1,height:2,backgroundColor:"#EAEAEA"}, onboardingFilled:{backgroundColor:"#111111"},
+ onboardingChoice:{minHeight:54,flexDirection:"row",alignItems:"center",justifyContent:"space-between",paddingVertical:15,borderBottomWidth:1,borderBottomColor:"#EEEEEE"}, onboardingChoiceText:{fontSize:17,color:"#555555"}, onboardingChosenText:{fontWeight:"600",color:"#111111"},
+ accessChip:{minHeight:40,paddingHorizontal:14,paddingVertical:10,borderRadius:5,borderWidth:1,borderColor:"#DDDDDD",backgroundColor:"#FFFFFF",alignSelf:"flex-start"}, accessSelectedChip:{backgroundColor:"#111111",borderColor:"#111111"}, accessChipText:{fontSize:13,color:"#555555"}, accessSelectedText:{color:"#FFFFFF"},
+ onboardingDetails:{marginTop:28,gap:24}, onboardingMore:{paddingVertical:14,flexDirection:"row",alignItems:"center",gap:8}
 });

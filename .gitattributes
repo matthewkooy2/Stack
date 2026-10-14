@@ -5,4 +5,5 @@
 scripts/jac text eol=lf
 scripts/setup text eol=lf
 scripts/setup-ios text eol=lf
+scripts/ci/*.sh text eol=lf
 Makefile text eol=lf

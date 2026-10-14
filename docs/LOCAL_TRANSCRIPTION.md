@@ -16,4 +16,4 @@ The existing public web response includes only coarse `X-Stack-Transcription-Sta
 
 ## Focused verification
 
-Use Jac 0.37.21. Run `tests.test_transcription`, `tests.test_transcription_api`, and `tests.test_gateway` through a Jac unittest runner with disposable SSD storage. Compile with `scripts/compile-mobile.jac`, then run `node tests/transcription-native.cjs`. These use synthetic/fake model output and mocked OS boundaries; no Mac model download or inference occurs. Physical iPhone microphone permission, interruptions, WAV format, account persistence, and real PC transcription must also be checked after installation.
+Use Jac 0.37.21. Run `tests.test_transcription`, `tests.test_transcription_api`, and `tests.test_gateway` through a Jac unittest runner with disposable SSD storage. Compile with `scripts/compile-mobile.jac`. These use synthetic/fake model output and mocked OS boundaries; no Mac model download or inference occurs. Physical iPhone microphone permission, interruptions, WAV format, account persistence, and real PC transcription must also be checked after installation.

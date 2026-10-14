@@ -26,6 +26,15 @@ STATE = Path("/var/lib/stack-release")
 SERVICES = ("stack-gateway.service", "stack-worker.service", "stack-api.service")
 
 
+def deployment_services():
+    # Preserve the operator's activation choice. Never activate an absent or
+    # disabled collector as a side effect of publishing application code.
+    state = subprocess.run(["systemctl", "is-enabled", "stack-discovery.service"],
+                           capture_output=True, text=True, timeout=30)
+    return (("stack-discovery.service",) + SERVICES
+            if state.returncode == 0 and state.stdout.strip() == "enabled" else SERVICES)
+
+
 def run(args, cwd=None, timeout=None):
     # Do not send dependency/service logs containing private host values to CI.
     timeout = timeout or (180 if 'build' in args else 30)
@@ -201,7 +210,7 @@ def main():
         if browser_plan:
             (backup / 'browser-state.json').write_bytes(root_file(browser_release.BROWSER_STATE))
             (backup / 'browser-image-id').write_bytes(root_file(browser_release.IMAGE_PATH))
-        services = SERVICES + (('stack-browser.service',) if browser else ())
+        services = deployment_services() + (('stack-browser.service',) if browser else ())
         def install():
             for name, value in backend.items():
                 write_atomic(target(name), value, stack.pw_gid)

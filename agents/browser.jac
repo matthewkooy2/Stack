@@ -8,7 +8,10 @@ import from pathlib { Path }
 import from urllib.parse { urlsplit }
 import from agents.contracts { digest }
 with entry {
-    HANDOFF_KEYS = ('Tab', 'Enter', 'Backspace');
+    HANDOFF_KEYS = {
+        'Tab': 'Tab', 'Enter': 'Enter', 'Backspace': 'Backspace',
+        'Delete': 'Delete', 'SelectAll': 'ControlOrMeta+A'
+    };
     # Enter advances within the focused form, then activates its submit action.
     ENTER_FORM_JS = r'''() => {
  if (!document.hasFocus()) return false;
@@ -224,7 +227,7 @@ class BrowserPool {
                 }
             }
             if not handled {
-                page.keyboard.press('Shift+Tab' if event['key'] == 'Tab' and event.get('shift', False) else event['key']);
+                page.keyboard.press('Shift+Tab' if event['key'] == 'Tab' and event.get('shift', False) else HANDOFF_KEYS[event['key']]);
             }
         } elif (kind == 'scroll') {
             self.guard();

@@ -85,8 +85,9 @@ export function BrowserView({image,onEvent,sessionId,onFrame}){
  }
  function keyDown(e){
   if(e.isComposing||e.nativeEvent?.isComposing)return;
+  if((e.metaKey||e.ctrlKey)&&!e.altKey&&e.key.toLowerCase()==='a'){e.preventDefault();flush();send({type:'key',key:'SelectAll'});return;}
   if(e.metaKey||e.ctrlKey||e.altKey)return;
-  if(['Tab','Enter','Backspace'].includes(e.key)){
+  if(['Tab','Enter','Backspace','Delete'].includes(e.key)){
    e.preventDefault();flush();send({type:'key',key:e.key,...(e.key==='Tab'&&e.shiftKey?{shift:true}:{})});
   }
  }
@@ -101,7 +102,7 @@ export function BrowserView({image,onEvent,sessionId,onFrame}){
  React.createElement('div',{},React.createElement('button',{onClick:()=>action(owned&&safe.current?'resume':'take'),disabled:sending||connection!=='connected'||!['agent','user'].includes(control.current.mode)},owned&&safe.current?'Resume agent':'Take control'),React.createElement('button',{onClick:()=>action('stop'),disabled:['stopping','stopped'].includes(control.current.mode)},'Stop task')),
  image?.url?React.createElement('p',{},'Browser: '+image.url):null,
  image?.image?React.createElement('div',{},
-  React.createElement('p',{},'Click inside the browser, then type or paste. Tab changes focus; Backspace deletes. Enter moves to the next field or submits the form.'),
+  React.createElement('p',{},'Click inside the browser, then type or paste. Backspace, Delete and Ctrl/Cmd+A work here. Tab changes focus; Enter moves to the next field or submits the form.'),
   React.createElement('div',{style:{position:'relative',maxWidth:image.width||430,width:'100%',margin:'0 auto'}},
    React.createElement('img',{src:'data:image/jpeg;base64,'+image.image,alt:'Your task browser',draggable:false,style:{display:'block',width:'100%',border:'1px solid #ccc',cursor:owned?'text':'default',pointerEvents:owned&&safe.current&&connection==='connected'&&age<5000?'auto':'none'},onClick:e=>{const r=e.currentTarget.getBoundingClientRect();keyboard.current?.focus({preventScroll:true});flush();send({type:'click',x:(e.clientX-r.left)*image.width/r.width,y:(e.clientY-r.top)*image.height/r.height});}}),
    React.createElement('textarea',{ref:keyboard,disabled:!owned||!safe.current||connection!=='connected'||age>=5000,'aria-label':'Task browser keyboard',autoComplete:'off',autoCorrect:'off',autoCapitalize:'none',spellCheck:false,style:{position:'absolute',width:1,height:1,opacity:0,pointerEvents:'none',top:0,left:0,padding:0,border:0},onKeyDown:keyDown,onInput:input,onPaste:paste,onCompositionStart:()=>{composing.current=true;},onCompositionEnd:e=>{composing.current=false;input(e);}})),

@@ -293,7 +293,7 @@ struct RemoteBrowserView: View {
                             }
                         }
                     }
-                    Text("Tap a field to focus it, type below, and send. Enter moves to the next field or submits the form. Swipe the page to scroll. Closing this view leaves the agent paused.")
+                    Text("Tap a field to focus it, type below, and send. Swipe the page to scroll. Closing this view leaves the agent paused.")
                         .font(Typeface.caption).foregroundStyle(Palette.muted)
                     HStack(spacing: 8) {
                         TextField("Text to type", text: $text)
@@ -303,7 +303,6 @@ struct RemoteBrowserView: View {
                             .background(Palette.field, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                             .disabled(!model.canInput)
                             .accessibilityLabel("Remote browser keyboard")
-                            .onSubmit { flush(); model.send(["type": "key", "key": "Enter"]) }
                         Chip(label: "Send") { flush() }
                     }
                     HStack(spacing: 8) {

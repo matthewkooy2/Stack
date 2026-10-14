@@ -14,6 +14,7 @@ with entry {
     LOCAL_PROVIDERS = {'ollama', 'lmstudio'};
     PROVIDERS = CLI_PROVIDERS | LOCAL_PROVIDERS | {'openai', 'meta'};
     STEPS = {
+        'autofill': ['browser_autofill'],
         'linkedin': ['linkedin_scan', 'linkedin_review'],
         'live': ['interview'],
         'jobs': ['fit'],
@@ -54,9 +55,21 @@ def digest(value: any) -> str {
     ).hexdigest();
 }
 """Deployment config is private, never accepted from a mobile client."""
-def config() -> dict[(str, any)] {
+def config(selection: str = "") -> dict[(str, any)] {
     path = Path(os.environ.get('STACK_AGENT_CONFIG', 'storage/agents/config.json'));
     raw = json.loads(path.read_text()) if path.exists() else {};
+    if selection not in ('', 'codex-cli', 'local') { raise ValueError('Choose Codex CLI or Local model.'); }
+    if selection {
+        chosen = raw.get('model_options', {}).get(selection, {});
+        if selection == 'codex-cli' {
+            raw = {**raw, 'model': raw.get('model', '') if raw.get('provider') == 'codex-cli' else '', **chosen, 'provider': 'codex-cli'};
+        } else {
+            if not chosen and raw.get('provider') not in LOCAL_PROVIDERS {
+                raw = {**raw, 'provider': 'ollama', 'model': '', 'local_model_url': ''};
+            } else { raw = {**raw, **chosen}; }
+            if raw.get('provider') not in LOCAL_PROVIDERS { raw = {**raw, 'provider': 'ollama', 'model': '', 'local_model_url': ''}; }
+        }
+    }
     return {
         'provider': str(raw.get('provider', 'openai')),
         'local_cli_owner': str(raw.get('local_cli_owner', '')),
@@ -117,8 +130,8 @@ def model_access(c: dict[(str, any)], owner: str) {
         );
     }
 }
-def model_status(owner: str) -> dict[(str, any)] {
-    c = config();
+def model_status(owner: str, selection: str = "") -> dict[(str, any)] {
+    c = config(selection);
     try {
         model_access(c, owner);
         message = 'Local subscription selected; CLI sign-in and provider limits still apply.'
@@ -342,11 +355,16 @@ def context_facts(
     facts: list[dict[(str, any)]], context: dict[(str, any)]
 ) -> list[dict[(str, any)]] {
     selected = context.get('resume_id', '');
-    return [
+    out = [
         f
         for f in facts
         if (not selected or not f.get('resume_id') or (f['resume_id'] == selected))
     ];
+    # Explicit saved Profile name is a task snapshot, never split into inferred names.
+    for f in context.get('autofill_profile',[]) {
+        if f.get('key')=='name' and not [x for x in out if x['key']=='name'] { out.append(f); }
+    }
+    return out;
 }
 def validate_contact(data: dict[(str, any)]) -> dict[(str, any)] {
     (name, email) = (

@@ -210,7 +210,6 @@ def generate(
 def _generate(step: any, context: any, configuration: any, received: any, observe: any = None) -> any {
     c = configuration if (configuration is not None) else config();
     provider = c['provider'];
-    if step in interview.STEPS { interview.local_qwen(c); }
     key = os.environ.get('MODEL_API_KEY' if (provider == 'meta') else 'OPENAI_API_KEY');
     if ((provider not in (CLI_PROVIDERS | LOCAL_PROVIDERS)) and (not key or not c['model'])) {
         raise ValueError('The model provider is not configured.');

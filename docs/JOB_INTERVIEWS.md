@@ -6,7 +6,7 @@ transcript edits, choose **Use reviewed transcript in interview**, review the
 answer and submit it for analysis. Existing typed drafts are preserved until the
 user explicitly selects the recorded transcript. Pending submission freezes
 editing and handoff controls. The original MAT-5 physical iPhone checklist remains
-open until an installed build is verified. This selects manual reviewed answers, local Qwen
+open until an installed build is verified. This selects manual reviewed answers, agent
 analysis and coaching, optional existing local transcription, and typed fallback.
 Live voice, paid/cloud fallback, avatars, video, automatic turn-taking and live
 coding are outside this delivery. Normal source merge and its automatic backend
@@ -48,14 +48,14 @@ a correction; already answered questions remain in history. Final coaching requi
 evidence from at least two reviewed answers. Saved interviews reopen through the same authenticated practice
 store and export/delete lifecycle as existing sessions.
 
-The worker and claim gate accept only `ollama`/`lmstudio` with a Qwen model ID for
-these two operations. Configure the installed model using the existing operator
-instructions in [model providers](AGENT_PROVIDERS.md), including its reachable
-private origin and context limits. Settings/secrets stay server/worker-side. No
-model download, deployment config change, paid call or provider fallback is made
-by these endpoints. Unavailable/malformed/stale output leaves reviewed answers
-saved and exposes retry or typed continuation. Existing Model permission and
-admission gates apply; local attempts have zero API spend and subscription calls.
+The two coaching operations use the account's Codex CLI or Local model choice
+captured when each task starts. Configure installed local models using
+[model providers](AGENT_PROVIDERS.md). Settings/secrets stay server/worker-side.
+No model download, deployment configuration change or provider fallback is made
+by these endpoints. Unavailable or stale output leaves reviewed answers saved
+and exposes retry or typed continuation. Existing Model permission and admission
+gates apply; local inference has zero API spend and Codex uses its daily request
+limit. Nonempty coaching output remains raw plain text.
 
 The interview schema uses only constraints supported by the shared local validator;
 explicit checks enforce nonempty text, length and list bounds at both model and

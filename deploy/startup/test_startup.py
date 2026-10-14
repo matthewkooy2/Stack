@@ -140,7 +140,26 @@ class CredentialTests(unittest.TestCase):
 
 
 class HttpDeadlineTests(unittest.TestCase):
+    def test_socket_timeout_remains_retryable(self):
+        probe = startup.Startup(30)
+        failure = TimeoutError("synthetic-secret-response")
+        ready = {"data": {"result": {"status": "ok"}}}
+        with patch.object(probe, "_http", side_effect=[failure, ready]) as request, \
+                patch.object(startup.time, "sleep"):
+            self.assertEqual(probe.check_api()["status"], "ready")
+        self.assertEqual(request.call_count, 2)
+
+    def test_socket_timeout_is_not_a_wall_deadline(self):
+        probe = startup.Startup(30)
+        failure = TimeoutError("synthetic-secret-response")
+        with patch.object(probe, "_http", side_effect=failure):
+            with self.assertRaises(TimeoutError) as caught:
+                probe.http("http://127.0.0.1/health")
+        self.assertIs(caught.exception, failure)
+
     def test_trickling_http_body_has_wall_deadline(self):
+        stop = threading.Event()
+
         class Handler(http.server.BaseHTTPRequestHandler):
             def do_GET(self):
                 raw = b'{"ready":true}'
@@ -151,27 +170,36 @@ class HttpDeadlineTests(unittest.TestCase):
                     for byte in raw:
                         self.wfile.write(bytes([byte]))
                         self.wfile.flush()
-                        # Below the 0.4s inactivity timeout, so only the wall deadline can stop
-                        # the read. Without it the body takes about 4.2s.
-                        time.sleep(0.3)
-                except (BrokenPipeError, ConnectionResetError):
+                        # Keep the body incomplete beyond the wall deadline.
+                        if stop.wait(0.3):
+                            return
+                except ConnectionError:
                     pass
 
             def log_message(self, *args):
                 pass
 
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        server.daemon_threads = False
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         clock = time.monotonic()
         try:
-            with self.assertRaises(startup.StartupFailure):
-                startup.Startup(0.4).http(f"http://127.0.0.1:{server.server_port}/health")
+            probe = startup.Startup(0.4)
+            open_request = probe.opener.open
+            # Isolate the wall deadline from the competing socket inactivity timer.
+            # A hosted runner can oversleep between bytes; socket timeout must not
+            # satisfy this regression. Without the wall guard, the read takes 3.6s.
+            with patch.object(probe.opener, "open", side_effect=lambda request, timeout: open_request(request, timeout=5)):
+                with self.assertRaisesRegex(startup.StartupFailure, "^http-deadline$"):
+                    probe.http(f"http://127.0.0.1:{server.server_port}/health")
             # Generous slack for slow hosted runners; still far below the undeadlined read.
             self.assertLess(time.monotonic() - clock, 2.0)
         finally:
+            stop.set()
             server.shutdown()
             server.server_close()
+            thread.join()
 
 
 if __name__ == "__main__":

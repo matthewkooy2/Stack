@@ -1,5 +1,31 @@
 # PC host source checkpoint
 
+## Production catalog collector
+
+After deploying the reviewed collector source and `deploy/stack-discovery.service`
+to `/opt/stack`, run `python3 deploy/pc-host/stack_discovery_activation.py` as root
+for read-only preflight. Add `--apply --source <existing-public-source-id>` to
+finish one bounded production batch and enable the persistent discovery service.
+The selected source must already be approved and use a public HTTP adapter.
+The installer requires positive listing output before enabling recurrence.
+It preserves existing environment files, tokens, and agent configuration, and
+does not activate or interrupt the separate agent worker or user services.
+
+The API retains leases, provider quotas, checkpoints and exponential retries.
+Completed sources refresh every six hours, career pages daily and GitHub search
+weekly. The service retries API connection failures and starts with the existing
+API on boot. Inspect `systemctl status stack-discovery.service`,
+`journalctl -u stack-discovery.service`, the authenticated `discovery_report`,
+and catalog freshness plus `search_jobs` results to verify ongoing collection.
+The reviewed `promote_backend.py` stops an enabled collector before replacing
+source and resumes it after the API; disabled or absent collectors stay off.
+The installed root-owned promotion helper must be updated separately from the
+application release to use this lifecycle behavior.
+Stop this collector with `systemctl disable --now stack-discovery.service`;
+catalog data and private configuration remain intact. Any subsequent backend
+deployment that changes collector code must include this unit in its stop/start
+lifecycle. Historical deployment scripts below are checkpoint-specific.
+
 This directory captures the PC code that complements the Mac source checkpoint on
 `codex/mac-pc-source-checkpoint-20261001`. It records source for review and recovery;
 it does not install, update, or operate a host automatically. No CI or deployment

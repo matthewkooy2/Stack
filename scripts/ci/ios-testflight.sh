@@ -46,6 +46,11 @@ export PIP_CACHE_DIR="$STACK_ROOT/.jac/pip-cache"
 # runtime lives inside the project, which is scripts/jac's default cache.
 export STACK_JAC_CACHE_HOME="${STACK_JAC_CACHE_HOME:-${RUNNER_TEMP:?RUNNER_TEMP must be set outside the project.}/jac-tool-cache}"
 
+if [[ "$MODE" == upload ]]; then
+  mkdir -p "$CI_DIR"
+  python3 scripts/ci/ios-signing.py export-options "$CI_DIR/ExportOptions.plist"
+fi
+
 case "$(uname -s)" in
   Darwin) ;;
   *) echo 'TestFlight builds require the hosted macOS runner.' >&2; exit 1 ;;
@@ -94,11 +99,23 @@ PY
 ./scripts/jac run --no-serve scripts/compile-mobile.jac
 
 if [[ "$MODE" == upload ]]; then
-  AUTH=(-allowProvisioningUpdates
-    -authenticationKeyPath "$ASC_AUTH_KEY_PATH"
-    -authenticationKeyID "$ASC_KEY_ID"
-    -authenticationKeyIssuerID "$ASC_ISSUER_ID")
-  SIGNING=("${AUTH[@]}" DEVELOPMENT_TEAM="$APPLE_TEAM_ID" CODE_SIGN_STYLE=Automatic)
+  # A global profile override also reaches CocoaPods resource bundles. Pin only
+  # the generated app target; xcodeproj is installed with the existing CocoaPods toolchain.
+  ruby -rxcodeproj - <<'RUBY'
+project = Xcodeproj::Project.open('.jac/mobile-rn/ios/Stack.xcodeproj')
+apps = project.targets.select { |target| target.product_type == 'com.apple.product-type.application' }
+abort 'Expected exactly one Stack application target' unless apps.length == 1 && apps.first.name == 'Stack'
+apps.first.build_configurations.each do |config|
+  next unless config.name == 'Release'
+  config.build_settings['CODE_SIGN_STYLE'] = 'Manual'
+  config.build_settings['DEVELOPMENT_TEAM'] = ENV.fetch('APPLE_TEAM_ID')
+  config.build_settings['CODE_SIGN_IDENTITY'] = ENV.fetch('IOS_SIGNING_IDENTITY')
+  config.build_settings['PROVISIONING_PROFILE_SPECIFIER'] = ENV.fetch('IOS_PROFILE_UUID')
+end
+project.save
+RUBY
+  SIGNING=(DEVELOPMENT_TEAM="$APPLE_TEAM_ID" CODE_SIGN_STYLE=Manual
+    "OTHER_CODE_SIGN_FLAGS=--keychain $IOS_SIGNING_KEYCHAIN")
 else
   SIGNING=(CODE_SIGNING_ALLOWED=NO)
 fi
@@ -120,31 +137,28 @@ if [[ "$BUILT_NUMBER" != "$STACK_BUILD_NUMBER" ]]; then
   exit 1
 fi
 
+python3 - "$APP/Info.plist" <<'PY'
+import plistlib
+import sys
+
+with open(sys.argv[1], 'rb') as source:
+    info = plistlib.load(source)
+if info.get('ITSAppUsesNonExemptEncryption') is not False:
+    raise SystemExit('Release archive must declare ITSAppUsesNonExemptEncryption as Boolean false.')
+PY
+
 if [[ "$MODE" == validate ]]; then
   echo "Unsigned release archive $STACK_BUILD_NUMBER validated; skipped signing and upload."
   exit 0
 fi
 
 # Keep the verified build number; Xcode would otherwise renumber during export.
-cat > "$CI_DIR/ExportOptions.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>method</key><string>app-store-connect</string>
-  <key>signingStyle</key><string>automatic</string>
-  <key>teamID</key><string>$APPLE_TEAM_ID</string>
-  <key>uploadSymbols</key><true/>
-  <key>manageAppVersionAndBuildNumber</key><false/>
-</dict>
-</plist>
-PLIST
+python3 scripts/ci/ios-signing.py export-options "$CI_DIR/ExportOptions.plist"
 
 xcodebuild -exportArchive \
   -archivePath "$ARCHIVE" \
   -exportPath "$CI_DIR/export" \
   -exportOptionsPlist "$CI_DIR/ExportOptions.plist" \
-  "${AUTH[@]}" \
   2>&1 | tee "$CI_DIR/export.log"
 
 IPA_PATH=$CI_DIR/export/Stack.ipa

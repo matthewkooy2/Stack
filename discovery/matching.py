@@ -557,6 +557,8 @@ def criteria(profile: dict, query: str = '', filters: dict | None = None) -> dic
     levels = _list(filters.get('levels', []), LEVELS)
     role_levels = sorted({lvl for r in roles for lvl in r['levels']})
     notices = []
+    if filters.get('timeline') == 'confirmed' and not values['graduation_month']:
+        notices.append('Set your graduation date to find confirmed timeline matches. Unknown graduation timing is included only in Hide timeline mismatches or All timelines.')
     if role_levels and values['stage']:
         clash = [lvl for lvl in role_levels if STAGE_FIT.get(values['stage'], {}).get(lvl) == 'conflict']
         if clash:
@@ -569,7 +571,8 @@ def criteria(profile: dict, query: str = '', filters: dict | None = None) -> dic
     return {**values, 'roles_parsed': roles, 'levels': levels, 'sources': sources, 'notices': notices,
             'location_place': parse_user_location(values['location']),
             'occupation': filters.get('occupation', ''), 'posted_days': filters.get('posted_days', 0), 'has_posting_date': bool(filters.get('has_posting_date')),
-            'timeline': filters.get('timeline', 'compatible'), 'confirmed_only': bool(filters.get('confirmed_only'))}
+            'timeline': filters.get('timeline', 'compatible'), 'confirmed_only': bool(filters.get('confirmed_only')),
+            'confirmed_level': bool(filters.get('confirmed_level'))}
 
 
 # ---------------------------------------------------------------- evaluation
@@ -696,7 +699,8 @@ def _level_check(f: dict, c: dict, role_levels: list) -> tuple[str, str, bool]:
     level = f['level']
     explicit = list(dict.fromkeys(c['levels'] + role_levels))
     if explicit:
-        if not level: return 'unknown', 'Level not stated', True
+        if not level:
+            return ('conflict' if c['confirmed_level'] else 'unknown'), 'Level not stated', True
         return ('match', level, True) if level in explicit else ('conflict', f'{level}; you asked for {", ".join(explicit)}', True)
     if not c['stage'] or not level: return 'n/a', '', False
     fit = STAGE_FIT[c['stage']][level]
@@ -804,7 +808,7 @@ def evaluate(job: dict, c: dict, now: float | None = None) -> dict:
     required = [x for x in checks if x['required']]
     excluded = any(x['status'] == 'conflict' for x in required)
     unknown = [x for x in required if x['status'] == 'unknown']
-    if c['timeline'] == 'confirmed' and c['graduation_month'] and not any(x['key'] == 'timeline' and x['status'] == 'match' for x in checks):
+    if c['timeline'] == 'confirmed' and not any(x['key'] == 'timeline' and x['status'] == 'match' for x in checks):
         excluded = True
     if c['confirmed_only'] and unknown:
         excluded = True

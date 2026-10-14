@@ -198,18 +198,18 @@ class HandoffInput(unittest.TestCase):
         page.keyboard.type.assert_called_once_with('Ann Arbor')
         page.keyboard.insert_text.assert_not_called()
         letter = 'x' * 9000
-        pool.handoff('owner', 'run', {'type': 'text', 'text': letter})
+        pool.handoff('owner', 'run', {'type': 'text', 'text': letter, 'paste': True})
         page.keyboard.insert_text.assert_called_once_with(letter[:8000])
         self.assertEqual(page.keyboard.type.call_count, 1)
 
-    def test_caret_and_select_all_keys_are_forwarded_and_others_rejected(self):
+    def test_only_form_keys_are_forwarded_and_others_rejected(self):
         pool, page = self.pool()
-        for key in ('ArrowLeft', 'ArrowRight', 'Home', 'End', 'Delete', 'Tab', 'Enter'):
+        for key in ('Tab', 'Enter', 'Backspace'):
             pool.handoff('owner', 'run', {'type': 'key', 'key': key})
             page.keyboard.press.assert_called_with(key)
-        pool.handoff('owner', 'run', {'type': 'key', 'key': 'SelectAll'})
-        page.keyboard.press.assert_called_with('ControlOrMeta+A')
-        for key in ('Control+W', 'F5', 'Meta+L'):
+        pool.handoff('owner', 'run', {'type': 'key', 'key': 'Tab', 'shift': True})
+        page.keyboard.press.assert_called_with('Shift+Tab')
+        for key in ('Control+W', 'F5', 'Meta+L', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'Delete', 'Escape', 'ArrowUp', 'ArrowDown', 'SelectAll'):
             with self.assertRaisesRegex(ValueError, 'Unknown browser input'):
                 pool.handoff('owner', 'run', {'type': 'key', 'key': key})
 
@@ -228,12 +228,13 @@ class HandoffInput(unittest.TestCase):
                 page.keyboard.type.assert_not_called()
                 page.keyboard.press.assert_not_called()
 
-    def test_typing_cutoff_applies_to_each_chunk(self):
+    def test_typing_has_no_length_cutoff_and_keeps_the_payload_cap(self):
         pool, page = self.pool()
         pool.handoff('owner', 'run', {'type': 'text', 'text': 'a' * 500})
         pool.handoff('owner', 'run', {'type': 'text', 'text': 'b' * 501})
         pool.handoff('owner', 'run', {'type': 'text', 'text': 'c'})
-        self.assertEqual(page.keyboard.type.call_args_list, [call('a' * 500), call('c')])
-        page.keyboard.insert_text.assert_called_once_with('b' * 501)
+        pool.handoff('owner', 'run', {'type': 'text', 'text': 'd' * 9000})
+        self.assertEqual(page.keyboard.type.call_args_list, [call('a' * 500), call('b' * 501), call('c'), call('d' * 8000)])
+        page.keyboard.insert_text.assert_not_called()
 
 if __name__ == '__main__': unittest.main()

@@ -8,15 +8,29 @@ import from pathlib { Path }
 import from urllib.parse { urlsplit }
 import from agents.contracts { digest }
 with entry {
-    # Caret and form keys a viewer may forward; SelectAll uses the host's shortcut.
-    HANDOFF_KEYS = {
-        'Tab': 'Tab', 'Enter': 'Enter', 'Backspace': 'Backspace', 'Delete': 'Delete',
-        'Escape': 'Escape', 'ArrowDown': 'ArrowDown', 'ArrowUp': 'ArrowUp',
-        'ArrowLeft': 'ArrowLeft', 'ArrowRight': 'ArrowRight', 'Home': 'Home', 'End': 'End',
-        'SelectAll': 'ControlOrMeta+A'
-    };
-    # Short single-line typing sends key events; pastes and line breaks insert as text.
-    TYPED_TEXT_LIMIT = 500;
+    HANDOFF_KEYS = ('Tab', 'Enter', 'Backspace');
+    # Enter advances within the focused form, then activates its submit action.
+    ENTER_FORM_JS = r'''() => {
+ if (!document.hasFocus()) return false;
+ const active = document.activeElement, form = active?.form;
+ if (!form || !active.matches('input,select,textarea')) return false;
+ const available = e => !e.matches(':disabled') && e.getAttribute('aria-disabled') !== 'true'
+   && !e.closest('[inert]') && e.getClientRects().length > 0
+   && getComputedStyle(e).visibility !== 'hidden';
+ const fields = [...form.elements].filter(e => e.matches('input,select,textarea')
+   && !['hidden','button','submit','reset','image'].includes(e.type)
+   && e.tabIndex >= 0 && available(e));
+ fields.sort((a,b) => (a.tabIndex > 0 ? a.tabIndex : Infinity) - (b.tabIndex > 0 ? b.tabIndex : Infinity));
+ const index = fields.indexOf(active);
+ if (index < 0) return false;
+ if (fields[index + 1]) { fields[index + 1].focus(); return true; }
+ const buttons = [...form.elements].filter(e => e.matches('button,input') && ['submit','image'].includes(e.type));
+ if (buttons.length) {
+   const button = buttons.find(available);
+   if (button) button.click();
+ } else HTMLFormElement.prototype.requestSubmit.call(form);
+ return true;
+}''';
 }
 """Latest live frame only, in memory, scoped to the account and task."""
 class BrowserFrames {
@@ -195,19 +209,23 @@ class BrowserPool {
         } elif (kind == 'text') {
             self.guard();
             text = str(event.get('text', ''))[:8000];
-            if (
-                (len(text) <= TYPED_TEXT_LIMIT)
-                and not event.get('paste', False)
-                and ('\n' not in text)
-                and ('\r' not in text)
-            ) {
-                page.keyboard.type(text);
-            } else {
+            if event.get('paste', False) or ('\n' in text) or ('\r' in text) {
                 page.keyboard.insert_text(text);
+            } else {
+                page.keyboard.type(text);
             }
         } elif ((kind == 'key') and (event.get('key') in HANDOFF_KEYS)) {
             self.guard();
-            page.keyboard.press(HANDOFF_KEYS[event['key']]);
+            handled = False;
+            if event['key'] == 'Enter' {
+                for frame in page.frames {
+                    self.guard();
+                    if frame.evaluate(ENTER_FORM_JS) { handled = True; break; }
+                }
+            }
+            if not handled {
+                page.keyboard.press('Shift+Tab' if event['key'] == 'Tab' and event.get('shift', False) else event['key']);
+            }
         } elif (kind == 'scroll') {
             self.guard();
             page.mouse.wheel(0, max(-700, min(700, int(event.get('dy', 0)))));

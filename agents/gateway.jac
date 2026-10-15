@@ -205,7 +205,7 @@ class Handler(SimpleHTTPRequestHandler) {
             }
             # Deletion has its own fresh Apple proof/password confirmation and
             # must recover even when a saved grant/session epoch is unusable.
-            if authorization and path not in IDENTITY and function not in APPLE_PUBLIC | {'auth_apple_delete_begin','account_delete_apple','account_delete'} {
+            if not linkedin and authorization and path not in IDENTITY and function not in APPLE_PUBLIC | {'auth_apple_delete_begin','account_delete_apple','account_delete'} {
                 token=authorization.removeprefix('Bearer ');
                 (session_status,session_raw)=upstream('/function/auth_apple_session',json.dumps({'token':token}).encode(),authorization);
                 session_result=json.loads(session_raw).get('data',{}).get('result',{});

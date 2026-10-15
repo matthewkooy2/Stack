@@ -55,6 +55,8 @@ class Gateway(unittest.TestCase):
             calls.append((path, kwargs))
             if authorization != 'Bearer fixture':
                 return 401, b'{"ok":false,"data":{"result":{}}}'
+            if path == '/function/auth_apple_session':
+                return 200, b'{"data":{"result":{"ok":true}}}'
             if path.endswith('agent_admission'):
                 return 200, b'{"data":{"result":{"admitted":false}}}'
             result = {'id': 'linkedin-fixture', 'kind': 'linkedin'}

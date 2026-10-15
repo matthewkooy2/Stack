@@ -11,7 +11,7 @@ struct LinkedInFlow: View {
     @Environment(AppStore.self) private var store
     @State private var step: Step = .url
     @State private var id = ""
-    @State private var url = ""
+    @State private var url = "https://linkedin.com/in/"
     @State private var role = ""
     @State private var paused = false
     @State private var showRewrites = false

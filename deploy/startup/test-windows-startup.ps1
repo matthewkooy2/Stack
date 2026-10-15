@@ -57,4 +57,20 @@ foreach ($mode in @('missing','offline','helper-failed')) {
 $failed = $false
 try { Invoke-StackStartup 'bad distro' https://fixture.ts.net 20 /fixture/helper.py } catch { $failed = $true }
 Assert $failed 'argument validation bypassed'
-Write-Output 'PASS: child timeout/exit; readiness; delayed/offline network; missing distro; helper failure; input validation (no live operations).'
+
+# A cleanly ended WSL process is still a keeper failure so Task Scheduler retries it.
+. "$PSScriptRoot/windows-keeper.ps1"
+$script:keeperCall = $null
+function Start-Process {
+    param($FilePath, $ArgumentList, $WindowStyle, [switch]$Wait, [switch]$PassThru)
+    $script:keeperCall = @($FilePath, $ArgumentList, $WindowStyle, $Wait.IsPresent, $PassThru.IsPresent)
+    return [pscustomobject]@{ ExitCode = 0 }
+}
+$failed = $false
+try { Invoke-StackWslKeeper FixtureDistro } catch { $failed = $_.Exception.Message -eq 'keeper-ended' }
+Assert $failed 'ended keeper was accepted'
+Assert ($script:keeperCall[0] -eq "$env:SystemRoot/System32/wsl.exe") 'keeper used unexpected executable'
+Assert ($script:keeperCall[1] -eq '--distribution FixtureDistro --exec /usr/bin/sleep infinity') 'keeper arguments changed'
+Assert ($script:keeperCall[2] -eq 'Hidden' -and $script:keeperCall[3] -and $script:keeperCall[4]) 'keeper was not hidden and awaited'
+
+Write-Output 'PASS: child timeout/exit; readiness; delayed/offline network; missing distro; helper failure; input validation; keeper retry signal (no live operations).'

@@ -12,6 +12,8 @@ scoped to the Windows owner of `Ubuntu-24.04`, `Interactive` logon type, `Limite
 run level, `IgnoreNew` multiple-instance policy, unlimited execution time, three
 retries one minute apart, and `StartWhenAvailable=true`. Its hidden PowerShell
 action waits for `wsl.exe -d Ubuntu-24.04 --exec /usr/bin/sleep infinity`.
+That wrapper discarded the child exit status, so a WSL shutdown completed the
+task successfully and its configured `RestartOnFailure` policy did not run.
 The exact principal was checked locally against the owner; retain that principal
 privately in the operator worksheet rather than publishing machine/account IDs.
 The default Linux user is the existing ordinary distro user; service commands
@@ -57,7 +59,10 @@ completion, browser security policy, the deployed revision, or an actual phone p
 Every success explicitly reports `phone_acceptance=not_run`.
 
 Systemd activity alone does not keep WSL alive. **Retain the existing lifetime
-keeper** and its IgnoreNew policy. This finite readiness action is separate from
+keeper** and its IgnoreNew policy, but point its action at `../keep-wsl.ps1` with
+the exact distribution. The keeper intentionally returns failure whenever its
+infinite WSL process ends, allowing the task's existing bounded restart policy to
+recover the distribution. This finite readiness action is separate from
 the keeper; never replace its infinite sleep with a finite readiness command.
 Task Scheduler actions are sequential, so appending this action after infinite
 sleep would never execute it. During approved setup use one separately named
@@ -90,7 +95,8 @@ review does not grant that approval. Prepare and review this private worksheet:
 3. Back up exact current unit/drop-in/helper files and task definitions privately.
    Install `stack-startup.py` as root-owned, mode 0755 at
    `/usr/local/libexec/stack-startup.py`. Copy the Windows launcher and adjacent
-   `startup/windows-startup.ps1` to an operator-controlled directory preserving
+   `keep-wsl.ps1`, `startup/windows-startup.ps1`, and
+   `startup/windows-keeper.ps1` to an operator-controlled directory preserving
    layout. Do not run scripts from an untrusted/shared writable checkout as root.
 4. Existing enabled units may start before this finite launcher. To enforce API
    readiness for automatic systemd starts, review the three `units/*.conf` templates
@@ -101,7 +107,9 @@ review does not grant that approval. Prepare and review this private worksheet:
    Review effective merged units and run `systemd-analyze verify` before an approved
    `daemon-reload`. No restart is needed merely to stage these for the next boot;
    readiness gates are bounded at 90 seconds and failures remain visible in journal.
-5. Review a hidden, noninteractive PowerShell task action using `-File` with the
+5. Review a hidden, noninteractive PowerShell keeper action using `-File` with the
+   exact `keep-wsl.ps1` path and `-Distribution`. Preserve its existing bounded
+   `RestartOnFailure` policy. Review the separate readiness task action using the
    exact launcher path, `-Distribution` and `-PhoneOrigin`. Do not bypass execution
    policy, broaden privileges, reset Tailscale, or create extra keeper tasks. Reuse
    existing registration where applicable and compare readback XML/ACLs afterward.

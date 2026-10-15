@@ -1,11 +1,11 @@
 # LinkedIn profile review
 
-The personal flow keeps the existing Swift URL form, browser controls and report.
+The personal flow uses the redesigned Swift setup, browser controls and report.
 
-1. Enter a profile URL and start a review. The API immediately opens its browser.
-2. Open the existing browser UI, take control and sign in.
-3. Use **Resume agent**, or the task's **Continue** action.
-4. That request captures the profile with Playwright, calls the account-selected
+1. Enter a profile URL and, optionally, a target role.
+2. Sign in through the browser shown in the app.
+3. Continue to the ready screen and analyze the profile.
+4. The request captures the profile with Playwright, calls the account-selected
    LLM and saves raw coaching in the existing report summary.
 
 ## Direct execution

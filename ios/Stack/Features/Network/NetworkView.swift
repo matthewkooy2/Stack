@@ -14,6 +14,7 @@ struct NetworkView: View {
     @State private var showSavedOnly = false
     @State private var selected: Connection?
     @State private var tool: NetworkTool?
+    @State private var linkedIn = false
     /// Held here, not in the sheets, so closing a tool never discards unfinished edits.
     @State private var drafts = NetworkDrafts()
 
@@ -62,7 +63,7 @@ struct NetworkView: View {
             }
             VStack(spacing: 0) {
                 ListRow(label: "Your contacts", icon: "network", detail: "Add people and draft outreach for review") { tool = .contacts }
-                ListRow(label: "LinkedIn review", icon: "sparkles", detail: "Fixes and rewrites for your profile") { tool = .linkedIn }
+                ListRow(label: "LinkedIn review", icon: "sparkles", detail: "Fixes and rewrites for your profile") { linkedIn = true }
                 ListRow(label: "Public profiles", icon: "profile", detail: "LinkedIn, GitHub and portfolio drafts") { tool = .profiles }
             }
             .reveal(shown.count + 2)
@@ -80,10 +81,10 @@ struct NetworkView: View {
         }
         .onChange(of: store.sessionGeneration) { _, _ in drafts.reset() }
         .onChange(of: store.phase) { _, phase in if phase != .ready { drafts.reset() } }
+        .fullScreenCover(isPresented: $linkedIn) { LinkedInFlow().environment(store) }
         .sheet(item: $tool) { value in
             switch value {
             case .contacts: NetworkToolSheet(title: "Your contacts", tool: .contacts, drafts: drafts).environment(store)
-            case .linkedIn: NetworkToolSheet(title: "LinkedIn review", tool: .linkedIn, drafts: drafts).environment(store)
             case .profiles: PublicProfilesView().environment(store)
             }
         }
@@ -91,11 +92,11 @@ struct NetworkView: View {
 }
 
 enum NetworkTool: String, Identifiable {
-    case contacts, linkedIn, profiles
+    case contacts, profiles
     var id: String { rawValue }
 }
 
-/// Outreach and LinkedIn review each get their own screen, with agent tasks opening from here.
+/// Outreach gets its own screen, with agent tasks opening from here.
 @MainActor
 private struct NetworkToolSheet: View {
     let title: String
@@ -104,22 +105,14 @@ private struct NetworkToolSheet: View {
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var task: TaskTarget?
-    @State private var linkedInTask: TaskTarget?
     @State private var hubPage: AgentPage?
     @State private var hubAction = ""
 
     var body: some View {
         SheetPage(title: title) {
-            if tool == .linkedIn {
-                LinkedInProfileCard(drafts: drafts, onOpenTask: { linkedInTask = TaskTarget(id: $0) }, onNavigate: navigate)
-            } else {
-                NetworkAgentSection(drafts: drafts, onOpenTask: { task = TaskTarget(id: $0) }, onNavigate: navigate)
-            }
+            NetworkAgentSection(drafts: drafts, onOpenTask: { task = TaskTarget(id: $0) }, onNavigate: navigate)
         }
         .sheet(item: $task) { target in AgentTaskSheet(taskID: target.id).environment(store) }
-        .fullScreenCover(item: $linkedInTask) { target in
-            LinkedInFlow(id: target.id, role: drafts.linkedInRole).environment(store)
-        }
         .sheet(item: $hubPage) { page in AgentHubView(initialPage: page, initialAction: hubAction).environment(store) }
     }
 

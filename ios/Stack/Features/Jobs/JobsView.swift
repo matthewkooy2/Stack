@@ -16,6 +16,7 @@ struct JobsView: View {
     @State var search = JobSearch()
     @State var sheet: JobSheet?
     @State var started = false
+    @State private var displayedContext: JobFeedContext?
     @State var importID = ""
     @State var banner = ""
     @State private var pendingDecision: (job: Job, save: Bool, generation: Int)?
@@ -23,6 +24,7 @@ struct JobsView: View {
     @State private var leavingID: String?
 
     private var deck: [Job] {
+        guard displayedContext == accountContext else { return [] }
         let decided = store.account.decidedJobIDs
         return feed.jobs.filter { !decided.contains($0.id) && !hidden.contains($0.id) }
     }
@@ -79,8 +81,11 @@ struct JobsView: View {
         .onChange(of: store.sessionGeneration) { _, _ in resetForSession() }
         .onChange(of: store.phase) { _, phase in if phase != .ready { resetForSession() } }
         .onChange(of: scenePhase) { _, phase in if phase != .active { commitDecision() } }
-        .onReceive(NotificationCenter.default.publisher(for: .stackProfileSaved)) { _ in
+        .onChange(of: accountContext) { _, context in
+            guard started, context != displayedContext, store.phase == .ready else { return }
+            // Includes edits made on another client and timeline changes. Stop showing old matches at once.
             let event = reserveChange()
+            feed.invalidate(clearing: true)
             Task { await profileSaved(event) }
         }
         .sheet(item: $detail) { job in JobDetailView(job: job).environment(store) }
@@ -309,6 +314,11 @@ struct JobsView: View {
         }
         started = true
         search.adopt(saved: store.account.savedSearch)
+        displayedContext = accountContext
+        if let cached = store.jobFeedCache.read(for: accountContext, decided: store.account.decidedJobIDs) {
+            feed.restore(cached)
+            search.apply(cached)
+        }
         await load(refresh: true)
     }
 
@@ -322,13 +332,19 @@ struct JobsView: View {
     private func resetForSession() {
         feed.invalidate(clearing: true)
         hidden = []
+        displayedContext = nil
+        started = false
+    }
+
+    private var accountContext: JobFeedContext {
+        JobFeedContext(origin: store.api.origin, account: store.account)
     }
 
     /// A profile edit may have cleared saved overrides (a changed role drops the query and any_role).
     /// Paging stops at once; the account's refreshed saved search is adopted when the gate is free.
     private func profileSaved(_ event: JobChangeEvent) async {
         commitDecision()
-        await feed.change(ticket: event.ticket, refresh: false, clearing: false, isCurrent: { isCurrent(event.generation) }, makeSource: { makeSource() },
+        await feed.change(ticket: event.ticket, refresh: false, clearing: true, isCurrent: { isCurrent(event.generation) }, makeSource: { makeSource() },
                           accepted: { search.adopt(saved: store.account.savedSearch) })
     }
 
@@ -389,6 +405,11 @@ struct JobsView: View {
     private func makeSource() -> JobDeckSource {
         let generation = store.sessionGeneration
         let query = search.query, filters = search.filters
+        let context = JobFeedContext(origin: store.api.origin, account: store.account, query: query, filters: filters)
+        // A direct reload (for example after saving a timeline) can run before onChange is delivered.
+        // It must not relabel old cards as matches for the new context.
+        if displayedContext != context { feed.invalidate(clearing: true) }
+        displayedContext = context
         return JobDeckSource(
             fetch: { [store] cursor, refresh in
                 try await store.api.call("search_jobs", [
@@ -396,13 +417,16 @@ struct JobsView: View {
                 ])
             },
             deckCount: { deck.count },
-            isCurrent: { isCurrent(generation) },
-            received: { search.apply($0) },
+            isCurrent: { isCurrent(generation) && accountContext == context },
+            received: { result in
+                search.apply(result)
+                store.jobFeedCache.write(result, jobs: deck, for: context)
+            },
             animate: { change in withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { change() } })
     }
 
     func load(refresh: Bool, more: Bool = false) async {
-        guard store.phase == .ready else { return }
+        guard store.phase == .ready, !feed.busy else { return }
         await feed.load(refresh: refresh, more: more, source: makeSource())
     }
 }

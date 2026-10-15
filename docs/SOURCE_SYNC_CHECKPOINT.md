@@ -21,7 +21,7 @@ The running PC deployment is not a Git checkout. Its remaining code was captured
 
 Preserve the live PC API/gateway/worker/browser configuration and state while doing this comparison. Importing source into Git does not authorize deploying or replacing the working services.
 
-`deploy/pc-host/SOURCE_CAPTURE.json` records 32 source/template/fixture hashes, verified against the exact staged blobs. Controller, policy and seccomp match the installed PC files; the existing repository image context matches the PC prepared context. Staged credential/private-environment scanning found no secrets. The historical installer/deployment paths and hash/approval gates remain checkpoint-specific, not an unattended fresh-host installer. See `deploy/pc-host/README.md` for reproduction and rollback limits.
+`deploy/pc-host/SOURCE_CAPTURE.json` records 32 source/template/fixture hashes verified against the exact staged blobs at its recorded parent checkpoint. Those hashes are historical provenance, not a current-working-tree integrity manifest. At that checkpoint, controller, policy and seccomp matched the installed PC files, and the repository image context matched the PC prepared context. Staged credential/private-environment scanning found no secrets. The historical installer/deployment paths and hash/approval gates remain checkpoint-specific, not an unattended fresh-host installer. See `deploy/pc-host/README.md` for reproduction and rollback limits.
 
 ## Validation evidence
 

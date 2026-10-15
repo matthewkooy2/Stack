@@ -27,14 +27,14 @@ def add(kind,fields,owner=OWNER):
     return identity
 
 def policy(**changes):
-    value={'enabled':True,'actions':['model','browser_fill','send_email','submit_application','calendar_write'],
+    value={'enabled':True,'actions':['browser_fill','send_email','submit_application','calendar_write'],
            'domains':['example.test'],'daily_limits':{'browser_fill':5,'send_email':5,'submit_application':5,'calendar_write':5},
            'expires_at':time.time()+86400,'followup_limit':0,'followup_days':7,'analyze_top_matches':False}
     value.update(changes);return value
 
 def evaluate(quotas=None,certified=()):
     q=json.loads(sql(guard.source_queue_sql(installer.stack.QUEUE)))
-    rows=json.loads(sql(guard.policy_sql(OWNER)))
+    rows=json.loads(sql(guard.policy_sql()))
     metadata=guard.effective_policy_metadata(rows,quotas or dict.fromkeys(guard.EXTERNAL,0),certified)
     return q,metadata,guard.blockers(q,metadata)
 
@@ -47,7 +47,6 @@ class SqlGuardTests(unittest.TestCase):
         self.assertEqual(q['enabledExternalActionPolicies'],1)
         self.assertEqual(blocks,[])
         self.assertFalse(m['anyExternalDispatchPotential'])
-        self.assertTrue(m['activePolicyMetadata'][0]['boundToLocalModelOwner'])
         self.assertFalse(m['standingPermissionsModified'])
     def test_blocked_and_needs_input_histories_are_not_requeued(self):
         for kind,status in [('code','needs_input'),('prep','blocked'),('prep','blocked')]:
@@ -65,11 +64,11 @@ class SqlGuardTests(unittest.TestCase):
         add('AgentRun',{'kind':'network','status':'review','lease':'','lease_until':0,'next_at':0})
         add('AgentMemory',{'policy':policy(),'deleted':False})
         q,m,blocks=evaluate();self.assertEqual(blocks,[]);self.assertFalse(m['anyExternalDispatchPotential'])
-    def test_auto_model_requires_model_selection_and_analysis_flag(self):
-        add('AgentMemory',{'policy':policy(actions=['send_email'],analyze_top_matches=True),'deleted':False})
-        self.assertEqual(evaluate()[2],[])
-        sql('TRUNCATE anchors;');add('AgentMemory',{'policy':policy(analyze_top_matches=True),'deleted':False})
+    def test_auto_model_requires_analysis_flag_but_not_model_permission(self):
+        add('AgentMemory',{'policy':policy(actions=[],analyze_top_matches=True),'deleted':False})
         self.assertIn('enabledAutoModelPolicies',evaluate()[2])
+        sql('TRUNCATE anchors;');add('AgentMemory',{'policy':policy(actions=[],analyze_top_matches=False),'deleted':False})
+        self.assertEqual(evaluate()[2],[])
     def test_expired_and_deleted_policy_do_not_activate_actions(self):
         add('AgentMemory',{'policy':policy(expires_at=time.time()-1),'deleted':False})
         add('AgentMemory',{'policy':policy(),'deleted':True})

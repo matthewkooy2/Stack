@@ -19,7 +19,8 @@ The private operator configuration may supply `model_options.codex-cli` (model)
 and `model_options.local` (provider, installed model, private local model URL,
 and local inference limits). See `deploy/agent-config.example.json`. Choosing a
 model never writes deployment configuration, credentials or URLs. Existing
-Codex account ownership and daily request limits remain enforced. Local supports
+The server's CLI login is shared by the app's signed-in account and has no
+additional Stack request cap. Local supports
 Ollama or LM Studio; without an installed model configuration Settings explains
 that Local is unavailable. Runtime sign-in, model/service errors appear on the
 task; no provider fallback or model installation occurs.
@@ -29,7 +30,8 @@ task; no provider fallback or model installation occurs.
 The general worker can use installed local instruction models for job fit,
 resume tailoring, networking drafts, profile suggestions, LinkedIn analysis,
 and practice coaching. The same structured schemas, source checks, response
-logs, standing Model permission, and workflow approval gates apply.
+logs and workflow approval gates apply. Outbound email and calendar actions keep
+their separate permissions and review.
 
 Start your installed Ollama service or LM Studio local server, then select it
 from the Stack project directory. These operator commands change only the
@@ -58,7 +60,7 @@ local services require the separate operator worker workflow.
 
 No API key, monthly budget, subscription owner binding, or subscription request
 cap is required. Each attempt records zero API cents and zero subscription calls.
-Accounts still need admission and unexpired Model permission. Local compute,
+Accounts still need admission. Local compute,
 model capacity and the existing worker lease/attempt limits remain finite.
 Configuration readiness does not prove the service is running or the model fits.
 
@@ -138,28 +140,26 @@ and run its authentication in the **same environment as the worker**. Windows
 credentials are not automatically available inside WSL2. On Mac, use the separate
 `./scripts/setup --ios` / `./scripts/dev` path when developing the native app.
 
-1. Create your own local Stack account. In the browser, **Account** shows its
-   **Account ID**; in the iPhone app, use **Agents > Rules**.
-2. Authenticate the chosen CLI and explicitly bind that one account:
+1. Create your own local Stack account.
+2. Authenticate the chosen CLI on the server:
 
    ```sh
-   make login PROVIDER=codex OWNER=YOUR_ACCOUNT_ID DAILY_LIMIT=10
+   make login PROVIDER=codex
    # Or:
-   make login PROVIDER=claude OWNER=YOUR_ACCOUNT_ID DAILY_LIMIT=10
+   make login PROVIDER=claude
    ```
 
-   Python equivalents are `python3 scripts/contributor.py login --provider codex
-   --owner YOUR_ACCOUNT_ID --daily-limit 10` or `--provider claude`. The command
+   Python equivalents are `python3 scripts/contributor.py login --provider codex`
+   or `--provider claude`. The command
    invokes `codex login` or `claude auth login`; credentials stay in the CLI's
    private home files. Restart the development launcher after changing the provider.
    Never copy `~/.codex`, `~/.claude`, their tokens, or their
-   auth output into source files. The owner binding is saved in ignored private
-   local configuration. A local subscription is not pooled service access.
+   auth output into source files. A local subscription is not pooled service access.
 
    For an already authenticated Mac CLI, the existing operator commands remain:
 
    ```sh
-   python3 scripts/agent-admin.py provider --provider codex-cli --owner YOUR_ACCOUNT_ID --daily-limit 10
+   python3 scripts/agent-admin.py provider --provider codex-cli
    # Or use --provider claude-cli.
    ```
 
@@ -167,11 +167,8 @@ credentials are not automatically available inside WSL2. On Mac, use the separat
    an available model. `make doctor` checks installed CLI versions/required flags
    without printing credentials or making a model request. For the configured CLI,
    it also checks subscription authentication status; it cannot certify capacity.
-3. Explicitly enable **Model** under browser **Account** (up to 24 hours), or save
-   standing permissions with **Model** selected in the iPhone's **Agents > Rules**.
-   Browser permission changes preserve other actions and their existing active
-   expiry; disabled, expired, or longer-lived mixed permissions must be managed
-   in the iPhone app first. Login does not grant standing permissions.
+3. No Stack account binding, Model permission, or Stack request cap is required.
+   Outbound email/calendar permissions remain separate.
 4. Keep the development launcher running. Start a behavioral practice session,
    enter a synthetic answer, save it, and choose **Get coaching** (browser) or
    **Save and get coaching** (iPhone). This authorizes a real subscription request.
@@ -180,11 +177,9 @@ credentials are not automatically available inside WSL2. On Mac, use the separat
    select a saved, real application and its resume, confirm extracted resume
    facts, then tap **Explain my fit**.
 
-No API budget or API key is required for CLI providers. The daily request limit
-is reserved before each attempt and is not refunded after an uncertain result.
-Provider subscription limits still apply. CLI failures pause for input; there is
+No API budget or API key is required for CLI providers. Provider subscription
+limits still apply. CLI failures pause for input; there is
 no automatic paid API fallback. Requests time out before the worker lease expires.
-Existing API spend remains visible separately from subscription request counts.
 Changing provider configuration while a task is claimed pauses that task for retry.
 Stack currently selects one provider deployment-wide at a time; there is no
 per-agent provider selector or automatic multi-provider fallback.
@@ -221,8 +216,8 @@ issue/PR, including unavailable credentials and platforms as gaps.
   completion, and separation from API spend using a controlled worker result.
 - Native screen regression tests passed; changed Jac modules passed `jac check`
   with existing lint warnings.
-- The full iPhone-to-worker-to-model journey remains unverified. User account
-  binding and Model permission are still required before trying it on the phone.
+- The full iPhone-to-worker-to-model journey remains unverified in this historical
+  record. Current model tasks no longer require account binding or Model permission.
 - Meta live inference and the Muse connector are unverified. No connector has
   been implemented or submitted. Automatic application submission stays disabled.
 

@@ -10,7 +10,7 @@ with tempfile.TemporaryDirectory(prefix='stack-agent-policy-native-') as tmp:
     (root/'jac.toml').write_text('[project]\nname="StackPermissionChecks"\nversion="0.1.0"\njac-version="==0.37.21"\n')
     # Only the fixture config can be read; no Codex auth or account config exists
     # in this project. Offline flags prevent dependency downloads.
-    config=root/'synthetic-config.json';config.write_text(json.dumps({'provider':'codex-cli','local_cli_owner':'1'*32,'local_cli_daily_limit':2}))
+    config=root/'synthetic-config.json';config.write_text(json.dumps({'provider':'codex-cli'}))
     env={'PATH':'/usr/local/bin:/usr/bin:/bin','LANG':'C.UTF-8','HOME':str(root),'JAC_CACHE_HOME':str(root/'cache'),
          'JAC_TEST_JOBS':'0','STACK_AGENT_CONFIG':str(config),'PYTHONDONTWRITEBYTECODE':'1',
          'UV_OFFLINE':'1','PIP_NO_INDEX':'1','PIP_DISABLE_PIP_VERSION_CHECK':'1'}

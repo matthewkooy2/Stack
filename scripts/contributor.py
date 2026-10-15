@@ -14,7 +14,6 @@ import sys
 import time
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
-from uuid import UUID
 
 ROOT = Path(__file__).resolve().parents[1]
 PRIVATE = ('storage/', '.jac/', '.codex/', '.claude/', 'jac.local.toml', '.env',
@@ -101,11 +100,7 @@ def configuration(root):
             raise RuntimeError('Invalid worker token. Restore private worker files from backup.')
     provider = config.get('provider', 'openai')
     if provider not in ('openai', 'meta', 'codex-cli', 'claude-cli', 'ollama', 'lmstudio'):
-        raise RuntimeError('Unknown model provider. Run make login PROVIDER=codex OWNER=your-account-id.')
-    if provider.endswith('-cli'):
-        UUID(config.get('local_cli_owner', ''))
-        if type(config.get('local_cli_daily_limit')) is not int or not 1 <= config['local_cli_daily_limit'] <= 100:
-            raise RuntimeError('Set a CLI daily request cap between 1 and 100 with make login.')
+        raise RuntimeError('Unknown model provider. Run make login PROVIDER=codex.')
     return config, runtime
 
 
@@ -351,9 +346,6 @@ def development(root, smoke=False, host='127.0.0.1', expose=False, api_port=8000
 
 
 def login(root, args):
-    owner = str(UUID(args.owner))
-    if not 1 <= args.daily_limit <= 100:
-        raise RuntimeError('Choose a daily request limit from 1 to 100.')
     env = environment(root)
     ok, message = provider_check(args.provider, env, root)
     if not ok:
@@ -362,11 +354,11 @@ def login(root, args):
     executable = shutil.which(args.provider, path=env['PATH'])
     execute(root, [executable, 'login'] if args.provider == 'codex' else [executable, 'auth', 'login'], env)
     if not provider_auth(args.provider, env, root):
-        raise RuntimeError('Sign in with a supported subscription before binding a provider. API credentials are not used as fallback.')
+        raise RuntimeError('Sign in with a supported subscription before selecting the provider. API credentials are not used as fallback.')
     command = [str(root / 'scripts/jac'), 'run', '--no-serve', 'scripts/agent-admin.jac',
-               'provider', '--provider', args.provider + '-cli', '--owner', owner, '--daily-limit', str(args.daily_limit)]
+               'provider', '--provider', args.provider + '-cli']
     execute(root, command, env)
-    print('Provider bound to the specified local Stack account. In the browser Account page, explicitly enable Model permission, then restart make dev.')
+    print('Provider selected. Restart make dev; model tasks now use this server CLI login without another Stack permission or cap.')
 
 
 def tests(root):
@@ -375,14 +367,14 @@ def tests(root):
     # All of these suites use synthetic data and mocked provider/network boundaries.
     # CI runs exactly this list; server-backed journeys run separately as integration suites.
     for path in ('test_bootstrap.py', 'test_jac_launcher.py', 'test_contributor.py', 'test_gitignore.py', 'test_pdf_safety.py', 'test_fixture_provenance.py',
-                 'test_matching.py', 'test_discovery.py', 'test_municipal_discovery.py', 'test_agent_providers.py', 'test_gateway.py',
+                 'test_matching.py', 'test_discovery.py', 'test_municipal_discovery.py', 'test_agent_providers.py', 'test_gateway.py', 'test_apple_auth.py',
                  'test_model_logs.py', 'test_stories.py', 'test_bullet_bank.py', 'test_interview_contract.py'):
         execute(root, [str(root / 'scripts/jac'), 'run', '--no-serve', 'tests/' + path], env)
     execute(root, [sys.executable, '-m', 'unittest', 'discover', '-s', 'deploy/startup', '-p', 'test_startup.py'], env)
     for path in ('test_discovery_activation.py', 'test_discovery_lifecycle.py'):
         execute(root, [sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', '-p', path], env)
     execute(root, [str(root / 'scripts/jac'), 'test', 'tests/provider_workflow_tests.jac', 'tests/provider_transport_tests.jac'], env)
-    for path in ('test_web_model_permission.cjs', 'google_signin_clients.cjs', 'auth-build-config.cjs', 'native-session.cjs', 'live-contract.cjs', 'live-mapping.cjs', 'prep-session-compat.cjs'):
+    for path in ('google_signin_clients.cjs', 'auth-build-config.cjs', 'native-session.cjs', 'live-contract.cjs', 'live-mapping.cjs', 'prep-session-compat.cjs'):
         execute(root, ['node', 'tests/' + path], env)
     print('Offline contributor and provider checks passed; no real model requests.')
 
@@ -417,8 +409,6 @@ def main():
     dev.add_argument('--web-port', type=int, default=8080)
     auth = commands.add_parser('login')
     auth.add_argument('--provider', choices=('codex', 'claude'), required=True)
-    auth.add_argument('--owner', required=True)
-    auth.add_argument('--daily-limit', type=int, default=10)
     args = parser.parse_args()
     check_platform()
     if args.command == 'setup':

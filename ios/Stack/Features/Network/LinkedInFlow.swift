@@ -4,17 +4,14 @@ import UIKit
 /// The LinkedIn design connected to the existing browser and raw coaching endpoints.
 @MainActor
 struct LinkedInFlow: View {
-    enum Step: Int, StageKey { case login, role, ready, scanning, results, scanError; var depth: Int { rawValue } }
-    let id: String
-    init(id: String, role: String) {
-        self.id = id
-        _role = State(initialValue: role)
-    }
+    enum Step: Int, StageKey { case url, role, login, ready, scanning, results, scanError; var depth: Int { rawValue } }
     @Environment(\.dismiss) private var dismiss
     @Environment(\.stackReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AppStore.self) private var store
-    @State private var step: Step = .login
+    @State private var step: Step = .url
+    @State private var id = ""
+    @State private var url = ""
     @State private var role = ""
     @State private var paused = false
     @State private var showRewrites = false
@@ -50,11 +47,6 @@ struct LinkedInFlow: View {
         }
         .background(Palette.page.ignoresSafeArea())
         .tint(Palette.dark)
-        .task {
-            do { apply(try await store.call("agent_run", ["id": .string(id)], linkedin: true)) }
-            catch { self.error = error.localizedDescription; go(.scanError) }
-            browser.open(store: store, id: id, linkedin: true, onChanged: {})
-        }
         .task(id: scanning) {
             while scanning && !Task.isCancelled {
                 do {
@@ -79,7 +71,7 @@ struct LinkedInFlow: View {
             BackButton(label: "Back") { back() }
             Spacer()
             if step == .role {
-                Button("Skip") { role = ""; go(.ready) }
+                Button("Skip") { role = ""; Task { await start() } }
                     .font(Typeface.body).foregroundStyle(Palette.text)
                     .frame(minWidth: 44, minHeight: 44)
                     .buttonStyle(.tap)
@@ -96,6 +88,11 @@ struct LinkedInFlow: View {
     @ViewBuilder
     private func content(browserHeight: CGFloat) -> some View {
         switch step {
+        case .url:
+            heading("Your LinkedIn profile", "Enter the profile you want to review.")
+            StackField(label: "LinkedIn profile URL", text: $url, placeholder: "linkedin.com/in/your-name/",
+                       keyboard: .URL, autocapitalization: .never)
+                .accessibilityIdentifier("linkedin-profile-url").reveal(1)
         case .login:
             heading("Sign in to LinkedIn")
             LinkedInBrowser(model: browser, height: browserHeight + 65)
@@ -145,10 +142,12 @@ struct LinkedInFlow: View {
     @ViewBuilder private var footer: some View {
         VStack(spacing: 10) {
             switch step {
-            case .login:
+            case .url:
                 StackButton(label: "Continue") { hideKeyboard(); go(.role) }
-            case .role:
+            case .login:
                 StackButton(label: "Continue") { hideKeyboard(); go(.ready) }
+            case .role:
+                StackButton(label: "Continue") { Task { await start() } }
             case .ready:
                 StackButton(label: "Analyze my profile", icon: "sparkles") { analyze() }
                     .accessibilityIdentifier("linkedin-analyze")
@@ -176,6 +175,26 @@ struct LinkedInFlow: View {
         .padding(.horizontal, Spacing.page).padding(.top, 12).padding(.bottom, 12)
         .background(Palette.page)
         .overlay(alignment: .top) { Rectangle().fill(Palette.rule.opacity(0.5)).frame(height: 0.5) }
+    }
+
+    private func start() async {
+        hideKeyboard()
+        error = ""
+        do {
+            let result = try await store.call("agent_linkedin_start", [
+                "url": .string(LinkedInSetup.profileURL(url)),
+                "target_role": .string(role)
+            ], linkedin: true)
+            id = result["id"].string
+            run = result
+            browser.open(store: store, id: id, linkedin: true, onChanged: {})
+            go(.login)
+        } catch {
+            if !(error is CancellationError) {
+                self.error = error.localizedDescription
+                go(.scanError)
+            }
+        }
     }
 
     private func analyze() {
@@ -220,9 +239,10 @@ struct LinkedInFlow: View {
     private func back() {
         hideKeyboard()
         switch step {
-        case .login: dismiss()
-        case .role: go(.login)
-        case .ready: go(.role)
+        case .url: dismiss()
+        case .role: go(.url)
+        case .login: go(.role)
+        case .ready: go(.login)
         case .scanning:
             analysis?.cancel()
             Task { await browser.act("take"); go(.ready) }

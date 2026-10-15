@@ -90,10 +90,10 @@ test "agents never launch implicitly and outbound steps wait for review of the e
                 # Before any setup, every feature explains itself and what is missing.
                 features={f["key"]:f for f in state["agents"]["features"]};
                 assert len(features)==11 and features["coaching"]["state"]=="unavailable", features["coaching"];
-                assert [c for c in features["networking"]["checks"] if c["key"]=="rules" and c["action"]=="rules" and not c["ok"]];
+                assert [c["key"] for c in features["coaching"]["checks"]]==["model"];
                 assert features["code"]["alternative"] and "applications" not in features;
                 assert state["agents"]["active"]==0 and state["agents"]["attention"]==0;
-                path.write_text(json.dumps({"provider":"codex-cli","local_cli_owner":owner,"local_cli_daily_limit":20,"action_daily_limits":{"send_email":5}}));
+                path.write_text(json.dumps({"provider":"codex-cli","action_daily_limits":{"send_email":5}}));
                 limits={"send_email":5,"calendar_write":5};
                 policy={"enabled":True,"expires_at":time.time()+3600,"actions":["model","send_email","gmail_read","calendar_write"],"domains":["jobs.lever.co","example.com"],"daily_limits":limits,"followup_limit":1};
                 assert not rpc(client,"agent_save_policy",{"policy":policy}).get("error");
@@ -159,16 +159,10 @@ test "agents never launch implicitly and outbound steps wait for review of the e
                 assert rpc(client,"agent_cancel",{"id":outreach["id"]})["status"]=="cancelled";
                 assert work(client,"agent_claim").get("idle");
 
-                # Setup problems surface as paused tasks that can be retried after fixing them.
+                # Model work does not depend on the outbound standing-permission policy.
                 client.set_auth_token(a);session=rpc(client,"prep_create",{"problem_id":"project"});
-                policy["actions"]=[x for x in policy["actions"] if x!="model"];client.set_auth_token(a);rpc(client,"agent_save_policy",{"policy":policy});
                 coach=rpc(client,"agent_start",{"kind":"prep","target_id":session["id"]});
                 assert rpc(client,"agent_activity")["active"]>=1;
-                work(client,"agent_claim");client.set_auth_token(a);blocked=rpc(client,"agent_run",{"id":coach["id"]});
-                assert blocked["status"]=="blocked" and blocked["next_action"]=="retry" and blocked["attention"], blocked;
-                assert "error" in rpc(client,"agent_dismiss",{"id":coach["id"]});
-                policy["actions"]=policy["actions"]+["model"];client.set_auth_token(a);rpc(client,"agent_save_policy",{"policy":policy});
-                client.set_auth_token(a);assert rpc(client,"agent_retry",{"id":coach["id"]})["status"]=="queued";
                 claim=work(client,"agent_claim");assert claim["id"]==coach["id"] and claim["step"]=="coach";
                 finish(client,claim,{"artifact":{"summary":"Specific and clear.","rubric":[],"next_exercises":[],"followup_questions":[],"evidence":[]}});
                 client.set_auth_token(a);assert rpc(client,"agent_run",{"id":coach["id"]})["status"]=="completed";
@@ -188,7 +182,7 @@ test "an uploaded LaTeX source is checked, compiled, and tailored without confir
             try {
                 signed=client.register_user("latex-owner","Latex-test-password-1");assert signed.ok,signed.text;
                 token=signed.data["token"];owner=rpc(client,"bootstrap")["user_id"];
-                path.write_text(json.dumps({"provider":"codex-cli","local_cli_owner":owner,"local_cli_daily_limit":20}));
+                path.write_text(json.dumps({"provider":"codex-cli"}));
                 rpc(client,"agent_save_policy",{"policy":{"enabled":True,"expires_at":time.time()+3600,"actions":["model"]}});
                 # The job is saved before any resume exists, so it has no resume of its own.
                 job=lever_job(client,token,discovery);client.set_auth_token(token);

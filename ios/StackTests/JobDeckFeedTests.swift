@@ -177,6 +177,19 @@ final class JobDeckFeedTests: XCTestCase {
 
     // MARK: First page and background paging
 
+    func testCachedMatchesRemainVisibleDuringASlowOrFailedRefresh() async {
+        feed.restore(page(["cached-swe"], next: "old-cursor"))
+        let refresh = start()
+        await desk.requested(1)
+        XCTAssertTrue(feed.loaded)
+        XCTAssertEqual(feed.jobs.map(\.id), ["cached-swe"])
+        XCTAssertEqual(desk.requests[0].cursor, "")
+        desk.fail(0)
+        await refresh.value
+        XCTAssertEqual(feed.jobs.map(\.id), ["cached-swe"])
+        XCTAssertFalse(feed.loadError.isEmpty)
+    }
+
     func testFirstUsablePageShowsBeforeASlowLaterPage() async {
         let load = start()
         await desk.requested(1)

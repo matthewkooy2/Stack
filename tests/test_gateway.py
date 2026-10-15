@@ -12,6 +12,8 @@ class Gateway(unittest.TestCase):
         calls = []
         def upstream(path, body, authorization='', **kwargs):
             calls.append(path)
+            if path == '/function/auth_apple_session':
+                return 200, b'{"data":{"result":{"ok":true}}}'
             if path == '/function/agent_admission':
                 return 200, json.dumps({'data': {'result': {'admitted': authorization == 'Bearer fixture'}}}).encode()
             return 200, b'{"ok":true}'

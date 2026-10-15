@@ -15,14 +15,13 @@ class Contracts(unittest.TestCase):
             'actions': ['send_email', 'model'], 'domains': ['example.com'], 'daily_limits': {'send_email': 2}})
 
     def test_disabled_by_default(self):
-        with self.assertRaises(ValueError):
-            contracts.authorize(contracts.default_policy(), 'model')
+        contracts.authorize(contracts.default_policy(), 'model')
 
     def test_exact_domain_and_expiry(self):
-        p=self.policy();contracts.authorize(p,'send_email','person@example.com')
+        p=self.policy();self.assertNotIn('model',p['actions']);contracts.authorize(p,'send_email','person@example.com')
         for address in ('person@example.com.attacker.test','person@evil.test'):
             with self.assertRaises(ValueError):contracts.authorize(p,'send_email',address)
-        with self.assertRaises(ValueError):contracts.authorize(p,'model',now=time.time()+7200)
+        contracts.authorize(p,'model',now=time.time()+7200)
 
     def test_wildcards_and_invalid_limits(self):
         for changes in ({'domains':['*']},{'daily_limits':{'send_email':-1}},{'expires_at':float('nan')},{'followup_limit':100}):

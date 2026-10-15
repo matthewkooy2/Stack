@@ -1,5 +1,7 @@
 {
   "parent_checkpoint": "891a6d39776315a9d8b019f1a2d9b5bf49f9ae96",
+  "hashes_describe_parent_checkpoint_only": true,
+  "working_tree_integrity_manifest": false,
   "scope": "PC runtime/controller, installation guards, security policy, unit/environment examples, server dependency variant and reviewed deployment source; no runtime state or credentials.",
   "files": [
     {

@@ -327,10 +327,6 @@ struct TaskDetailView: View {
                 Text("Reserved API spend: $\(String(format: "%.2f", run["cost_cents"].double / 100))")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
-            if run["subscription_calls"].int > 0 {
-                Text("Subscription requests: \(run["subscription_calls"].int) · provider limits apply")
-                    .font(Typeface.caption).foregroundStyle(Palette.muted)
-            }
             if !AgentLabels.terminal.contains(status), status != "review" {
                 StackButton(label: "Cancel task", kind: .secondary, disabled: busy) { confirmCancel = true }
             }

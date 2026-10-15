@@ -54,10 +54,12 @@ test "permissions facts and validation preserve checkpoint behavior" {
     with patch("time.time", return_value=1000.0) {
         compare("contracts", "default_policy", [[]]);
         compare("contracts", "validate_policy", [
-            [{}], [{"enabled": True, "expires_at": 2000, "actions": ["model"]}],
+            [{}],
             [{"enabled": True, "expires_at": 900}], [{"domains": ["*.example.com"]}],
             [{"daily_limits": {"send_email": 0}}], [{"followup_limit": 4}]
         ]);
+        policy=importlib.import_module("agents.contracts").validate_policy({"enabled": True, "expires_at": 2000, "actions": ["model"]});
+        assert policy["actions"]==[];
         compare("contracts", "validate_facts", [[[]], [[{"key": "resume.project", "value": " Built it ", "verified": True}]],
             [[{"key": "email", "value": "bad address"}]], [[{"key": "x", "value": "a"}, {"key": "x", "value": "b"}]]]);
         compare("contracts", "validate_contact", [[{"name": "A", "email": "A@example.com"}],
@@ -77,11 +79,16 @@ test "provider configuration and budget reservations preserve checkpoint" {
                 {"model": "test", "monthly_cents": 100, "user_monthly_cents": 50,
                  "input_cents_per_million": 100, "output_cents_per_million": 500}] {
                 path.write_text(json.dumps(settings));
-                expected=legacy("contracts").config();expected.pop("certified_adapters",None);actual=importlib.import_module("agents.contracts").config();
+                expected=legacy("contracts").config();expected.pop("certified_adapters",None);expected.pop("local_cli_owner",None);expected.pop("local_cli_daily_limit",None);actual=importlib.import_module("agents.contracts").config();
                 assert {k:v for (k,v) in actual.items() if k!="sandbox_available"}==expected;
                 assert actual["sandbox_available"] is False;
-                compare("contracts", "model_status", [["alice"], ["bob"], [""]]);
-                compare("contracts", "reserve_cents", [[{}], [{"text": "x" * 10000}]]);
+                if settings.get("provider")!="codex-cli" {
+                    compare("contracts", "model_status", [["alice"], ["bob"], [""]]);
+                    compare("contracts", "reserve_cents", [[{}], [{"text": "x" * 10000}]]);
+                } else {
+                    module=importlib.import_module("agents.contracts");
+                    assert module.model_status("bob")["configured"] and module.reserve_cents({})==0;
+                }
             }
         }
     }
@@ -166,18 +173,13 @@ test "operator compatibility command preserves private configuration" {
         path = Path(tmp) / "config.json";
         path.write_text(json.dumps({"monthly_cents": 123, "voice": {"enabled": False}}));
         env = {**os.environ, "STACK_AGENT_CONFIG": str(path)};
-        owner = "00000000-0000-4000-8000-000000000001";
-        command = ["python3", "scripts/agent-admin.py", "provider", "--provider", "codex-cli", "--owner", owner, "--daily-limit", "3"];
+        command = ["python3", "scripts/agent-admin.py", "provider", "--provider", "codex-cli"];
         saved = subprocess.run(command, env=env, capture_output=True, text=True, timeout=60);
         assert saved.returncode == 0, saved.stderr;
         config = json.loads(path.read_text());
-        assert config["provider"] == "codex-cli" and config["local_cli_owner"] == owner;
-        assert config["local_cli_daily_limit"] == 3 and config["monthly_cents"] == 123;
+        assert config["provider"] == "codex-cli" and config["monthly_cents"] == 123;
+        assert "local_cli_owner" not in config and "local_cli_daily_limit" not in config;
         assert config["voice"] == {"enabled": False};
         assert path.stat().st_mode & 511 == 384;
-        before = path.read_text();
-        rejected = subprocess.run(command[:-1] + ["101"], env=env, capture_output=True, text=True, timeout=60);
-        assert rejected.returncode != 0 and "between 1 and 100" in rejected.stderr;
-        assert path.read_text() == before;
     }
 }

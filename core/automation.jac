@@ -387,15 +387,11 @@ def:pub agent_claim(token: str) -> dict[str, any] {
                         r.message="Review before Stack continues: "+r.review["title"];r.updated_at=now;t.state="review";continue;
                     }
                 }
+                if step=="linkedin_scan" { model_access(c,t.owner); }
                 if step in PAID {
-                    authorize(m.policy,"model");model_access(c,t.owner);
-                    if c["provider"] in CLI_PROVIDERS {
-                        commit();day=time.strftime("%Y-%m-%d",time.gmtime());
-                        usage=_usage("cli:"+day+":"+c["provider"]);
-                        if usage.actions>=c["local_cli_daily_limit"] { raise ValueError("The local subscription daily request limit is reached."); }
-                        usage.actions+=1;commit();_agent_owner(t.owner);r.subscription_calls+=1;
-                    } elif c["provider"] not in LOCAL_PROVIDERS {
-                        reservation=reserve_cents(r.context);
+                    model_access(c,t.owner);
+                    if c["provider"] not in CLI_PROVIDERS and c["provider"] not in LOCAL_PROVIDERS {
+                        reservation=reserve_cents({**r.context,"linkedin_profile":r.artifacts.get("linkedin_scan",{})} if step=="linkedin_review" else r.context);
                         commit();month=time.strftime("%Y-%m",time.gmtime());
                         global_usage=_usage("cost:"+month);user_usage=_usage("cost:"+month+":"+t.owner);
                         if global_usage.cents+reservation>c["monthly_cents"] or user_usage.cents+reservation>c["user_monthly_cents"] { raise ValueError("The monthly agent budget is exhausted."); }
@@ -945,7 +941,7 @@ def:priv prep_live(id: str) -> dict[str, any] {
             }
         }
         try {
-            authorize(m.policy,"model");settings=voice_settings();reservation=voice_reservation(context);commit();
+            settings=voice_settings();reservation=voice_reservation(context);commit();
             month=time.strftime("%Y-%m",time.gmtime());c=config();g=_usage("cost:"+month);u=_usage("cost:"+month+":"+owner);
             if g.cents+reservation>c["monthly_cents"] or u.cents+reservation>c["user_monthly_cents"] { _agent_owner(owner);return {"error":"The live interview exceeds the available budget."}; }
             g.cents+=reservation;u.cents+=reservation;commit();_agent_owner(owner);
@@ -961,7 +957,6 @@ def:pub agent_live_claim(token: str, owner: str, id: str, ticket: str) -> dict[s
         _agent_fresh();_agent_owner(owner);_agent_access();r=_owned_run(id);
         if r is None or r.kind!="live" or r.status!="waiting" or r.lease_until<time.time() or not secrets.compare_digest(r.ticket_hash,digest(ticket)) { return {"error":"This live ticket expired or was already used."}; }
         try {
-            authorize(_agent_memory().policy,"model");
             if r.context.get("voice_settings")!=voice_settings() { return {"error":"Voice pricing or configuration changed. Start a new interview."}; }
         } except ValueError as e { return {"error":str(e)}; }
         r.ticket_hash="";r.status="running";r.message="Live practice interview";r.lease=secrets.token_urlsafe(32);r.lease_until=time.time()+SECONDS+20;commit();
@@ -971,7 +966,7 @@ def:pub agent_live_claim(token: str, owner: str, id: str, ticket: str) -> dict[s
 def:pub agent_live_check(token: str, owner: str, id: str, lease: str) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Voice service authorization required."}; }
     try {
-        r=_agent_leased(id,owner,lease);_agent_access();authorize(_agent_memory().policy,"model");
+        r=_agent_leased(id,owner,lease);_agent_access();
         return {"active":True,"practice":prep_get(r.target_id)};
     } except ValueError as e { return {"error":str(e)}; }
 }

@@ -56,8 +56,7 @@ Choose **Create an account**, enter a new local username and password, and selec
 **Continue**. A fresh contributor installation does not require an invitation.
 Open **Practice**, start a session, enter a synthetic answer, and **Save**. Saving
 and reloading a session works without a model. **Get coaching** requires the
-provider and permission steps below. The **Account** page shows your Stack
-**Account ID**; it is the explicit owner used when configuring a CLI provider.
+provider login below.
 
 Setup provisions Jac **0.37.21**, Node **22.22.0**, Tectonic **0.17.0**, and
 PostgreSQL **18.6.0** in the ignored `.jac` tool directories. Binary downloads are
@@ -75,7 +74,7 @@ Every Make command has a Python equivalent, useful if Make is unavailable:
 | `make setup` | `python3 scripts/contributor.py setup` |
 | `make doctor` | `python3 scripts/contributor.py doctor` |
 | `make dev` | `python3 scripts/contributor.py dev` |
-| `make login PROVIDER=codex OWNER=YOUR_ACCOUNT_ID DAILY_LIMIT=10` | `python3 scripts/contributor.py login --provider codex --owner YOUR_ACCOUNT_ID --daily-limit 10` |
+| `make login PROVIDER=codex` | `python3 scripts/contributor.py login --provider codex` |
 | `make test` | `python3 scripts/contributor.py test` |
 | `make clean` | `python3 scripts/contributor.py clean` |
 
@@ -98,35 +97,26 @@ as the Stack worker. A Windows-side login is not the WSL worker's login. Run
 missing optional CLIs do not prevent ordinary development. Follow the CLI's own
 installer and subscription-login guidance linked in [model providers](AGENT_PROVIDERS.md).
 
-With your local account ID from **Account**:
-
 ```sh
-make login PROVIDER=codex OWNER=YOUR_ACCOUNT_ID DAILY_LIMIT=10
+make login PROVIDER=codex
 # Alternatively:
-make login PROVIDER=claude OWNER=YOUR_ACCOUNT_ID DAILY_LIMIT=10
+make login PROVIDER=claude
 ```
 
 Stop and restart `make dev` after changing the provider configuration.
-This invokes the selected CLI's own sign-in flow and saves the explicit owner
-binding and request cap locally. Authentication remains in the CLI's private
+This invokes the selected CLI's own sign-in flow and selects it for model tasks.
+Authentication remains in the CLI's private
 home configuration; no OAuth tokens are copied into the checkout. Never copy
 `~/.codex`, `~/.claude`, or their credential files into the project. The login
-command does not make a model request and does not grant Model permission.
-
-In **Account**, select **Enable Model for up to 24 hours**. A fresh policy grants
-only Model. If other standing permissions are already active and expire within
-24 hours, their existing expiry and settings are preserved. If those permissions
-are disabled, expired, or last longer than 24 hours, the control refuses the
-change; manage those permissions in the iPhone app first. **Revoke Model** removes
-only Model. Account ownership checks, durable provider request caps, and approval
-of exact external-action content continue to apply. There is no automatic paid
-API fallback after a CLI failure.
+command does not make a model request. Model tasks need no additional Stack
+permission, account binding, or Stack request cap. Approval of exact external-action
+content continues to apply. There is no automatic paid API fallback after a CLI failure.
 
 To authorize one real subscription request, start a behavioral practice session,
 enter a synthetic answer, **Save**, then select **Get coaching**. Inspect the task
 in **Activity**, retrieve the coaching result, and reload the session to confirm
 persistence. This consumes your subscription capacity. Repeat separately after
-binding the other provider to verify both; authentication or a configured badge
+selecting the other provider to verify both; authentication or a configured badge
 alone does not establish live model success. Provider acceptance evidence and
 known platform gaps belong in the issue/PR, separate from ordinary offline CI.
 

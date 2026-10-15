@@ -62,7 +62,7 @@ struct NetworkAgentSection: View {
             DisclosureSection("Follow-up timing",
                               detail: drafts.policyLoaded ? "Up to \(drafts.followupLimit) every \(drafts.followupDays) days" : "") {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Sets how many follow-ups may be drafted. Sending still follows your review and standing permissions.")
+                    Text("Sets how many follow-ups may be drafted. Sending still follows your review and outbound permissions.")
                         .font(Typeface.caption).foregroundStyle(Palette.muted)
                     StackField(label: "Follow-ups per contact (0–3)", text: $drafts.followupLimit, keyboard: .numberPad)
                     StackField(label: "Days between follow-ups", text: $drafts.followupDays, keyboard: .numberPad)
@@ -205,105 +205,6 @@ struct NetworkAgentSection: View {
         if ok {
             drafts.name = ""; drafts.email = ""; drafts.company = ""; drafts.relationship = ""; drafts.sourceURL = ""
             drafts.adding = false
-        }
-    }
-}
-
-/// LinkedIn profile review: save the URL and target role, then start a review task.
-@MainActor
-struct LinkedInProfileCard: View {
-    @Bindable var drafts: NetworkDrafts
-    let onOpenTask: (String) -> Void
-    let onNavigate: (String) -> Void
-
-    @Environment(AppStore.self) private var store
-    @State private var loading = true
-    @State private var error = ""
-    @State private var notice = ""
-    /// Model choice returned with the saved profile.
-    @State private var settings: JSON = .null
-
-    /// LinkedIn goes directly to profile entry; the selected model is used when analysis runs.
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            profileStep
-            MessageLine(text: notice, isError: false).fadeSwitch(!notice.isEmpty)
-            MessageLine(text: error).fadeSwitch(!error.isEmpty)
-            ForEach(Array(store.account.runViews.filter { $0["target_id"].string == "self" && $0["kind"].string == "linkedin" }.prefix(3).enumerated()), id: \.offset) { _, run in
-                TaskRow(run: run) { onOpenTask(run["id"].string) }
-            }
-        }
-        .task {
-            await loadProfile()
-        }
-        .onChange(of: store.sessionGeneration) { _, _ in
-            settings = .null
-            error = ""
-            notice = ""
-        }
-    }
-
-    @ViewBuilder
-    private var profileStep: some View {
-        let model = LinkedInSetup.modelName(settings["model_selection"].string)
-        VStack(alignment: .leading, spacing: 16) {
-            Text("See what a recruiter learns from your profile, with prioritized fixes and rewrites.")
-                .font(Typeface.body).foregroundStyle(Palette.text)
-            if loading {
-                Text("Loading your saved profile…").font(Typeface.caption).foregroundStyle(Palette.muted)
-            }
-            StackField(label: "Your LinkedIn profile URL", text: $drafts.linkedInURL, placeholder: "https://www.linkedin.com/in/your-name/",
-                           keyboard: .URL, autocapitalization: .never)
-            StackField(label: "Target role (optional)", text: $drafts.linkedInRole, placeholder: "e.g. Product designer")
-            Text("You sign in to LinkedIn in the agent browser and watch it read your profile. Captured profile text goes to your \(model.isEmpty ? "configured model" : model); login details stay in that temporary session. You choose which edits to apply.")
-                .font(Typeface.caption).foregroundStyle(Palette.muted)
-            StackButton(label: "Review my LinkedIn profile", disabled: false) {
-                Task { await start() }
-            }
-            if !loading, drafts.linkedInLoaded, !drafts.linkedInURL.isBlank,
-               drafts.linkedInURL != drafts.linkedInSavedURL || drafts.linkedInRole != drafts.linkedInSavedRole {
-                StackButton(label: "Save profile details", kind: .secondary, disabled: false) { Task { await save() } }
-            }
-
-        }
-    }
-
-    private func loadProfile() async {
-        loading = true
-        error = ""
-        defer { loading = false }
-        do {
-            let result = try await store.call("agent_linkedin_profile")
-            settings = ["model_selection": result["model_selection"]]
-            drafts.linkedInSavedURL = result["url"].string
-            drafts.linkedInSavedRole = result["target_role"].string
-            drafts.linkedInLoaded = true
-        } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
-    }
-
-    private func save() async {
-        let url = LinkedInSetup.profileURL(drafts.linkedInURL)
-        error = ""
-        notice = ""
-        do {
-            let result = try await store.call("agent_linkedin_profile",
-                                              ["url": .string(url), "target_role": .string(drafts.linkedInRole)])
-            drafts.linkedInURL = result["url"].string
-            drafts.linkedInSavedURL = drafts.linkedInURL
-            drafts.linkedInSavedRole = drafts.linkedInRole
-            notice = "Saved to your Stack account."
-        } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
-    }
-
-    private func start() async {
-        let url = LinkedInSetup.profileURL(drafts.linkedInURL)
-        error = ""
-        do {
-            let result = try await store.call("agent_linkedin_start", ["url": .string(url), "target_role": .string(drafts.linkedInRole)])
-            onOpenTask(result["id"].string)
-        } catch {
-            guard !(error is CancellationError) else { return }
-            self.error = error.localizedDescription
         }
     }
 }

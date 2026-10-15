@@ -24,7 +24,7 @@ SUITES = {
         'tests.test_agents.Contracts.test_budget_reservation_counts_payload',
         'tests.test_agents.Contracts.test_sandbox_requires_pinned_image_and_isolation',
         'tests.test_agent_providers.Providers.test_default_api_remains_disabled',
-        'tests.test_agent_providers.Providers.test_subscription_requires_owner_and_cap_but_not_money',
+        'tests.test_agent_providers.Providers.test_subscription_needs_no_account_binding_cap_or_money',
         'tests.test_agent_providers.Providers.test_api_prices_and_budgets_still_required',
         'tests.test_agent_providers.Providers.test_cli_environment_drops_secrets_and_provider_overrides',
         'tests.test_agent_providers.Providers.test_subscription_has_no_http_fallback_or_dollar_estimate',

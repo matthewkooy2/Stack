@@ -66,13 +66,13 @@ class Features(unittest.TestCase):
 
     def test_catalog_covers_all_features_with_explanations(self):
         features = experience.feature_status(self.facts())
-        self.assertEqual(len(features), 10)
+        self.assertEqual(len(features), 11)
         for f in features:
             for key in ('summary', 'input', 'review', 'alternative', 'where'):
                 self.assertTrue(f[key], (f['key'], key))
             self.assertTrue(all(c['ok'] or c['fix'] for c in f['checks']))
         kinds = {k for f in features for k in f['kinds']}
-        self.assertEqual(kinds, set(STEPS))
+        self.assertEqual(kinds, set(STEPS) - {'stories', 'interview_turn', 'interview_coach'})
 
     def test_linkedin_has_no_setup_gates_while_other_features_keep_theirs(self):
         by = {f['key']: f for f in experience.feature_status(self.facts())}
@@ -86,16 +86,13 @@ class Features(unittest.TestCase):
         self.assertEqual(by['coaching']['state'], 'unavailable')
         ready_model = self.facts(model={'configured': True}, policy={'enabled': False})
         by = {f['key']: f for f in experience.feature_status(ready_model)}
-        self.assertEqual(by['coaching']['state'], 'setup')
-        policy = {'enabled': True, 'expires_at': time.time() + 60, 'actions': ['model'], 'daily_limits': {}}
-        by = {f['key']: f for f in experience.feature_status(self.facts(model={'configured': True}, policy=policy))}
         self.assertEqual(by['coaching']['state'], 'ready')
         self.assertEqual(by['profile']['state'], 'setup')
 
     def test_expired_rules_and_missing_limits_are_not_ready(self):
         expired = {'enabled': True, 'expires_at': time.time() - 1, 'actions': ['model']}
         by = {f['key']: f for f in experience.feature_status(self.facts(model={'configured': True}, policy=expired))}
-        self.assertEqual(by['coaching']['state'], 'setup')
+        self.assertEqual(by['coaching']['state'], 'ready')
         policy = {'enabled': True, 'expires_at': time.time() + 60, 'actions': ['gmail_read', 'calendar_write'], 'daily_limits': {}}
         by = {f['key']: f for f in experience.feature_status(self.facts(policy=policy, google_client=True, google_scopes=['read', 'calendar']))}
         self.assertEqual(by['email']['state'], 'ready')

@@ -35,7 +35,8 @@ class Contributor(unittest.TestCase):
         self.assertFalse(config['invite_only'])
         self.assertEqual(config['monthly_cents'], 0)
         self.assertFalse(config['capture_agent_content'])
-        self.assertEqual(config['local_cli_owner'], '')
+        self.assertNotIn('local_cli_owner', config)
+        self.assertNotIn('local_cli_daily_limit', config)
         paths = list((self.root / 'storage').rglob('*'))
         before = {str(p): p.read_bytes() for p in paths if p.is_file()}
         contributor.initialize(self.root)

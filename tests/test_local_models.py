@@ -80,11 +80,10 @@ class LocalModels(unittest.TestCase):
         return provider.generate('fit',CONTEXT,self.configure(name,url),**kwargs)
     def test_local_configuration_requires_model_and_private_origin_but_no_money_or_owner(self):
         for name in ('ollama','lmstudio'):
-            c=self.configure(name,local_cli_daily_limit=0)
+            c=self.configure(name)
             for account in ('alice','bob'): contracts.model_access(c,account)
             self.assertEqual(contracts.reserve_cents(CONTEXT),0)
             self.assertEqual(contracts.model_status('alice')['billing'],'local')
-            self.assertEqual(contracts.model_status('alice')['daily_limit'],0)
             with self.assertRaises(ValueError): contracts.model_access({**c,'model':''},'alice')
             for url in ('https://example.com:443','http://169.254.169.254:80','http://0.0.0.0:1234',
                         'http://127.0.0.1:1234/v1','http://user:secret@127.0.0.1:1234','http://127.0.0.1:0',
@@ -236,23 +235,17 @@ class LocalModels(unittest.TestCase):
                     token,owner=accounts[0];other_token,other_owner=accounts[1]
                     client.set_auth_token(token)
                     self.assertTrue(rpc('agent_settings')['activity']['model_provider']['configured'])
-                    # Lack of Model permission blocks even free local inference.
+                    # Model work starts without a separate standing permission.
                     session=rpc('prep_create',{'problem_id':'project'})
                     data=session['data'];data['answer']=ANSWER
                     session=rpc('prep_save',{'id':session['id'],'revision':session['revision'],'data':data})
                     denied=rpc('agent_start',{'kind':'prep','target_id':session['id']})
-                    client.clear_auth();self.assertTrue(rpc('agent_claim',{'token':'local-worker-token'}).get('idle'))
-                    client.set_auth_token(token);self.assertEqual(rpc('agent_run',{'id':denied['id']})['status'],'blocked')
-                    rpc('agent_save_policy',{'policy':{'enabled':True,'expires_at':time.time()+3600,'actions':['model']}})
-                    rpc('agent_retry',{'id':denied['id']})
                     runs=[]
-                    # Two real requests for the same account exceed the CLI cap of 1;
-                    # a second account can also use local inference with its own permission.
+                    # Repeated requests and another account can use local inference without Stack caps.
                     for index,(auth,account) in enumerate((accounts[0],accounts[0],accounts[1])):
                         client.set_auth_token(auth)
                         if index==0: current=session;run=denied
                         else:
-                            rpc('agent_save_policy',{'policy':{'enabled':True,'expires_at':time.time()+3600,'actions':['model']}})
                             current=rpc('prep_create',{'problem_id':'project'})
                             data=current['data'];data['answer']=ANSWER
                             current=rpc('prep_save',{'id':current['id'],'revision':current['revision'],'data':data})

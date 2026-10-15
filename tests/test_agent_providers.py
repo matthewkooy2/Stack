@@ -1,4 +1,4 @@
-"""Provider boundaries and subscription accounting; no live model calls."""
+"""Provider boundaries and local subscription behavior; no live model calls."""
 import json
 import os
 from pathlib import Path
@@ -6,7 +6,6 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
-from uuid import uuid4
 
 from agents import contracts, local_cli, provider, worker
 
@@ -30,14 +29,14 @@ class Providers(unittest.TestCase):
         return contracts.config()
 
     def test_explicit_choices_are_private_configured_and_do_not_change_default(self):
-        self.configure(provider='codex-cli', model='', local_cli_owner='alice', local_cli_daily_limit=5,
+        self.configure(provider='codex-cli', model='',
                        model_options={'local': {'provider':'lmstudio', 'model':'fixture-local', 'local_model_url':'http://127.0.0.1:1234'}})
         self.assertEqual(contracts.config('local')['model'], 'fixture-local')
         self.assertEqual(contracts.config('local')['provider'], 'lmstudio')
         self.assertEqual(contracts.config('codex-cli')['model'], '')
         self.assertEqual(contracts.config()['provider'], 'codex-cli')
         self.assertTrue(contracts.model_status('alice', 'local')['configured'])
-        self.assertFalse(contracts.model_status('bob', 'codex-cli')['configured'])
+        self.assertTrue(contracts.model_status('bob', 'codex-cli')['configured'])
         with self.assertRaises(ValueError): contracts.config('https://untrusted.invalid')
 
     def test_unconfigured_local_is_visible_without_fallback(self):
@@ -49,7 +48,7 @@ class Providers(unittest.TestCase):
             self.assertIn('installed local model', status['message'])
 
     def test_codex_interview_accepts_complete_raw_plain_text(self):
-        c = self.configure(provider='codex-cli', local_cli_owner='alice', local_cli_daily_limit=5)
+        c = self.configure(provider='codex-cli')
         text = '{broken JSON. Useful coaching without scores.'
         with patch.object(local_cli, 'generate', return_value={'text':text}):
             for step in ('coach','interview_turn','interview_coach'):
@@ -60,30 +59,20 @@ class Providers(unittest.TestCase):
         self.assertFalse(contracts.model_status('owner')['configured'])
         self.assertEqual(contracts.config()['provider'], 'openai')
 
-    def test_subscription_requires_owner_and_cap_but_not_money(self):
-        c = self.configure(provider='codex-cli', local_cli_owner='alice', local_cli_daily_limit=5)
-        contracts.model_access(c, 'alice')
-        self.assertTrue(contracts.model_status('alice')['configured'])
+    def test_subscription_needs_no_account_binding_cap_or_money(self):
+        c = self.configure(provider='codex-cli', local_cli_owner='legacy', local_cli_daily_limit=1)
+        self.assertNotIn('local_cli_owner', c)
+        self.assertNotIn('local_cli_daily_limit', c)
+        for owner in ('', 'alice', 'bob'):
+            contracts.model_access(c, owner)
+            self.assertTrue(contracts.model_status(owner)['configured'])
         self.assertEqual(contracts.model_status('alice')['billing'], 'subscription')
-        for owner in ('', 'bob'):
-            with self.assertRaises(ValueError): contracts.model_access(c, owner)
-        for cap in (0, -1, 101):
-            with self.assertRaises(ValueError): contracts.model_access({**c, 'local_cli_daily_limit': cap}, 'alice')
-        with self.assertRaises(ValueError): contracts.reserve_cents(CONTEXT)
+        self.assertEqual(contracts.reserve_cents(CONTEXT), 0)
 
     def test_api_prices_and_budgets_still_required(self):
         for name in ('openai', 'meta', 'invalid'):
             c = self.configure(provider=name, model='test')
             with self.assertRaises(ValueError): contracts.model_access(c, 'alice')
-
-    def test_subscription_owner_accepts_both_uuid_formats(self):
-        owner, other = uuid4(), uuid4()
-        for stored, requested in ((str(owner), owner.hex), (owner.hex, str(owner))):
-            c = self.configure(provider='codex-cli', local_cli_owner=stored, local_cli_daily_limit=20)
-            contracts.model_access(c, requested)
-            self.assertTrue(contracts.model_status(requested)['configured'])
-            with self.assertRaises(ValueError):
-                contracts.model_access(c, other.hex)
 
     def test_subscription_has_no_http_fallback_or_dollar_estimate(self):
         self.configure(provider='codex-cli')
@@ -223,7 +212,7 @@ class Providers(unittest.TestCase):
             local_cli.run([sys.executable, '-c', 'print("x"*10000)'], self.tmp.name, limit=100)
 
     def test_worker_pauses_on_config_change_without_running_provider(self):
-        c = self.configure(provider='codex-cli', local_cli_owner='alice', local_cli_daily_limit=5)
+        c = self.configure(provider='codex-cli')
         work = {'id': 'run', 'owner': 'alice', 'lease': 'lease', 'step': 'fit', 'context': CONTEXT,
                 'artifacts': {}, 'provider_config_hash': contracts.digest(c)}
         self.configure(provider='openai')
@@ -232,7 +221,7 @@ class Providers(unittest.TestCase):
         self.assertTrue(result['needs_input']);generate.assert_not_called()
 
     def test_worker_cli_errors_pause_instead_of_retrying(self):
-        c = self.configure(provider='codex-cli', local_cli_owner='alice', local_cli_daily_limit=5)
+        c = self.configure(provider='codex-cli')
         work = {'id': 'run', 'owner': 'alice', 'lease': 'lease', 'step': 'fit', 'context': CONTEXT,
                 'artifacts': {}, 'provider_config_hash': contracts.digest(c)}
         with patch.object(provider, 'generate', side_effect=ValueError('Subscription limit')):

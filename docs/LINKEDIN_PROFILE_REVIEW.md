@@ -9,20 +9,14 @@ their latest LinkedIn task. You can edit it in Network; it is never shared betwe
 accounts.
 
 On the phone, **Network → LinkedIn review** shows one unmet requirement at a time
-and omits anything the account already meets. The saved Account model choice and
-standing permissions are read first, so a model that is configured on this account
-is never reported as disconnected. Steps, in order:
+and omits anything the account already meets. The saved Account model choice is
+read first, so a configured model is never reported as disconnected. Steps, in order:
 
 - **Use another model**, when the saved choice is not available for this account
   but the other choice is configured on the server. CLI sign-in and provider
   limits, or local service availability, are checked again when a review starts.
-- **Allow Model permission**, when Model is missing or expired. The screen opens
-  Rules so you can review current choices, enable Model and save them yourself.
-  If turning permissions on would also re-enable saved email, calendar, Gmail or
-  top-match settings, the screen calls those out before opening Rules.
 - **Connect a model** and **Browser worker**, which only the server operator can
-  fix. The screen shows the server's reason and your account ID, and **Check
-  again** re-reads the account.
+  fix. The screen shows the server's reason, and **Check again** re-reads the account.
 - The profile URL and target role. Confirmed facts remain optional and never block.
 
 The task opens LinkedIn's sign-in page in a temporary remote browser and pauses.
@@ -54,8 +48,8 @@ The existing resume-based Profile suggestions and contact outreach remain availa
   configuration. Repeated requests reuse an active task for the same URL and role;
   a new review after completion captures fresh content.
 - `linkedin` tasks have two steps: `linkedin_scan` and `linkedin_review`. They use
-  the existing private runs, claims, status/notification flow, model permissions,
-  request quotas or API budgets, and owner-checked browser handoff.
+  the existing private runs, claims, status/notification flow, provider access,
+  paid API budgets when applicable, and owner-checked browser handoff.
 - `agents/linkedin.jac` captures only visible profile cards inside `main`, in a
   bounded scroll/expand pass. Capture waits for a rendered profile header, supports
   both h1/section and h2/card layouts, and publishes progress during sixteen scroll passes. It reads intro, About, experience, education, skills,

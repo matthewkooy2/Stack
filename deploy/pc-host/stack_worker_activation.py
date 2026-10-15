@@ -162,13 +162,9 @@ def main(agent_only=False):
     configpath=ROOT/'storage/agents/config.json'
     config_digest=hashlib.sha256(configpath.read_bytes()).hexdigest()
     c=json.loads(configpath.read_text())
-    policy_ok=(c.get('provider')=='codex-cli' and bool(c.get('local_cli_owner'))
-               and 1<=int(c.get('local_cli_daily_limit',0))<=100 and c.get('certified_adapters')==[]
+    policy_ok=(c.get('provider')=='codex-cli' and c.get('certified_adapters')==[]
                and not c.get('sandbox_available') and all(c.get('action_daily_limits',{}).get(k)==0
                for k in ('browser_fill','submit_application','send_email','calendar_write')))
-    bound_owner=c.get('local_cli_owner','').replace('-','')
-    assert len(bound_owner)==32 and all(ch in '0123456789abcdef' for ch in bound_owner)
-    identity_bound=sql("SELECT count(*) FROM identity_users WHERE replace(doc->>'root_id','-','')='"+bound_owner+"';")=='1'
     optional_off=environment_metadata(P('/etc/stack/worker.env'),('OPENAI_API_KEY','MODEL_API_KEY','STACK_BROWSER_URL','STACK_BROWSER_TOKEN','STACK_SANDBOX_URL','STACK_SANDBOX_TOKEN','EXPO_ACCESS_TOKEN','GOOGLE_GMAIL_TOPIC','GOOGLE_GMAIL_SUBSCRIPTION','GOOGLE_APPLICATION_CREDENTIALS'))
     paid_discovery_off=environment_metadata(P('/etc/stack/discovery.env'),('ADZUNA_APP_ID','ADZUNA_APP_KEY','THEIRSTACK_API_KEY','USAJOBS_API_KEY','USAJOBS_EMAIL','GITHUB_TOKEN'))
     configs=[]
@@ -176,14 +172,13 @@ def main(agent_only=False):
         configs.extend(json.loads(path.read_text()))
     public_sources_ok=all(x.get('renderer')!='playwright' and x.get('adapter') in ('greenhouse','ashby','lever','smartrecruiters','github','github_search','career','html','rss','adzuna','usajobs','theirstack') for x in configs if x.get('approved'))
     queue=json.loads(sql(QUEUE))
-    report.update(queueBefore=queue,ownerBindingMatchesSingleIdentity=identity_bound,
-                  providerAndExistingLimitValid=policy_ok,optionalCapabilitiesDisabled=optional_off,
+    report.update(queueBefore=queue,providerConfigurationValid=policy_ok,optionalCapabilitiesDisabled=optional_off,
                   paidDiscoveryCredentialsAbsent=paid_discovery_off,publicDiscoveryConfigurationSafe=public_sources_ok)
     hold_keys=('claimableTicketStates','activeRuns','nonterminalLeaseOrTimer','activeRunOwnersMissingIdentity','ticketReferenceMismatch','unresolvedActionIntents','enabledAutoModelPolicies','enabledGoogleReadPolicies','enabledExternalActionPolicies','scheduledContactTimers')
     if not agent_only:
         hold_keys+=('pendingDiscoveryRequests','activeDiscoveryLeases','browserDiscoverySources','unapprovedActiveDiscoverySources')
     blockers=[k for k in hold_keys if queue[k]]
-    if not all((policy_ok,identity_bound,optional_off)): blockers.append('agent_configuration_safety_check')
+    if not all((policy_ok,optional_off)): blockers.append('agent_configuration_safety_check')
     if not agent_only and not all((paid_discovery_off,public_sources_ok)): blockers.append('discovery_configuration_safety_check')
     if blockers:
         report.update(status='held_before_activation',blockers=blockers)

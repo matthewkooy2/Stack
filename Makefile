@@ -1,6 +1,5 @@
 .PHONY: setup doctor dev login test clean
 PROVIDER ?= codex
-DAILY_LIMIT ?= 10
 
 setup:
 	python3 scripts/contributor.py setup
@@ -9,7 +8,7 @@ doctor:
 dev:
 	python3 scripts/contributor.py dev
 login:
-	python3 scripts/contributor.py login --provider "$(PROVIDER)" --owner "$(OWNER)" --daily-limit "$(DAILY_LIMIT)"
+	python3 scripts/contributor.py login --provider "$(PROVIDER)"
 test:
 	python3 scripts/contributor.py test
 clean:

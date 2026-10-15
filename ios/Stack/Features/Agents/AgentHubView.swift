@@ -246,14 +246,14 @@ struct AgentHubView: View {
 
     private var rulesPage: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Standing permissions let agents work toward your goals. They never replace per-action review: you approve every email and calendar change.")
+            Text("Outbound permissions control connected accounts and external actions. You still approve every email and calendar change.")
                 .font(Typeface.body).foregroundStyle(Palette.text)
-            ToggleRow(label: "Enable standing permissions", isOn: Binding(get: { enabled }, set: { enabled = $0; rulesDirty = true }))
+            ToggleRow(label: "Enable outbound permissions", isOn: Binding(get: { enabled }, set: { enabled = $0; rulesDirty = true }))
             if settings["policy"]["enabled"].bool, settings["policy"]["expires_at"].double > 0 {
                 Text("Current permissions expire \(dateTime(settings["policy"]["expires_at"].double)).")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
-            ChoiceChips(options: ["model", "gmail_read", "send_email", "calendar_write"],
+            ChoiceChips(options: ["gmail_read", "send_email", "calendar_write"],
                         isSelected: { actions.contains($0) },
                         onTap: { actions = actions.toggled($0); rulesDirty = true },
                         labelFor: { $0.replacingOccurrences(of: "_", with: " ").capitalized })
@@ -265,7 +265,7 @@ struct AgentHubView: View {
             StackField(label: "Follow-ups per contact (0–3)", text: Binding(get: { followups }, set: { followups = $0; rulesDirty = true }), keyboard: .numberPad)
             Text("Permissions expire after 30 days. Follow-ups are drafted seven days apart, wait for your approval, and stop when a reply arrives.")
                 .font(Typeface.caption).foregroundStyle(Palette.muted)
-            StackButton(label: "Save standing permissions" + (rulesDirty ? " · unsaved changes" : ""), disabled: busy) {
+            StackButton(label: "Save outbound permissions" + (rulesDirty ? " · unsaved changes" : ""), disabled: busy) {
                 Task { await savePolicy() }
             }
             if rulesDirty, !settings.object.isEmpty {
@@ -285,10 +285,6 @@ struct AgentHubView: View {
                         Task { await perform("agent_disconnect", ["id": connection["id"]], done: "Disconnected.") }
                     }
                 }
-            }
-            if !settings["account_id"].string.isEmpty {
-                Text("Account ID (for local subscription setup): \(settings["account_id"].string)")
-                    .font(Typeface.caption).foregroundStyle(Palette.muted).textSelection(.enabled)
             }
         }
     }
@@ -349,7 +345,7 @@ struct AgentHubView: View {
 
     private func fillRules(_ policy: JSON) {
         enabled = policy["enabled"].bool
-        actions = policy["actions"].strings.filter { !["browser_fill", "submit_application"].contains($0) }
+        actions = policy["actions"].strings.filter { !["model", "browser_fill", "submit_application"].contains($0) }
         domains = policy["domains"].strings.joined(separator: ", ")
         followups = policy["followup_limit"].isNull ? "0" : policy["followup_limit"].string
         analyzeTop = policy["analyze_top_matches"].bool

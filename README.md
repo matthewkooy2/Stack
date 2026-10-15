@@ -20,15 +20,15 @@ make dev
 make test
 ```
 
-Open **http://127.0.0.1:8080**, create a local account, and use **Account** to find
-its ID. The core backend/browser workspace requires no Xcode, CocoaPods, Docker,
+Open **http://127.0.0.1:8080** and create a local account. The core backend/browser
+workspace requires no Xcode, CocoaPods, Docker,
 model subscription, or maintainer secrets. Setup provisions pinned local tools
 and initializes private configuration without replacing existing data.
 
 For local AI features, install and sign in to your own Codex or Claude CLI in the
-same Linux environment: `make login PROVIDER=codex OWNER=YOUR_ACCOUNT_ID` (or
-`PROVIDER=claude`). Then explicitly enable **Model** in the browser's **Account**
-page. Subscription request caps and external-action approvals still apply; CLI
+same Linux environment: `make login PROVIDER=codex` (or `PROVIDER=claude`).
+Model tasks then use that server login without a separate Stack permission,
+account binding, or request cap. External-action approvals still apply, and CLI
 failures never fall back to a paid API.
 
 See [local contributor development](docs/LOCAL_DEVELOPMENT.md) for Windows/WSL2

@@ -12,8 +12,6 @@
   "local_model_url": "",
   "local_model_timeout": 90,
   "local_model_context_tokens": 8192,
-  "local_cli_owner": "",
-  "local_cli_daily_limit": 0,
   "input_cents_per_million": 0,
   "output_cents_per_million": 0,
   "max_output_tokens": 3000,

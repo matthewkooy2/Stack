@@ -375,7 +375,6 @@ def:pub TaskDetail(id: str, features: list[dict[str, any]], webUrl: str, onBack:
             {[<View key={f["id"]}><Text style={s.strong}>{"Your feedback · "+f["rating"].title()}</Text><Text style={s.body}>{f["note"]}</Text></View> for f in run.get("feedback",[])]}
             <Text style={s.small}>{"Where results appear: "+run["results_where"]}</Text>
             {<Text style={s.small}>{"Reserved API spend: $"+str(run["cost_cents"]/100)}</Text> if run["cost_cents"]>0 else <View/>}
-            {<Text style={s.small}>{"Subscription requests: "+str(run["subscription_calls"])+" · provider limits apply"}</Text> if run.get("subscription_calls",0)>0 else <View/>}
             {<Button label="Cancel task" secondary={True} disabled={busy} onPress={lambda { perform("agent_cancel",{"id":id},"Cancelled."); }}/> if run["status"] not in TERMINAL and run["status"]!="review" else <View/>}
             {<Button label="Dismiss from Needs you" secondary={True} disabled={busy} onPress={lambda { perform("agent_dismiss",{"id":id},"Dismissed."); }}/> if run["status"]=="failed" and not run.get("dismissed") else <View/>}
         </View> if len(run)>0 and not pdfUri else <View/>}
@@ -473,7 +472,7 @@ def:pub AgentHub(summary: dict[str, any], features: list[dict[str, any]], applic
         enabled: bool = False, actions: list[str] = [], domains: str = "", daily: str = "5", followups: str = "0", analyzeTop: bool = False,
         factKey: str = "", factValue: str = "", eventApp: dict[str, str] = {}, eventStatus: dict[str, str] = {};
     def fillRules(policy: dict[str, any]) -> None {
-        enabled=policy["enabled"];actions=[a for a in policy["actions"] if a not in ["browser_fill","submit_application"]];domains=", ".join(policy["domains"]);followups=str(policy["followup_limit"]);analyzeTop=policy.get("analyze_top_matches",False);
+        enabled=policy["enabled"];actions=[a for a in policy["actions"] if a not in ["model","browser_fill","submit_application"]];domains=", ".join(policy["domains"]);followups=str(policy["followup_limit"]);analyzeTop=policy.get("analyze_top_matches",False);
         limits=[v for (k,v) in policy.get("daily_limits",{}).items()];
         if len(limits)>0 { daily=str(limits[0]); }
         rulesDirty=False;
@@ -509,7 +508,7 @@ def:pub AgentHub(summary: dict[str, any], features: list[dict[str, any]], applic
     async def savePolicy -> None {
         limit=0;count=0;
         try { limit=int(daily);count=int(followups); } except Exception { error="Enter whole numbers for daily and follow-up limits.";return; }
-        await perform("agent_save_policy",{"policy":{"enabled":enabled,"actions":actions,"domains":[d.strip().lower() for d in domains.split(",") if d.strip()],"daily_limits":{"send_email":limit,"calendar_write":limit},"expires_at":Date.now()/1000+30*86400,"followup_limit":count,"followup_days":7,"analyze_top_matches":analyzeTop}},"Standing permissions saved for 30 days.");
+        await perform("agent_save_policy",{"policy":{"enabled":enabled,"actions":actions,"domains":[d.strip().lower() for d in domains.split(",") if d.strip()],"daily_limits":{"send_email":limit,"calendar_write":limit},"expires_at":Date.now()/1000+30*86400,"followup_limit":count,"followup_days":7,"analyze_top_matches":analyzeTop}},"Outbound permissions saved for 30 days.");
     }
     def go(action: str) -> None {
         if action=="rules" { page="Rules";taskId=""; }
@@ -572,22 +571,21 @@ def:pub AgentHub(summary: dict[str, any], features: list[dict[str, any]], applic
             </View> if page=="Email & calendar" else <View/>}
 
             {<View style={{gap:14}}>
-                <Text style={s.body}>Standing permissions let agents work toward your goals. They never replace per-action review: you approve every email and calendar change.</Text>
-                <View style={s.between}><Text style={s.strong}>Enable standing permissions</Text><Switch value={enabled} onValueChange={lambda (v: bool) { enabled=v;rulesDirty=True; }}/></View>
+                <Text style={s.body}>Outbound permissions control connected accounts and external actions. You still approve every email and calendar change.</Text>
+                <View style={s.between}><Text style={s.strong}>Enable outbound permissions</Text><Switch value={enabled} onValueChange={lambda (v: bool) { enabled=v;rulesDirty=True; }}/></View>
                 {<Text style={s.small}>{"Current permissions expire "+dateTime(settings["policy"]["expires_at"])+"."}</Text> if settings.get("policy",{}).get("enabled") and settings["policy"].get("expires_at",0)>0 else <View/>}
-                <View style={s.wrap}>{[<Chip key={a} label={a.replace("_"," ").title()} active={a in actions} onPress={lambda { actions=[x for x in actions if x!=a] if a in actions else actions+[a];rulesDirty=True; }}/> for a in ["model","gmail_read","send_email","calendar_write"]]}</View>
+                <View style={s.wrap}>{[<Chip key={a} label={a.replace("_"," ").title()} active={a in actions} onPress={lambda { actions=[x for x in actions if x!=a] if a in actions else actions+[a];rulesDirty=True; }}/> for a in ["gmail_read","send_email","calendar_write"]]}</View>
                 <View style={s.between}><Text style={[s.strong,{flex:1}]}>Analyze up to three top matches daily</Text><Switch value={analyzeTop} onValueChange={lambda (v: bool) { analyzeTop=v;rulesDirty=True; }}/></View>
                 <Field label="Allowed destination domains" value={domains} onChange={lambda (v: str) { domains=v;rulesDirty=True; }} placeholder="company.com" multiline={True}/>
                 <Text style={s.small}>Email recipients must be on this list. Use exact domains.</Text>
                 <Field label="Daily limit per action" value={daily} onChange={lambda (v: str) { daily=v;rulesDirty=True; }}/><Field label="Follow-ups per contact (0–3)" value={followups} onChange={lambda (v: str) { followups=v;rulesDirty=True; }}/>
                 <Text style={s.small}>Permissions expire after 30 days. Follow-ups are drafted seven days apart, wait for your approval, and stop when a reply arrives.</Text>
-                <Button label={"Save standing permissions"+(" · unsaved changes" if rulesDirty else "")} onPress={savePolicy} disabled={busy}/>
+                <Button label={"Save outbound permissions"+(" · unsaved changes" if rulesDirty else "")} onPress={savePolicy} disabled={busy}/>
                 {<Button label="Discard changes" secondary={True} onPress={lambda { fillRules(settings["policy"]); }}/> if rulesDirty and len(settings)>0 else <View/>}
                 <Text style={s.heading}>Google</Text>
                 <Button label="Connect Gmail tracking" onPress={lambda { connect(["read"]); }} secondary={True}/><Button label="Allow Gmail sending" onPress={lambda { connect(["send"]); }} secondary={True}/><Button label="Connect Google Calendar" onPress={lambda { connect(["calendar","availability"]); }} secondary={True}/>
                 <Text style={s.small}>Gmail read access covers your whole mailbox. Stack only processes messages related to your applications and selected contacts.</Text>
                 {[<View key={c["id"]} style={s.taskCard}><Text style={s.strong}>{c["provider"].title()+" · "+c["state"]}</Text><Button label="Disconnect" onPress={lambda { perform("agent_disconnect",{"id":c["id"]},"Disconnected."); }} secondary={True}/></View> for c in settings.get("connections",[])]}
-                <Text style={s.small}>{"Account ID (for local subscription setup): "+settings.get("account_id","")}</Text>
             </View> if page=="Rules" else <View/>}
 
             {<View style={{gap:12}}><Text style={s.body}>Agents reuse only confirmed facts. Extract text from a resume on the Resume tab, then confirm what is accurate.</Text>

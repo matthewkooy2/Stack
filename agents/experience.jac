@@ -338,7 +338,6 @@ with entry {
         }
     ];
     ACTION_NAMES = {
-        'model': 'Model',
         'send_email': 'Send email',
         'calendar_write': 'Calendar write',
         'gmail_read': 'Gmail read'
@@ -450,7 +449,7 @@ def feature_status(facts: dict[(str, any)]) -> list[dict[(str, any)]] {
             optional=optional
         );
     }
-    model_checks = [provider(), rules(), permission('model')];
+    model_checks = [provider()];
     table: dict[str, any] = {
         'autofill': [
             check('browser','Browser worker available',facts.get('browser'),'The operator must configure the isolated browser worker.','',user=False),
@@ -592,8 +591,7 @@ def feature_status(facts: dict[(str, any)]) -> list[dict[(str, any)]] {
                 '',
                 user=False
             ),
-            rules(),
-            permission('model')
+            provider()
         ],
         'email': [
             rules(),

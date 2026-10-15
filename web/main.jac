@@ -2,7 +2,6 @@ import from "./transport.js" { rpc, login, logout, errorText, oauthResult, googl
 import "./style.css";
 # Make the transport helper's relative dependency visible to Jac's asset staging.
 import "./google-auth.js";
-import from "./model-permission.js" { updateModelPermission }
 import from "react" { useRef }
 import from .Feedback { AgentFeedback }
 import from .BulletBank { BulletBank }
@@ -173,16 +172,6 @@ def:pub app -> JsxElement {
         try { result=await rpc("agent_resolve_event",{"id":mailSelected["id"],"application_id":eventApplication,"status":eventStatus});mail=result["events"];mailSelected={};await refresh(); }
         except Exception as e { error=errorText(e); }
     }
-    async def modelPermission(enabled: bool) -> None {
-        busy=True;error="";notice="";
-        try {
-            latest=await rpc("agent_settings",{});
-            policy=updateModelPermission(latest["policy"],enabled);
-            settings=await rpc("agent_save_policy",{"policy":policy});activity=settings["activity"];
-            notice="Model permission enabled until "+isoTime(settings["policy"]["expires_at"])+"." if enabled else "Model permission revoked.";
-        } except Exception as e { error=errorText(e); }
-        busy=False;
-    }
     async def deleteAccount -> None {
         if not confirmAccountDelete() { return; }
         try { await rpc("account_delete",{"username":username,"password":deletePassword});practice.current["epoch"]+=1;practice.current["busy"]=False;busy=False;practice.current["id"]="";practice.current["run"]="";coachingRun={};logout();logged=False;deletePassword="";notice="Your account and active data were deleted."; }
@@ -256,7 +245,7 @@ def:pub app -> JsxElement {
                 </article> if len(selected)>0 else <div/>}
             </section> if page=="Activity" else <div/>}
             {<section><h2>Agent features</h2>{[<article key={f["key"]}><strong>{f["title"]+" · "+{"ready":"Ready","setup":"Needs setup","unavailable":"Unavailable"}.get(f["state"],f["state"])}</strong><p>{f["summary"]}</p><p>{"Your control: "+f["review"]}</p>{[<p key={c["key"]}>{"✕ "+c["label"]+" — "+c["fix"]}</p> for c in f["checks"] if not c["ok"] and not c["optional"]]}{<p>{"Meanwhile: "+f["alternative"]}</p> if f["state"]!="ready" else <span/>}</article> for f in features]}</section> if page=="Features" else <div/>}
-            {<section><h2>Your account</h2><p>Link Google sign-in to keep using this Stack account and its saved data.</p><button disabled={busy} onClick={lambda { googleLogin(True); }}>Link Google sign-in</button><p>{"Account ID: "+settings.get("account_id","")}</p><p>Use this ID when binding your own local Codex or Claude login.</p><p>{"Model provider: "+activity.get("model_provider",{}).get("provider","Not configured")}</p><p>{activity.get("model_provider",{}).get("message","")}</p><p>CLI providers use your subscription request cap; they never fall back to a paid API.</p><p>{"Model permission: "+("enabled until "+isoTime(settings["policy"]["expires_at"]) if settings.get("policy",{}).get("enabled",False) and "model" in settings.get("policy",{}).get("actions",[]) and settings.get("policy",{}).get("expires_at",0)>Date.now()/1000 else "disabled or expired")}</p><button disabled={busy} onClick={lambda { modelPermission(True); }}>Enable Model for up to 24 hours</button><button disabled={busy} onClick={lambda { modelPermission(False); }}>Revoke Model</button><p>Existing active permissions keep their earlier expiry. If other permissions are disabled, expired, or last longer than 24 hours, manage them in the iPhone app first. Model requests still require your explicit action; email and calendar actions keep their own approval controls.</p><p>Manage other standing permissions and confirmed facts in the iPhone app.</p><button onClick={exportData}>Export account data</button><label>Confirm password to delete account<input type="password" value={deletePassword} onChange={lambda (e: any) { deletePassword=e.target.value; }}/></label><button onClick={deleteAccount}>Delete my account and data</button><p>API providers require separately configured credentials and budgets. Local subscription providers require the account binding, CLI login, and Model permission.</p></section> if page=="Account" else <div/>}
+            {<section><h2>Your account</h2><p>Link Google sign-in to keep using this Stack account and its saved data.</p><button disabled={busy} onClick={lambda { googleLogin(True); }}>Link Google sign-in</button><p>{"Model provider: "+activity.get("model_provider",{}).get("provider","Not configured")}</p><p>{activity.get("model_provider",{}).get("message","")}</p><p>Local subscription providers use the CLI login on this Stack server. Model tasks do not require a separate Stack permission or request cap.</p><p>Manage outbound permissions and confirmed facts in the iPhone app.</p><button onClick={exportData}>Export account data</button><label>Confirm password to delete account<input type="password" value={deletePassword} onChange={lambda (e: any) { deletePassword=e.target.value; }}/></label><button onClick={deleteAccount}>Delete my account and data</button><p>API providers still require separately configured credentials and budgets.</p></section> if page=="Account" else <div/>}
         </div> if logged else <div/>}
     </main>
 }

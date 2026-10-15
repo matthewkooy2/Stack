@@ -13,7 +13,8 @@ This implementation adds durable agent workflows to the existing Jac application
 
 Provider setup now includes personal Codex/Claude CLI subscriptions and Meta Model
 API alongside OpenAI API. See [provider setup and Muse connector status](AGENT_PROVIDERS.md).
-CLI subscription requests use an account-bound daily cap rather than API budgets.
+CLI subscription requests use the server's signed-in CLI directly, without a
+separate Stack account binding or daily cap. Paid API budgets remain separate.
 
 ## Implemented
 

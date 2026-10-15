@@ -32,12 +32,9 @@ def remap(value, source, target):
 
 
 def preview_config(raw):
-    if raw.get('provider') not in ('codex-cli', 'claude-cli') or not raw.get('local_cli_owner'):
-        raise RuntimeError('Main must have a local CLI subscription linked to an account before refresh.')
-    if not 1 <= int(raw.get('local_cli_daily_limit', 0)) <= 100:
-        raise RuntimeError('Main needs a valid local CLI request limit.')
-    return dict(provider=raw['provider'], local_cli_owner=UUID(raw['local_cli_owner']).hex,
-                local_cli_daily_limit=min(20, int(raw['local_cli_daily_limit'])),
+    if raw.get('provider') not in ('codex-cli', 'claude-cli'):
+        raise RuntimeError('Main must use a local CLI subscription before refresh.')
+    return dict(provider=raw['provider'],
                 model=str(raw.get('model', '')), capture_agent_content=bool(raw.get('capture_agent_content')),
                 monthly_cents=0, user_monthly_cents=0, action_daily_limits={},
                 certified_adapters=[], sandbox_available=False)
@@ -69,7 +66,7 @@ def check_cli(config, directory):
         raise RuntimeError(f'Sign in to your Mac subscription with {login}; current preview is unchanged.')
 
 
-def sanitize(rows, source, target, owner, now):
+def sanitize(rows, source, target, now):
     """Keep history/content, but never replay imported work or credentials."""
     rows = copy.deepcopy(rows)
     removed = {r['id'] for r in rows if r['arch_type'] == 'AgentPushDevice'}
@@ -81,10 +78,8 @@ def sanitize(rows, source, target, owner, now):
         data = row['props'].get('archetype', {})
         kind = row['arch_type']
         if kind == 'AgentMemory':
-            enabled = UUID(row['root_id']).hex == UUID(owner).hex
-            found |= enabled
-            data['policy'] = dict(enabled=enabled, actions=['model'] if enabled else [],
-                                  expires_at=now + 7 * 86400 if enabled else 0,
+            found = True
+            data['policy'] = dict(enabled=False, actions=[], expires_at=0,
                                   domains=[], daily_limits={}, followup_limit=0,
                                   followup_days=7, analyze_top_matches=False)
             data['revision'] = data.get('revision', 0) + 1
@@ -247,13 +242,11 @@ class Refresh:
         self.target.sql(f'CREATE DATABASE "{self.staged}";', 'postgres')
         self.target.run('pg_restore', '--exit-on-error', '--no-owner', '--dbname', self.staged, str(self.backup / 'main.dump'))
         identities = self.target.rows('SELECT doc FROM identity_users;', self.staged)
-        if not any(UUID(item['root_id']).hex == UUID(self.config['local_cli_owner']).hex for item in identities):
-            raise RuntimeError('Linked main account is missing from the snapshot.')
         shared = [str(UUID(item['root_id'])) for item in identities if item.get('role') == 'system']
         if len(shared) != 1:
             raise RuntimeError('Cannot identify the Jac shared root. Preview was not replaced.')
         rows = self.target.rows('SELECT row_to_json(a) FROM anchors a;', self.staged)
-        rows = sanitize(rows, namespace(self.source.path), namespace(self.target.path), self.config['local_cli_owner'], time.time())
+        rows = sanitize(rows, namespace(self.source.path), namespace(self.target.path), time.time())
         preserve_usage(rows, previous, shared[0])
         replace_rows(self.target, self.staged, rows)
         if int(self.target.sql('SELECT count(*) FROM anchors;', self.staged)) != len(rows):

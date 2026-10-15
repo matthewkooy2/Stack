@@ -879,7 +879,7 @@ def:priv agent_linkedin_start(url: str = "", target_role: str = "") -> dict[str,
     try {
         url=profile_url(url or agent_linkedin_profile()["url"]);target_role=target_role.strip() or _profile().linkedin_target_role or _profile().role;
         if len(target_role)>200 { return _error("Keep the target role under 200 characters."); }
-        authorize(_agent_memory().policy,"model");model_access(config(),jid(root));
+        model_access(config(),jid(root));
         if not os.environ.get("STACK_BROWSER_URL","") or not os.environ.get("STACK_BROWSER_TOKEN","") { return _error("LinkedIn review needs the isolated browser worker. Configure it before starting."); }
     } except ValueError as e { return _error(str(e)); }
     with _write_lock {
@@ -1197,7 +1197,7 @@ def:pub agent_schedule(token: str, wake_key: str = "") -> dict[str, any] {
                 _project_agent(r);_notify_agent(r);
             }
             if not m.policy.get("enabled") or m.policy.get("expires_at",0)<time.time() { continue; }
-            if m.policy.get("analyze_top_matches") and "model" in m.policy.get("actions",[]) {
+            if m.policy.get("analyze_top_matches") {
                 today=time.time()-86400;recent=[r for r in [root -->][?:AgentRun] if r.kind=="jobs" and r.created_at>today];
                 if len(recent)<3 {
                     saved=_saved_search();matches=search_jobs(str(saved.get("query","")),saved.get("filters",{}));

@@ -62,7 +62,7 @@ struct NetworkAgentSection: View {
             DisclosureSection("Follow-up timing",
                               detail: drafts.policyLoaded ? "Up to \(drafts.followupLimit) every \(drafts.followupDays) days" : "") {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Sets how many follow-ups may be drafted. Sending still follows your review and standing permissions.")
+                    Text("Sets how many follow-ups may be drafted. Sending still follows your review and outbound permissions.")
                         .font(Typeface.caption).foregroundStyle(Palette.muted)
                     StackField(label: "Follow-ups per contact (0–3)", text: $drafts.followupLimit, keyboard: .numberPad)
                     StackField(label: "Days between follow-ups", text: $drafts.followupDays, keyboard: .numberPad)
@@ -222,12 +222,12 @@ struct LinkedInProfileCard: View {
     @State private var error = ""
     @State private var settingsError = ""
     @State private var notice = ""
-    /// The `agent_settings` result: saved model choice and standing permissions. Null until loaded.
+    /// The `agent_settings` result, including the saved model choice. Null until loaded.
     @State private var settings: JSON = .null
 
     private var feature: AgentFeature? { store.account.feature("linkedin") }
     private var steps: [LinkedInSetup.Step] {
-        LinkedInSetup.steps(feature: feature, settings: settings, now: Date().timeIntervalSince1970)
+        LinkedInSetup.steps(feature: feature, settings: settings)
     }
     private var step: LinkedInSetup.Step { steps.first ?? .profile }
 
@@ -255,7 +255,7 @@ struct LinkedInProfileCard: View {
             await loadProfile()
             await loadSettings()
         }
-        // A permission or model change made elsewhere (Rules, Account) arrives through the readiness checks.
+        // A model change made elsewhere arrives through the readiness checks.
         .onChange(of: feature) { _, _ in Task { await loadSettings() } }
         .onChange(of: store.sessionGeneration) { _, _ in
             settings = .null
@@ -277,8 +277,6 @@ struct LinkedInProfileCard: View {
                    note: "Captured profile text goes to \(name). Change this any time in Account → Agent model.") {
                 StackButton(label: "Use \(name)", disabled: working) { Task { await useModel(selection) } }
             }
-        case .allowModel:
-            allowModelStep
         case .modelUnavailable(let message):
             screen("A model isn’t connected yet", message,
                    note: "Only whoever runs this Stack server can connect one.") { operatorHelp }
@@ -293,31 +291,7 @@ struct LinkedInProfileCard: View {
     }
 
     @ViewBuilder
-    private var allowModelStep: some View {
-        let rearmed = LinkedInSetup.rearmedActions(settings["policy"], now: Date().timeIntervalSince1970)
-        if rearmed.isEmpty {
-            screen("Allow Model permission",
-                   "LinkedIn review sends the text Stack captures from your profile to your model. Review your current choices in Rules, turn on Model, and save when you’re ready.",
-                   note: "Rules shows the standing-permission expiry and keeps each permission under your control.") {
-                StackButton(label: "Open Rules") { onNavigate("rules") }
-            }
-        } else {
-            screen("Review your saved permissions",
-                   "Turning standing permissions on would also re-enable: \(rearmed.joined(separator: ", ")). Choose what to allow in Rules, then come back.",
-                   note: "Your saved permission choices are not changed here.") {
-                StackButton(label: "Open Rules") { onNavigate("rules") }
-            }
-        }
-    }
-
-    @ViewBuilder
     private var operatorHelp: some View {
-        if !settings["account_id"].string.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Your account ID, for whoever sets this up").font(Typeface.caption).foregroundStyle(Palette.muted)
-                Text(settings["account_id"].string).font(Typeface.caption).foregroundStyle(Palette.text).textSelection(.enabled)
-            }
-        }
         StackButton(label: "Check again", icon: "refresh", disabled: working) { Task { await recheck() } }
         if let alternative = feature?.alternative, !alternative.isEmpty {
             Text("Meanwhile: \(alternative)").font(Typeface.caption).foregroundStyle(Palette.text)

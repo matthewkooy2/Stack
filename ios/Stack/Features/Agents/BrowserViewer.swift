@@ -312,11 +312,23 @@ struct RemoteBrowserView: View {
                             .accessibilityLabel("Remote browser keyboard")
                         Chip(label: "Send") { flush() }
                     }
-                    HStack(spacing: 8) {
-                        Chip(label: "Backspace") { flush(); model.send(["type": "key", "key": "Backspace"]) }
-                        Chip(label: "Tab") { flush(); model.send(["type": "key", "key": "Tab"]) }
-                        Chip(label: "Enter") { flush(); model.send(["type": "key", "key": "Enter"]) }
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            Chip(label: "Backspace") { flush(); model.send(["type": "key", "key": "Backspace"]) }
+                                .accessibilityHint("Deletes before the cursor in the remote field")
+                            Chip(label: "Delete") { flush(); model.send(["type": "key", "key": "Delete"]) }
+                                .accessibilityHint("Deletes after the cursor in the remote field")
+                        }
+                        HStack(spacing: 8) {
+                            Chip(label: "Select all") { flush(); model.send(["type": "key", "key": "SelectAll"]) }
+                                .accessibilityHint("Selects all text in the focused remote field")
+                            Chip(label: "Tab") { flush(); model.send(["type": "key", "key": "Tab"]) }
+                            Chip(label: "Enter") { flush(); model.send(["type": "key", "key": "Enter"]) }
+                        }
                     }
+                    .disabled(!model.canInput)
+                    Text("Editing buttons act on the focused field on the remote page. Backspace deletes before the cursor; Delete deletes after it. Select all selects that field’s text.")
+                        .font(Typeface.caption).foregroundStyle(Palette.muted)
                 }
                 controls
             }

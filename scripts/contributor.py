@@ -375,7 +375,7 @@ def tests(root):
     # All of these suites use synthetic data and mocked provider/network boundaries.
     # CI runs exactly this list; server-backed journeys run separately as integration suites.
     for path in ('test_bootstrap.py', 'test_jac_launcher.py', 'test_contributor.py', 'test_gitignore.py', 'test_pdf_safety.py', 'test_fixture_provenance.py',
-                 'test_matching.py', 'test_discovery.py', 'test_municipal_discovery.py', 'test_agent_providers.py', 'test_gateway.py',
+                 'test_matching.py', 'test_discovery.py', 'test_municipal_discovery.py', 'test_agent_providers.py', 'test_gateway.py', 'test_apple_auth.py',
                  'test_model_logs.py', 'test_stories.py', 'test_bullet_bank.py', 'test_interview_contract.py'):
         execute(root, [str(root / 'scripts/jac'), 'run', '--no-serve', 'tests/' + path], env)
     execute(root, [sys.executable, '-m', 'unittest', 'discover', '-s', 'deploy/startup', '-p', 'test_startup.py'], env)

@@ -2,6 +2,10 @@
 import json;
 import os;
 import time;
+import http.client;
+import from http.server { ThreadingHTTPServer }
+import from threading { Thread }
+import agents.gateway as gateway;
 import tempfile;
 import from pathlib { Path }
 import from io { BytesIO }
@@ -9,130 +13,133 @@ import from unittest.mock { patch }
 
 import from jaclang.testing.testing { JacTestClient }
 import from agents.linkedin { snapshot }
+import from agents.browser_control { BrowserControl }
+import core.automation as automation;
+import from jaclang.runtime.runtime { JacRuntime }
+import from tests.test_local_models { service }
 
 glob TOKEN: str = "linkedin-workflow-test";
 glob URL: str = "https://www.linkedin.com/in/candidate/";
 def rpc(client: any, name: str, args: dict[str, any] = {}) -> dict[str, any] {
+    if getattr(client,"gateway_port",0) and name in ['agent_linkedin_start','agent_linkedin_profile','agent_run','agent_browser','agent_browser_control','agent_browser_subscribe','agent_respond','agent_retry','agent_cancel'] {
+        connection=http.client.HTTPConnection('127.0.0.1',client.gateway_port);
+        connection.request('POST','/function/'+name,body=json.dumps(args),headers={'Content-Type':'application/json','Authorization':'Bearer '+client.fixture_token});
+        public_response=connection.getresponse();body=public_response.read();connection.close();
+        assert public_response.status==200,body;return json.loads(body)['data']['result'];
+    }
     response=client.post("/function/"+name,json=args);assert response.status_code==200,response.text;return response.data["result"];
 }
-def claim(client: any) -> dict[str, any] { client.clear_auth();return rpc(client,"agent_claim",{"token":TOKEN}); }
-def finish(client: any, work: dict[str, any], result: dict[str, any]) -> dict[str, any] {
-    client.clear_auth();return rpc(client,"agent_finish",{"token":TOKEN,"id":work["id"],"owner":work["owner"],"lease":work["lease"],"result":result});
-}
-def frame_rpc(frame: dict[str, any]) -> any {
+def browser_rpc(control: any, frame: dict[str, any], capture: dict[str, any], transport: any) -> any {
+    sessions=set();
     def response(request: any, **kwargs: any) -> any {
-        if request.full_url.endswith("/control") {
-            assert json.loads(request.data)["action"]=="status";
-            return BytesIO(b'{"mode":"agent","generation":0,"instance":"synthetic-browser"}');
-        }
-        assert request.full_url.endswith("/frame");return BytesIO(json.dumps(frame).encode());
+        if not request.full_url.startswith("http://browser.invalid/") { return transport(request,**kwargs); }
+        assert "Authorization" not in request.headers;
+        assert "/linkedin/" in request.full_url;
+        data=json.loads(request.data);key=(data["owner"],data["id"]);control.relax(key);result: any={};
+        if request.full_url.endswith("/linkedin_scan") {
+            if key not in sessions {
+                sessions.add(key);result={"needs_input":True,"message":"Sign in in the browser.","requests":[{"key":"browser","label":"Sign in here"}]};
+            } else { result={"artifact":capture}; }
+        } elif request.full_url.endswith("/subscribe") {
+            result={"ticket":json.dumps(key)};
+        } elif request.full_url.endswith("/control") {
+            result=control.transition(key,data["action"],data.get("generation",-1),data.get("controller",""),data.get("instance"));
+        } else { assert request.full_url.endswith("/frame");result=frame; }
+        return BytesIO(json.dumps(result).encode());
     }
     return response;
 }
-test "LinkedIn profile capture waits for sign-in and remains private to its owner" {
+def authenticate(client: any, token: str) -> None { client.fixture_token=token;client.set_auth_token(token); }
+test "Public LinkedIn login and both continuation actions need no worker or browser credentials" {
     with tempfile.TemporaryDirectory(prefix="stack-linkedin-test-") as directory {
-        path=Path(directory)/"agents.json";path.write_text("{}");
-        with patch.dict(os.environ,{"STACK_AGENT_CONFIG":str(path),"STACK_AGENT_WORKER_TOKEN":TOKEN,"STACK_BROWSER_URL":"http://browser.invalid","STACK_BROWSER_TOKEN":"test"}) {
-            client=JacTestClient.from_file(str(Path("main.jac").resolve()),base_path=directory);
+        path=Path(directory)/"agents.json";path.write_text(json.dumps({"provider":"codex-cli"}));
+        with patch.dict(os.environ,{"STACK_AGENT_CONFIG":str(path),"STACK_AGENT_WORKER_TOKEN":"",
+            "STACK_BROWSER_URL":"http://browser.invalid","STACK_BROWSER_TOKEN":""}) {
+            client: any=JacTestClient.from_file(str(Path("main.jac").resolve()),base_path=directory);
+            server=ThreadingHTTPServer(('127.0.0.1',0),gateway.Handler);
+            setattr(client,'gateway_port',server.server_port);
+            def upstream(path: any, body: any, authorization: any = '', **kwargs: any) -> any {
+                response=client.post(path,json=json.loads(body),headers={'Authorization':authorization});
+                return (response.status_code,json.dumps({'ok':response.status_code==200,'data':response.data}).encode());
+            }
+            mocked=patch.object(gateway,'upstream',side_effect=upstream);mocked.start();
+            thread=Thread(target=server.serve_forever,daemon=True);thread.start();
             try {
                 a=client.register_user("linkedin-owner","Password-test-only-1").data["token"];
                 b=client.register_user("linkedin-other","Password-test-only-2").data["token"];
-                client.set_auth_token(a);owner=rpc(client,"bootstrap")["user_id"];
-                saved=rpc(client,"agent_linkedin_profile");assert saved.get("url")=="",saved;
-                assert "error" in rpc(client,"agent_linkedin_profile",{"url":"https://evil.example.com/in/a"});
-                assert rpc(client,"agent_linkedin_profile",{"url":URL+"?trk=fixture"})["url"]==URL;
-                client.set_auth_token(b);saved=rpc(client,"agent_linkedin_profile");assert saved.get("url")=="",saved;
-                client.set_auth_token(a);assert rpc(client,"agent_linkedin_profile")["url"]==URL;
-                assert rpc(client,"agent_linkedin_profile",{"target_role":"Software engineer"})["target_role"]=="Software engineer";
-                client.reload();client.set_auth_token(a);assert rpc(client,"agent_linkedin_profile")["target_role"]=="Software engineer";
-                assert "error" in rpc(client,"agent_linkedin_start",{"url":URL});
-                path.write_text(json.dumps({"provider":"codex-cli","local_cli_owner":owner,"local_cli_daily_limit":10,"web_url":"https://stack.example.com"}));
-                rpc(client,"agent_save_policy",{"policy":{"enabled":True,"expires_at":time.time()+3600,"actions":["model"]}});
-                assert "error" in rpc(client,"agent_linkedin_start",{"url":"https://evil.example.com/in/a"});
-                with patch.dict(os.environ,{"STACK_BROWSER_URL":""}) { assert "error" in rpc(client,"agent_linkedin_start",{"url":URL}); }
-                run=rpc(client,"agent_linkedin_start",{"url":URL,"target_role":"Software engineer"});
-                assert run["kind"]=="linkedin" and run["step_total"]==2,run;
-                assert rpc(client,"agent_linkedin_start",{"url":URL,"target_role":"Software engineer"})["id"]==run["id"];
-                work=claim(client);assert work["step"]=="linkedin_scan";
-                client.set_auth_token(a);
-                with patch("urllib.request.urlopen",side_effect=frame_rpc({"image":"live-frame"})) as watching {
-                    assert rpc(client,"agent_browser",{"id":run["id"],"event":{"type":"snapshot"}})["image"]=="live-frame";
-                    assert watching.call_args_list[0][0][0].full_url.endswith("/frame");
-                    assert watching.call_args_list[1][0][0].full_url.endswith("/control");
-                    assert "error" in rpc(client,"agent_browser",{"id":run["id"],"event":{"type":"text","text":"no-control-while-working"}});
-                    assert watching.call_count==2;
+                authenticate(client,a);rpc(client,"agent_save_model",{"selection":"local"});
+                text="## Profile coaching\nClearer headline. {No JSON schema required.}";
+                capture=snapshot(URL,{"intro":"Candidate Software engineer","about":"I build tools."});
+                raw=json.dumps({"choices":[{"message":{"content":text}}]}).encode();
+                with service("lmstudio",raw=raw) as (url,requests) {
+                    configuration: any={"provider":"codex-cli","invite_only":True,"local_cli_owner":"unbound","local_cli_daily_limit":0,
+                        "model_options":{"local":{"provider":"lmstudio","model":"fixture-local","local_model_url":url}}};
+                    path.write_text(json.dumps(configuration));
+                    with gateway._rate_lock { gateway._rates[('127.0.0.1',int(time.time()/60),False)]=10000; }
+                    import urllib.request;
+                    transport=urllib.request.urlopen;control=BrowserControl();
+                    with patch("urllib.request.urlopen",side_effect=browser_rpc(control,{"image":"fixture","private_login":True},capture,transport)) {
+                        run=rpc(client,"agent_linkedin_start",{"url":URL});
+                        assert run["status"]=="needs_input" and run["kind"]=="linkedin";
+                        viewer=rpc(client,"agent_browser_subscribe",{"id":run["id"]});
+                        assert viewer["linkedin"] and viewer["url"]=="http://browser.invalid/linkedin/stream";
+                        assert json.loads(viewer["ticket"] as str)[1]==run["id"];
+                        assert rpc(client,"agent_browser",{"id":run["id"],"event":{"type":"snapshot"}})["image"]=="fixture";
+                        taken=rpc(client,"agent_browser_control",{"id":run["id"],"action":"take","generation":-100,"controller":"x","instance":"old"});
+                        assert taken["status"]=="paused";
+                        done=rpc(client,"agent_browser_control",{"id":run["id"],"action":"resume","generation":-100,"controller":"different","instance":"old"});
+                        assert done["status"]=="completed" and done["artifacts"]["linkedin_review"]["summary"]==text;
+                        again=rpc(client,"agent_linkedin_start",{"url":URL});assert again["id"]!=run["id"];
+                        assert rpc(client,"agent_respond",{"id":again["id"],"target_role":"Data analyst"})["status"]=="completed";
+                        retry_run=rpc(client,"agent_linkedin_start",{"url":URL});
+                        with service("lmstudio",status=503) as (unavailable,unused_requests) {
+                            configuration["model_options"]["local"]["local_model_url"]=unavailable;path.write_text(json.dumps(configuration));
+                            failed=rpc(client,"agent_respond",{"id":retry_run["id"]});
+                        }
+                        configuration["model_options"]["local"]["local_model_url"]=url;path.write_text(json.dumps(configuration));
+                        assert failed["status"]=="failed" and failed["artifacts"]["linkedin_scan"]==capture;
+                        assert rpc(client,"agent_retry",{"id":retry_run["id"]})["status"]=="completed";
+                    }
+                    assert len(requests as list)==3;
+                    assert "response_format" not in requests[0][1];
+                    assert json.loads(requests[1][1]["messages"][1]["content"] as str)["target_role"]=="Data analyst";
+                    assert json.loads(requests[0][1]["messages"][1]["content"] as str)["profile"]==capture["sections"];
+                    assert done["cost_cents"]==0 and done["subscription_calls"]==0;
+                    configuration["invite_only"]=False;path.write_text(json.dumps(configuration));gateway._rates.clear();
+                    authenticate(client,b);
+                    assert "error" in rpc(client,"agent_run",{"id":run["id"]});
+                    assert "error" in rpc(client,"agent_browser",{"id":run["id"],"event":{}});
+                    assert "error" in rpc(client,"agent_respond",{"id":run["id"]});
+                    client.close();client=JacTestClient.from_file(str(Path("main.jac").resolve()),base_path=directory);
+                    setattr(client,'gateway_port',server.server_port);authenticate(client,a);
+                    assert rpc(client,"agent_run",{"id":run["id"]})["artifacts"]["linkedin_review"]["summary"]==text;
                 }
-                finish(client,work,{"needs_input":True,"message":"Sign in and confirm your profile.","requests":[{"key":"browser","label":"Sign in here"}]});
-                assert claim(client).get("idle");
-                client.set_auth_token(b);
-                assert "error" in rpc(client,"agent_run",{"id":run["id"]});
-                assert "error" in rpc(client,"agent_browser",{"id":run["id"],"event":{}});
-                assert "error" in rpc(client,"agent_respond",{"id":run["id"],"values":[]});
-                client.set_auth_token(a);
-                with patch("urllib.request.urlopen",side_effect=frame_rpc({"image":"fixture","private_login":True})) as browser {
-                    assert rpc(client,"agent_browser",{"id":run["id"],"event":{"type":"snapshot"}})["private_login"];
-                    assert json.loads(browser.call_args[0][0].data)["owner"]==owner;
-                }
-                with patch("urllib.request.urlopen",side_effect=frame_rpc({"pending":True})) {
-                    assert rpc(client,"agent_browser",{"id":run["id"],"event":{"type":"snapshot"}}).get("pending");
-                }
-                with patch("urllib.request.urlopen") as reopened {
-                    assert "error" in rpc(client,"agent_browser",{"id":run["id"],"event":{"type":"reopen"}});
-                    reopened.assert_not_called();
-                }
-                assert "error" in rpc(client,"agent_respond",{"id":run["id"],"values":[{"key":"password","value":"never-save-this"}]});
-                resumed=rpc(client,"agent_respond",{"id":run["id"],"values":[]});assert resumed.get("status")=="queued",resumed;
-                work=claim(client);assert work["step"]=="linkedin_scan";
-                capture=snapshot(URL,{"intro":"Candidate — Software engineer","about":"I build tools."});
-                finish(client,work,{"artifact":capture});
-                work=claim(client);assert work["step"]=="linkedin_review" and work["artifacts"]["linkedin_scan"]["sections"]["about"]=="I build tools.";
-                log_auth={"token":TOKEN,"id":work["id"],"owner":work["owner"],"lease":work["lease"]};
-                diagnostic={"attempt_id":"attempt-one","provider":"codex-cli","model":"fixture","status":"received","raw_response":"  {invalid original response}  ","response_format":"model_json","token":"must-not-be-retained"};
-                assert "error" in rpc(client,"agent_model_log",{**log_auth,"token":"wrong","record":diagnostic});
-                assert "error" in rpc(client,"agent_model_log",{**log_auth,"lease":"stale","record":diagnostic});
-                assert rpc(client,"agent_model_log",{**log_auth,"record":diagnostic})["saved"];
-                assert rpc(client,"agent_model_log",{**log_auth,"record":{**diagnostic,"status":"rejected","error":"Invalid JSON"}})["saved"];
-                finish(client,work,{"blocked":True,"message":"The AI analysis did not pass source checks.","requests":[]});
-                client.set_auth_token(a);paused=rpc(client,"agent_run",{"id":run["id"]});
-                assert paused["status"]=="blocked" and paused["requests"]==[];
-                assert paused["artifacts"]["linkedin_scan"]==capture;
-                logged=rpc(client,"agent_model_logs",{"id":run["id"]})["attempts"];
-                assert len(logged)==1 and logged[0]["status"]=="rejected",logged;
-                assert logged[0]["raw_response"]==diagnostic["raw_response"] and logged[0]["error"]=="Invalid JSON";
-                assert "token" not in logged[0] and "lease" not in logged[0];
-                assert "model_logs" not in paused and "linkedin_review" not in paused["artifacts"];
-                client.set_auth_token(b);assert "error" in rpc(client,"agent_model_logs",{"id":run["id"]});
-                client.set_auth_token(a);assert rpc(client,"agent_export")["model_logs"]==logged;
-
-                assert rpc(client,"agent_retry",{"id":run["id"]})["status"]=="queued";
-                work=claim(client);assert work["step"]=="linkedin_review" and work["artifacts"]["linkedin_scan"]==capture;
-                log_auth={"token":TOKEN,"id":work["id"],"owner":work["owner"],"lease":work["lease"]};
-                assert rpc(client,"agent_model_log",{**log_auth,"record":{**diagnostic,"attempt_id":"attempt-two","status":"accepted","raw_response":"{successful response}"}})["saved"];
-                finish(client,work,{"artifact":{"summary":"Clarify your impact.","findings":[],"rewrites":[],"limitations":capture["limitations"]}});
-                client.set_auth_token(a);done=rpc(client,"agent_run",{"id":run["id"]});
-                assert done["status"]=="completed" and done["artifacts"]["linkedin_review"]["summary"]=="Clarify your impact.";
-                history=rpc(client,"agent_model_logs",{"id":run["id"]})["attempts"];
-                assert len(history)==2 and history[0]["raw_response"]==diagnostic["raw_response"];
-                assert history[1]["status"]=="accepted" and history[1]["raw_response"]=="{successful response}";
-                client.clear_auth();assert "error" in rpc(client,"agent_model_log",{**log_auth,"record":diagnostic});
-                client.set_auth_token(a);
-                assert "error" in rpc(client,"agent_browser",{"id":run["id"],"event":{}});
-                assert rpc(client,"agent_settings")["facts"]==[];
-                again=rpc(client,"agent_linkedin_start",{"target_role":"Software engineer"});assert again["id"]!=run["id"];
-                with patch("urllib.request.urlopen",return_value=BytesIO(b'{"closed":true}')) as browser {
-                    assert rpc(client,"agent_cancel",{"id":again["id"]})["status"]=="cancelled";
-                    assert browser.call_args[0][0].full_url.endswith("/control");
-                    assert json.loads(browser.call_args[0][0].data)["action"]=="stop";
-                }
-                assert claim(client).get("idle");
-                # Reopen the API against the same isolated store: these are durable records.
-                client.close();client=JacTestClient.from_file(str(Path("main.jac").resolve()),base_path=directory);
-                client.set_auth_token(a);assert rpc(client,"agent_model_logs",{"id":run["id"]})["attempts"]==history;
-                with patch("urllib.request.urlopen",return_value=BytesIO(b'{"purged":true}')) {
-                    assert rpc(client,"account_delete",{"username":"linkedin-owner","password":"Password-test-only-1"})["deleted"];
-                }
-                client.set_auth_token(b);assert rpc(client,"agent_export")["model_logs"]==[];
-            } finally { client.close(); }
+            } finally { server.shutdown();server.server_close();thread.join();mocked.stop();client.close();gateway._rates.clear(); }
         }
+    }
+}
+test "LinkedIn analysis ignores every saved task state, lease, attempts and account-policy flag" {
+    with tempfile.TemporaryDirectory(prefix="stack-linkedin-state-") as directory {
+        previous=JacRuntime.peek_context();ctx=JacRuntime.create_j_context(None,base_path_dir=directory);JacRuntime.set_context(ctx);
+        try {
+            root ++> automation.AgentMemory(deleted=True,admitted=False,policy={"enabled":False});commit();
+            capture=snapshot(URL,{"profile":"Candidate"});
+            with patch.object(automation.browser_worker,"browser_call",return_value={"artifact":capture}) as browser,
+                patch.object(automation.linkedin,"model_config",return_value={"provider":"fixture"}),
+                patch.object(automation.linkedin,"review",return_value={"artifact":{"summary":"Raw output"}}),
+                patch.object(automation,"config",side_effect=AssertionError("Shared policy/config gate called")) {
+                for status in ["queued","running","needs_input","paused","failed","completed","cancelled","blocked","review","uncertain"] {
+                    r=root ++> automation.AgentRun(kind="linkedin",workflow_version=2,target_id="self",context={"linkedin_url":URL},
+                        created_at=1.0,key=status,status=status,index=999,lease="obsolete",lease_until=time.time()+99999,
+                        attempts=999,next_at=time.time()+99999);
+                    id=jid(r);commit();
+                    endpoint=automation.agent_respond if status in ["queued","running","needs_input","paused"] else automation.agent_retry;
+                    result=endpoint(id);
+                    assert result["status"]=="completed" and result["artifacts"]["linkedin_review"]["summary"]=="Raw output",result;
+                }
+                assert browser.call_count==10;
+
+            }
+        } finally { ctx.close();if previous is not None { JacRuntime.set_context(previous); } }
     }
 }

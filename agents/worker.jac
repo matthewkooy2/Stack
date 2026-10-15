@@ -7,14 +7,14 @@ import urllib.request;
 import from agents.contracts { CLI_PROVIDERS, LOCAL_PROVIDERS, config, digest, model_access }
 import from agents.tracing { trace_data }
 import from agents.browser_control { BROWSER_OPERATIONS, BROWSER_ERROR_MESSAGE, browser_diagnostic, sanitize_browser_diagnostic }
-def call(name: str, args: dict[str, any]) -> dict[str, any] {
+def call(name: str, args: dict[str, any], timeout: any = 110) -> dict[str, any] {
     base = os.environ.get('STACK_WORKER_API', 'http://127.0.0.1:8000');
     request = urllib.request.Request(
         (base + '/function/' + name),
         data=json.dumps(args).encode(),
         headers={'Content-Type': 'application/json'}
     );
-    with urllib.request.urlopen(request, timeout=110) as response {
+    with urllib.request.urlopen(request, timeout=timeout) as response {
         value = json.load(response)['data']['result'];
     }
     if value.get('error') {
@@ -23,6 +23,11 @@ def call(name: str, args: dict[str, any]) -> dict[str, any] {
     return value;
 }
 def browser_call(step: str, work: dict[str, any], timeout: int = 100) -> dict[str, any] {
+    if step=='linkedin_scan' or work.get('linkedin',False) {
+        request=urllib.request.Request((os.environ.get('STACK_BROWSER_URL') or 'http://127.0.0.1:8011').rstrip('/')+'/linkedin/'+step,
+            data=json.dumps(work).encode(),headers={'Content-Type':'application/json'});
+        with urllib.request.urlopen(request) as response { return json.load(response); }
+    }
     # The private browser origin is operator-owned, never taken from task content.
     base = os.environ.get('STACK_BROWSER_URL', '');
     token = os.environ.get('STACK_BROWSER_TOKEN', '');
@@ -62,16 +67,16 @@ def browser_call(step: str, work: dict[str, any], timeout: int = 100) -> dict[st
     return result;
 }
 def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str, any] {
-    import from agents.provider { generate }
     (step, context, artifacts) = (work['step'], work['context'], work['artifacts']);
+    import from agents.provider { generate }
     auth = {k: work[k] for k in ('id', 'owner', 'lease')};
     auth['token'] = token;
-    if step in ['linkedin_scan','browser_autofill'] { return browser_call(step, work); }
+    if step == 'browser_autofill' { return browser_call(step, work); }
     if (step == 'research') {
         import from agents.research { contact_source }
         return {'artifact': contact_source(context['contact'])};
     }
-    if (step in ('fit', 'tailor', 'draft', 'coach', 'profile', 'linkedin_review', 'story', 'interview_turn', 'interview_coach')) {
+    if (step in ('fit', 'tailor', 'draft', 'coach', 'profile', 'story', 'interview_turn', 'interview_coach')) {
         c = config(work.get("model_selection", ""));
         if (work.get('provider_config_hash') != digest(c)) {
             return {
@@ -124,7 +129,6 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
         try {
             result = generate(step, model_context, c, observe=observe, record=record);
         } except ValueError as exc {
-            if step == 'linkedin_review' { return {'blocked':True, 'message':str(exc), 'requests':[]}; }
             if (c['provider'] in (CLI_PROVIDERS | LOCAL_PROVIDERS)) {
                 return {'needs_input': True, 'message': str(exc), 'requests': []};
             }

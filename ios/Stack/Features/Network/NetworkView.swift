@@ -104,18 +104,22 @@ private struct NetworkToolSheet: View {
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var task: TaskTarget?
+    @State private var linkedInTask: TaskTarget?
     @State private var hubPage: AgentPage?
     @State private var hubAction = ""
 
     var body: some View {
         SheetPage(title: title) {
             if tool == .linkedIn {
-                LinkedInProfileCard(drafts: drafts, onOpenTask: { task = TaskTarget(id: $0) }, onNavigate: navigate)
+                LinkedInProfileCard(drafts: drafts, onOpenTask: { linkedInTask = TaskTarget(id: $0) }, onNavigate: navigate)
             } else {
                 NetworkAgentSection(drafts: drafts, onOpenTask: { task = TaskTarget(id: $0) }, onNavigate: navigate)
             }
         }
         .sheet(item: $task) { target in AgentTaskSheet(taskID: target.id).environment(store) }
+        .fullScreenCover(item: $linkedInTask) { target in
+            LinkedInFlow(id: target.id, role: drafts.linkedInRole).environment(store)
+        }
         .sheet(item: $hubPage) { page in AgentHubView(initialPage: page, initialAction: hubAction).environment(store) }
     }
 

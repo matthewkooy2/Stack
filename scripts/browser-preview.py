@@ -50,9 +50,6 @@ def prepare():
 
 def run():
     # docker -e NAME takes the value from this process without putting it in argv.
-    token = os.environ.get('STACK_BROWSER_TOKEN', '')
-    if len(token) < 32:
-        raise RuntimeError('The preview supervisor must provide a browser token.')
     name = 'stack-browser-' + hashlib.sha256(str(ROOT).encode()).hexdigest()[:12]
     command = ['docker', 'run', '--rm', '--init', '--name', name,
                '--read-only', '--tmpfs', '/tmp:rw,exec,nosuid,size=1g', '--shm-size=1g',

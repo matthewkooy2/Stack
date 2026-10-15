@@ -22,6 +22,7 @@ struct TaskDetailView: View {
     private var review: JSON { run["review"] }
     private var status: String { run["status"].string }
     private var kind: String { run["kind"].string }
+    private var linkedin: Bool { kind == "linkedin" || store.api.isLinkedInCall("agent_run", ["id": .string(id)]) }
     private var requests: [JSON] { run["requests"].array }
     private var feature: AgentFeature? { store.account.feature(forKind: kind) }
 
@@ -225,7 +226,7 @@ struct TaskDetailView: View {
                 Text(run["message"].string).font(Typeface.body).foregroundStyle(Palette.text)
                 Text("There is no question to answer. Your captured profile is saved; retry analysis without signing in again.")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
-                StackButton(label: "Retry analysis", disabled: busy) { Task { await respond() } }
+                StackButton(label: "Retry analysis", disabled: false) { Task { await respond() } }
             } else {
                 ForEach(Array(asking.enumerated()), id: \.offset) { _, question in
                     let key = question["key"].string
@@ -235,7 +236,7 @@ struct TaskDetailView: View {
                 ForEach(requests.filter { $0["key"].string == "browser" }, id: \.self) {
                     Text("In the browser: \($0["label"].string)").font(Typeface.body).foregroundStyle(Palette.text)
                 }
-                StackButton(label: "Continue", disabled: busy) { Task { await respond() } }
+                StackButton(label: "Continue", disabled: false) { Task { await respond() } }
             }
         }
     }
@@ -292,7 +293,7 @@ struct TaskDetailView: View {
                     if !check.action.isEmpty { Chip(label: "Fix: \(check.label)") { onNavigate(check.action) } }
                 }
             }
-            StackButton(label: kind == "linkedin" && run["step_number"].int == 2 ? "Retry analysis" : "Retry now", icon: "refresh", disabled: busy) {
+            StackButton(label: kind == "linkedin" && run["step_number"].int == 2 ? "Retry analysis" : "Retry now", icon: "refresh", disabled: !linkedin && busy) {
                 Task { await perform("agent_retry", ["id": .string(id)], done: "Retrying. Progress updates here automatically.") }
             }
             if let feature, !feature.alternative.isEmpty {
@@ -365,9 +366,9 @@ struct TaskDetailView: View {
     }
 
     private func load() async {
-        guard !busy else { return }
+        guard linkedin || !busy else { return }
         do {
-            let latest = try await store.call("agent_run", ["id": .string(id)])
+            let latest = try await store.call("agent_run", ["id": .string(id)], linkedin: linkedin)
             let step = latest["review"]["step"].string
             let hash = latest["review"]["hash"].string
             if step == "send", hash != draft.editsFor {
@@ -386,13 +387,13 @@ struct TaskDetailView: View {
     }
 
     private func perform(_ endpoint: String, _ args: JSON, done: String) async {
-        guard !busy else { return }
+        guard linkedin || !busy else { return }
         busy = true
         error = ""
         notice = ""
         defer { busy = false }
         do {
-            run = try await store.call(endpoint, args)
+            run = try await store.call(endpoint, args, linkedin: linkedin)
             notice = done
         } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
     }

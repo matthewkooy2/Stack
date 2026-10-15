@@ -72,6 +72,11 @@ class BrowserControl:
         with self.condition:
             return {**{k: v for k, v in self._record(key).items() if k != 'active'}, 'instance': self.instance}
 
+    def relax(self, key):
+        with self.condition:
+            self._record(key)['relaxed'] = True
+            return self.state(key)
+
     def transition(self, key, action, generation, controller='', instance=None):
         with self.condition:
             value = self._record(key)
@@ -81,6 +86,14 @@ class BrowserControl:
                 if value['mode'] not in ('stopping', 'stopped'):
                     value['generation'] += 1
                     value['mode'] = 'stopping'
+                self.condition.notify_all()
+                return self.state(key)
+            if value.get('relaxed'):
+                value.update(generation=value['generation'] + 1, sequence=0, changed=False)
+                if action == 'take':
+                    value.update(controller=controller, mode='pausing' if value['active'] else 'user')
+                elif action == 'resume':
+                    value.update(mode='agent', controller='')
                 self.condition.notify_all()
                 return self.state(key)
             if instance is not None and instance != self.instance:
@@ -106,6 +119,12 @@ class BrowserControl:
     def begin(self, key, event=None, agent_generation=None, agent_instance=None) -> tuple[int, str]:
         with self.condition:
             value = self._record(key)
+            if value.get('relaxed'):
+                expected = 'user' if event is not None else 'agent'
+                value['active'] = True
+                if event is None:
+                    value.update(mode='agent', controller='')
+                return value['generation'], expected
             if value['active']:
                 raise ValueError('Browser operation is still finishing.')
             expected = 'user' if event is not None else 'agent'
@@ -128,6 +147,10 @@ class BrowserControl:
     def check(self, key, generation, mode):
         with self.condition:
             value = self._record(key)
+            if value.get('relaxed'):
+                if mode == 'agent' and value['mode'] in ('pausing', 'stopping', 'stopped'):
+                    raise BrowserInterrupted(self.state(key))
+                return
             if value['generation'] != generation or value['mode'] != mode:
                 raise BrowserInterrupted(self.state(key))
 
@@ -144,10 +167,10 @@ class BrowserControl:
 
     def grant(self, key):
         with self.condition:
-            if self._record(key).get('revoked') or self._record(key)['mode'] in ('stopping', 'stopped'):
+            if self._record(key).get('revoked') or (not self._record(key).get('relaxed') and self._record(key)['mode'] in ('stopping', 'stopped')):
                 raise ValueError('This browser viewer is unavailable.')
             now = time.monotonic()
-            self.tickets = {t: v for t, v in self.tickets.items() if v[1] > now}
+            self.tickets = {t: v for t, v in self.tickets.items() if v[1] > now or self._record(v[0]).get('relaxed')}
             # A grant is single-use, short-lived, and only created after API ownership checks.
             ticket = secrets.token_urlsafe(32)
             self.tickets[ticket] = key, now + 10
@@ -156,9 +179,9 @@ class BrowserControl:
     def consume(self, ticket):
         with self.condition:
             entry = self.tickets.pop(ticket, None)
-            if not entry or entry[1] < time.monotonic():
+            if not entry or (not self._record(entry[0]).get('relaxed') and entry[1] < time.monotonic()):
                 raise ValueError('Browser viewer authorization expired.')
-            if self._record(entry[0]).get('revoked') or self._record(entry[0])['mode'] in ('stopping', 'stopped'):
+            if self._record(entry[0]).get('revoked') or (not self._record(entry[0]).get('relaxed') and self._record(entry[0])['mode'] in ('stopping', 'stopped')):
                 raise ValueError('This browser viewer is unavailable.')
             return entry[0]
 
@@ -183,7 +206,7 @@ class BrowserControl:
     def watch(self, key, delta):
         with self.condition:
             count = self.viewers.get(key, 0) + delta
-            if count > 2:
+            if count > 2 and not self._record(key).get('relaxed'):
                 raise ValueError('Close another browser viewer before opening this one.')
             if count > 0:
                 self.viewers[key] = count

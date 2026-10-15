@@ -21,9 +21,10 @@ class BrowserHost {
     def dispatch(self: BrowserHost, path: any, data: any) -> any {
         (owner, run) = (data['owner'], data.get('id', ''));
         key=(owner,run);
+        if path=='/linkedin_scan' or data.get('linkedin',False) { self.control.relax(key); }
         if path == '/purge' { self.control.revoke_owner(owner); }
         if path == '/control' { return self.control.transition(key,data['action'],data.get('generation',-1),data.get('controller',''),data.get('instance')); }
-        if path == '/subscribe' { return {'ticket':self.control.grant(key)}; }
+        if path == '/subscribe' { return {'ticket':json.dumps(key) if data.get('linkedin',False) else self.control.grant(key)}; }
         if ((path == '/frame') and not self.operation.acquire(blocking=False)) {
             return self.pool.frames.get((owner, run));
         }
@@ -106,10 +107,11 @@ class BrowserHost {
 }
 def main() -> any {
     token = os.environ.get('STACK_BROWSER_TOKEN', '');
-    if (len(token) < 32) {
-        raise SystemExit('Configure STACK_BROWSER_TOKEN (at least 32 characters).');
-    }
+    # The personal LinkedIn route needs no worker credential; other routes
+    # retain strong bearer authentication.
+    if len(token)<32 { token=secrets.token_urlsafe(48); }
     host = BrowserHost();
+    linkedin_host = BrowserHost();
     class Handler(BaseHTTPRequestHandler) {
         def log_message(self: Handler, *_: any) -> any {
             ;
@@ -129,6 +131,7 @@ def main() -> any {
             self.wfile.write(raw);
         }
         def do_GET(self: Handler) -> any {
+            if self.path=='/linkedin/health' { self.reply({'ready':linkedin_host.executor.submit(linkedin_host.pool.browser.is_connected).result()});return; }
             if ((self.path != '/health') or not self.authorized()) {
                 self.send_error(403);
                 return;
@@ -138,15 +141,21 @@ def main() -> any {
             );
         }
         def do_POST(self: Handler) -> any {
+            linkedin=self.path.startswith('/linkedin/');
+            if linkedin { self.path=self.path.removeprefix('/linkedin'); }
+            active=linkedin_host if linkedin else host;
             if self.path == '/stream' {
                 try {
                     size=int(self.headers.get('Content-Length',0));
-                    if not (0<size<=1024) { self.send_error(413);return; }
-                    serve(self,host,json.loads(self.rfile.read(size))['ticket']);
+                    if not linkedin and not (0<size<=1024) { self.send_error(413);return; }
+                    ticket=json.loads(self.rfile.read(size))['ticket'];
+                    serve(self,active,ticket,key=tuple(json.loads(ticket)) if linkedin else None);
                 } except ValueError { self.send_error(403); }
                 return;
             }
-            if not self.authorized() {
+            if linkedin {
+                if self.path not in ['/linkedin_scan','/frame','/control','/subscribe','/handoff','/close'] { self.send_error(404);return; }
+            } elif not self.authorized() {
                 self.send_error(403);
                 return;
             }
@@ -168,12 +177,15 @@ def main() -> any {
             }
             try {
                 size = int(self.headers.get('Content-Length', 0));
-                if not (0 < size <= 16000000) {
+                data = json.loads(self.rfile.read(size));
+                if linkedin { data['linkedin']=True; }
+                linkedin=linkedin or self.path=='/linkedin_scan' or data.get('linkedin',False);
+                if not linkedin and not (0 < size <= 16000000) {
                     self.send_error(413);
                     return;
                 }
-                data = json.loads(self.rfile.read(size));
-                result = host.dispatch(self.path, data);
+                if self.path=='/purge' { linkedin_host.dispatch(self.path,data); }
+                result = active.dispatch(self.path, data);
             } except Exception as exc {
                 result = {
                     'error': str(exc)
@@ -188,6 +200,8 @@ def main() -> any {
         def service_actions(self: Server) -> any {
             host.tick();
             host.expire();
+            linkedin_host.tick();
+            linkedin_host.expire();
         }
     }
     Server(

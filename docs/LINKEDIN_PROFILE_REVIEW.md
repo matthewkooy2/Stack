@@ -1,192 +1,70 @@
 # LinkedIn profile review
 
-Start in **Network → Strengthen your LinkedIn profile** on the phone or **Network**
-in the web workspace. Enter your own `https://www.linkedin.com/in/.../` URL and,
-optionally, a target role. An omitted role uses your Stack profile's role.
-The URL is saved on your authenticated Stack account when you save it or start a
-review, and is filled in on later visits. Existing users can reuse the URL from
-their latest LinkedIn task. You can edit it in Network; it is never shared between
-accounts.
+The personal flow keeps the existing Swift URL form, browser controls and report.
 
-On the phone, **Network → LinkedIn review** shows one unmet requirement at a time
-and omits anything the account already meets. The saved Account model choice and
-standing permissions are read first, so a model that is configured on this account
-is never reported as disconnected. Steps, in order:
+1. Enter a profile URL and start a review. The API immediately opens its browser.
+2. Open the existing browser UI, take control and sign in.
+3. Use **Resume agent**, or the task's **Continue** action.
+4. That request captures the profile with Playwright, calls the account-selected
+   LLM and saves raw coaching in the existing report summary.
 
-- **Use another model**, when the saved choice is not available for this account
-  but the other choice is configured on the server. CLI sign-in and provider
-  limits, or local service availability, are checked again when a review starts.
-- **Allow Model permission**, when Model is missing or expired. The screen opens
-  Rules so you can review current choices, enable Model and save them yourself.
-  If turning permissions on would also re-enable saved email, calendar, Gmail or
-  top-match settings, the screen calls those out before opening Rules.
-- **Connect a model** and **Browser worker**, which only the server operator can
-  fix. The screen shows the server's reason and your account ID, and **Check
-  again** re-reads the account.
-- The profile URL and target role. Confirmed facts remain optional and never block.
+## Direct execution
 
-The task opens LinkedIn's sign-in page in a temporary remote browser and pauses.
-On the phone, the task embeds that exact browser; no external workspace link is
-needed. Tap a field in the browser image, type in **Private browser input**, and
-choose **Type in browser**. The **Enter** button submits the selected page control.
-Complete sign-in and verification yourself, then choose **I’m signed in · Analyze
-my profile**. **Open my profile** returns to the requested profile, and **Open
-LinkedIn sign-in** returns to login. Full screen gives a larger view.
+LinkedIn has no worker ticket, claim, worker token, lease, queue wait, retry count
+or dependency on the shared worker loop. Every saved task state can continue or
+retry. Captured text persists before the model call, so Retry reuses it after a
+model failure. Each Start creates a new private task. Database writer locks cover
+record updates only; browser/model work happens outside them.
 
-If the browser service restarts or the session expires, the task shows **Open
-browser again**. This opens a fresh sign-in session for the same task. Connection
-errors replace the loading message and can be retried with **Refresh browser**.
+LinkedIn bypasses invitation/deleted-account flags, model permission/readiness,
+subscription ownership and quotas, budgets, provider preflights, config-hash
+checks, login/header verification, URL restrictions, context/output limits,
+structured output and evidence/rewrite validation. Browser input skips stale
+instance/generation/controller/sequence checks, coordinate/text/scroll limits,
+viewer caps and idle expiry. Explicit pause/stop remains a user action.
 
-The same session is used for capture. Frames refresh while the agent reads, with
-controls disabled until it needs your input. Login input is cleared after sending,
-when the app backgrounds, and when control returns to the agent. Frames are kept
-only in memory and removed when the session closes, expires, or is purged. The web
-workspace's existing same-session browser handoff remains available.
+The gateway skips LinkedIn admission, rate accounting, payload limits and short
+transport timeouts. Native LinkedIn calls skip phase/generation, busy, stale-frame
+and connection-mode refusals and use a session without Stack's short timeouts.
+Loading saved profile metadata does not overwrite the URL/role being typed.
 
-The review includes strengths, prioritized weaknesses with exact profile quotations,
-why each matters to recruiters, concrete fixes, suggested headline/About/experience
-rewrites, and questions for missing evidence. You copy and apply edits yourself.
-The existing resume-based Profile suggestions and contact outreach remain available.
+## Personal browser transport
 
-## Implementation
+Private `/linkedin/*` browser routes require no bearer token. The existing public
+app API retains Jac sign-in and account-scoped record lookup. LinkedIn has its own
+browser executor and Chromium instance, so another feature's browser job cannot
+hold its execution lock. Its stream carries an account/run descriptor through the
+existing response shape, without expiring or single-use ticket validation.
 
-- `agent_linkedin_start` validates an explicit profile URL, model access and browser
-  configuration. Repeated requests reuse an active task for the same URL and role;
-  a new review after completion captures fresh content.
-- `linkedin` tasks have two steps: `linkedin_scan` and `linkedin_review`. They use
-  the existing private runs, claims, status/notification flow, model permissions,
-  request quotas or API budgets, and owner-checked browser handoff.
-- `agents/linkedin.jac` captures only visible profile cards inside `main`, in a
-  bounded scroll/expand pass. Capture waits for a rendered profile header, supports
-  both h1/section and h2/card layouts, and publishes progress during sixteen scroll passes. It reads intro, About, experience, education, skills,
-  projects, certifications, Featured and recommendations when present. Captures
-  are bounded to 24,000 characters overall and 6,000 per section.
-- Only HTTPS LinkedIn destinations and LinkedIn/CDN resources are allowed.
-  Existing public-address checks apply; outside navigation and WebSockets are
-  blocked. There is no automated login, challenge bypass, bulk scanning, messaging,
-  connection request, profile edit, or file upload in this workflow.
-- LinkedIn contexts have no saved storage state. Browser cookies and login input
-  values are not checkpointed, stored in facts, or included in model input. The
-  context closes after successful capture or cancellation, and expires after one
-  idle hour. If the browser service is unreachable during cancellation, idle expiry
-  is the fallback. A worker restart requires signing in again.
-- The snapshot and report persist in the user's private run and are included in
-  the existing account export/deletion paths. Only captured profile text and the
-  user's task context/facts are sent to the configured model. Page content is
-  untrusted evidence. Profile weaknesses must quote a captured section; rewrites
-  must provide source quotations. The API reserves budget including the snapshot.
+The private LinkedIn stream has no duration, byte or packet-size cap. PC and local
+preview browser launchers no longer demand a browser token/session key. Startup
+uses `/linkedin/health` without a bearer token. Existing non-LinkedIn browser
+routes retain strong bearer authentication and normal stream tickets/limits.
+These unauthenticated LinkedIn routes are an explicitly approved personal
+prototype change; keep the browser service on its existing private/loopback bind.
 
-## Deployment and limits
+API service source templates load the existing worker environment and permit
+access to `/var/lib/stack-codex`, allowing direct analysis to use the existing
+Codex login. No installed service, PC image, preview or iOS app was changed.
 
-For the local phone preview, `./dev network-agent` now prepares the browser image
-and web bundle before stopping the current preview. The launcher starts the installed
-Docker Desktop when needed and requires at least 2 GB free for a first build. The image installs only the pinned
-Playwright Chromium headless browser. `scripts/develop.py`
-starts a private browser container on loopback port 8011 and the sign-in workspace
-on local-network port 8080, then checks browser readiness before starting the API.
-The workspace URL is regenerated after account refresh, retaining the copied CLI
-owner and limits. The web gateway permits the LinkedIn start and feature endpoints.
-The local HTTP workspace is for the same development network as the phone preview;
-production still uses the HTTPS deployment below.
+## Verification and phone test
 
-Only the source files explicitly listed in `scripts/browser-preview.py` enter the
-browser image. It receives no checkout mount, database, Mac home directory, model
-credentials, or CLI login. It runs as the image's non-root user with Chromium's
-sandbox enabled, a read-only filesystem, and ephemeral temporary storage. Stopping
-the preview stops its browser container and discards browser sessions.
-`deploy/browser-seccomp.json` is the unmodified
-[Playwright v1.58.0 profile](https://github.com/microsoft/playwright/blob/v1.58.0/utils/docker/seccomp_profile.json),
-used according to [Playwright's container guidance](https://playwright.dev/python/docs/docker).
-The real container has passed authenticated health checks on this Mac with Chromium
-sandboxing enabled; unauthenticated browser requests are rejected. Unit tests cover
-startup configuration, low-disk gating, and gateway routes. Real LinkedIn sign-in
-and profile analysis still require the user's acceptance run.
+Manual results for the direct implementation:
+- 33 gateway/browser/model/control/stream checks pass (4.005 seconds), including
+  real private token-free stream/health and isolation from a busy browser job.
+- Two workflow tests pass (48.41 seconds): real public HTTP gateway to authenticated
+  Jac to controlled browser capture and actual model HTTP to saved raw output;
+  Resume and Continue; model HTTP 503 then Retry; ten saved task states with stale
+  leases/timers/attempts and disabled/deleted account-policy flags; account isolation
+  and report reload. Browser capture/login is a synthetic fixture in this test.
+- 11 startup tests pass (0.602 seconds). Five backend/test Jac files type-check.
+- All 77 Swift files pass structural checks; the changed form file parses with
+  swiftc. Earlier actual native API client and real Chromium extraction evidence
+  remains applicable; those implementations did not change in this pass.
+- Live LinkedIn login, a real selected LLM and Xcode/device acceptance remain for
+  the phone test. Test the rebuilt API, browser service, approved API unit template
+  and Swift app from `linkedin-rework`; the currently installed versions are older.
 
-Use the existing isolated Playwright browser service, `STACK_BROWSER_URL`,
-`STACK_BROWSER_TOKEN`, and an enabled model provider/permission. A hosted `web_url`
-is optional for this phone workflow.
-No LinkedIn API key is used. The browser service must be reachable from the worker
-and API; users sign in through the authenticated Stack app or web workspace.
-Locally the browser container runs inside Docker Desktop’s Linux VM; the API and
-model orchestration run on the Mac. This is not yet an always-on cloud deployment.
-Playwright operations share one worker thread; a thread-safe, owner/run-scoped
-frame cache allows viewing during capture without concurrent browser mutations.
-
-This is a bounded text review, not a completeness or recruiter-ranking score.
-Unread sections are shown as unknown rather than assumed absent. It does not assess
-photos, banners, private recruiter settings, or search visibility. LinkedIn can
-change page structure or block the browser; login/challenge/unreadable pages pause
-for user input rather than produce a fabricated assessment. Additional subpages
-and non-English expansion controls are not crawled.
-
-Automated checks use controlled profile/browser/model fixtures. A real LinkedIn
-sign-in and live model analysis still require an acceptance run with the user's
-account on the deployed browser service.
-
-## Automated verification
-
-- Python LinkedIn tests: destination validation, bounded capture, login/challenge
-  pauses, account isolation, temporary session lifecycle, upload rejection, evidence
-  checks and worker routing.
-- 45 existing Python agent/provider/experience checks.
-- 4 Jac workflow tests covering LinkedIn ownership, sign-in/resume, fresh reviews,
-  cancellation, existing outbound approvals, resume review and provider workflows.
-- Compiled mobile and web component tests: URL/role submission, setup failures,
-  browser handoff, masked login input, resume, readable findings and copyable rewrites.
-  The existing tailoring screen test also passes.
-- Jac type checks and the production web bundle build pass.
-
-Run the focused UI checks after compiling mobile and building the workspace client:
-
-```sh
-STACK_TEST_LINKEDIN_UI=1 node tests/native.cjs
-STACK_TEST_LINKEDIN_WEB=1 node tests/native.cjs
-```
-
-The API statically imports the browser transport so it remains available inside
-Jac’s prepared application namespace. Browser workflow tests exercise that real
-transport and mock only the HTTP boundary; cold-import and phone recovery checks
-cover unavailable and expired sessions.
-
-Analysis failures (including source-quotation validation failures) pause as blocked,
-with a Retry analysis action. The captured profile is retained and the retry resumes
-step two without opening a browser or asking for another sign-in. Older tasks saved
-as needs_input with no questions now show Analysis paused and the same recovery.
-The model schema constrains finding section IDs and rewrite types; source checks
-still reject unsupported claims. Failed model output is not presented as a report.
-
-## Retained model responses
-
-All future agent model attempts (fit, tailoring, outreach drafts, coaching, profile
-suggestions, and LinkedIn reviews) are recorded in private `AgentModelLog` database
-nodes attached to their account. Each attempt has a distinct ID, task ID, step,
-provider/model, creation/update timestamps, raw response, and validation status or
-failure reason. Successful responses are retained too. The worker saves the raw
-response before parsing/source validation, including CLI output before temporary
-files are removed. Retries create new attempts and keep earlier responses.
-
-The status is `started` before calling the provider, `received` before validation,
-`accepted` after validation, `rejected` for returned but unusable output, or `error`
-when no response arrived. If a worker stops between receiving and validating,
-`received` remains available. Completed live interview response events are also
-retained, including transcripts and provider completion/cancellation metadata;
-these use `completed` rather than implying source validation. Audio chunks are
-not duplicated into these diagnostic logs.
-
-Read a task's history through authenticated `agent_model_logs(id)` or the
-`model_logs` section of account/agent export. Logs are not included in routine
-activity polling and are not rendered as validated reports. Only the task's owner
-can read them; the private worker write endpoint also checks the current lease.
-Account deletion removes them with the other private account nodes. No automatic
-expiry is applied. These are database records, not terminal logs or CLI credential
-files. Request prompts, browser input, cookies, worker tokens and credentials are
-not added to the log. The response itself can contain personal profile information.
-
-Logging is automatic for future calls once this version of the worker/API is
-running; it cannot recover earlier discarded output. A logging failure stops the
-request rather than silently accepting an unlogged result. A process crash before
-output reaches Stack, provider timeouts without a returned result, and responses
-discarded by the existing transport size limits cannot be recovered from these
-logs. `./dev` account refresh/restore still replaces the preview database, so use
-the existing account export or preview backup to preserve a feature worktree's
-history before replacing its database.
+Actual browser, network, model and storage failures are surfaced without an
+additional policy refusal. The automated tests establish the tested behavior,
+not an absolute guarantee against every software defect or dependency failure.

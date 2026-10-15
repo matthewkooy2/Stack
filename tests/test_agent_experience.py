@@ -74,6 +74,12 @@ class Features(unittest.TestCase):
         kinds = {k for f in features for k in f['kinds']}
         self.assertEqual(kinds, set(STEPS))
 
+    def test_linkedin_has_no_setup_gates_while_other_features_keep_theirs(self):
+        by = {f['key']: f for f in experience.feature_status(self.facts())}
+        self.assertEqual(by['linkedin']['state'], 'ready')
+        self.assertEqual(by['linkedin']['checks'], [])
+        self.assertEqual(by['coaching']['state'], 'unavailable')
+
     def test_operator_gaps_are_unavailable_user_gaps_are_setup(self):
         by = {f['key']: f for f in experience.feature_status(self.facts())}
         self.assertEqual(by['code']['state'], 'unavailable')

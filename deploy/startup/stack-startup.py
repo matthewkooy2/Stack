@@ -111,8 +111,7 @@ class Startup:
         self.stage = "gateway"
         self.wait(lambda: self.http("http://127.0.0.1:8080/") is True)
         self.stage = "browser"
-        token = browser_token(pathlib.Path("/etc/stack/browser.env"))
-        self.wait(lambda: (self.http("http://127.0.0.1:8011/health", token=token) or {}).get("ready") is True)
+        self.wait(lambda: (self.http("http://127.0.0.1:8011/linkedin/health") or {}).get("ready") is True)
         self.stage = "final-services"
         self.wait(lambda: all(self.active(unit, process=True) for unit in ["stack-api.service", *units]))
         return {"status": "ready", "scope": "wsl-local", "phone_acceptance": "not_run"}

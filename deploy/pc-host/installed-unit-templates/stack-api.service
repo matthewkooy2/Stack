@@ -9,6 +9,10 @@ User=stack
 Group=stack
 WorkingDirectory=/opt/stack
 EnvironmentFile=/etc/stack/api.env
+EnvironmentFile=-/etc/stack/worker.env
+Environment=CODEX_HOME=/var/lib/stack-codex
+StateDirectory=stack-codex
+StateDirectoryMode=0700
 Environment=STACK_JAC_BIN=/usr/local/bin/jac
 Environment=HOME=/var/lib/stack
 Environment=XDG_CACHE_HOME=/var/lib/stack/.cache
@@ -23,8 +27,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-InaccessiblePaths=/var/lib/stack-codex
-ReadWritePaths=/opt/stack/.jac /opt/stack/storage /var/lib/stack/.cache
+ReadWritePaths=/opt/stack/.jac /opt/stack/storage /var/lib/stack-codex /var/lib/stack/.cache
 
 [Install]
 WantedBy=multi-user.target

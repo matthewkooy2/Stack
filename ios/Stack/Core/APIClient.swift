@@ -14,6 +14,16 @@ final class APIClient {
     private(set) var token: String
     private let session: URLSession
     private(set) var sessionGeneration = 0
+    private var linkedinTasks: Set<String> = []
+    let linkedinSession: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = .greatestFiniteMagnitude
+        configuration.timeoutIntervalForResource = .greatestFiniteMagnitude
+        return URLSession(configuration: configuration)
+    }()
+    func isLinkedInCall(_ name: String, _ args: JSON) -> Bool {
+        name.hasPrefix("agent_linkedin_") || linkedinTasks.contains(args["id"].string)
+    }
     private var account: String { "token@" + origin.absoluteString }
 
     init(origin: URL, session: URLSession = .shared) {
@@ -43,30 +53,30 @@ final class APIClient {
     }
 
     /// Raw request. Returns the envelope's `data`.
-    func post(_ path: String, _ body: JSON, authenticated: Bool = true, timeout: TimeInterval = 25) async throws -> JSON {
+    func post(_ path: String, _ body: JSON, authenticated: Bool = true, timeout: TimeInterval = 25, linkedin: Bool = false) async throws -> JSON {
         let generation = sessionGeneration
         var request = URLRequest(url: origin.appendingPathComponent(path))
         request.httpMethod = "POST"
-        request.timeoutInterval = timeout
+        request.timeoutInterval = linkedin ? .greatestFiniteMagnitude : timeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if authenticated, !token.isEmpty { request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization") }
         request.httpBody = try JSONEncoder().encode(body)
         let data: Data
         let response: URLResponse
-        do { (data, response) = try await session.data(for: request) }
+        do { (data, response) = try await (linkedin ? linkedinSession : session).data(for: request) }
         catch is CancellationError { throw CancellationError() }
         catch let error as URLError where error.code == .cancelled { throw CancellationError() }
         catch let error as URLError {
-            guard generation == sessionGeneration else { throw CancellationError() }
+            guard linkedin || generation == sessionGeneration else { throw CancellationError() }
             throw APIError(message: "Cannot reach Stack. Check your connection and retry.",
                            failureCategory: Self.safeNetworkCategory(error.code))
         }
         catch {
-            guard generation == sessionGeneration else { throw CancellationError() }
+            guard linkedin || generation == sessionGeneration else { throw CancellationError() }
             throw APIError(message: "Cannot reach Stack. Check your connection and retry.",
                            failureCategory: "network transport")
         }
-        guard generation == sessionGeneration, !Task.isCancelled else { throw CancellationError() }
+        guard linkedin || (generation == sessionGeneration && !Task.isCancelled) else { throw CancellationError() }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard let json = try? JSONDecoder().decode(JSON.self, from: data) else {
             throw APIError(message: "Stack returned an invalid response. Please retry.", status: status)
@@ -82,9 +92,10 @@ final class APIClient {
 
     /// A personal API function. Throws the server's `error` string when the function reports one.
     @discardableResult
-    func call(_ name: String, _ args: JSON = [:], timeout: TimeInterval = 25) async throws -> JSON {
-        let data = try await post("/function/" + name, args, timeout: timeout)
+    func call(_ name: String, _ args: JSON = [:], timeout: TimeInterval = 25, linkedin: Bool = false) async throws -> JSON {
+        let data = try await post("/function/" + name, args, timeout: timeout, linkedin: linkedin || isLinkedInCall(name, args))
         let result = data["result"]
+        if result["kind"].string == "linkedin" { linkedinTasks.insert(result["id"].string) }
         if case .string(let message) = result["error"], !message.isEmpty {
             throw APIError(message: message, failureCategory: "Stack API response")
         }

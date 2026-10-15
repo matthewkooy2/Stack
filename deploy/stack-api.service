@@ -6,6 +6,10 @@ After=network-online.target postgresql.service
 User=stack
 WorkingDirectory=/opt/stack
 EnvironmentFile=/etc/stack/api.env
+EnvironmentFile=-/etc/stack/worker.env
+Environment=CODEX_HOME=/var/lib/stack-codex
+StateDirectory=stack-codex
+StateDirectoryMode=0700
 Environment=STACK_JAC_BIN=/usr/local/bin/jac
 ExecStart=/opt/stack/scripts/jac run --no-client --workers 1 --host 127.0.0.1 --port 8000 Stack
 Restart=on-failure
@@ -15,7 +19,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/opt/stack/.jac /opt/stack/storage
+ReadWritePaths=/opt/stack/.jac /opt/stack/storage /var/lib/stack-codex
 
 [Install]
 WantedBy=multi-user.target

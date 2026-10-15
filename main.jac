@@ -10,7 +10,7 @@ import from discovery.matching { validate_preferences }
 glob _write_lock = _catalog_lock;
 import base64;
 import hashlib;
-import from uuid { uuid4 }
+import from uuid { uuid4, UUID }
 import from pathlib { Path }
 import importlib;
 import logging;
@@ -19,7 +19,7 @@ import from core.fixtures { JOBS, PEOPLE }
 import from core.agents { _demo_status }
 import from core.automation {
     AgentMemory, AgentAction, AgentNotification, AgentPushDevice, AgentTicket, AgentRun, AgentContact, AgentConnection, AgentEvent, AgentAdmission, AgentInterview, PrepSession,
-    _agent_access, _agent_memory, _agent_summary, _agent_start, _agent_fresh, _agent_system, _agent_owner, _owned_run, _agent_leased, _run_view, _steps, agent_upgrade_workflows,
+    _agent_access, _agent_memory, _agent_summary, _agent_start, _linkedin_execute, _agent_fresh, _agent_system, _agent_owner, _owned_run, _agent_leased, _run_view, _steps, agent_upgrade_workflows,
     agent_settings, agent_save_model, agent_report, agent_admission, agent_register_push, agent_remove_push, agent_notification_claim, agent_notification_begin, agent_notification_finish, agent_notification_status, agent_save_facts, agent_save_policy, agent_activity, agent_run, agent_cancel, agent_respond, agent_reconcile,
     agent_contacts, agent_save_contact, agent_stop_contact, agent_import_contacts, agent_events, agent_claim, agent_model_log, agent_model_logs, agent_authorize, _agent_complete, agent_worker_connection, agent_approve, agent_retry, agent_dismiss, agent_trace, agent_traces, agent_feedback,
     agent_invite, agent_accept_invite, agent_google_start, agent_google_finish, agent_disconnect, agent_export,
@@ -199,8 +199,8 @@ def _refresh_transaction() -> None {
     ctx.mem.abort();
     ctx.set_user_root(owner);
 }
-def _profile() -> Profile {
-    _agent_access();
+def _profile() -> Profile { _agent_access();return _profile_data(); }
+def _profile_data() -> Profile {
     with _write_lock {
         items = [root -->][?:Profile];
         if items and [root -->][?:MatchPreferences] { return items[0]; }
@@ -819,43 +819,24 @@ def:priv agent_continue_tailoring(id: str, resume_id: str = "") -> dict[str, any
 }
 
 def:priv agent_linkedin_profile(url: str = "", target_role: str | None = None) -> dict[str, any] {
-    _agent_access();
-    if url {
-        try { url=profile_url(url); } except ValueError as e { return _error(str(e)); }
-    }
-    if target_role is not None and len(target_role)>200 { return _error("Keep the target role under 200 characters."); }
     with _write_lock {
-        _agent_fresh();p=_profile();
+        _agent_fresh();p=_profile_data();
+        if url { p.linkedin_url=profile_url(url); }
         if target_role is not None and target_role!="None" { p.linkedin_target_role=target_role.strip(); }
-        if url { p.linkedin_url=url; }
-        elif not p.linkedin_url {
-            for r in [root --> [?:AgentRun, -created_at]] {
-                if r.kind=="linkedin" and r.context.get("linkedin_url") {
-                    p.linkedin_url=profile_url(r.context["linkedin_url"]);break;
-                }
-            }
-        }
-        commit();return {"url":p.linkedin_url,"target_role":p.linkedin_target_role};
+        commit();return {"url":p.linkedin_url,"target_role":p.linkedin_target_role,"model_selection":_agent_memory().model_selection};
     }
 }
 
 def:priv agent_linkedin_start(url: str = "", target_role: str = "") -> dict[str, any] {
-    _agent_access();
-    try {
-        url=profile_url(url or agent_linkedin_profile()["url"]);target_role=target_role.strip() or _profile().linkedin_target_role or _profile().role;
-        if len(target_role)>200 { return _error("Keep the target role under 200 characters."); }
-        authorize(_agent_memory().policy,"model");model_access(config(),jid(root));
-        if not os.environ.get("STACK_BROWSER_URL","") or not os.environ.get("STACK_BROWSER_TOKEN","") { return _error("LinkedIn review needs the isolated browser worker. Configure it before starting."); }
-    } except ValueError as e { return _error(str(e)); }
+    saved=agent_linkedin_profile(url,target_role);
     with _write_lock {
-        _agent_fresh();
-        p=_profile();p.linkedin_url=url;p.linkedin_target_role=target_role;commit();
-        for r in [root -->][?:AgentRun] {
-            if r.kind=="linkedin" and r.status not in ["completed","cancelled","failed"] and r.context.get("linkedin_url")==url and r.context.get("target_role")==target_role { return _run_view(r,True); }
-        }
-        p=_profile();
-        return _agent_start("linkedin","self",{"linkedin_url":url,"target_role":target_role or p.role,"profile":{"name":p.name}},str(uuid4()));
+        _agent_fresh();now=time.time();
+        r=root ++> AgentRun(workflow_version=2,kind="linkedin",target_id="self",
+            context={"linkedin_url":saved["url"],"target_role":saved["target_role"]},
+            model_selection=_agent_memory().model_selection,created_at=now,updated_at=now,key=str(uuid4()));
+        id=jid(r);commit();
     }
+    return _linkedin_execute(id);
 }
 """Editable sections for an imported resume: the raw records plus structured details over immutable parser evidence."""
 def _resume_review(r: Resume) -> dict[str, any] {
@@ -978,19 +959,40 @@ def:priv resume_save_details(id: str, revision: int, values: dict[str, any], con
 }
 
 def _browser_run(id: str) -> AgentRun | None {
-    _agent_access();r=_owned_run(id);
+    r=_owned_run(id);
+    if r is not None and r.kind=="linkedin" { return r; }
+    _agent_access();
     if r is None or r.kind not in ["linkedin","autofill"] or r.status in ["completed","cancelled","failed"] { return None; }
     if r.kind=="linkedin" and r.index!=0 { return None; }
     return r;
 }
 def:priv agent_browser_subscribe(id: str) -> dict[str, any] {
+    r=_owned_run(id);
+    if r is not None and r.kind=="linkedin" {
+        grant=browser_worker.browser_call("subscribe",{"owner":jid(root),"id":id,"linkedin":True});
+        return {"ticket":grant["ticket"],"url":(os.environ.get("STACK_BROWSER_URL") or "http://127.0.0.1:8011").rstrip("/")+"/linkedin/stream","linkedin":True};
+    }
     if _browser_run(id) is None { return {"error":"This task has no active browser."}; }
     try {
         grant=browser_worker.browser_call("subscribe",{"owner":jid(root),"id":id},5);
         return {"ticket":grant["ticket"],"url":os.environ["STACK_BROWSER_URL"].rstrip("/")+"/stream"};
     } except Exception { return {"error":"The browser stream is unavailable. Reconnect to try again."}; }
 }
+def _linkedin_browser_control(r: AgentRun, action: str, generation: int, controller: str, instance: str) -> dict[str, any] {
+    id=jid(r);
+    state=browser_worker.browser_call("control",{"owner":jid(root),"id":id,"action":action,
+        "generation":generation,"controller":controller,"instance":instance,"linkedin":True});
+    if action=="resume" { return {**_linkedin_execute(id),"control":state}; }
+    with _write_lock {
+        _agent_fresh();r=_owned_run(id) as AgentRun;
+        if action=="take" { r.status="paused";r.message="You have browser control"; }
+        elif action=="stop" { r.status="cancelled";r.message="Cancelled"; }
+        commit();return {**_run_view(r,True),"control":state};
+    }
+}
 def:priv agent_browser_control(id: str, action: str, generation: int = -1, controller: str = "", instance: str = "") -> dict[str, any] {
+    selected=_owned_run(id);
+    if selected is not None and selected.kind=="linkedin" { return _linkedin_browser_control(selected,action,generation,controller,instance); }
     _agent_access();r=_owned_run(id);
     if r is None or r.kind not in ["linkedin","autofill"] { return {"error":"This task has no browser."}; }
     if action=="stop" {
@@ -1035,6 +1037,15 @@ def:priv agent_browser_control(id: str, action: str, generation: int = -1, contr
     }
 }
 def:priv agent_browser(id: str, event: dict[str, any]) -> dict[str, any] {
+    selected=_owned_run(id);
+    if selected is not None and selected.kind=="linkedin" {
+        kind=event.get("type","snapshot");
+        if kind in ["take","resume","stop"] { return _linkedin_browser_control(selected,kind,event.get("generation",-1),event.get("controller",""),event.get("instance","")); }
+        identity={"owner":jid(root),"id":id,"linkedin":True};
+        result=browser_worker.browser_call("frame" if kind=="snapshot" else "handoff",{**identity,"event":event});
+        result["control"]=browser_worker.browser_call("control",{**identity,"action":"status"});
+        return result;
+    }
     r=_browser_run(id);
     if r is None { return {"error":"This task has no active browser session."}; }
     kind=event.get("type","snapshot");

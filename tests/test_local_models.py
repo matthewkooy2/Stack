@@ -12,7 +12,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from agents import contracts, provider, worker
+from agents import contracts, provider, worker, linkedin
 if os.environ.get('JAC_DB_URL'):
     raise RuntimeError('Local model verification requires the embedded disposable database; unset JAC_DB_URL first.')
 os.environ['JAC_DB_SCRATCH'] = '1'
@@ -169,6 +169,22 @@ class LocalModels(unittest.TestCase):
                     result=provider.generate('coach',{'session':{'answer':ANSWER}},self.configure(name,url))
                     self.assertEqual(result['artifact']['text'],text)
                     self.assertNotIn('format',requests[0][1]);self.assertNotIn('response_format',requests[0][1])
+
+    def test_linkedin_uses_raw_text_on_both_local_transports_without_a_context_gate(self):
+        text = 'Profile coaching. {Plain prose; no source quotations or JSON.}'
+        capture = {'url': 'https://www.linkedin.com/in/fixture/', 'captured_at': 123,
+                   'sections': {'intro': 'Candidate', 'about': 'A' * 9000}}
+        for name in ('ollama', 'lmstudio'):
+            value = envelope(name)
+            message = value['message'] if name == 'ollama' else value['choices'][0]['message']
+            message['content'] = text
+            with service(name, raw=json.dumps(value).encode()) as (url, requests):
+                result = linkedin.review(capture, {}, self.configure(name, url))
+            self.assertEqual(result['artifact']['summary'], text)
+            self.assertEqual(result['artifact']['captured_at'], 123)
+            self.assertNotIn('format', requests[0][1])
+            self.assertNotIn('response_format', requests[0][1])
+            self.assertEqual(json.loads(requests[0][1]['messages'][1]['content'])['profile'], capture['sections'])
 
     def test_worker_pauses_local_errors_and_configuration_changes(self):
         for name in ('ollama','lmstudio'):

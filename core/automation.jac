@@ -3,6 +3,7 @@ import os;
 import time;
 import json;
 import agents.worker as browser_worker;
+import agents.linkedin as linkedin;
 import secrets;
 import from uuid { uuid4, UUID }
 import from pathlib { Path }
@@ -136,7 +137,7 @@ def _run_view(r: AgentRun, detail: bool = False) -> dict[str, any] {
     out={"id":jid(r),"kind":r.kind,"target_id":r.target_id,"status":r.status,"step":steps[min(r.index,len(steps)-1)],"message":r.message,"created_at":r.created_at,"updated_at":r.updated_at,"cost_cents":r.cost_cents,"provider":r.provider,"subscription_calls":r.subscription_calls,"dismissed":r.dismissed,"workflow_version":r.workflow_version,"upgrade_pending":r.upgrade_pending,
         **present(r.kind,r.status,r.index,steps,r.context,r.next_at)};
     out["attention"]=_needs_attention(r) or r.status=="paused";
-    out["browser"]={"supported":r.kind in ["linkedin","autofill"],"available":r.status not in TERMINAL and r.kind in ["linkedin","autofill"] and r.index==0};
+    out["browser"]={"supported":r.kind in ["linkedin","autofill"],"available":r.index==0 and (r.kind=="linkedin" or (r.kind=="autofill" and r.status not in TERMINAL))};
     out["needs_resume_review"]=r.status=="needs_input" and out["step"]=="tailor" and not _tailor_ready(r.context);
     out["has_requests"]=len(r.requests)>0;
     out["retry_at"]=r.next_at if r.status=="queued" and r.attempts>0 else 0.0;
@@ -188,6 +189,8 @@ def:priv agent_save_policy(policy: dict[str, any]) -> dict[str, any] {
 def:priv agent_activity() -> dict[str, any] { _agent_access();return _agent_summary(); }
 def:priv agent_events() -> dict[str, any] { _agent_access();return {"events":[{"id":jid(e),**e.data} for e in [root --> [?:AgentEvent, -created_at]][:100]],"interviews":[{"id":jid(i),"application_id":i.application_id,"study_plan":i.study_plan,**i.event} for i in [root -->][?:AgentInterview]]}; }
 def:priv agent_run(id: str) -> dict[str, any] {
+    r=_owned_run(id);
+    if r is not None and r.kind=="linkedin" { return _run_view(r,True); }
     _agent_access();_upgrade_legacy_runs();r=_owned_run(id);return _run_view(r,True) if r is not None else {"error":"Run not found."};
 }
 def _trace(r: AgentRun, event: str, data: dict[str, any]) -> None {
@@ -239,6 +242,15 @@ def _agent_start(kind: str, target_id: str, context: dict[str, any], nonce: str 
     return _run_view(r,True);
 }
 def:priv agent_cancel(id: str) -> dict[str, any] {
+    selected=_owned_run(id);
+    if selected is not None and selected.kind=="linkedin" {
+        with _catalog_lock {
+            _agent_fresh();linkedin_run=_owned_run(id) as AgentRun;
+            linkedin_run.status="cancelled";linkedin_run.message="Cancelled";commit();out=_run_view(linkedin_run,True);
+        }
+        browser_worker.browser_call("control",{"owner":jid(root),"id":id,"action":"stop","linkedin":True});
+        return out;
+    }
     _agent_access();
     with _catalog_lock {
         _agent_fresh();r=_owned_run(id);
@@ -258,14 +270,62 @@ def:priv agent_cancel(id: str) -> dict[str, any] {
     }
     return out;
 }
-def:priv agent_respond(id: str, values: list[dict[str, any]] = [], reuse: bool = True) -> dict[str, any] {
+def _linkedin_execute(id: str) -> dict[str, any] {
+    # Execute in the authenticated request; LinkedIn has no worker ticket or lease.
+    with _catalog_lock {
+        _agent_fresh();r=_owned_run(id) as AgentRun;
+        owner=jid(root);context=r.context;selection=r.model_selection;
+        capture=r.artifacts.get("linkedin_scan");
+        r.status="running";r.message="Analyzing your profile";r.requests=[];r.updated_at=time.time();
+        commit();
+    }
+    try {
+        if capture is None {
+            result=browser_worker.browser_call("linkedin_scan",{"owner":owner,"id":id,"context":context,"linkedin":True});
+            if result.get("needs_input") or result.get("interrupted") or result.get("error") {
+                with _catalog_lock {
+                    _agent_fresh();r=_owned_run(id) as AgentRun;
+                    r.status="failed" if result.get("error") else "paused" if result.get("interrupted") else "needs_input";
+                    r.message=str(result.get("error",result.get("message","Browser paused")));r.requests=result.get("requests",[]);
+                    r.updated_at=time.time();commit();return _run_view(r,True);
+                }
+            }
+            capture=result["artifact"];
+            with _catalog_lock {
+                _agent_fresh();r=_owned_run(id) as AgentRun;
+                r.artifacts["linkedin_scan"]=capture;r.index=1;commit();
+            }
+        }
+        output=linkedin.review(capture,context,linkedin.model_config(selection))["artifact"];
+        with _catalog_lock {
+            _agent_fresh();r=_owned_run(id) as AgentRun;
+            r.artifacts["linkedin_review"]=output;r.index=2;r.status="completed";r.message="Profile analysis complete";
+            r.updated_at=time.time();commit();return _run_view(r,True);
+        }
+    } except Exception as exc {
+        with _catalog_lock {
+            _agent_fresh();r=_owned_run(id) as AgentRun;
+            r.status="failed";r.message=str(exc);r.updated_at=time.time();commit();return _run_view(r,True);
+        }
+    }
+}
+def:priv agent_respond(id: str, values: list[dict[str, any]] = [], reuse: bool = True, target_role: str | None = None) -> dict[str, any] {
+    r=_owned_run(id);
+    if r is not None and r.kind=="linkedin" {
+        if target_role is not None and target_role!="None" {
+            with _catalog_lock {
+                _agent_fresh();r=_owned_run(id) as AgentRun;
+                r.context["target_role"]=target_role;commit();
+            }
+        }
+        return _linkedin_execute(id);
+    }
     _agent_access();
     try { validated=validate_facts(values); } except ValueError as e { return {"error":str(e)}; }
     with _catalog_lock {
         _agent_fresh();r=_owned_run(id);
         if r is None or r.status not in ["needs_input","blocked"] { return {"error":"This run is not waiting for input."}; }
         if r.kind=="application" { return {"error":"The application assistant has been retired."}; }
-        if r.kind=="linkedin" and len(validated)>0 { return {"error":"Enter LinkedIn login details only in the browser handoff, never in task answers."}; }
         _continue_legacy(r);
         if r.status=="completed" { commit();return _run_view(r,True); }
         m=_agent_memory();keys=[f["key"] for f in validated];
@@ -292,10 +352,11 @@ def:pub agent_claim(token: str) -> dict[str, any] {
         for t in tickets {
             commit();_agent_owner(t.owner);r=_owned_run(t.run_id);
             if r is None { t.state="cancelled";continue; }
+            if r.kind=="linkedin" { t.state="cancelled";commit();continue; }
             if _pause_legacy(r) { commit();continue; }
             if r.status in TERMINAL or r.status in ["needs_input","blocked","uncertain","review","paused"] { t.state=r.status;continue; }
-            if r.lease_until>now { continue; }
             step=_steps(r)[r.index];
+            if r.lease_until>now { continue; }
             if r.status=="running" {
                 intents=[a for a in [root -->][?:AgentAction] if a.run_id==jid(r) and a.step==step and a.status=="intent"];
                 if intents { r.status="uncertain";r.message="The action may have completed. Verify its receipt before continuing.";t.state="uncertain";continue; }
@@ -326,7 +387,6 @@ def:pub agent_claim(token: str) -> dict[str, any] {
                         r.message="Review before Stack continues: "+r.review["title"];r.updated_at=now;t.state="review";continue;
                     }
                 }
-                if step=="linkedin_scan" { authorize(m.policy,"model");model_access(c,t.owner); }
                 if step in PAID {
                     authorize(m.policy,"model");model_access(c,t.owner);
                     if c["provider"] in CLI_PROVIDERS {
@@ -335,7 +395,7 @@ def:pub agent_claim(token: str) -> dict[str, any] {
                         if usage.actions>=c["local_cli_daily_limit"] { raise ValueError("The local subscription daily request limit is reached."); }
                         usage.actions+=1;commit();_agent_owner(t.owner);r.subscription_calls+=1;
                     } elif c["provider"] not in LOCAL_PROVIDERS {
-                        reservation=reserve_cents({**r.context,"linkedin_profile":r.artifacts.get("linkedin_scan",{})} if step=="linkedin_review" else r.context);
+                        reservation=reserve_cents(r.context);
                         commit();month=time.strftime("%Y-%m",time.gmtime());
                         global_usage=_usage("cost:"+month);user_usage=_usage("cost:"+month+":"+t.owner);
                         if global_usage.cents+reservation>c["monthly_cents"] or user_usage.cents+reservation>c["user_monthly_cents"] { raise ValueError("The monthly agent budget is exhausted."); }
@@ -551,6 +611,10 @@ def:priv agent_approve(id: str, step: str, review_hash: str, edits: dict[str, an
     }
 }
 def:priv agent_retry(id: str) -> dict[str, any] {
+    r=_owned_run(id);
+    if r is not None and r.kind=="linkedin" {
+        return _linkedin_execute(id);
+    }
     _agent_access();
     with _catalog_lock {
         _agent_fresh();r=_owned_run(id);

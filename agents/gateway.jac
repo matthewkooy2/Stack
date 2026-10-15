@@ -35,19 +35,29 @@ agent_register_push agent_remove_push agent_notification_status agent_admission 
     _rates = {};
 }
 
-def upstream(path: any, body: any, authorization: any = '') -> any {
+# Classification uses the authenticated account's task, never a client permission flag.
+def linkedin_request(function: str, path: str, body: bytes, authorization: str) -> bool {
+    if function in ['agent_linkedin_profile','agent_linkedin_start'] { return True; }
+    if path=='/browser/stream' or function in ['agent_run','agent_respond','agent_retry','agent_cancel','agent_browser','agent_browser_control','agent_browser_subscribe'] {
+        args=json.loads(body);
+        (status,raw)=upstream('/function/agent_run',json.dumps({'id':args.get('id','')}).encode(),authorization,timeout=None);
+        return json.loads(raw).get('data',{}).get('result',{}).get('kind')=='linkedin';
+    }
+    return False;
+}
+def upstream(path: any, body: any, authorization: any = '', timeout: any = 110) -> any {
     headers = {'Content-Type': 'application/json'};
     if authorization {
         headers['Authorization'] = authorization;
     }
     request = urllib.request.Request((BASE + path), data=body, headers=headers);
     try {
-        response = urllib.request.urlopen(request, timeout=110);
+        response = urllib.request.urlopen(request, timeout=timeout);
     } except urllib.error.HTTPError as exc {
         response = exc;
     }
     with response {
-        return (response.status, response.read((32 * 1024 * 1024)));
+        return (response.status, response.read() if timeout is None else response.read((32 * 1024 * 1024)));
     }
 }
 
@@ -154,31 +164,34 @@ class Handler(SimpleHTTPRequestHandler) {
         }
         try {
             length = int(self.headers.get('Content-Length', 0));
-            if not (0 < length <= 15000000) {
+            body = self.rfile.read(length);
+            authorization = self.headers.get('Authorization', '');
+            linkedin=linkedin_request(function,path,body,authorization);
+            if not linkedin and not (0 < length <= 15000000) {
                 self.send_error(413);
                 return;
             }
             address = self.headers.get('X-Forwarded-For', self.client_address[0]).split(
                 ','
             )[-1].strip();
-            with _rate_lock {
-                now = int((time.time() / 60));
-                for key in `list(_rates) {
-                    if (key[1] < now) {
-                        del _rates[key];
+            if not linkedin {
+                with _rate_lock {
+                    now = int((time.time() / 60));
+                    for key in `list(_rates) {
+                        if (key[1] < now) {
+                            del _rates[key];
+                        }
+                    }
+                    auth_limited=path in IDENTITY or (path in SSO and path!='/sso/google/poll');
+                    key = (address, now, 'sso-poll' if path=='/sso/google/poll' else auth_limited);
+                    _rates[key] = _rates.get(key, 0) + 1;
+                    if (_rates[key] > (20 if auth_limited else 300)) {
+                        self.send_error(429);
+                        return;
                     }
                 }
-                auth_limited=path in IDENTITY or (path in SSO and path!='/sso/google/poll');
-                key = (address, now, 'sso-poll' if path=='/sso/google/poll' else auth_limited);
-                _rates[key] = _rates.get(key, 0) + 1;
-                if (_rates[key] > (20 if auth_limited else 300)) {
-                    self.send_error(429);
-                    return;
-                }
             }
-            body = self.rfile.read(length);
-            authorization = self.headers.get('Authorization', '');
-            if ((function in PERSONAL and function!='agent_admission') or path == '/browser/stream' or (path=='/sso/google/begin' and authorization)) {
+            if not linkedin and ((function in PERSONAL and function!='agent_admission') or path == '/browser/stream' or (path=='/sso/google/begin' and authorization)) {
                 (status, admission) = upstream(
                     '/function/agent_admission', b'{}', authorization
                 );
@@ -196,8 +209,8 @@ class Handler(SimpleHTTPRequestHandler) {
                     return;
                 }
             }
-            if path == '/browser/stream' { relay(self,body,authorization,upstream);return; }
-            (status, raw) = upstream(path, body, authorization);
+            if path == '/browser/stream' { relay(self,body,authorization,upstream,linkedin=linkedin);return; }
+            (status, raw) = upstream(path, body, authorization, timeout=None if linkedin else 110);
             self.send_response(status);
             self.send_header('Content-Type', 'application/json');
             self.send_header('Content-Length', str(len(raw)));

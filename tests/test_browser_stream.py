@@ -37,6 +37,23 @@ class BrowserStreamTests(unittest.TestCase):
         self.assertEqual(headers['Content-Type'],'text/event-stream')
         with self.assertRaises(ValueError):serve(handler,self.host,ticket,duration=0)
 
+    def test_linkedin_stream_ignores_duration_and_packet_size_caps(self):
+        self.control.relax(self.key)
+        self.frames.put(self.key, {'image': 'x' * (4 * 1024 * 1024 + 1)})
+        sizes = [];timeouts = []
+        class Sink:
+            def write(_, raw):
+                sizes.append(len(raw))
+                self.control.transition(self.key, 'stop', -1)
+                self.control.end(self.key)
+            def flush(_): pass
+        handler = SimpleNamespace(connection=SimpleNamespace(settimeout=timeouts.append), wfile=Sink(),
+            send_response=lambda status: None, send_header=lambda k,v: None, end_headers=lambda: None)
+        serve(handler, self.host, self.control.grant(self.key), duration=0)
+        self.assertGreater(sizes[0], 4 * 1024 * 1024)
+        self.assertEqual(timeouts, [None])
+        self.assertFalse(self.control.watching(self.key))
+
     def test_revocation_ends_existing_stream_without_sending_cached_frame(self):
         packets=[]
         class Sink:
@@ -66,7 +83,7 @@ class BrowserStreamTests(unittest.TestCase):
         for thread in threads:thread.start()
         self.frames.put(self.key,dict(image='fixture-push',observed_at=1))
         gateway._rates.clear();calls=[]
-        def upstream(path,body,authorization=''):
+        def upstream(path,body,authorization='', **kwargs):
             calls.append((path,authorization,json.loads(body)))
             if path.endswith('agent_admission'):result={'admitted':authorization=='Bearer synthetic-account'}
             else:result={'ticket':self.control.grant(self.key),'url':'http://127.0.0.1:'+str(worker.server_port)+'/stream'}

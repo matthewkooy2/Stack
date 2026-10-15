@@ -53,7 +53,7 @@ class Fixture:
             assert body == b"{}"
             return {"data": {"result": {"status": "ok"}}}
         if ":8011" in url:
-            assert token == "x" * 32
+            assert url.endswith("/linkedin/health") and token is None
             return {"ready": True}
         return True
 

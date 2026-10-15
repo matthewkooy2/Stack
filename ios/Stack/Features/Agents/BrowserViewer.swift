@@ -26,6 +26,7 @@ final class RemoteBrowserModel {
 
     @ObservationIgnored private weak var store: AppStore?
     @ObservationIgnored private var id = ""
+    @ObservationIgnored private var linkedin = false
     @ObservationIgnored private var streamTask: Task<Void, Never>?
     @ObservationIgnored private var chain: Task<Void, Never>?
     @ObservationIgnored private var sequence: Double = 0
@@ -35,8 +36,9 @@ final class RemoteBrowserModel {
     @ObservationIgnored private var onChanged: (() -> Void)?
     let controllerID = "viewer-" + String(Int(Date().timeIntervalSince1970), radix: 36) + "-" + UUID().uuidString.prefix(8).lowercased()
 
-    var owned: Bool { control["mode"].string == "user" && control["controller"].string == controllerID }
-    var canInput: Bool { owned && connection == "connected" && age < 5000 && safe }
+    var owned: Bool { relaxed || (control["mode"].string == "user" && control["controller"].string == controllerID) }
+    var relaxed: Bool { linkedin || control["relaxed"].bool }
+    var canInput: Bool { relaxed || (owned && connection == "connected" && age < 5000 && safe) }
 
     var statusText: String {
         let mode = control["mode"].string
@@ -44,17 +46,18 @@ final class RemoteBrowserModel {
         if mode == "stopping" { return "Stopping task…" }
         if mode == "stopped" { return "Task stopped" }
         if connection == "unavailable" { return "Browser unavailable" }
-        if connection == "unconfirmed" || !safe { return "Input unconfirmed" }
+        if !relaxed && (connection == "unconfirmed" || !safe) { return "Input unconfirmed" }
         if connection != "connected" { return "Reconnecting…" }
-        if age >= 5000 { return "Waiting for a fresh view…" }
+        if !relaxed && age >= 5000 { return "Waiting for a fresh view…" }
         if owned { return "You have control" }
         if mode == "user" { return "Another viewer has control" }
         return "Agent has browser control"
     }
 
-    func open(store: AppStore, id: String, onChanged: @escaping () -> Void) {
+    func open(store: AppStore, id: String, linkedin: Bool = false, onChanged: @escaping () -> Void) {
         self.store = store
         self.id = id
+        self.linkedin = linkedin
         self.onChanged = onChanged
         connect()
     }
@@ -95,20 +98,21 @@ final class RemoteBrowserModel {
         streamTask = Task { [weak self] in
             var attempt = 0
             while !Task.isCancelled {
-                guard let self, store.sessionGeneration == generation else { return }
+                guard let self else { return }
+                guard self.relaxed || store.sessionGeneration == generation else { return }
                 self.connection = attempt == 0 ? "connecting" : "reconnecting"
                 attempt += 1
                 var request = URLRequest(url: origin.appendingPathComponent("browser/stream"))
                 request.httpMethod = "POST"
-                request.timeoutInterval = 35
+                request.timeoutInterval = self.relaxed ? .greatestFiniteMagnitude : 35
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 request.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
                 request.httpBody = try? JSONEncoder().encode(JSON.object(["id": .string(identifier)]))
                 var status = 0
                 do {
-                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
+                    let (bytes, response) = try await (self.relaxed ? store.api.linkedinSession : URLSession.shared).bytes(for: request)
                     status = (response as? HTTPURLResponse)?.statusCode ?? 0
-                    if status == 401 || status == 403 {
+                    if !self.relaxed && (status == 401 || status == 403) {
                         self.connection = "unavailable"
                         return
                     }
@@ -137,7 +141,7 @@ final class RemoteBrowserModel {
         if !event["control"].isNull {
             let incoming = event["control"]
             let known = control
-            if incoming["instance"] == known["instance"], incoming["generation"].double < known["generation"].double { return }
+            if !incoming["relaxed"].bool, incoming["instance"] == known["instance"], incoming["generation"].double < known["generation"].double { return }
             if incoming["instance"] != known["instance"] {
                 sequence = 0
                 frame = nil
@@ -165,7 +169,7 @@ final class RemoteBrowserModel {
         let next = Frame(image: image, width: value["width"].double, height: value["height"].double,
                          captureID: capture, sequence: value["sequence"].double,
                          progress: value["progress"].string, url: value["url"].string)
-        if let current = frame, capture == current.captureID, next.sequence < current.sequence { return }
+        if !relaxed, let current = frame, capture == current.captureID, next.sequence < current.sequence { return }
         frame = next
     }
 
@@ -179,7 +183,8 @@ final class RemoteBrowserModel {
         let previous = chain
         chain = Task { [weak self] in
             await previous?.value
-            guard let self, self.epoch == observed, self.safe else { return }
+            guard let self else { return }
+            guard self.relaxed || (self.epoch == observed && self.safe) else { return }
             self.sequence += 1
             var payload = input
             payload["generation"] = generation
@@ -187,8 +192,8 @@ final class RemoteBrowserModel {
             payload["controller"] = .string(self.controllerID)
             payload["sequence"] = .number(self.sequence)
             do {
-                let result = try await store.call("agent_browser", ["id": .string(self.id), "event": payload])
-                guard self.epoch == observed else { return }
+                let result = try await store.call("agent_browser", ["id": .string(self.id), "event": payload], linkedin: self.relaxed)
+                guard self.relaxed || self.epoch == observed else { return }
                 if !result["error"].string.isEmpty { throw APIError(message: result["error"].string) }
                 if !result["image"].string.isEmpty { self.setFrame(result) }
                 self.error = ""
@@ -201,14 +206,16 @@ final class RemoteBrowserModel {
         }
     }
 
+    func finishInput() async { await chain?.value }
+
     func act(_ name: String) async {
-        guard !busy, let store else { return }
+        guard relaxed || !busy, let store else { return }
         busy = true
         error = ""
         defer { busy = false }
         if name == "resume" {
             await chain?.value
-            guard safe else {
+            guard relaxed || safe else {
                 error = "Reconnect to confirm your last input before resuming."
                 return
             }
@@ -218,8 +225,8 @@ final class RemoteBrowserModel {
         do {
             let result = try await store.call("agent_browser_control", [
                 "id": .string(id), "action": .string(name), "generation": control["generation"],
-                "instance": control["instance"], "controller": .string(controllerID),
-            ])
+                "instance": .string(control["instance"].string), "controller": .string(controllerID),
+            ], linkedin: relaxed)
             if !result["error"].string.isEmpty { throw APIError(message: result["error"].string) }
             if !result["control"].isNull {
                 control = result["control"]
@@ -316,7 +323,7 @@ struct RemoteBrowserView: View {
             .padding(Spacing.page)
         }
         .task {
-            model.open(store: store, id: id, onChanged: onChanged)
+            model.open(store: store, id: id, linkedin: task["kind"].string == "linkedin", onChanged: onChanged)
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(500))
                 model.tick()
@@ -352,7 +359,7 @@ struct RemoteBrowserView: View {
                         .resizable()
                         .scaledToFit()
                         .frame(width: proxy.size.width, height: proxy.size.height)
-                        .opacity(model.connection == "connected" && model.age < 5000 ? 1 : 0.55)
+                        .opacity(model.relaxed || (model.connection == "connected" && model.age < 5000) ? 1 : 0.55)
                 } else {
                     Text("Opening the task’s browser…").font(Typeface.caption).foregroundStyle(Palette.muted).padding(24)
                 }
@@ -382,23 +389,23 @@ struct RemoteBrowserView: View {
 
     private var controls: some View {
         HStack(spacing: 10) {
-            if model.owned, model.safe {
-                StackButton(label: "Resume agent", disabled: model.busy || model.connection != "connected") {
+            if model.owned, model.relaxed || model.safe {
+                StackButton(label: "Resume agent", disabled: !model.relaxed && (model.busy || model.connection != "connected")) {
                     flush()
                     Task { await model.act("resume") }
                 }
             } else {
                 StackButton(label: "Take control",
-                            disabled: model.busy || model.connection != "connected" || !["agent", "user"].contains(model.control["mode"].string)) {
+                            disabled: !model.relaxed && (model.busy || model.connection != "connected" || !["agent", "user"].contains(model.control["mode"].string))) {
                     Task { await model.act("take") }
                 }
             }
             StackButton(label: "Stop task", kind: .secondary,
-                        disabled: model.busy || ["stopping", "stopped"].contains(model.control["mode"].string)) {
+                        disabled: !model.relaxed && (model.busy || ["stopping", "stopped"].contains(model.control["mode"].string))) {
                 Task { await model.act("stop") }
             }
-            if !["connected", "stopped"].contains(model.connection) || model.age >= 5000 {
-                StackButton(label: "Reconnect", kind: .secondary, disabled: model.busy) { model.reconnect() }
+            if !["connected", "stopped"].contains(model.connection) || (!model.relaxed && model.age >= 5000) {
+                StackButton(label: "Reconnect", kind: .secondary, disabled: !model.relaxed && model.busy) { model.reconnect() }
             }
         }
     }
@@ -415,7 +422,7 @@ struct RemoteBrowserView: View {
         let scale = min(size.width / frame.width, size.height / frame.height)
         let x = (location.x - (size.width - frame.width * scale) / 2) / scale
         let y = (location.y - (size.height - frame.height * scale) / 2) / scale
-        guard x >= 0, y >= 0, x < frame.width, y < frame.height else { return nil }
+        guard model.relaxed || (x >= 0 && y >= 0 && x < frame.width && y < frame.height) else { return nil }
         return CGPoint(x: x, y: y)
     }
 }

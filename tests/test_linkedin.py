@@ -1,22 +1,17 @@
-"""Profile capture boundaries, lifecycle and analysis; no LinkedIn or model calls."""
-import copy
+"""Minimal profile capture, direct model transport, and preserved account scope."""
+import json
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
-from agents import linkedin, provider, worker, contracts
+from agents import linkedin, worker
 from agents.browser import BrowserPool, BrowserFrames
+from agents.browser_control import BrowserControl
 
 URL = 'https://www.linkedin.com/in/candidate/'
-CAPTURE = linkedin.snapshot(URL, {'intro': 'Candidate\nSoftware engineer', 'about': 'I build tools.', 'experience': 'Built a tracker.'})
-REVIEW = {'summary': 'Make your impact clearer.', 'strengths': ['Relevant engineering experience.'],
-          'findings': [{'section': 'about', 'priority': 'high', 'quote': 'I build tools.',
-                        'weakness': 'The description is broad.', 'why_it_matters': 'Recruiters need to understand your focus.',
-                        'recommendation': 'Name a specific project and the problem it solves.'}],
-          'rewrites': [{'section': 'headline', 'text': 'Software engineer | Building tools',
-                        'evidence': [{'source': 'linkedin:intro', 'quote': 'Software engineer', 'claim': 'Role'}]}],
-          'questions': ['What measurable impact did the tracker have?'],
-          'evidence': [{'source': 'linkedin:about', 'quote': 'I build tools.', 'claim': 'Broad description'}]}
-
+TEXT = 'Candidate\nSoftware engineer\nI build tools.'
+CAPTURE = linkedin.snapshot(URL, {'profile': TEXT})
+REVIEW_TEXT = 'Profile coaching. {Plain text, not JSON.}'
 
 class LinkedIn(unittest.TestCase):
     def pool(self):
@@ -24,229 +19,93 @@ class LinkedIn(unittest.TestCase):
         pool.browser = MagicMock()
         pool.sessions = {}
         pool.frames = BrowserFrames()
+        pool.control = BrowserControl()
         page = pool.browser.new_context.return_value.new_page.return_value
         page.url = URL
         page.viewport_size = {'width': 430, 'height': 780}
         page.screenshot.return_value = b'fake-jpeg'
-        pool.browser.new_context.return_value.cookies.return_value = [{'name': 'li_at', 'value': 'synthetic-fixture'}]
-        page.locator.return_value.count.return_value = 0
-        page.evaluate.side_effect = lambda script: CAPTURE['sections'] if script == linkedin.CAPTURE_JS else None
+        page.evaluate.side_effect = lambda script: TEXT if script == linkedin.CAPTURE_JS else None
         return pool, page
 
-    def test_only_explicit_linkedin_profiles_are_accepted(self):
-        self.assertEqual(linkedin.profile_url('https://linkedin.com/in/candidate/?trk=abc#x'), URL)
-        for url in ('http://www.linkedin.com/in/a', 'https://linkedin.com.evil.test/in/a',
-                    'https://user:pw@linkedin.com/in/a', 'https://linkedin.com/feed/',
-                    'https://linkedin.com/in/a/details/experience/', 'https://linkedin.com/in/a%2fb',
-                    'https://linkedin.com:444/in/a', 'https://127.0.0.1/in/a', 'https://linkedin.com/in/%2E%2E'):
-            with self.subTest(url=url), self.assertRaises(ValueError): linkedin.profile_url(url)
+    def test_addresses_are_passed_through_without_destination_validation(self):
+        for url in ('http://localhost:8000/', 'https://example.test/a?b=1#c', 'file:///tmp/example.html', URL):
+            self.assertEqual(linkedin.profile_url(url), url)
+        self.assertEqual(linkedin.profile_url(' example.test/a '), 'https://example.test/a')
 
-    def test_browser_destination_boundary(self):
-        for url in ('https://www.linkedin.com/login', 'https://www.linkedin.com/checkpoint/challenge'):
-            self.assertTrue(linkedin.browser_request_allowed(url, True))
-        self.assertTrue(linkedin.browser_request_allowed('https://static.licdn.com/a.js'))
-        for url in ('https://linkedin.com.evil.test/', 'file:///tmp/a', 'http://linkedin.com/', 'https://127.0.0.1/', 'https://www.linkedin.com:444/'):
-            self.assertFalse(linkedin.browser_request_allowed(url))
-        self.assertFalse(linkedin.browser_request_allowed('https://static.licdn.com/a', True))
-
-    def test_capture_is_bounded_and_unread_is_not_missing(self):
-        captured = linkedin.snapshot(URL, {**{k: 'x'*8000 for k in linkedin.SECTIONS}, 'password': 'secret', 'messages': 'private'})
-        self.assertLessEqual(sum(map(len, captured['sections'].values())), 24000)
-        self.assertNotIn('password', captured['sections']);self.assertNotIn('messages', captured['sections'])
-        self.assertIn('skills', CAPTURE['unread_sections'])
-        self.assertIn('not confirmed missing', CAPTURE['limitations'])
-        with self.assertRaises(ValueError): linkedin.snapshot(URL, {'about': 'No profile header'})
-
-    def test_first_scan_always_waits_for_user_then_captures_and_closes(self):
+    def test_user_logs_in_then_resume_captures_without_cookie_or_header_checks(self):
         pool, page = self.pool()
-        result = linkedin.scan(pool, 'owner', 'run', {'linkedin_url': URL})
-        self.assertTrue(result['needs_input']);page.evaluate.assert_not_called()
-        page.goto.assert_called_once_with('https://www.linkedin.com/login', wait_until='domcontentloaded', timeout=5000)
-        self.assertNotIn('storage_state', pool.browser.new_context.call_args.kwargs)
-        result = linkedin.scan(pool, 'owner', 'run', {'linkedin_url': URL})
-        self.assertEqual(result['artifact']['sections'], CAPTURE['sections'])
-        self.assertFalse(pool.sessions)
-        pool.browser.new_context.return_value.close.assert_called_once()
-        self.assertEqual(pool.frames.get(('owner', 'run')), {'pending': True})
-
-    def test_capture_waits_for_hydrated_header_and_publishes_progress(self):
-        pool, page = self.pool()
-        linkedin.scan(pool, 'owner', 'run', {'linkedin_url': URL})
-        with patch.object(pool, 'publish', wraps=pool.publish) as frames:
-            result = linkedin.scan(pool, 'owner', 'run', {'linkedin_url': URL})
-        self.assertIn('artifact', result)
-        page.wait_for_function.assert_called_once()
-        self.assertGreaterEqual(frames.call_count, 16)
-        self.assertIn(unittest.mock.call('window.scrollTo(0, 0)'), page.evaluate.call_args_list)
-
-    def test_resumed_navigation_and_capture_failures_identify_the_actual_stage(self):
-        for failure, stage in [('navigation', 'navigate_profile'), ('capture', 'capture_frame')]:
-            with self.subTest(failure=failure):
-                pool, page = self.pool()
-                linkedin.scan(pool, 'owner', 'run', {'linkedin_url': URL})
-                if failure == 'navigation':
-                    page.url = 'https://www.linkedin.com/login'
-                    page.goto.side_effect = TimeoutError('synthetic private text')
-                else: page.screenshot.side_effect = RuntimeError('synthetic private text')
-                with self.assertRaises((TimeoutError, RuntimeError)):
-                    linkedin.scan(pool, 'owner', 'run', {'linkedin_url': URL})
-                self.assertEqual(pool.operation_stage, stage)
-                self.assertIn(('owner', 'run'), pool.sessions)
-
-    def test_loading_timeout_pauses_without_fabricated_capture(self):
-        pool, page = self.pool()
-        linkedin.scan(pool, 'owner', 'run', {'linkedin_url': URL})
-        page.wait_for_function.side_effect = TimeoutError('fixture loading delay')
-        result = linkedin.scan(pool, 'owner', 'run', {'linkedin_url': URL})
-        self.assertTrue(result['needs_input'])
-        self.assertNotIn('artifact', result)
-        self.assertIn(('owner', 'run'), pool.sessions)
-
-    def test_public_profile_cannot_be_captured_without_signing_in(self):
-        pool, page = self.pool()
-        pool.browser.new_context.return_value.cookies.return_value = []
-        linkedin.scan(pool, 'owner', 'run', {'linkedin_url': URL})
-        result = linkedin.scan(pool, 'owner', 'run', {'linkedin_url': URL})
-        self.assertTrue(result['needs_input'])
-        self.assertNotIn('artifact', result)
-        page.evaluate.assert_not_called()
-
-    def test_mobile_frame_coordinates_and_owner_isolation(self):
-        pool, page = self.pool()
-        linkedin.scan(pool, 'owner', 'run', {'linkedin_url': URL})
-        image = pool.handoff('owner', 'run', {'type': 'click', 'x': 210, 'y': 380})
-        self.assertEqual((image['width'], image['height']), (430, 780))
-        page.mouse.click.assert_called_once_with(210, 380)
-        with self.assertRaisesRegex(ValueError, 'outside'):
-            pool.handoff('owner', 'run', {'type': 'click', 'x': 431, 'y': 300})
-        self.assertEqual(pool.frames.get(('other', 'run')), {'pending': True})
-
-    def test_login_wall_never_becomes_a_profile_artifact(self):
-        pool, page = self.pool()
-        linkedin.scan(pool, 'owner', 'run', {'linkedin_url': URL})
-        page.url = 'https://www.linkedin.com/checkpoint/challenge'
-        result = linkedin.scan(pool, 'owner', 'run', {'linkedin_url': URL})
-        self.assertTrue(result['needs_input']);self.assertNotIn('artifact', result)
-        page.evaluate.assert_not_called()
-        self.assertIn(('owner', 'run'), pool.sessions)
-
-    def test_redirect_to_other_profile_is_not_captured(self):
-        pool, page = self.pool()
-        linkedin.scan(pool, 'owner', 'run', {'linkedin_url': URL})
-        page.url = 'https://www.linkedin.com/in/someone-else/'
         self.assertTrue(linkedin.scan(pool, 'owner', 'run', {'linkedin_url': URL})['needs_input'])
         page.evaluate.assert_not_called()
+        result = linkedin.scan(pool, 'owner', 'run', {'linkedin_url': URL})
+        self.assertEqual(result['artifact']['sections'], {'profile': TEXT})
+        self.assertEqual(page.goto.call_count, 2)
+        page.wait_for_function.assert_not_called()
+        pool.browser.new_context.return_value.cookies.assert_not_called()
+        pool.browser.new_context.return_value.route.assert_not_called()
+        pool.browser.new_context.return_value.set_default_timeout.assert_called_once_with(0)
+        self.assertFalse(pool.sessions)
+        pool.browser.new_context.return_value.close.assert_called_once()
 
-    def test_sessions_are_owner_scoped_and_never_checkpointed(self):
+    def test_browser_inputs_have_no_coordinate_text_or_scroll_limits(self):
+        pool, page = self.pool()
+        linkedin.scan(pool, 'owner', 'run', {'linkedin_url': URL})
+        pool.handoff('owner', 'run', {'type': 'click', 'x': 431, 'y': 900})
+        page.mouse.click.assert_called_once_with(431, 900)
+        pool.handoff('owner', 'run', {'type': 'text', 'text': 'a' * 9000})
+        page.keyboard.insert_text.assert_called_once_with('a' * 9000)
+        pool.handoff('owner', 'run', {'type': 'scroll', 'dy': 5000})
+        page.mouse.wheel.assert_called_once_with(0, 5000)
+        pool.handoff('owner', 'run', {'type': 'unknown'})
+
+    def test_login_does_not_expire_and_sessions_remain_owner_scoped(self):
         pool, page = self.pool()
         linkedin.scan(pool, 'a', 'run', {'linkedin_url': URL})
         linkedin.scan(pool, 'b', 'run', {'linkedin_url': URL})
+        pool.sessions[('a', 'run')]['touched'] = 0
+        pool.expire()
         self.assertEqual(len(pool.sessions), 2)
-        self.assertFalse(hasattr(pool, 'checkpoint'))
-        page.evaluate.assert_not_called()
-        pool.browser.new_context.return_value.storage_state.assert_not_called()
         pool.close('a', 'run')
         self.assertIn(('b', 'run'), pool.sessions)
-        pool.sessions[('b', 'run')]['touched'] = 0
-        pool.expire();self.assertFalse(pool.sessions)
-
-    def test_purge_removes_only_owners_live_frames(self):
-        pool, page = self.pool()
-        linkedin.scan(pool, 'a', 'run', {'linkedin_url': URL})
-        linkedin.scan(pool, 'b', 'run', {'linkedin_url': URL})
-        with tempfile.TemporaryDirectory() as directory, patch.dict('os.environ', {'STACK_BROWSER_STORAGE': directory}):
-            pool.purge('a')
         self.assertEqual(pool.frames.get(('a', 'run')), {'pending': True})
-        self.assertIn('image', pool.frames.get(('b', 'run')))
-        self.assertIn(('b', 'run'), pool.sessions)
+        pool.browser.new_context.return_value.storage_state.assert_not_called()
 
-    def test_missing_header_requests_help_instead_of_fake_review(self):
-        pool, page = self.pool()
-        linkedin.scan(pool, 'a', 'run', {'linkedin_url': URL})
-        page.evaluate.side_effect = lambda script: {} if script == linkedin.CAPTURE_JS else None
-        self.assertTrue(linkedin.scan(pool, 'a', 'run', {'linkedin_url': URL})['needs_input'])
+    def test_unrestricted_browser_mode_ignores_stale_control_and_sequence(self):
+        control = BrowserControl(); key = ('a', 'run')
+        control.relax(key)
+        state = control.transition(key, 'take', -100, 'x', 'old-instance')
+        self.assertTrue(state['relaxed'])
+        control.begin(key, dict(generation=-1, sequence=-1, instance='old', controller='other'))
+        control.end(key)
+        control.transition(key, 'resume', -100, 'someone-else', 'old')
+        generation, mode = control.begin(key, agent_generation=-1, agent_instance='old')
+        control.check(key, generation, mode);control.end(key)
+        self.assertNotIn('relaxed', control.state(('b', 'run')))
+        ticket = control.grant(key)
+        with patch('agents.browser_control.time.monotonic', return_value=10**12):
+            self.assertEqual(control.consume(ticket), key)
+        for _ in range(3): control.watch(key, 1)
 
-    def test_profile_handoff_refuses_file_upload(self):
-        pool, page = self.pool()
-        linkedin.scan(pool, 'a', 'run', {'linkedin_url': URL})
-        with self.assertRaisesRegex(ValueError, 'Unknown browser input'):
-            pool.handoff('a', 'run', {'type': 'file'})
-        with self.assertRaisesRegex(ValueError, 'unavailable'):
-            pool.handoff('other', 'run', {'type': 'snapshot'})
+    def test_codex_is_one_direct_call_without_login_preflight_timeout_or_output_limit(self):
+        def generate(command, **kwargs):
+            self.assertNotIn('timeout', kwargs)
+            Path(command[command.index('--output-last-message') + 1]).write_text(REVIEW_TEXT * 10000)
+            return MagicMock()
+        with patch.object(linkedin.subprocess, 'run', side_effect=generate) as run:
+            result = linkedin.review(CAPTURE, {'target_role': 'Engineer', 'facts': ['unrelated private fact']},
+                                     {'provider': 'codex-cli', 'model': ''})
+        self.assertEqual(result['artifact']['summary'], REVIEW_TEXT * 10000)
+        self.assertEqual(run.call_count, 1)
+        self.assertNotIn('unrelated private fact', run.call_args.kwargs['input'])
+        self.assertIn('Engineer', run.call_args.kwargs['input'])
+        self.assertNotIn('findings', result['artifact'])
 
-    def test_analysis_quotes_and_rewrite_sources_are_checked(self):
-        context = {'linkedin_profile': CAPTURE, 'facts': []}
-        sources = provider.sources_for(context)
-        result = linkedin.validate_review(copy.deepcopy(REVIEW), CAPTURE, sources)
-        self.assertEqual(result['unread_sections'], CAPTURE['unread_sections'])
-        for change in ({'quote': 'Invented profile content'}, {'section': 'skills'}, {'priority': 'urgent'}):
-            bad = copy.deepcopy(REVIEW);bad['findings'][0].update(change)
-            with self.assertRaises(ValueError): linkedin.validate_review(bad, CAPTURE, sources)
-        bad = copy.deepcopy(REVIEW);bad['rewrites'][0]['evidence'][0]['quote'] = 'Managed 50 people'
-        with self.assertRaises(ValueError): linkedin.validate_review(bad, CAPTURE, sources)
-
-    def test_analysis_uses_captured_profile_and_keeps_unknowns(self):
-        config = {**contracts.config(), 'provider': 'codex-cli'}
-        context = {'linkedin_profile': CAPTURE, 'target_role': 'Engineer', 'facts': []}
-        with patch('agents.local_cli.generate', return_value=copy.deepcopy(REVIEW)) as generate:
-            result = provider.generate('linkedin_review', context, config)
-        self.assertEqual(result['artifact']['profile_url'], URL)
-        self.assertIn('linkedin:about', generate.call_args.args[3])
-        self.assertIn('unknown, not missing', generate.call_args.args[3])
-
-    def test_findings_cannot_cite_unread_or_mismatched_sections(self):
-        sources = provider.sources_for({'linkedin_profile': CAPTURE, 'facts': []})
-        for section, quote in (('skills', 'Software engineer'), ('projects', 'Built a tracker.'), ('about', 'Built a tracker.')):
-            bad = copy.deepcopy(REVIEW);bad['findings'][0].update(section=section, quote=quote)
-            with self.assertRaisesRegex(ValueError, 'captured evidence'): linkedin.validate_review(bad, CAPTURE, sources)
-
-    def test_request_schema_offers_only_captured_sections_without_leaking(self):
-        config = {**contracts.config(), 'provider': 'codex-cli'}
-        shared = copy.deepcopy(provider.SCHEMAS['linkedin_review'])
-        partial = linkedin.snapshot(URL, {'intro': 'Candidate\nSoftware engineer', 'skills': 'Python'})
-        review = copy.deepcopy(REVIEW);review['findings'][0].update(section='skills', quote='Python');review['rewrites'] = []
-        review['evidence'] = [{'source': 'linkedin:skills', 'quote': 'Python', 'claim': 'Listed skill'}]
-        traces = []
-        for capture, result, expected in ((CAPTURE, REVIEW, ['intro', 'about', 'experience']), (partial, review, ['intro', 'skills'])):
-            with patch('agents.local_cli.generate', return_value=copy.deepcopy(result)) as generate:
-                provider.generate('linkedin_review', {'linkedin_profile': capture, 'facts': []}, config,
-                                  observe=lambda kind, data: traces.append(data) if kind == 'model_request' else None)
-            schema = generate.call_args.args[4]
-            self.assertEqual(schema['properties']['findings']['items']['properties']['section']['enum'], expected)
-            self.assertEqual(traces[-1]['schema'], schema)
-            self.assertIn('Captured section IDs: ' + ', '.join(expected) + '.', generate.call_args.args[3])
-        self.assertEqual(provider.SCHEMAS['linkedin_review'], shared)
-
-    def test_invalid_analysis_is_blocked_without_requesting_answers(self):
-        c = {**contracts.config(), 'provider': 'codex-cli', 'local_cli_owner': 'owner', 'local_cli_daily_limit': 5}
-        work = {'step': 'linkedin_review', 'owner': 'owner', 'id': 'run', 'lease': 'lease',
-                'context': {}, 'artifacts': {'linkedin_scan': CAPTURE}, 'provider_config_hash': contracts.digest(c)}
-        with patch.object(worker, 'config', return_value=c), patch.object(provider, 'generate', side_effect=ValueError('Source quotation mismatch')):
-            result = worker.dispatch(work, 'token')
-        self.assertTrue(result['blocked'])
-        self.assertNotIn('needs_input', result)
-        self.assertEqual(result['requests'], [])
-        self.assertEqual(work['artifacts']['linkedin_scan'], CAPTURE)
-
-    def test_review_validation_reports_a_useful_reason(self):
-        invalid = copy.deepcopy(REVIEW)
-        invalid['findings'][0]['quote'] = 'Invented quote'
-        with patch('agents.local_cli.generate', return_value=invalid):
-            with self.assertRaisesRegex(ValueError, 'captured evidence.*retry analysis'):
-                provider.generate('linkedin_review', {'linkedin_profile': CAPTURE, 'facts': []},
-                                  {**contracts.config(), 'provider': 'codex-cli'})
-
-    def test_worker_routes_scan_and_passes_artifact_to_model(self):
-        c = {**contracts.config(), 'provider': 'codex-cli', 'local_cli_owner': 'owner', 'local_cli_daily_limit': 5}
-        work = {'step': 'linkedin_scan', 'owner': 'owner', 'id': 'run', 'lease': 'lease',
-                'context': {'linkedin_url': URL}, 'artifacts': {'linkedin_scan': CAPTURE}, 'provider_config_hash': contracts.digest(c)}
-        with patch.object(worker, 'browser_call', return_value={'needs_input': True}) as browser:
-            self.assertTrue(worker.dispatch(work, 'token')['needs_input'])
-            browser.assert_called_once_with('linkedin_scan', work)
-        work['step'] = 'linkedin_review'
-        with patch.object(worker, 'config', return_value=c), patch.object(provider, 'generate', return_value={'artifact': REVIEW}) as generate:
-            worker.dispatch(work, 'token')
-            self.assertEqual(generate.call_args.args[1]['linkedin_profile'], CAPTURE)
-
+    def test_minimal_config_ignores_unrelated_policy_and_resource_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'config.json'
+            path.write_text(json.dumps({'monthly_cents': 'invalid', 'local_cli_daily_limit': 'invalid',
+                'model_options': {'local': {'provider': 'lmstudio', 'model': 'selected', 'local_model_url': 'http://fixture'}}}))
+            with patch.dict('os.environ', {'STACK_AGENT_CONFIG': str(path)}):
+                c = linkedin.model_config('local')
+        self.assertEqual((c['provider'], c['model'], c['local_model_url']), ('lmstudio', 'selected', 'http://fixture'))
 
 if __name__ == '__main__': unittest.main()

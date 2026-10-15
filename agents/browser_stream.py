@@ -5,11 +5,13 @@ import time
 import urllib.request
 
 
-def serve(handler, host, ticket, duration=25):
-    key = host.control.consume(ticket)
+def serve(handler, host, ticket, duration=25, key=None):
+    if key is None:
+        key = host.control.consume(ticket)
+    linkedin = host.control.state(key).get('relaxed', False)
     host.control.watch(key, 1)
     try:
-        handler.connection.settimeout(5)
+        handler.connection.settimeout(None if linkedin else 5)
         handler.send_response(200)
         handler.send_header('Content-Type', 'text/event-stream')
         handler.send_header('Cache-Control', 'no-store, no-transform')
@@ -17,7 +19,7 @@ def serve(handler, host, ticket, duration=25):
         handler.send_header('Connection', 'close')
         handler.end_headers()
         deadline, sent, last, last_heartbeat = time.monotonic() + duration, 0, None, 0
-        while time.monotonic() < deadline and sent < 4 * 1024 * 1024:
+        while linkedin or (time.monotonic() < deadline and sent < 4 * 1024 * 1024):
             state = host.control.state(key)
             frame = {} if state.get('revoked') or state['mode'] in ('stopping', 'stopped') else host.pool.frames.get(key)
             version = (frame.get('sequence'), state['generation'], state['mode'])
@@ -27,7 +29,7 @@ def serve(handler, host, ticket, duration=25):
                     'observed_at': frame.get('observed_at', frame.get('captured_at', 0)),
                     'frame': frame if version != last else None}
                 raw = ('data: ' + json.dumps(payload, separators=(',', ':')) + '\n\n').encode()
-                if sent + len(raw) > 4 * 1024 * 1024:
+                if not linkedin and sent + len(raw) > 4 * 1024 * 1024:
                     break
                 handler.wfile.write(raw)
                 handler.wfile.flush()
@@ -44,9 +46,9 @@ def serve(handler, host, ticket, duration=25):
         handler.close_connection = True
 
 
-def relay(handler, body, authorization, upstream):
+def relay(handler, body, authorization, upstream, linkedin=False):
     # Authorize every bounded connection through the existing authenticated account API.
-    status, raw = upstream('/function/agent_browser_subscribe', body, authorization)
+    status, raw = upstream('/function/agent_browser_subscribe', body, authorization, timeout=None if linkedin else 110)
     result = json.loads(raw).get('data', {}).get('result', {})
     if status != 200 or result.get('error') or not result.get('ticket'):
         handler.send_error(403, 'This browser viewer is unavailable.')
@@ -55,8 +57,9 @@ def relay(handler, body, authorization, upstream):
         data=json.dumps({'ticket': result['ticket']}).encode(),
         headers={'Content-Type': 'application/json'})
     # The URL is server configuration, never supplied by the app or a task.
-    with urllib.request.urlopen(request, timeout=30) as response:
-        handler.connection.settimeout(5)
+    linkedin = result.get('linkedin', False)
+    with urllib.request.urlopen(request, timeout=None if linkedin else 30) as response:
+        handler.connection.settimeout(None if linkedin else 5)
         handler.send_response(200)
         handler.send_header('Content-Type', 'text/event-stream')
         handler.send_header('Cache-Control', 'no-store, no-transform')
@@ -64,8 +67,8 @@ def relay(handler, body, authorization, upstream):
         handler.send_header('Connection', 'close')
         handler.end_headers()
         sent = 0
-        while sent < 4 * 1024 * 1024:
-            line = response.readline(1024 * 1024)
+        while linkedin or sent < 4 * 1024 * 1024:
+            line = response.readline() if linkedin else response.readline(1024 * 1024)
             if not line:
                 break
             handler.wfile.write(line)

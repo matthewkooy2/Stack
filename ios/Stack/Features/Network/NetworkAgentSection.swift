@@ -218,110 +218,28 @@ struct LinkedInProfileCard: View {
 
     @Environment(AppStore.self) private var store
     @State private var loading = true
-    @State private var working = false
     @State private var error = ""
-    @State private var settingsError = ""
     @State private var notice = ""
-    /// The `agent_settings` result: saved model choice and standing permissions. Null until loaded.
+    /// Model choice returned with the saved profile.
     @State private var settings: JSON = .null
 
-    private var feature: AgentFeature? { store.account.feature("linkedin") }
-    private var steps: [LinkedInSetup.Step] {
-        LinkedInSetup.steps(feature: feature, settings: settings, now: Date().timeIntervalSince1970)
-    }
-    private var step: LinkedInSetup.Step { steps.first ?? .profile }
-
-    /// One unmet requirement at a time; requirements the account already meets are never listed.
+    /// LinkedIn goes directly to profile entry; the selected model is used when analysis runs.
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            stepView
-            if steps.count > 1 {
-                Text("Then: " + steps.dropFirst().map(\.title).joined(separator: " · "))
-                    .font(Typeface.caption).foregroundStyle(Palette.muted)
-            }
+            profileStep
             MessageLine(text: notice, isError: false).fadeSwitch(!notice.isEmpty)
             MessageLine(text: error).fadeSwitch(!error.isEmpty)
-            if !settingsError.isEmpty {
-                MessageLine(text: "Couldn’t check your setup: \(settingsError)")
-                StackButton(label: "Retry setup check", icon: "refresh", kind: .secondary, disabled: working) {
-                    Task { await recheck() }
-                }
-            }
             ForEach(Array(store.account.runViews.filter { $0["target_id"].string == "self" && $0["kind"].string == "linkedin" }.prefix(3).enumerated()), id: \.offset) { _, run in
                 TaskRow(run: run) { onOpenTask(run["id"].string) }
             }
         }
         .task {
             await loadProfile()
-            await loadSettings()
         }
-        // A permission or model change made elsewhere (Rules, Account) arrives through the readiness checks.
-        .onChange(of: feature) { _, _ in Task { await loadSettings() } }
         .onChange(of: store.sessionGeneration) { _, _ in
             settings = .null
-            settingsError = ""
             error = ""
             notice = ""
-            Task { await loadSettings() }
-        }
-    }
-
-    // MARK: Steps
-
-    @ViewBuilder
-    private var stepView: some View {
-        switch step {
-        case .switchModel(let selection, let name, let reason):
-            screen("Use \(name) for reviews",
-                   "The model saved for this account isn’t available\(reason.isEmpty ? "." : ": \(reason)") \(name) is configured on this server. Sign-in and service availability are checked when a review starts.",
-                   note: "Captured profile text goes to \(name). Change this any time in Account → Agent model.") {
-                StackButton(label: "Use \(name)", disabled: working) { Task { await useModel(selection) } }
-            }
-        case .allowModel:
-            allowModelStep
-        case .modelUnavailable(let message):
-            screen("A model isn’t connected yet", message,
-                   note: "Only whoever runs this Stack server can connect one.") { operatorHelp }
-        case .browserUnavailable(let message):
-            screen("The browser worker isn’t available", message,
-                   note: "LinkedIn review reads your profile in an isolated browser. Only whoever runs this Stack server can turn it on.") {
-                operatorHelp
-            }
-        case .profile:
-            profileStep
-        }
-    }
-
-    @ViewBuilder
-    private var allowModelStep: some View {
-        let rearmed = LinkedInSetup.rearmedActions(settings["policy"], now: Date().timeIntervalSince1970)
-        if rearmed.isEmpty {
-            screen("Allow Model permission",
-                   "LinkedIn review sends the text Stack captures from your profile to your model. Review your current choices in Rules, turn on Model, and save when you’re ready.",
-                   note: "Rules shows the standing-permission expiry and keeps each permission under your control.") {
-                StackButton(label: "Open Rules") { onNavigate("rules") }
-            }
-        } else {
-            screen("Review your saved permissions",
-                   "Turning standing permissions on would also re-enable: \(rearmed.joined(separator: ", ")). Choose what to allow in Rules, then come back.",
-                   note: "Your saved permission choices are not changed here.") {
-                StackButton(label: "Open Rules") { onNavigate("rules") }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var operatorHelp: some View {
-        if !settings["account_id"].string.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Your account ID, for whoever sets this up").font(Typeface.caption).foregroundStyle(Palette.muted)
-                Text(settings["account_id"].string).font(Typeface.caption).foregroundStyle(Palette.text).textSelection(.enabled)
-            }
-        }
-        StackButton(label: "Check again", icon: "refresh", disabled: working) { Task { await recheck() } }
-        if let alternative = feature?.alternative, !alternative.isEmpty {
-            Text("Meanwhile: \(alternative)").font(Typeface.caption).foregroundStyle(Palette.text)
-            StackButton(label: "Open Resume", kind: .secondary) { onNavigate("resume") }
         }
     }
 
@@ -333,122 +251,40 @@ struct LinkedInProfileCard: View {
                 .font(Typeface.body).foregroundStyle(Palette.text)
             if loading {
                 Text("Loading your saved profile…").font(Typeface.caption).foregroundStyle(Palette.muted)
-            } else if !drafts.linkedInLoaded {
-                // Fields stay hidden until the saved profile has loaded, so a retry can never overwrite typing.
-                StackButton(label: "Retry loading profile", icon: "refresh", kind: .secondary) { Task { await loadProfile() } }
-            } else {
-                StackField(label: "Your LinkedIn profile URL", text: $drafts.linkedInURL, placeholder: "https://www.linkedin.com/in/your-name/",
-                           keyboard: .URL, autocapitalization: .never)
-                StackField(label: "Target role (optional)", text: $drafts.linkedInRole, placeholder: "e.g. Product designer")
             }
+            StackField(label: "Your LinkedIn profile URL", text: $drafts.linkedInURL, placeholder: "https://www.linkedin.com/in/your-name/",
+                           keyboard: .URL, autocapitalization: .never)
+            StackField(label: "Target role (optional)", text: $drafts.linkedInRole, placeholder: "e.g. Product designer")
             Text("You sign in to LinkedIn in the agent browser and watch it read your profile. Captured profile text goes to your \(model.isEmpty ? "configured model" : model); login details stay in that temporary session. You choose which edits to apply.")
                 .font(Typeface.caption).foregroundStyle(Palette.muted)
-            StackButton(label: "Review my LinkedIn profile", disabled: loading || working || !drafts.linkedInLoaded || drafts.linkedInURL.isBlank) {
+            StackButton(label: "Review my LinkedIn profile", disabled: false) {
                 Task { await start() }
             }
             if !loading, drafts.linkedInLoaded, !drafts.linkedInURL.isBlank,
                drafts.linkedInURL != drafts.linkedInSavedURL || drafts.linkedInRole != drafts.linkedInSavedRole {
-                StackButton(label: "Save profile details", kind: .secondary, disabled: working) { Task { await save() } }
+                StackButton(label: "Save profile details", kind: .secondary, disabled: false) { Task { await save() } }
             }
-            if let facts = feature?.checks.first(where: { $0.key == "facts" && !$0.ok }) {
-                // Optional, so it follows the action instead of gating it.
-                HStack {
-                    Text("Optional: \(facts.fix)").font(Typeface.caption).foregroundStyle(Palette.muted)
-                    Spacer(minLength: 8)
-                    Chip(label: "Open facts") { onNavigate("facts") }
-                }
-            }
+
         }
     }
 
-    private func screen<Actions: View>(_ title: String, _ detail: String, note: String = "",
-                                       @ViewBuilder actions: () -> Actions) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(title).font(Typeface.title).foregroundStyle(Palette.ink)
-            Text(detail).font(Typeface.body).foregroundStyle(Palette.text)
-            if !note.isEmpty { Text(note).font(Typeface.caption).foregroundStyle(Palette.muted) }
-            actions()
-        }
-    }
-
-    // MARK: Data
-
-    /// On failure the readiness checks in the account snapshot still decide the step.
-    private func loadSettings() async {
-        do {
-            let latest = try await store.call("agent_settings")
-            if !latest["error"].string.isEmpty {
-                settings = .null
-                settingsError = latest["error"].string
-                return
-            }
-            settings = latest
-            settingsError = ""
-        } catch {
-            guard !(error is CancellationError) else { return }
-            settings = .null
-            settingsError = error.localizedDescription
-        }
-    }
-
-    private func recheck() async {
-        guard !working else { return }
-        working = true
-        error = ""
-        notice = ""
-        defer { working = false }
-        await store.refresh()
-        await loadSettings()
-    }
-
-    private func useModel(_ selection: String) async {
-        guard !working else { return }
-        working = true
-        error = ""
-        notice = ""
-        defer { working = false }
-        let generation = store.sessionGeneration
-        do {
-            let latest = try await store.call("agent_save_model", ["selection": .string(selection)])
-            guard generation == store.sessionGeneration else { return }
-            if !latest["error"].string.isEmpty {
-                error = latest["error"].string
-                await loadSettings()
-                return
-            }
-            settings = latest
-            notice = "Using \(LinkedInSetup.modelName(selection))."
-            await store.refresh()
-        } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
-    }
-
-    /// Reopening keeps unsaved edits: the saved profile is read only until it has loaded once, and the
-    /// fields are not editable before then, so there is never a draft for a retry to overwrite.
     private func loadProfile() async {
-        guard !drafts.linkedInLoaded else { loading = false; return }
         loading = true
         error = ""
         defer { loading = false }
         do {
             let result = try await store.call("agent_linkedin_profile")
+            settings = ["model_selection": result["model_selection"]]
             drafts.linkedInSavedURL = result["url"].string
-            drafts.linkedInURL = drafts.linkedInSavedURL
-            drafts.linkedInRole = result["target_role"].string
-            drafts.linkedInSavedRole = drafts.linkedInRole
+            drafts.linkedInSavedRole = result["target_role"].string
             drafts.linkedInLoaded = true
         } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
     }
 
     private func save() async {
-        guard !working else { return }
-        guard let url = LinkedInSetup.profileURL(drafts.linkedInURL) else {
-            error = LinkedInSetup.profileURLMessage
-            return
-        }
-        working = true
+        let url = LinkedInSetup.profileURL(drafts.linkedInURL)
         error = ""
         notice = ""
-        defer { working = false }
         do {
             let result = try await store.call("agent_linkedin_profile",
                                               ["url": .string(url), "target_role": .string(drafts.linkedInRole)])
@@ -460,23 +296,14 @@ struct LinkedInProfileCard: View {
     }
 
     private func start() async {
-        guard !working else { return }
-        guard let url = LinkedInSetup.profileURL(drafts.linkedInURL) else {
-            error = LinkedInSetup.profileURLMessage
-            return
-        }
-        working = true
+        let url = LinkedInSetup.profileURL(drafts.linkedInURL)
         error = ""
-        defer { working = false }
         do {
             let result = try await store.call("agent_linkedin_start", ["url": .string(url), "target_role": .string(drafts.linkedInRole)])
             onOpenTask(result["id"].string)
         } catch {
             guard !(error is CancellationError) else { return }
-            // The server's reason stays on screen; the step above it updates if a requirement changed.
             self.error = error.localizedDescription
-            await store.refresh()
-            await loadSettings()
         }
     }
 }

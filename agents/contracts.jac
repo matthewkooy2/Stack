@@ -29,7 +29,7 @@ with entry {
         'code': ['execute'],
         'calendar': ['calendar']
     };
-    PAID = {'fit', 'tailor', 'draft', 'coach', 'profile', 'linkedin_review', 'story', 'interview_turn', 'interview_coach'};
+    PAID = {'fit', 'tailor', 'draft', 'coach', 'profile', 'story', 'interview_turn', 'interview_coach'};
     EXTERNAL = {
         'send': 'send_email',
         'calendar': 'calendar_write'

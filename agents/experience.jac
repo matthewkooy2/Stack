@@ -457,27 +457,7 @@ def feature_status(facts: dict[(str, any)]) -> list[dict[(str, any)]] {
             check('applications','A saved real job',facts.get('applications',0)>0,'Save a real job on Jobs first.','jobs'),
             check('facts','Confirmed saved answers',facts.get('verified_facts',0)>0,'Save confirmed answers in Agents > Facts.','facts',optional=True)
         ],
-        'linkedin': (
-            model_checks
-            + [
-                check(
-                    'browser',
-                    'Browser worker available',
-                    facts.get('browser'),
-                    'The operator must configure the isolated browser worker.',
-                    '',
-                    user=False
-                ),
-                check(
-                    'facts',
-                    'Confirmed facts for stronger rewrites',
-                    (facts.get('verified_facts', 0) > 0),
-                    'Confirm resume facts to support your suggestions.',
-                    'facts',
-                    optional=True
-                )
-            ]
-        ),
+        'linkedin': [],
 
         'networking': (
             model_checks

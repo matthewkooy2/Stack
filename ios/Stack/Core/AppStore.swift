@@ -278,7 +278,9 @@ final class AppStore {
     /// A personal API call that is dropped (throws `CancellationError`) when the account changed while
     /// it ran, and signs out on an expired session.
     @discardableResult
-    func call(_ name: String, _ args: JSON = [:], timeout: TimeInterval = 25) async throws -> JSON {
+    func call(_ name: String, _ args: JSON = [:], timeout: TimeInterval = 25, linkedin: Bool = false) async throws -> JSON {
+        let minimal = linkedin || api.isLinkedInCall(name, args) || account.runViews.contains { $0["id"] == args["id"] && $0["kind"].string == "linkedin" }
+        if minimal { return try await api.call(name, args, timeout: timeout, linkedin: true) }
         guard phase == .ready || phase == .admission else { throw CancellationError() }
         let generation = sessionGeneration
         do {

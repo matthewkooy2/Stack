@@ -181,6 +181,22 @@ class BrowserPool {
     }
     def handoff(self: BrowserPool, owner: any, run: any, event: any) -> any {
         value = self.sessions.get((owner, run));
+        control=getattr(self,'control',None);
+        if control and control.state((owner,run)).get('relaxed') and not value { return self.frames.get((owner,run)); }
+        if value and value.get('adapter')=='linkedin' {
+            page=value['page'];kind=event.get('type','snapshot');
+            if kind=='click' { page.mouse.click(event['x'],event['y']); }
+            elif kind=='text' { page.keyboard.insert_text(str(event.get('text',''))); }
+            elif kind=='key' {
+                handled=False;
+                if event['key']=='Enter' {
+                    for frame in page.frames { if frame.evaluate(ENTER_FORM_JS) { handled=True;break; } }
+                }
+                if not handled { page.keyboard.press('Shift+Tab' if event['key']=='Tab' and event.get('shift',False) else HANDOFF_KEYS[event['key']]); }
+            } elif kind=='scroll' { page.mouse.wheel(0,event['dy']); }
+            elif kind in ['reload','login'] { page.goto(value['url'] if kind=='reload' else 'https://www.linkedin.com/login',wait_until='domcontentloaded'); }
+            value['touched']=time.time();return self.publish(owner,run);
+        }
         if not value {
             raise ValueError('Browser session unavailable. Resume the run to open it.');
         }
@@ -196,16 +212,6 @@ class BrowserPool {
             }
             self.guard();
             page.mouse.click(x, y);
-        } elif ((kind == 'reload') and (value.get('adapter') == 'linkedin')) {
-            self.guard();
-            page.goto(value['url'], wait_until='domcontentloaded', timeout=5000);
-        } elif ((kind == 'login') and (value.get('adapter') == 'linkedin')) {
-            self.guard();
-            page.goto(
-                'https://www.linkedin.com/login',
-                wait_until='domcontentloaded',
-                timeout=5000
-            );
         } elif kind == 'upload_resume' {
             import from agents.autofill { upload_resume }
             return upload_resume(self,owner,run,event);
@@ -241,6 +247,7 @@ class BrowserPool {
     def expire(self: BrowserPool) -> any {
         control: any = getattr(self,'control',None);
         for (key, value) in `list(self.sessions.items()) {
+            if value.get('adapter')=='linkedin' { continue; }
             if (value['touched'] < (time.time() - 3600)) and not (control and control.watching(key)) {
                 self.close(*key);
             }

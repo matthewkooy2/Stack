@@ -125,9 +125,6 @@ def main(probe=False):
     existing=subprocess.run(['/usr/bin/docker','container','inspect',name],capture_output=True)
     assert existing.returncode!=0,'A same-name container already exists; inspect before continuing'
     env=controlled_environment()
-    if not probe:
-        assert len(env.get('STACK_BROWSER_TOKEN',''))>=32
-        assert env.get('STACK_BROWSER_SESSION_KEY')
     attempt=uuid.uuid4().hex
     try:
         run(container_parameters(name,network['probeAddress'] if probe else network['browserAddress'],image,network,probe,attempt),role='gated_container_start',env=env)

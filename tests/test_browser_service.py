@@ -4,6 +4,10 @@ import unittest
 import json
 import os
 from io import BytesIO
+from http.server import ThreadingHTTPServer
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError
+from agents import browser_service
 from unittest.mock import patch
 from agents import worker
 from agents.browser_control import browser_diagnostic, sanitize_browser_diagnostic, BROWSER_ERROR_MESSAGE
@@ -14,6 +18,7 @@ from agents.browser_service import BrowserHost
 class Pool:
     def __init__(self):
         self.thread = threading.get_ident()
+        self.browser = type("Browser", (), {"is_connected": lambda _: True})()
         self.frames = BrowserFrames()
         self.sessions = {('owner', 'run'): {}}
         self.started = threading.Event()
@@ -38,6 +43,59 @@ class Pool:
 
 
 class BrowserService(unittest.TestCase):
+    def test_private_linkedin_routes_work_without_token_but_other_routes_still_require_auth(self):
+        host = BrowserHost(Pool)
+        other_host = BrowserHost(Pool)
+        busy = threading.Thread(target=lambda: other_host.dispatch(
+            "/browser_autofill", {"owner": "owner", "id": "run", "context": {}}))
+        busy.start(); self.assertTrue(other_host.pool.started.wait(2))
+        ready = threading.Event()
+        servers = []
+        class FixtureServer(ThreadingHTTPServer):
+            def __init__(self, address, handler):
+                super().__init__(('127.0.0.1', 0), handler)
+                servers.append(self)
+                ready.set()
+        with patch.dict(os.environ, {'STACK_BROWSER_TOKEN': ''}), \
+             patch.object(browser_service, 'BrowserHost', side_effect=[other_host, host]), \
+             patch.object(browser_service, 'ThreadingHTTPServer', FixtureServer), \
+             patch.object(host, 'tick'), patch.object(host, 'expire'), \
+             patch.object(other_host, 'tick'), patch.object(other_host, 'expire'):
+            thread = threading.Thread(target=browser_service.main, daemon=True)
+            thread.start()
+            try:
+                self.assertTrue(ready.wait(3), 'Browser service did not start without a token')
+                base = 'http://127.0.0.1:' + str(servers[0].server_port)
+                def post(path, data):
+                    with urlopen(Request(base + path, data=json.dumps(data).encode(),
+                                         headers={'Content-Type': 'application/json'}), timeout=3) as response:
+                        return json.load(response)
+                work = {'owner': 'owner', 'id': 'run'}
+                self.assertEqual(post('/linkedin/frame', work)['image'], 'idle-frame')
+                state = post('/linkedin/control', dict(work, action='take', generation=-100,
+                                                       controller='any', instance='old'))
+                self.assertTrue(state['relaxed'])
+                ticket = post('/linkedin/subscribe', work)['ticket']
+                self.assertEqual(json.loads(ticket), ['owner', 'run'])
+                stream = Request(base + '/linkedin/stream', data=json.dumps({'ticket': ticket}).encode())
+                with urlopen(stream, timeout=3) as response:
+                    self.assertEqual(response.status, 200)
+                    self.assertTrue(json.loads(response.readline().decode()[6:])['control']['relaxed'])
+                    host.control.transition(('owner', 'run'), 'stop', -100); host.control.end(('owner', 'run'))
+                with urlopen(base + '/linkedin/health', timeout=3) as response:
+                    self.assertTrue(json.load(response)['ready'])
+                with self.assertRaises(HTTPError) as denied:
+                    post('/frame', dict(work, linkedin=True))
+                self.assertEqual(denied.exception.code, 403)
+                with self.assertRaises(HTTPError) as denied:
+                    post('/linkedin/purge', work)
+                self.assertEqual(denied.exception.code, 404)
+            finally:
+                if servers:
+                    servers[0].shutdown(); servers[0].server_close()
+                thread.join(3); host.executor.shutdown()
+                other_host.pool.release.set(); busy.join(3); other_host.executor.shutdown()
+
     def test_autofill_dispatch_uses_same_guarded_executor_and_owner_scope(self):
         host=BrowserHost(Pool)
         try:
@@ -73,19 +131,28 @@ class BrowserService(unittest.TestCase):
 
     def test_worker_keeps_sanitized_diagnostic_instead_of_losing_it_as_value_error(self):
         remote=dict(error='raw exception containing private profile',browser_diagnostic=dict(
-            version=1,operation='linkedin_scan',stage='navigate_profile',error_type='TimeoutError',duration_ms=5000,
+            version=1,operation='browser_autofill',stage='navigate_profile',error_type='TimeoutError',duration_ms=5000,
             url='https://private.invalid',cookie='secret',traceback='private profile'))
         with patch.dict(os.environ,{'STACK_BROWSER_URL':'http://browser.invalid','STACK_BROWSER_TOKEN':'synthetic'}), \
              patch('urllib.request.urlopen',return_value=BytesIO(json.dumps(remote).encode())):
-            result=worker.browser_call('linkedin_scan',dict(owner='owner',id='run',context={}))
+            result=worker.browser_call('browser_autofill',dict(owner='owner',id='run',context={}))
         self.assertEqual(result['error'],BROWSER_ERROR_MESSAGE)
         self.assertEqual(result['browser_diagnostic']['stage'],'navigate_profile')
         self.assertNotIn('private',json.dumps(result));self.assertNotIn('secret',json.dumps(result))
 
+    def test_linkedin_transport_has_no_result_validation_or_timeout(self):
+        remote = {'artifact': 'raw-result'}
+        with patch.dict(os.environ, {'STACK_BROWSER_URL': 'http://browser.invalid', 'STACK_BROWSER_TOKEN': ''}), \
+             patch('urllib.request.urlopen', return_value=BytesIO(json.dumps(remote).encode())) as call:
+            self.assertEqual(worker.browser_call('linkedin_scan', {'owner': 'owner', 'id': 'run'}), remote)
+        self.assertNotIn('timeout', call.call_args.kwargs)
+        self.assertEqual(call.call_args.args[0].full_url, 'http://browser.invalid/linkedin/linkedin_scan')
+        self.assertNotIn('Authorization', call.call_args.args[0].headers)
+
     def test_transport_failure_never_retains_raw_exception_text(self):
         with patch.dict(os.environ,{'STACK_BROWSER_URL':'http://browser.invalid','STACK_BROWSER_TOKEN':'synthetic'}), \
              patch('urllib.request.urlopen',side_effect=TimeoutError('private URL and Cookie=secret')):
-            result=worker.browser_call('linkedin_scan',dict(owner='owner',id='run',context={}))
+            result=worker.browser_call('browser_autofill',dict(owner='owner',id='run',context={}))
         self.assertEqual(result['browser_diagnostic']['stage'],'rpc_transport')
         self.assertEqual(result['browser_diagnostic']['error_type'],'TimeoutError')
         self.assertNotIn('secret',json.dumps(result))
@@ -157,7 +224,7 @@ class BrowserHandoffService(unittest.TestCase):
                 state = host.dispatch('/control', dict(owner='owner', id='run', action='resume', generation=1, controller='viewer-synthetic-test'))
                 self.assertEqual(state['mode'], 'agent')
                 stale = host.dispatch('/linkedin_scan', dict(owner='owner', id='run', context={}))
-                self.assertTrue(stale['interrupted'], 'old agent generation must not run after resume')
+                self.assertEqual(stale, {'artifact': 'capture'}, 'LinkedIn ignores stale generations')
         finally:
             host.pool.release.set();thread.join(3);host.executor.shutdown()
 

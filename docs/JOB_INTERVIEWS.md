@@ -53,9 +53,9 @@ captured when each task starts. Configure installed local models using
 [model providers](AGENT_PROVIDERS.md). Settings/secrets stay server/worker-side.
 No model download, deployment configuration change or provider fallback is made
 by these endpoints. Unavailable or stale output leaves reviewed answers saved
-and exposes retry or typed continuation. Existing Model permission and admission
-gates apply; local inference has zero API spend and Codex uses its daily request
-limit. Nonempty coaching output remains raw plain text.
+and exposes retry or typed continuation. Admission still applies; model use has
+no separate Stack permission or request cap. Local inference has zero API spend.
+Nonempty coaching output remains raw plain text.
 
 The interview schema uses only constraints supported by the shared local validator;
 explicit checks enforce nonempty text, length and list bounds at both model and

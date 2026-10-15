@@ -7,7 +7,6 @@ import re;
 import time;
 import from pathlib { Path }
 import from urllib.parse { urlsplit }
-import from uuid { UUID }
 with entry {
     VERSION = 1;
     CLI_PROVIDERS = {'codex-cli', 'claude-cli'};
@@ -72,8 +71,6 @@ def config(selection: str = "") -> dict[(str, any)] {
     }
     return {
         'provider': str(raw.get('provider', 'openai')),
-        'local_cli_owner': str(raw.get('local_cli_owner', '')),
-        'local_cli_daily_limit': int(raw.get('local_cli_daily_limit', 0)),
         'monthly_cents': int(raw.get('monthly_cents', 0)),
         'user_monthly_cents': int(raw.get('user_monthly_cents', 0)),
         'model': str(raw.get('model', '')),
@@ -91,50 +88,38 @@ def config(selection: str = "") -> dict[(str, any)] {
         'sandbox_available': (raw.get('sandbox_available') is True)
     };
 }
-def account_key(value: str) -> str {
-    # Jac jid() uses UUID hex; operator tools may save the hyphenated form.
-    try { return UUID(value).hex; }
-    except ValueError { return value; }
-}
 def model_access(c: dict[(str, any)], owner: str) {
     if (c['provider'] not in PROVIDERS) {
         raise ValueError('Choose a supported model provider.');
     }
-    if (c['provider'] in CLI_PROVIDERS) {
-        if (not owner or (account_key(c['local_cli_owner']) != account_key(owner))) {
+    if (c['provider'] not in CLI_PROVIDERS) {
+        if (c['provider'] in LOCAL_PROVIDERS) {
+            import from agents.local_model { origin }
+            origin(c['provider'], c.get('local_model_url', ''));
+            if not c['model'].strip() { raise ValueError('Choose an installed local model.'); }
+        } elif (
+            not all(
+                (c[k] > 0)
+                for k in (
+                    'monthly_cents',
+                    'user_monthly_cents',
+                    'input_cents_per_million',
+                    'output_cents_per_million'
+                )
+            )
+            or not c['model']
+        ) {
             raise ValueError(
-                'The operator must connect this Stack account to the local CLI subscription.'
+                'Paid agents are disabled. The operator must configure a model, prices, and monthly limits.'
             );
         }
-        if not (1 <= c['local_cli_daily_limit'] <= 100) {
-            raise ValueError('Set a local CLI daily request limit between 1 and 100.');
-        }
-    } elif (c['provider'] in LOCAL_PROVIDERS) {
-        import from agents.local_model { origin }
-        origin(c['provider'], c.get('local_model_url', ''));
-        if not c['model'].strip() { raise ValueError('Choose an installed local model.'); }
-    } elif (
-        not all(
-            (c[k] > 0)
-            for k in (
-                'monthly_cents',
-                'user_monthly_cents',
-                'input_cents_per_million',
-                'output_cents_per_million'
-            )
-        )
-        or not c['model']
-    ) {
-        raise ValueError(
-            'Paid agents are disabled. The operator must configure a model, prices, and monthly limits.'
-        );
     }
 }
 def model_status(owner: str, selection: str = "") -> dict[(str, any)] {
     c = config(selection);
     try {
         model_access(c, owner);
-        message = 'Local subscription selected; CLI sign-in and provider limits still apply.'
+        message = 'Local subscription selected; the server CLI sign-in is checked when a task runs.'
             if (c['provider'] in CLI_PROVIDERS)
             else 'Local inference configured; the installed model and service are checked when a task runs.'
             if (c['provider'] in LOCAL_PROVIDERS)
@@ -148,20 +133,13 @@ def model_status(owner: str, selection: str = "") -> dict[(str, any)] {
         'model': c['model'],
         'configured': ready,
         'billing': 'subscription' if (c['provider'] in CLI_PROVIDERS) else 'local' if (c['provider'] in LOCAL_PROVIDERS) else 'api',
-        'message': message,
-        'daily_limit': c['local_cli_daily_limit']
-            if (c['provider'] in CLI_PROVIDERS)
-            else 0
+        'message': message
     };
 }
 def reserve_cents(context: dict[(str, any)]) -> int {
     c = config();
     if (c['provider'] in LOCAL_PROVIDERS) { return 0; }
-    if (c['provider'] in CLI_PROVIDERS) {
-        raise ValueError(
-            'Local subscriptions use request limits, not API spend reservations.'
-        );
-    }
+    if (c['provider'] in CLI_PROVIDERS) { return 0; }
     if (
         not all(
             (c[k] > 0)
@@ -206,12 +184,8 @@ def default_policy() -> dict[(str, any)] {
     };
 }
 def validate_policy(value: dict[(str, any)]) -> dict[(str, any)] {
-    allowed = {
-        'model',
-        'send_email',
-        'calendar_write',
-        'gmail_read'
-    };
+    allowed = {'send_email', 'calendar_write', 'gmail_read'};
+    accepted = allowed | {'model'};
     p = default_policy();
     p.update(
         {
@@ -223,7 +197,7 @@ def validate_policy(value: dict[(str, any)]) -> dict[(str, any)] {
     if (
         not isinstance(p['enabled'], bool)
         or not isinstance(p['actions'], `list)
-        or not (`set(p['actions']) <= allowed)
+        or not (`set(p['actions']) <= accepted)
     ) {
         raise ValueError('Choose valid agent permissions.');
     }
@@ -243,12 +217,16 @@ def validate_policy(value: dict[(str, any)]) -> dict[(str, any)] {
     if (
         not isinstance(p['daily_limits'], `dict)
         or `any(
-            ((k not in allowed) or (`type(v) is not int) or (v < 1) or (v > 100))
+            ((k not in accepted) or (`type(v) is not int) or (v < 1) or (v > 100))
             for (k, v) in p['daily_limits'].items()
         )
     ) {
         raise ValueError('Daily limits must be between 1 and 100.');
     }
+    # Model use is no longer a standing permission. Silently migrate saved policies
+    # and older clients while preserving outbound-action controls.
+    p['actions'] = [a for a in p['actions'] if a != 'model'];
+    p['daily_limits'] = {k: v for (k, v) in p['daily_limits'].items() if k != 'model'};
     if (
         (`type(p['expires_at']) not in (int, float))
         or not math.isfinite(p['expires_at'])
@@ -282,6 +260,9 @@ def authorize(
     destination: str = '',
     now: (float | None) = None
 ) -> None {
+    # Keep older callers working while making model use independent of standing
+    # permissions. Only outbound actions are authorized here now.
+    if action == 'model' { return; }
     if (
         not policy.get('enabled')
         or (policy.get('expires_at', 0) <= (now or time.time()))

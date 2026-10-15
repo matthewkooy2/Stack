@@ -1,13 +1,11 @@
 import Foundation
 
 /// What LinkedIn review still needs. Built from the server's readiness checks plus the account's saved model
-/// choice and standing permissions, so anything already configured is never shown again. Pure, so it is unit tested.
+/// choice, so anything already configured is never shown again. Pure, so it is unit tested.
 enum LinkedInSetup {
     enum Step: Equatable {
         /// The saved model choice isn't configured for this account, but another choice is configured here.
         case switchModel(selection: String, name: String, reason: String)
-        /// Standing permission for model use is missing or expired.
-        case allowModel
         /// Only the server's operator can connect a provider.
         case modelUnavailable(message: String)
         /// Only the server's operator can configure the browser worker.
@@ -17,7 +15,6 @@ enum LinkedInSetup {
         var title: String {
             switch self {
             case .switchModel: return "Choose a model"
-            case .allowModel: return "Allow model use"
             case .modelUnavailable: return "Connect a model"
             case .browserUnavailable: return "Browser worker"
             case .profile: return "Add your profile link"
@@ -30,10 +27,9 @@ enum LinkedInSetup {
     /// Every unmet required step in the order to do them, always ending with `.profile`. Steps a person can finish
     /// come before steps only the operator can finish. `settings` is the `agent_settings` result, or null when it
     /// has not loaded, in which case the readiness checks decide.
-    static func steps(feature: AgentFeature?, settings: JSON, now: TimeInterval) -> [Step] {
+    static func steps(feature: AgentFeature?, settings: JSON) -> [Step] {
         guard let feature else { return [.profile] }
         func unmet(_ key: String) -> FeatureCheck? { feature.checks.first { $0.key == key && !$0.ok } }
-        let loaded = !settings.object.isEmpty
         var steps: [Step] = []
 
         // The saved selection's own status is fresher than the bootstrap snapshot the checks came from.
@@ -50,8 +46,6 @@ enum LinkedInSetup {
             let selection = alternative["selection"].string
             steps.append(.switchModel(selection: selection, name: modelName(selection), reason: modelProblem ?? ""))
         }
-        let permitted = loaded ? permissionGranted(settings["policy"], now: now) : (unmet("rules") == nil && unmet("perm:model") == nil)
-        if !permitted { steps.append(.allowModel) }
         if let modelProblem, alternative == nil {
             steps.append(.modelUnavailable(message: modelProblem.isEmpty ? "No model provider is connected on this server." : modelProblem))
         }
@@ -75,20 +69,6 @@ enum LinkedInSetup {
     static func configuredAlternative(_ settings: JSON) -> JSON? {
         let current = settings["model_selection"].string
         return settings["model_options"].array.first { $0["configured"].bool && $0["selection"].string != current }
-    }
-
-    static func permissionGranted(_ policy: JSON, now: TimeInterval) -> Bool {
-        policy["enabled"].bool && policy["expires_at"].double > now && policy["actions"].strings.contains("model")
-    }
-
-    /// Saved permissions that would switch back on if standing permissions were turned on again. Empty when the
-    /// permissions are already on, so allowing model use changes nothing else.
-    static func rearmedActions(_ policy: JSON, now: TimeInterval) -> [String] {
-        if policy["enabled"].bool, policy["expires_at"].double > now { return [] }
-        let names = ["send_email": "Send email", "calendar_write": "Calendar changes", "gmail_read": "Gmail read"]
-        var rearmed = policy["actions"].strings.filter { $0 != "model" }.map { names[$0] ?? $0 }
-        if policy["analyze_top_matches"].bool { rearmed.append("Daily top-match analysis") }
-        return rearmed
     }
 
     /// The address to send, or nil when it is not a LinkedIn profile. A missing `https://` is added; the server

@@ -161,8 +161,9 @@ async def serve_interview(client: any) -> any {
             },
             max_size=2000000
         ) as provider {
+            upstream: any = provider;
             async def send(event: any) -> any {
-                await provider.send(json.dumps(event));
+                await upstream.send(json.dumps(event));
             }
             async def respond() -> any {
                 observed = await asyncio.to_thread(call, 'agent_live_check', auth);

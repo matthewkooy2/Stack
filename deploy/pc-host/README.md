@@ -62,10 +62,11 @@ the Mac. Runtime secrets and dependency environments must be supplied separately
   from this checkout or treat its original pre-deployment baseline as a current
   host baseline.
 
-`SOURCE_CAPTURE.json` lists exact captured source hashes. Source files remain
-unchanged apart from this packaging/documentation and the combined root dependency
-declarations. Historical installer checkpoint gates and attended wrapper paths are
-retained as evidence, not silently generalized into an unattended installer.
+`SOURCE_CAPTURE.json` lists the exact hashes captured at its recorded parent
+checkpoint. It is historical provenance, not an integrity manifest for the current
+working tree; source files can evolve after that checkpoint. Historical installer
+and attended-wrapper paths remain checkpoint-specific and are not an unattended
+fresh-host installer.
 
 ## Focused offline validation
 

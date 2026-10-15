@@ -1,6 +1,6 @@
 """Infrastructure guards derived from public Stack contracts/runtime source.
 
-Standing permissions are preserved. No job, domain, identity, or credential
+Standing outbound permissions are preserved. No job, domain, identity, or credential
 contents leave SQL: only booleans, enum shapes, and aggregate counts.
 """
 import hashlib,json,re
@@ -9,8 +9,7 @@ EXTERNAL=('browser_fill','submit_application','send_email','calendar_write')
 WORK_HOLDS=('claimableTicketStates','activeRuns','activeRunLeaseOrTimer','activeRunOwnersMissingIdentity',
             'ticketReferenceMismatch','unresolvedActionIntents','enabledAutoModelPolicies','scheduledFollowupTimers')
 
-def policy_sql(owner):
-    assert re.fullmatch('[0-9a-f]{32}',owner)
+def policy_sql():
     selections=', '.join("'"+a+"',coalesce(p->'actions' ? '"+a+"',false)" for a in ACTIONS)
     limits=', '.join("'"+a+"',CASE WHEN jsonb_typeof(p->'daily_limits'->'"+a+"')='number' AND (p->'daily_limits'->>'"+a+"')~'^[0-9]+$' THEN (p->'daily_limits'->>'"+a+"')::numeric BETWEEN 1 AND 100 ELSE false END" for a in ACTIONS)
     return r"""
@@ -35,7 +34,6 @@ summary AS (SELECT
     WHERE key NOT IN ('model','browser_fill','submit_application','send_email','calendar_write','gmail_read')
        OR jsonb_typeof(value)<>'number' OR value#>>'{}' !~ '^[0-9]+$'
        OR CASE WHEN jsonb_typeof(value)='number' AND value#>>'{}' ~ '^[0-9]+$' THEN (value#>>'{}')::numeric NOT BETWEEN 1 AND 100 ELSE true END) dailyLimitValuesValid,
- replace(m.root_id::text,'-','')= '__OWNER__' boundToLocalModelOwner,
  EXISTS(SELECT 1 FROM identity_users u WHERE replace(u.doc->>'root_id','-','')=replace(m.root_id::text,'-','')) ownerHasIdentity,
  json_build_object(__SELECTIONS__) selectedActions,
  json_build_object(__LIMITS__) positiveUserDailyLimits,
@@ -46,17 +44,17 @@ SELECT coalesce(json_agg(json_build_object(
  'enabledIsBoolean',enabledIsBoolean,'enabled',enabled,'expirationState',expirationState,
  'actionFieldShape',actionFieldShape,'dailyLimitFieldShape',dailyLimitFieldShape,'domainFieldShape',domainFieldShape,'domainCount',domainCount,
  'actionValuesValid',actionValuesValid,'dailyLimitValuesValid',dailyLimitValuesValid,
- 'boundToLocalModelOwner',boundToLocalModelOwner,'ownerHasIdentity',ownerHasIdentity,
+ 'ownerHasIdentity',ownerHasIdentity,
  'selectedActions',selectedActions,'positiveUserDailyLimits',positiveUserDailyLimits,
  'analyzeTopMatches',analyzeTopMatches,'analyzeTopMatchesIsBoolean',analyzeTopMatchesIsBoolean
  )),'[]'::json) FROM summary;
-""".replace('__OWNER__',owner).replace('__SELECTIONS__',selections).replace('__LIMITS__',limits)
+""".replace('__SELECTIONS__',selections).replace('__LIMITS__',limits)
 
 def source_queue_sql(original):
-    # The runtime schedules automatic model work only with BOTH flags selected.
+    # Match the runtime's enabled/unexpired automation policy without reviving
+    # the removed model standing permission.
     result=original.replace("coalesce((f->'policy'->>'expires_at')::numeric,0)",
         "CASE WHEN jsonb_typeof(f->'policy'->'expires_at')='number' AND (f->'policy'->>'expires_at')~'^[0-9]+([.][0-9]+)?$' THEN (f->'policy'->>'expires_at')::numeric ELSE 0 END")
-    result=result.replace("f->'policy'->>'analyze_top_matches'='true'", "f->'policy'->>'analyze_top_matches'='true' AND f->'policy'->'actions' ? 'model'")
     # Standing Gmail permission alone does not schedule a sync. A connected
     # Google account owned by the same root is also required by agent_schedule.
     return result.replace(" 'enabledGoogleReadPolicies',", """
@@ -94,9 +92,8 @@ def effective_policy_metadata(rows,operator_limits,certified_adapters):
             actions[action]={'selected':selected,'positiveUserDailyLimit':user_limit,
                              'operatorEnabled':operator_enabled,'adapterGateSatisfied':adapter_gate,
                              'dispatchCouldBePermitted':possible}
-        evidence.append({'validActivePolicyShape':bool(valid),'boundToLocalModelOwner':row['boundToLocalModelOwner'],
+        evidence.append({'validActivePolicyShape':bool(valid),
                          'ownerHasIdentity':row['ownerHasIdentity'],'externalActions':actions,
-                         'selectedModelPermission':bool(row['selectedActions'].get('model')),
                          'selectedGmailReadPermission':bool(row['selectedActions'].get('gmail_read')),
                          'analyzeTopMatches':row['analyzeTopMatches'],
                          'destinationAllowlistPresent':row['domainCount']>0})

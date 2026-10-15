@@ -23,7 +23,8 @@ are model suggestions, not factual claims or hiring predictions.
    also retain their original pre-correction transcription and model name.
 3. Call `story_generate(id, revision)`. The persistent agent queue executes the
    `stories` workflow / `story` step with existing operator model configuration,
-   account model permission, quotas, model-response logs, and worker leases.
+   provider access, model-response logs, and worker leases. CLI providers do not
+   add a Stack-side Model permission or request cap.
    Only the selected event is sent to inference. The model selects exact source
    sentence/line IDs; Stack resolves their immutable quotations and source key,
    so the model never needs to reproduce opaque source keys or join text.

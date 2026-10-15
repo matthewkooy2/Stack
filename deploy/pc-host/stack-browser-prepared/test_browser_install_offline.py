@@ -201,7 +201,7 @@ class InstallerTests(unittest.TestCase):
     def test_unexpected_queue_holds_before_mutation(self):
         q={key:0 for key in installer.HOLD};q['claimableTicketStates']=1
         q.update(scheduledGoogleSyncPolicies=0,queuedNotifications=0,pushDevices=0)
-        config=Mock(read_text=Mock(return_value=json.dumps({'local_cli_owner':'a'*32,'action_daily_limits':{}})))
+        config=Mock(read_text=Mock(return_value=json.dumps({'action_daily_limits':{}})))
         with patch.object(installer,'P',return_value=config),patch.object(installer.stack,'sql',side_effect=['[]',json.dumps(q)]),patch.object(installer,'active',return_value=False):
             with self.assertRaises(installer.Held):installer.queue_guard()
         self.assertEqual(installer.REPORT['blockers'],['claimableTicketStates'])

@@ -91,8 +91,7 @@ def active(unit):return run(['/usr/bin/systemctl','is-active','--quiet',unit],'s
 
 def queue_guard():
     c=json.loads(P('/opt/stack/storage/agents/config.json').read_text())
-    owner=c.get('local_cli_owner','').replace('-','')
-    rows=json.loads(stack.sql(preflight.policy_sql(owner)))
+    rows=json.loads(stack.sql(preflight.policy_sql()))
     effective=preflight.effective_policy_metadata(rows,c.get('action_daily_limits',{}),c.get('certified_adapters',[]))
     q=json.loads(stack.sql(preflight.source_queue_sql(stack.QUEUE)))
     blockers=preflight.blockers(q,effective)
@@ -218,12 +217,9 @@ def verified_api_readiness_checkpoint(old):
 def config_guard():
     path=P('/opt/stack/storage/agents/config.json')
     raw=path.read_bytes();c=json.loads(raw)
-    assert c.get('provider')=='codex-cli' and 1<=int(c.get('local_cli_daily_limit',0))<=100
+    assert c.get('provider')=='codex-cli'
     assert c.get('certified_adapters')==[] and not c.get('sandbox_available')
     assert all(c.get('action_daily_limits',{}).get(key)==0 for key in ('browser_fill','submit_application','send_email','calendar_write'))
-    owner=c.get('local_cli_owner','').replace('-','')
-    assert re.fullmatch('[0-9a-f]{32}',owner)
-    assert stack.sql("SELECT count(*) FROM identity_users WHERE replace(doc->>'root_id','-','')='"+owner+"';")=='1'
     for unit in (*CORE,'stack-gateway.service'):
         p=props(unit);assert p['ActiveState']=='active' and p['SubState']=='running'
         if unit in CORE:

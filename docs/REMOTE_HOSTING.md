@@ -115,9 +115,9 @@ never copy, display or share `auth.json`. Do not enable device authentication or
 change account security settings automatically. Device-auth is a fallback only
 when already enabled and explicitly approved. Follow [Codex authentication](https://learn.chatgpt.com/docs/auth).
 
-Preserve the provider's explicit Stack account binding and daily request limit;
-do not grant all accounts subscription access. Start with model permission only,
-without browser/send/calendar/code actions. The API receives no provider credential
+The server CLI login is the model credential for this single-user deployment;
+there is no separate Stack account binding, Model permission, or Stack request cap.
+Keep browser/send/calendar/code actions disabled until separately configured. The API receives no provider credential
 store. No live smoke call belongs in ordinary CI. A synthetic coaching acceptance
 test consumes a real subscription request and needs separate authorization.
 

@@ -3,9 +3,7 @@ import argparse;
 import json;
 import os;
 import tempfile;
-import time;
 import from pathlib { Path }
-import from uuid { UUID }
 import from unittest.mock { patch }
 import from jaclang.testing.testing { JacTestClient }
 import from agents.worker { dispatch }
@@ -32,8 +30,7 @@ with entry:__main__ {
                 assert registered.ok, registered.text;
                 token = registered.data["token"];
                 owner = rpc(client, "agent_settings")["account_id"];
-                path.write_text(json.dumps({"provider": args.provider, "local_cli_owner": str(UUID(owner)), "local_cli_daily_limit": 1}));
-                rpc(client, "agent_save_policy", {"policy": {"enabled": True, "expires_at": time.time() + 3600, "actions": ["model"]}});
+                path.write_text(json.dumps({"provider": args.provider}));
                 session = rpc(client, "prep_create", {"problem_id": "project"});
                 data = session["data"];
                 data["answer"] = "In a class project, our team was missing deadlines. I made a task list, asked each teammate to own one task, and scheduled a short weekly check-in. We delivered the project on time. Next time I would agree on responsibilities at kickoff.";
@@ -49,7 +46,7 @@ with entry:__main__ {
                 client.set_auth_token(token);
                 done = rpc(client, "agent_run", {"id": run["id"]});
                 assert done["status"] == "completed", done;
-                assert done["cost_cents"] == 0 and done["subscription_calls"] == 1, done;
+                assert done["cost_cents"] == 0 and done["subscription_calls"] == 0, done;
                 client.reload();
                 client.set_auth_token(token);
                 saved = rpc(client, "prep_get", {"id": session["id"]});

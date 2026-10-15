@@ -28,7 +28,7 @@ class PreviewData(unittest.TestCase):
                           facts=[{'value': 'Resume contents'}])
 
     def sanitize(self, rows):
-        return preview.sanitize(rows, '_jac_app_source', '_jac_app_target', self.owner, 100)
+        return preview.sanitize(rows, '_jac_app_source', '_jac_app_target', 100)
 
     def test_namespace_only_changes_type_metadata(self):
         value = {'__type__': 'Profile', '__module__': '_jac_app_source.main',
@@ -38,12 +38,14 @@ class PreviewData(unittest.TestCase):
         self.assertEqual(updated['text'], value['text'])
         self.assertEqual(updated['notes'], value['notes'])
 
-    def test_model_only_owner_permission_and_no_mutation(self):
+    def test_all_copied_accounts_drop_permissions_without_mutation(self):
         other = row('AgentMemory', str(uuid4()), revision=0)
         original = copy.deepcopy(self.memory)
         owner, guest = self.sanitize([self.memory, other])
-        self.assertEqual(owner['props']['archetype']['policy']['actions'], ['model'])
-        self.assertEqual(owner['props']['archetype']['policy']['expires_at'], 100 + 7 * 86400)
+        self.assertEqual(owner['props']['archetype']['policy']['actions'], [])
+        self.assertEqual(owner['props']['archetype']['policy']['expires_at'], 0)
+        self.assertFalse(owner['props']['archetype']['policy']['enabled'])
+        self.assertEqual(guest['props']['archetype']['policy']['actions'], [])
         self.assertFalse(guest['props']['archetype']['policy']['enabled'])
         self.assertEqual(owner['props']['archetype']['facts'], original['props']['archetype']['facts'])
         self.assertEqual(self.memory, original)
@@ -75,10 +77,10 @@ class PreviewData(unittest.TestCase):
             self.sanitize([])
 
     def test_config_drops_credentials_and_outbound_permissions(self):
-        config = preview.preview_config(dict(provider='codex-cli', local_cli_owner=self.owner, local_cli_daily_limit=30,
-                                             api_key='secret', action_daily_limits={'send_email': 10}, model='example'))
-        self.assertEqual(config['local_cli_daily_limit'], 20)
-        self.assertEqual(config['local_cli_owner'], self.owner.replace('-', ''))
+        config = preview.preview_config(dict(provider='codex-cli', api_key='secret',
+                                             action_daily_limits={'send_email': 10}, model='example'))
+        self.assertNotIn('local_cli_daily_limit', config)
+        self.assertNotIn('local_cli_owner', config)
         self.assertEqual(config['action_daily_limits'], {})
         self.assertEqual(config['model'], 'example')
         self.assertNotIn('api_key', config)
@@ -114,8 +116,7 @@ class PreviewData(unittest.TestCase):
             source, target = Path(directory) / 'main', Path(directory) / 'preview'
             for path in (source, target):
                 (path / 'storage/agents').mkdir(parents=True)
-            (source / 'storage/agents/config.json').write_text(json.dumps(dict(
-                provider='codex-cli', local_cli_owner=self.owner, local_cli_daily_limit=20)))
+            (source / 'storage/agents/config.json').write_text(json.dumps(dict(provider='codex-cli')))
             (target / 'storage/original').write_text('keep')
             refresh = preview.Refresh(source, target)
             refresh.backup.mkdir(parents=True)
@@ -132,8 +133,7 @@ class PreviewData(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             source, target = Path(directory) / 'main', Path(directory) / 'preview'
             (source / 'storage/agents').mkdir(parents=True)
-            (source / 'storage/agents/config.json').write_text(json.dumps(dict(
-                provider='codex-cli', local_cli_owner=self.owner, local_cli_daily_limit=20)))
+            (source / 'storage/agents/config.json').write_text(json.dumps(dict(provider='codex-cli')))
             secret = target / '.jac/data/jwt_secret'
             secret.parent.mkdir(parents=True)
             secret.write_text('synthetic-old-key')

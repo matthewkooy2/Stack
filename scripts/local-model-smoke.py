@@ -28,7 +28,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='stack-local-smoke-') as directory:
         path=Path(directory)/'config.json'
         path.write_text(json.dumps({'provider':args.provider,'model':args.model,'local_model_url':args.url,
-            'local_model_context_tokens':args.context_tokens,'max_output_tokens':1536,'local_cli_daily_limit':1,
+            'local_model_context_tokens':args.context_tokens,'max_output_tokens':1536,
             'capture_agent_content':True}))
         with patch.dict(os.environ,{'STACK_AGENT_CONFIG':str(path),'STACK_AGENT_WORKER_TOKEN':'isolated-local-smoke','STACK_LOCAL_MODEL_API_KEY':''}):
             client=JacTestClient.from_file(str(Path('main.jac').resolve()),base_path=directory)

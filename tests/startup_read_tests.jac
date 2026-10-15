@@ -14,7 +14,10 @@ test "established account admission and bootstrap do not need a catalog write tu
     with tempfile.TemporaryDirectory(prefix="stack-startup-read-") as directory {
         previous=JacRuntime.peek_context();ctx=JacRuntime.create_j_context(None,base_path_dir=directory);JacRuntime.set_context(ctx);
         try {
-            app.bootstrap();commit();
+            root ++> a.AgentMemory();
+            root ++> app.Profile();
+            root ++> app.MatchPreferences();
+            root ++> app.Settings(tailored_backfilled=True);commit();
             old=root ++> a.AgentRun(kind="resume",workflow_version=1,target_id="saved",context={},created_at=1.0,key="old",status="running");
             commit();assert a._upgrade_legacy_runs()==1;commit();
             assert old.upgrade_pending and old.status=="blocked";

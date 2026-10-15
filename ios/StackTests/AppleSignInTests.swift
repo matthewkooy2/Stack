@@ -137,6 +137,27 @@ final class AppleSignInTests: XCTestCase {
         await store.deleteWithApple(window: UIWindow())
         XCTAssertFalse(store.api.hasSession)
         XCTAssertEqual(store.phase, .signedOut)
+        XCTAssertTrue(store.notice.contains("sign up again"))
+    }
+
+    func testFailedDeletionKeepsAccountAndShowsTheServerReason() async {
+        let store = AppStore(api: client())
+        install(store.apple)
+        store.phase = .admission
+        store.api.adopt(token: "original")
+        defer { store.api.forget(); store.apple.forget() }
+        let previous = StubProtocol.handler!
+        StubProtocol.handler = { request in
+            if request.url!.path.hasSuffix("account_delete_apple") {
+                return (200, envelope(["error": "Confirm the Apple account used to sign in to this Stack account."]))
+            }
+            return try previous(request)
+        }
+        await store.deleteWithApple(window: UIWindow())
+        XCTAssertEqual(store.api.token, "original")
+        XCTAssertEqual(store.phase, .admission)
+        XCTAssertEqual(store.error, "Confirm the Apple account used to sign in to this Stack account.")
+        XCTAssertFalse(store.notice.contains("deleted"))
     }
 
     func testRevocationIsScopedToTheExactAppleSession() async {

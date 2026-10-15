@@ -259,6 +259,7 @@ final class AppStore {
             guard generation == sessionGeneration else { return }
             guard result.response["deleted"].bool else { throw APIError(message: "Account deletion did not finish. Please retry.") }
             await signOut()
+            notice = "Your account was deleted. You can sign up again using any sign-in method."
         } catch is CancellationError {
         } catch { if generation == sessionGeneration { fail(error) } }
     }

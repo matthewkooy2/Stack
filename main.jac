@@ -80,7 +80,8 @@ def:priv account_delete_apple(state: str, identity_token: str, authorization_cod
         session.unit_enter();
         proof=apple_auth.deletion_proof(state,identity_token,authorization_code,jid(root));
         return _delete_verified_account(str(proof["user_id"]),str(proof["refresh"]));
-    } except ValueError { return {"error":"Apple account deletion could not finish. Please try again."}; }
+    } except apple_auth.AppleError as error { return {"error":str(error)}; }
+    except ValueError { return {"error":"Apple account deletion could not finish. Please try again."}; }
     finally { session.unit_exit(); }
 }
 

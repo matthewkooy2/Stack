@@ -139,7 +139,8 @@ class NativeAppleAPI(unittest.TestCase):
                 client.set_auth_token(other.data['token'])
                 challenge = rpc('auth_apple_delete_begin')
                 self.assertTrue(challenge['ok'],challenge)
-                self.assertIn('error',finish('account_delete_apple',proof(challenge)))
+                rejected = finish('account_delete_apple',proof(challenge))
+                self.assertEqual(rejected['error'],'Confirm the Apple account used to sign in to this Stack account.')
                 client.set_auth_token(result['token'])
                 # Admission is retained for product access, not owner deletion.
                 config.write_text(json.dumps({'invite_only':True}))
@@ -163,6 +164,22 @@ class NativeAppleAPI(unittest.TestCase):
                 self.assertTrue(all(session.unit_depth() == 0 for session in sessions))
                 self.assertFalse(client.login('fixture-apple-existing','Fixture-password-123').ok)
                 self.assertFalse(client.post('/function/agent_admission',json={}).ok)
+                # Deleted login identities are reusable, but no old graph/data
+                # is restored when signing up again with a password or Apple.
+                client.clear_auth()
+                password_signup = client.register_user('fixture-apple-existing','Fixture-password-789')
+                self.assertTrue(password_signup.ok)
+                self.assertNotEqual(password_signup.data['root_id'],original)
+                client.clear_auth()
+                # Apple timestamps tokens to the second; keep the existing
+                # requirement that fresh proof is issued after deletion.
+                time.sleep(1)
+                recreated = finish('auth_apple_finish',proof(rpc('auth_apple_begin')))
+                self.assertTrue(recreated['ok'],recreated)
+                client.set_auth_token(recreated['token'])
+                new_root = manager.get_root_id(manager.validate_jwt_token(recreated['token']))
+                self.assertNotEqual(new_root,original)
+                self.assertTrue(rpc('auth_apple_session',{'token':recreated['token']})['ok'])
 
 
 if __name__ == '__main__':

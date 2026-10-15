@@ -26,13 +26,17 @@ async function streamTests(){
 }
 
 async function viewerTests(){
- const requests=[];let receive,state,closed=0,opened=0,failInput=false;
+ const requests=[];let receive,state,closed=0,opened=0,failInput=false,holdControl=false,pendingControl;
  const initialFrame={image:'synthetic',width:100,height:200,capture_id:'fixture-context',sequence:1,url:'https://application.example.test/form'};
  const now=()=>Date.now()/1000;
  const openStream=(id,onEvent,onState)=>{assert.equal(id,'application-run');opened++;receive=onEvent;state=onState;return()=>closed++;};
  const requestBrowser=async(name,args)=>{
   requests.push({name,args});
-  if(name==='agent_browser_control')return{control:{mode:args.action==='take'?'user':args.action==='stop'?'stopping':'agent',generation:args.generation+1,instance:'fixture-worker',controller:args.action==='take'?args.controller:'',sequence:0}};
+  if(name==='agent_browser_control'){
+   const result={control:{mode:args.action==='take'?'user':args.action==='stop'?'stopping':'agent',generation:args.generation+1,instance:'fixture-worker',controller:args.action==='take'?args.controller:'',sequence:0}};
+   if(holdControl)await new Promise(resolve=>{pendingControl={result,resolve};});
+   return result;
+  }
   if(failInput)throw new Error('Synthetic lost response');
   return {...initialFrame,sequence:requests.length+2};
  };
@@ -41,18 +45,30 @@ async function viewerTests(){
  const poll=async next=>{task={...task,...next};await act(async()=>{root.update(component());});};
  await act(async()=>{root=renderer.create(component());});
  const press=label=>root.root.findByProps({accessibilityLabel:label}).props.onPress();
+ const controlFeedback=async(label,loading)=>{
+  const handler=root.root.findByProps({accessibilityLabel:label}).props.onPress,before=requests.length;
+  let first;holdControl=true;
+  await act(async()=>{first=handler();handler();});
+  assert.equal(requests.length,before+1,'duplicate taps send one control request');
+  await act(async()=>{receive({control:pendingControl.result.control,server_time:now(),observed_at:now()});});
+  const button=root.root.findByProps({accessibilityLabel:loading});
+  assert.equal(button.props.disabled,true);
+  assert.deepEqual(button.props.accessibilityState,{disabled:true,busy:true},'pending feedback survives a stream update');
+  await act(async()=>{pendingControl.resolve();await first;});holdControl=false;
+  assert.equal(root.root.findAllByProps({accessibilityLabel:loading}).length,0,'pending feedback clears after the response');
+ };
  await act(async()=>{press('Open browser');});assert.equal(opened,1);
  await act(async()=>{state('connected');receive({control:{mode:'agent',generation:0,instance:'fixture-worker',controller:'',sequence:0},server_time:now(),observed_at:now(),frame:initialFrame});});
  const status=()=>root.root.findByProps({accessibilityLabel:'Task status'}).props.children;
  assert.equal(status(),'Your input is needed','agent ownership does not mean the task is running');
- await act(async()=>{await press('Take control');});
+ await controlFeedback('Take control','Taking control…');
  assert.equal(requests[0].args.instance,'fixture-worker');assert.equal(requests[0].args.generation,0);
  let canvas=root.root.findByProps({accessibilityLabel:'Live remote browser'});
  await act(async()=>{canvas.props.onLayout({nativeEvent:{layout:{width:200,height:400}}});canvas.props.onPanResponderGrant({nativeEvent:{locationX:100,locationY:200}});canvas.props.onPanResponderRelease({}, {dx:0,dy:0});await wait(5);});
  assert.deepEqual([requests[1].args.event.x,requests[1].args.event.y],[50,100]);assert.equal(requests[1].args.event.sequence,1);
  await act(async()=>{root.root.findByProps({accessibilityLabel:'Remote browser keyboard'}).props.onChangeText('abc');await wait(130);});
  assert.equal(requests[2].args.event.type,'text');assert.equal(requests[2].args.event.text,'abc');assert.equal(requests[2].args.event.sequence,2);
- await act(async()=>{await press('Resume agent');});assert.equal(requests[3].args.action,'resume');
+ await controlFeedback('Resume agent','Resuming agent…');assert.equal(requests[3].args.action,'resume');
  await poll({status:'queued',message:'Browser returned to the agent.',retry_at:0});
  assert.equal(status(),'Queued for the agent');
  await poll({status:'running',message:'Working on linkedin_scan'});

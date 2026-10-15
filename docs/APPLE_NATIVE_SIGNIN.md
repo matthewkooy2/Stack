@@ -1,11 +1,25 @@
 # Native Sign in with Apple
 
-This candidate adds disabled-by-default native Swift sign-in and its verified
-backend. It preserves Google's endpoints and does not activate Jac's browser
-Apple provider. The isolated branch incorporates reviewed main `612417f`
-(PR56 and PR58); its merge remains held for parent release coordination.
-No credential, live capability, deployment or production merge was performed.
-Expo is not a second client implementation in this change.
+Native Swift sign-in uses Apple's official control and the verified Stack
+backend. Developer builds and backend activation default off; signed Swift
+TestFlight archives enable the control and Apple entitlement for the existing
+`com.matthewkooy.stack` app. Google's endpoints are preserved. Expo is not a
+second client implementation in this change.
+
+## Release setup checkpoint
+
+On October 14, 2026, the operator enabled Sign in with Apple for the production
+App ID and regenerated its App Store profile. The downloaded profile was
+verified locally to contain the exact app identifier and
+`com.apple.developer.applesignin = [Default]`; the operator updated the
+`stack-testflight` environment's `IOS_APP_STORE_PROFILE_BASE64` secret.
+
+The operator confirmed installation of the private key and five Apple settings
+in `/etc/stack/api.env`, with `STACK_APPLE_ENABLED=0`, the existing connection
+encryption key preserved, and no service restart. The key is installed directly
+on the backend: no GitHub Apple private-key secret is needed for this setup.
+Backend deployment, activation and signed-device acceptance must be recorded
+separately. Never publish the key or completed environment file.
 
 ## Client contract
 
@@ -80,11 +94,14 @@ lookup/document writes are reconciled before issuing a session, and grant-backed
 revocation does not depend on a complete identity document.
 
 Cross-worker subject/account locks use `kv_state` and never expire during slow
-deletion. Locks are released in `finally`. If a worker dies, sign-in/link/deletion
-fails closed for that key. Operator recovery must first confirm the original
-worker is stopped and no operation remains active, inspect the specific
-hashed `stack-apple-lock:` key, and remove only that abandoned lock under a
-separately approved operational action. Do not bulk clear locks or grants.
+deletion. Locks are released in `finally`. Linux lock records carry the machine
+ID, boot ID, PID and process start ticks. After a crash or restart, a request on
+the same machine can reclaim a lock only when that exact process is proved
+dead, its PID was reused, or the machine rebooted. Compare-and-delete preserves
+an intervening owner's lock. Live, foreign-host, legacy and unverifiable locks
+remain fail-closed. Manual recovery of those records must first confirm the
+owner stopped; remove only that abandoned hashed `stack-apple-lock:` key. Do
+not bulk clear locks or grants.
 
 ## Precise activation gates (approval required)
 
@@ -95,12 +112,14 @@ separately approved operational action. Do not bulk clear locks or grants.
 2. In the intended Apple Developer team, enable Sign in with Apple for that
    explicit App ID. Regenerate the matching distribution/development provisioning
    profiles and add `com.apple.developer.applesignin = [Default]` to the Swift
-   target's entitlements. These live capability/profile changes require explicit
-   action-time approval. Neither has been performed here.
+   target's entitlements. The production capability and App Store profile setup
+   were completed as recorded above. Development profiles are needed only for
+   directly installed development builds.
 3. Obtain approval to select an existing Sign in with Apple key or create a new
    one tied to that primary App ID. Record its Team ID and Key ID. The private
    `.p8` must be handed directly to the server's secret store; never paste it into
-   chat, Git, PR text, workflow logs or client builds. No credential was created.
+   chat, Git, PR text, workflow logs or client builds. The selected production
+   key was installed on the backend as recorded above.
 4. Supply server-only `STACK_APPLE_CLIENT_ID`, `STACK_APPLE_TEAM_ID`,
    `STACK_APPLE_KEY_ID`, `STACK_APPLE_KEY_FILE` (path to the securely mounted key),
    and the existing `STACK_CONNECTION_KEY`. Restrict key-file access to the API
@@ -110,7 +129,7 @@ separately approved operational action. Do not bulk clear locks or grants.
    `STACK_APPLE_ENABLED=1` only after the approved Swift patch and tests land.
    Missing configuration fails closed. Browser `scale.sso.apple` remains unset;
    no Services ID/website redirect is required for this native-only code flow.
-6. The native patch is based on reviewed main `612417f`. Run Mac CI compilation/unit/UI
+6. Integrate the current main branch and run Mac CI compilation/unit/UI
    checks, then a signed-device test with cancellation, first sign-in with name
    and relay email, returning login, explicit link conflict, unadmitted deletion,
    deletion retry and credential revocation. Use
@@ -128,16 +147,21 @@ separately approved operational action. Do not bulk clear locks or grants.
    Neither policy acceptance nor network changes are authorized by this code.
    Signed-device acceptance follows an approved
    test deployment; it is not a prerequisite for merging disabled code.
-7. Coordinate merge/backend rollout with the parent because main CI can deploy
-   the existing backend. No production deployment or merge is authorized here.
+7. Coordinate merge/backend rollout because main CI can deploy the existing
+   backend and upload a Swift TestFlight build. Keep backend activation off
+   until the deployed Apple code and production configuration are verified.
 
 ## Verification
 
 Offline tests use ephemeral keys and synthetic subjects/accounts; no Apple
 account or persistent credential is touched. Run
 `python -m unittest discover -s tests -p test_apple_auth.py` and pinned
-`jac check main.jac agents/gateway.jac`. Contributor offline CI includes the Apple
-suite and gateway tests. Independent review covers claim validation, replay,
+`jac check main.jac agents/gateway.jac`. The manual contributor test command
+includes the Apple suite; the current CI core selection includes gateway tests
+but does not run all Apple-specific cases. Run `tests/test_apple_native_api.py`
+through the pinned Jac runtime with `JAC_DB_SCRATCH=1` and `JAC_DB_URL` unset for
+the disposable real-storage lifecycle test. Run `StackTests/AppleSignInTests`
+manually in Xcode alongside the existing session tests. Independent review covers claim validation, replay,
 identity conflicts, persistence failures, partial Jac writes and deletion races.
 Windows test success does not constitute Xcode verification; native checks run
 in the separate unsigned Mac CI workflow.
@@ -200,12 +224,13 @@ foreground/refresh and Apple's revocation notification; offline errors preserve
 the session. Confirmed revocation clears it. A subsequent Google/password
 session cannot be signed out by stale Apple metadata.
 
-New login/link controls default off via `STACK_APPLE_SIGN_IN_ENABLED=NO`.
+Developer login/link controls default off via `STACK_APPLE_SIGN_IN_ENABLED=NO`.
 Existing Apple sessions retain deletion access when that flag is disabled.
-After live setup approval, build with `STACK_APPLE_SIGN_IN_ENABLED=YES` and
-`STACK_APPLE_ENTITLEMENTS=Stack/StackApple.entitlements`, and the exact approved
-bundle identifier. The empty default entitlement setting preserves current
-provisioning requirements. Do not remove Apple capability from a shipped app
+The signed Swift TestFlight archive script supplies
+`STACK_APPLE_SIGN_IN_ENABLED=YES` and
+`STACK_APPLE_ENTITLEMENTS=Stack/StackApple.entitlements`, with the existing
+production bundle identifier. Local builds need the same explicit settings to
+exercise the real control. Do not remove Apple capability from a shipped app
 while existing Apple users need native reauthorization/deletion.
 
 The signed-in account card requires that account's Stack username/password for

@@ -203,14 +203,64 @@ def runtime():
     return UserManager(), AuthTokenStore.instance(), db
 
 
+def _linux_owner():
+    """A process identity which remains distinct after PID reuse or a reboot."""
+    try:
+        return {
+            "machine": Path('/etc/machine-id').read_text().strip(),
+            "boot": Path('/proc/sys/kernel/random/boot_id').read_text().strip(),
+            "pid": os.getpid(),
+            "started": _process_started(os.getpid()),
+        }
+    except OSError:
+        # Other platforms still serialize safely; unknown owners are not reaped.
+        return {}
+
+
+def _process_started(pid):
+    # The command name may contain spaces or parentheses. Fields after its
+    # final ')' begin with state (field 3); starttime is field 22.
+    return Path(f'/proc/{pid}/stat').read_text().rsplit(')', 1)[1].split()[19]
+
+
+def _abandoned_lock(value, current):
+    try:
+        owner = json.loads(value)
+        required = {'machine', 'boot', 'pid', 'started', 'token'}
+        if not isinstance(owner, dict) or set(owner) != required or not current:
+            return False
+        if not all(isinstance(owner[k], str) and owner[k] for k in required - {'pid'}):
+            return False
+        if type(owner['pid']) is not int or owner['pid'] <= 0:
+            return False
+        if owner['machine'] != current['machine']:
+            return False  # A different host's liveness cannot be proved here.
+        if owner['boot'] != current['boot']:
+            return True
+        try:
+            return _process_started(owner['pid']) != owner['started']
+        except FileNotFoundError:
+            return True
+    except (ValueError, TypeError, KeyError, IndexError, OSError):
+        pass
+    return False
+
+
 @contextmanager
 def identity_lock(db, subject):
     key = "stack-apple-lock:" + hashlib.sha256(subject.encode()).hexdigest()
-    value = secrets.token_urlsafe(32)
-    # Do not let a timer steal a lock during slow account cleanup. A crashed
-    # worker leaves a fail-closed lock requiring an operator's verified recovery.
-    rows = db.rows("""INSERT INTO kv_state (key,value,expires_at) VALUES (:k,:v,'infinity')
-        ON CONFLICT (key) DO NOTHING RETURNING key""", {"k": key, "v": value})
+    current = _linux_owner()
+    value = json.dumps(dict(current, token=secrets.token_urlsafe(32)))
+    insert = """INSERT INTO kv_state (key,value,expires_at) VALUES (:k,:v,'infinity')
+        ON CONFLICT (key) DO NOTHING RETURNING key"""
+    rows = db.rows(insert, {"k": key, "v": value})
+    if not rows:
+        previous = db.rows("SELECT value FROM kv_state WHERE key=:k", {"k": key})
+        if previous and _abandoned_lock(previous[0][0], current):
+            # Compare-and-delete cannot remove a new owner's intervening lock.
+            db.rows("DELETE FROM kv_state WHERE key=:k AND value=:v", {"k": key, "v": previous[0][0]})
+            rows = db.rows(insert, {"k": key, "v": value})
+    # No expiry can steal a live worker's lock during slow external revocation.
     if not rows:
         raise AppleError("APPLE_CONFLICT", "An Apple request is already in progress. Please try again.")
     try:

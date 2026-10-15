@@ -2,7 +2,11 @@
 import copy
 import json
 import io
+import os
 import time
+import hashlib
+import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 from cryptography.fernet import Fernet
@@ -562,6 +566,84 @@ class AppleTests(unittest.TestCase):
         with apple.identity_lock(self.db,'subject'), self.assertRaises(apple.AppleError):
             with apple.identity_lock(self.db,'subject'):
                 self.fail('second operation acquired same subject')
+
+    def test_restart_recovers_only_provably_abandoned_linux_locks(self):
+        current = dict(machine='fixture-machine', boot='current-boot', pid=200, started='1000')
+        key = 'stack-apple-lock:' + hashlib.sha256(b'subject').hexdigest()
+        for prior, started in [
+            (dict(current, pid=100), FileNotFoundError()),
+            (dict(current, pid=100), '2000'),
+            (dict(current, boot='previous-boot'), '1000'),
+        ]:
+            with self.subTest(prior=prior, started=started):
+                self.db.values[key] = json.dumps(dict(prior, token='old-owner'))
+                with patch.object(apple, '_linux_owner', return_value=current), \
+                     patch.object(apple, '_process_started', side_effect=started if isinstance(started, Exception) else None,
+                                  return_value=started):
+                    with apple.identity_lock(self.db, 'subject'):
+                        self.assertNotEqual(json.loads(self.db.values[key])['token'], 'old-owner')
+                self.assertNotIn(key, self.db.values)
+
+    def test_restart_never_steals_live_unknown_or_unverifiable_locks(self):
+        current = dict(machine='fixture-machine', boot='current-boot', pid=200, started='1000')
+        key = 'stack-apple-lock:' + hashlib.sha256(b'subject').hexdigest()
+        for value, started in [
+            (json.dumps(dict(current, pid=100, token='live-owner')), '1000'),
+            (json.dumps(dict(current, machine='other-machine', token='other-host')), '1000'),
+            ('legacy-opaque-lock', '1000'),
+            (json.dumps(dict(current, pid=100, token='unreadable-owner')), PermissionError()),
+        ]:
+            with self.subTest(value=value):
+                self.db.values[key] = value
+                with patch.object(apple, '_linux_owner', return_value=current), \
+                     patch.object(apple, '_process_started', side_effect=started if isinstance(started, Exception) else None,
+                                  return_value=started), self.assertRaises(apple.AppleError):
+                    with apple.identity_lock(self.db, 'subject'):
+                        self.fail('unverified lock was stolen')
+                self.assertEqual(self.db.values[key], value)
+
+    def test_abandoned_lock_cleanup_does_not_delete_an_intervening_owner(self):
+        current = dict(machine='fixture-machine', boot='current-boot', pid=200, started='1000')
+        key = 'stack-apple-lock:' + hashlib.sha256(b'subject').hexdigest()
+        self.db.values[key] = json.dumps(dict(current, pid=100, token='dead-owner'))
+        rows = self.db.rows
+        replacement = json.dumps(dict(current, token='new-live-owner'))
+        def competing_owner(sql, args):
+            if sql.startswith('DELETE') and args.get('k') == key:
+                self.db.values[key] = replacement
+            return rows(sql, args)
+        with patch.object(apple, '_linux_owner', return_value=current), \
+             patch.object(apple, '_process_started', side_effect=FileNotFoundError()), \
+             patch.object(self.db, 'rows', side_effect=competing_owner), self.assertRaises(apple.AppleError):
+            with apple.identity_lock(self.db, 'subject'):
+                self.fail('intervening owner was bypassed')
+        self.assertEqual(self.db.values[key], replacement)
+
+    @unittest.skipUnless(sys.platform == 'linux', 'Requires Linux process identities')
+    def test_killed_linux_worker_lock_recovers_without_stealing_a_live_lock(self):
+        worker = subprocess.Popen([sys.executable, '-c',
+            "from agents import apple_auth as a; import json,sys; "
+            "print(json.dumps(dict(a._linux_owner(),token='fixture-worker')),flush=True); sys.stdin.read()"],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        try:
+            value = worker.stdout.readline().strip()
+            self.assertEqual(json.loads(value)['pid'], worker.pid)
+            key = 'stack-apple-lock:' + hashlib.sha256(b'subject').hexdigest()
+            self.db.values[key] = value
+            with self.assertRaises(apple.AppleError):
+                with apple.identity_lock(self.db, 'subject'):
+                    self.fail('live subprocess lock was stolen')
+            worker.kill()
+            worker.wait(timeout=5)
+            with apple.identity_lock(self.db, 'subject'):
+                self.assertEqual(json.loads(self.db.values[key])['pid'], os.getpid())
+            self.assertNotIn(key, self.db.values)
+        finally:
+            if worker.poll() is None:
+                worker.kill()
+                worker.wait(timeout=5)
+            worker.stdin.close()
+            worker.stdout.close()
 
 
 if __name__ == '__main__':

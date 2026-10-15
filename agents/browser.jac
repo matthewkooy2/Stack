@@ -7,6 +7,34 @@ import threading;
 import from pathlib { Path }
 import from urllib.parse { urlsplit }
 import from agents.contracts { digest }
+with entry {
+    HANDOFF_KEYS = {
+        'Tab': 'Tab', 'Enter': 'Enter', 'Backspace': 'Backspace',
+        'Delete': 'Delete', 'SelectAll': 'ControlOrMeta+A'
+    };
+    # Enter advances within the focused form, then activates its submit action.
+    ENTER_FORM_JS = r'''() => {
+ if (!document.hasFocus()) return false;
+ const active = document.activeElement, form = active?.form;
+ if (!form || !active.matches('input,select,textarea')) return false;
+ const available = e => !e.matches(':disabled') && e.getAttribute('aria-disabled') !== 'true'
+   && !e.closest('[inert]') && e.getClientRects().length > 0
+   && getComputedStyle(e).visibility !== 'hidden';
+ const fields = [...form.elements].filter(e => e.matches('input,select,textarea')
+   && !['hidden','button','submit','reset','image'].includes(e.type)
+   && e.tabIndex >= 0 && available(e));
+ fields.sort((a,b) => (a.tabIndex > 0 ? a.tabIndex : Infinity) - (b.tabIndex > 0 ? b.tabIndex : Infinity));
+ const index = fields.indexOf(active);
+ if (index < 0) return false;
+ if (fields[index + 1]) { fields[index + 1].focus(); return true; }
+ const buttons = [...form.elements].filter(e => e.matches('button,input') && ['submit','image'].includes(e.type));
+ if (buttons.length) {
+   const button = buttons.find(available);
+   if (button) button.click();
+ } else HTMLFormElement.prototype.requestSubmit.call(form);
+ return true;
+}''';
+}
 """Latest live frame only, in memory, scoped to the account and task."""
 class BrowserFrames {
     def init(self: BrowserFrames) -> any {
@@ -183,16 +211,24 @@ class BrowserPool {
             return upload_resume(self,owner,run,event);
         } elif (kind == 'text') {
             self.guard();
-            page.keyboard.insert_text(str(event.get('text', ''))[:8000]);
-        } elif (
-            (kind == 'key')
-            and (
-                event.get('key')
-                in ('Tab', 'Enter', 'Backspace', 'Escape', 'ArrowDown', 'ArrowUp')
-            )
-        ) {
+            text = str(event.get('text', ''))[:8000];
+            if event.get('paste', False) or ('\n' in text) or ('\r' in text) {
+                page.keyboard.insert_text(text);
+            } else {
+                page.keyboard.type(text);
+            }
+        } elif ((kind == 'key') and (event.get('key') in HANDOFF_KEYS)) {
             self.guard();
-            page.keyboard.press(event['key']);
+            handled = False;
+            if event['key'] == 'Enter' {
+                for frame in page.frames {
+                    self.guard();
+                    if frame.evaluate(ENTER_FORM_JS) { handled = True; break; }
+                }
+            }
+            if not handled {
+                page.keyboard.press('Shift+Tab' if event['key'] == 'Tab' and event.get('shift', False) else HANDOFF_KEYS[event['key']]);
+            }
         } elif (kind == 'scroll') {
             self.guard();
             page.mouse.wheel(0, max(-700, min(700, int(event.get('dy', 0)))));

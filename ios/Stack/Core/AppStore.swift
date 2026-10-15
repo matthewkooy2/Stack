@@ -14,6 +14,7 @@ final class AppStore {
     let prep: PrepTransport
     let google: GoogleSignIn
     let apple: AppleSignIn
+    let jobFeedCache: JobFeedCache
 
     var phase: Phase = .starting
     var account = AccountState()
@@ -39,8 +40,9 @@ final class AppStore {
     private var swipeChain: Task<Void, Never>?
     private var pendingSwipes = 0
 
-    init(api: APIClient = APIClient(origin: APIClient.configuredOrigin)) {
+    init(api: APIClient = APIClient(origin: APIClient.configuredOrigin), jobFeedCache: JobFeedCache = JobFeedCache()) {
         self.api = api
+        self.jobFeedCache = jobFeedCache
         self.prep = PrepTransport(api: api)
         self.google = GoogleSignIn(api: api)
         self.apple = AppleSignIn(api: api)
@@ -141,6 +143,7 @@ final class AppStore {
             UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
         }
         RecordingStore.removeAll()
+        jobFeedCache.remove()
         api.forget()
         prep.resetCatalog()
         account = AccountState()

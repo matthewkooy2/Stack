@@ -235,6 +235,10 @@ def _generate(step: any, context: any, configuration: any, received: any, observ
         contract=selection_contract(context['story_source']);schema=contract['schema'];
         model_context={'story_quotes':contract['quotes']};
     }
+    if step=='linkedin_review' {
+        import from agents.linkedin { review_schema }
+        schema=review_schema(schema, context['linkedin_profile']);
+    }
     instructions = {
         'story': 'Organize the single user-selected event in sources into STAR fields by choosing quotation IDs from context.story_quotes. '
         'Every field is one supplied quotation ID or the empty string. Never copy text, join quotations, create an ID or add factual prose. '
@@ -273,6 +277,10 @@ def _generate(step: any, context: any, configuration: any, received: any, observ
     }[step];
     if step=='tailor' and context.get('resume_format')=='records' {
         instructions += ' This resume uses reviewed text records and a Stack template. Stack preserves all records across pages and does not trim to one page. Only contiguous bullet groups may reorder. Only record IDs in resume_selection_eligible may be proposed for omission; all others remain. Never omit dated, metric-bearing or credential-bearing records. Supported rewrites only remove an initial "I ", "Successfully " or "Duties included: ", optionally capitalizing the next letter; preserve every remaining word and punctuation. Return no other paraphrases.';
+    }
+    if step=='linkedin_review' {
+        captured = schema['properties']['findings']['items']['properties']['section']['enum'];
+        instructions += ' Captured section IDs: ' + ', '.join(captured) + '. Every finding must name one of these sections and quote text from that same section.';
     }
     payload: dict[str, any] = {
         'model': c['model'],

@@ -236,6 +236,8 @@ def _refresh_transaction() -> None {
 }
 def _profile() -> Profile { _agent_access();return _profile_data(); }
 def _profile_data() -> Profile {
+    items = [root -->][?:Profile];
+    if items and [root -->][?:MatchPreferences] { return items[0]; }
     with _write_lock {
         items = [root -->][?:Profile];
         if items and [root -->][?:MatchPreferences] { return items[0]; }

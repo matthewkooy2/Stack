@@ -58,6 +58,9 @@ def _agent_fresh() -> None {
     ctx=JacRuntime.get_context(); owner=str(ctx.user_root.id);ctx.mem.abort();ctx.set_user_root(owner);
 }
 def _agent_memory() -> AgentMemory {
+    # Existing accounts are reads: discovery must not block admission on its write lock.
+    values=[root -->][?:AgentMemory];
+    if values { return values[0]; }
     with _catalog_lock {
         values=[root -->][?:AgentMemory];
         if values { return values[0]; }
@@ -87,13 +90,14 @@ def _owned_run(id: str) -> AgentRun | None {
 def _steps(r: AgentRun) -> list[str] { return workflow_steps(r.kind, r.workflow_version); }
 
 # Only explicit continuation changes an old run's workflow. Receipts keep their original step names.
-def _pause_legacy(r: AgentRun) -> bool {
+def _pause_legacy(r: AgentRun, check_only: bool = False) -> bool {
     if r.status in TERMINAL { return False; }
     if r.kind=="application" {
         intents=[a for a in [root -->][?:AgentAction] if a.run_id==jid(r) and a.status=="intent"];
         status="uncertain" if intents else "cancelled";
         message="Application assistant retired. Reconcile the previously dispatched action." if intents else "Application assistant retired. Saved results remain available.";
         if r.status==status and r.message==message and not r.lease { return False; }
+        if check_only { return True; }
         r.status=status;r.message=message;r.lease="";r.lease_until=0.0;r.next_at=0.0;r.review={};r.approvals={};r.requests=[];r.upgrade_pending=False;r.updated_at=time.time();
         for t in [root.shared -->][?:AgentTicket] { if t.run_id==jid(r) { t.state=status;t.due_at=0.0; } }
         return True;
@@ -102,6 +106,7 @@ def _pause_legacy(r: AgentRun) -> bool {
     intents=[a for a in [root -->][?:AgentAction] if a.run_id==jid(r) and a.status=="intent"];
     status="uncertain" if intents else "blocked";
     if r.upgrade_pending and r.status==status { return False; }
+    if check_only { return True; }
     r.upgrade_pending=True;r.status=status;r.lease="";r.lease_until=0.0;r.next_at=0.0;r.review={};r.approvals={};
     r.message="Reconcile the previously dispatched action before continuing after the update." if intents else "Stack was updated. Retry to prepare this task with the new resume review; nothing will be shared automatically.";
     r.updated_at=time.time();
@@ -109,6 +114,8 @@ def _pause_legacy(r: AgentRun) -> bool {
     return True;
 }
 def _upgrade_legacy_runs() -> int {
+    # Most bootstraps have nothing to migrate and need no catalog write turn.
+    if not any(_pause_legacy(r,True) for r in [root -->][?:AgentRun]) { return 0; }
     changed=0;
     with _catalog_lock {
         for r in [root -->][?:AgentRun] { if _pause_legacy(r) { changed+=1; } }

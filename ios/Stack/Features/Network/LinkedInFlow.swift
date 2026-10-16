@@ -21,6 +21,9 @@ struct LinkedInFlow: View {
     @State private var run: JSON = .null
     @State private var browser = RemoteBrowserModel()
     @State private var analysis: Task<Void, Never>?
+    @State private var starting = false
+    @State private var startRequest: UUID?
+    @State private var startTask: Task<Void, Never>?
     private var emptyReview: Bool { reviewText.isEmpty }
     private var scanning: Bool { step == .scanning && !paused && scenePhase == .active }
 
@@ -60,7 +63,7 @@ struct LinkedInFlow: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { browser.reconnect() } else { browser.background() }
         }
-        .onDisappear { browser.close(); analysis?.cancel() }
+        .onDisappear { cancelStart(); browser.close(); analysis?.cancel() }
         .sheet(isPresented: $showRewrites) {
             LinkedInCoachingEditor(text: $editedReview)
         }
@@ -71,7 +74,7 @@ struct LinkedInFlow: View {
             BackButton(label: "Back") { back() }
             Spacer()
             if step == .role {
-                Button("Skip") { role = ""; Task { await start() } }
+                Button("Skip") { role = ""; start() }
                     .font(Typeface.body).foregroundStyle(Palette.text)
                     .frame(minWidth: 44, minHeight: 44)
                     .buttonStyle(.tap)
@@ -94,7 +97,7 @@ struct LinkedInFlow: View {
                        keyboard: .URL, autocapitalization: .never)
                 .accessibilityIdentifier("linkedin-profile-url").reveal(1)
         case .login:
-            heading("Sign in to LinkedIn")
+            heading("Sign in to LinkedIn", starting ? "Opening LinkedIn…" : "")
             LinkedInBrowser(model: browser, height: browserHeight + 65)
                 .reveal(1)
         case .role:
@@ -145,9 +148,9 @@ struct LinkedInFlow: View {
             case .url:
                 StackButton(label: "Continue") { hideKeyboard(); go(.role) }
             case .login:
-                StackButton(label: "Continue") { hideKeyboard(); go(.ready) }
+                StackButton(label: starting ? "Opening LinkedIn…" : "Continue", disabled: starting || id.isEmpty) { hideKeyboard(); go(.ready) }
             case .role:
-                StackButton(label: "Continue") { Task { await start() } }
+                StackButton(label: "Continue") { start() }
             case .ready:
                 StackButton(label: "Analyze my profile", icon: "sparkles") { analyze() }
                     .accessibilityIdentifier("linkedin-analyze")
@@ -162,7 +165,9 @@ struct LinkedInFlow: View {
                 }
                 .font(Typeface.caption).foregroundStyle(Palette.muted).frame(minHeight: 44)
             case .scanError:
-                StackButton(label: "Retry scan", icon: "refresh") { analyze() }
+                StackButton(label: id.isEmpty ? "Retry connection" : "Retry scan", icon: "refresh") {
+                    if id.isEmpty { start() } else { analyze() }
+                }
             case .results:
                 if emptyReview {
                     StackButton(label: "Try scan again", icon: "refresh") { analyze() }
@@ -177,24 +182,46 @@ struct LinkedInFlow: View {
         .overlay(alignment: .top) { Rectangle().fill(Palette.rule.opacity(0.5)).frame(height: 0.5) }
     }
 
-    private func start() async {
+    private func start() {
+        guard !starting else { return }
         hideKeyboard()
         error = ""
-        do {
-            let result = try await store.call("agent_linkedin_start", [
-                "url": .string(LinkedInSetup.profileURL(url)),
-                "target_role": .string(role)
-            ], linkedin: true)
-            id = result["id"].string
-            run = result
-            browser.open(store: store, id: id, linkedin: true, onChanged: {})
-            go(.login)
-        } catch {
-            if !(error is CancellationError) {
+        id = ""
+        browser.close()
+        browser = RemoteBrowserModel()
+        let request = UUID()
+        startRequest = request
+        starting = true
+        go(.login)
+        startTask = Task {
+            defer {
+                if startRequest == request { starting = false; startTask = nil }
+            }
+            do {
+                let result = try await store.call("agent_linkedin_start", [
+                    "url": .string(LinkedInSetup.profileURL(url)),
+                    "target_role": .string(role)
+                ], linkedin: true)
+                guard !Task.isCancelled, startRequest == request else { return }
+                guard !result["id"].string.isEmpty, result["status"].string != "failed" else {
+                    throw APIError(message: result["message"].string.isEmpty ? "LinkedIn could not open. Please retry." : result["message"].string)
+                }
+                id = result["id"].string
+                run = result
+                browser.open(store: store, id: id, linkedin: true, onChanged: {})
+            } catch {
+                guard !Task.isCancelled, startRequest == request, !(error is CancellationError) else { return }
                 self.error = error.localizedDescription
                 go(.scanError)
             }
         }
+    }
+
+    private func cancelStart() {
+        startRequest = nil
+        startTask?.cancel()
+        startTask = nil
+        starting = false
     }
 
     private func analyze() {
@@ -241,12 +268,12 @@ struct LinkedInFlow: View {
         switch step {
         case .url: dismiss()
         case .role: go(.url)
-        case .login: go(.role)
+        case .login: cancelStart(); browser.close(); go(.role)
         case .ready: go(.login)
         case .scanning:
             analysis?.cancel()
             Task { await browser.act("take"); go(.ready) }
-        case .scanError: go(.ready)
+        case .scanError: go(id.isEmpty ? .role : .ready)
         case .results: go(.ready)
         }
     }

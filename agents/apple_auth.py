@@ -438,7 +438,7 @@ def deletion_proof(state: str, identity_token: str, authorization_code: str, own
     cfg, manager, db, record, claims, refresh = _proof(state, identity_token, authorization_code, "delete", owner)
     user = manager.get_user_by_sso("apple", claims["sub"])
     if not user or manager.get_root_id(user["user_id"]) != owner:
-        raise AppleError()
+        raise AppleError("APPLE_ACCOUNT_MISMATCH", "Confirm the Apple account used to sign in to this Stack account.")
     return {"user_id": user["user_id"], "refresh": refresh}
 
 

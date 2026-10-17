@@ -546,8 +546,8 @@ final class PrepModel {
         do {
             try await persistAnswer()
             feedback = [:]
-            run = try await call("agent_start", ["kind": "prep", "target_id": current["id"]])
             page = .processing
+            run = try await call("agent_start", ["kind": "prep", "target_id": current["id"]])
         } catch { fail(error) }
     }
 

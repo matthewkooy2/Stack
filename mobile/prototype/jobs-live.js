@@ -83,7 +83,7 @@ export function useLiveDeck(onNotice=()=>{}){
    setState({status:'ready',error:'',cards:hide(page.cards),cursor:page.cursor,total:page.total});
   }catch(e){if(mine===serial.current)setState(s=>({...s,status:'error',error:describeError(e)}));}
  },[saved]);
- useEffect(()=>{if(account.status==='ready'&&!settled.current.has('first')){settled.current.add('first');load();}},[account.status]);
+ useEffect(()=>{if(account.status==='ready'&&!settled.current.has('first')){settled.current.add('first');const prepared=boot?.prepared_jobs;if(prepared?.checked_at)setState({status:'ready',error:'',cards:hide((prepared.jobs||[]).map(cardFor)),cursor:prepared.next_cursor||'',total:prepared.total||0,excluded:prepared.excluded||[]});else load();}},[account.status]);
  // Changing the profile's role, location or preferences (or the saved search) reloads the deck for them.
  const searchKey=JSON.stringify([boot?.profile?.role,boot?.profile?.location,boot?.profile?.preferences,boot?.saved_search]);
  const lastSearch=useRef(searchKey);

@@ -13,7 +13,7 @@ normalized records in that check; this is not a unique, US-only, entry-level,
 2027-specific, or production-import count.
 
 No new adapter, paid provider, credential, browser renderer, or recursive crawl
-is introduced. Existing six-hour source scheduling, resumable leases, transport
+is introduced. Daily morning source scheduling, resumable leases, transport
 limits, canonical deduplication, source observations, closure handling, and retry
 behavior apply. The bounded initial refresh is one existing worker lease for
 each of the ten exact source IDs, with a 180-second service runtime per lease.

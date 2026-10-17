@@ -32,8 +32,8 @@ final class JobFeedCacheTests: XCTestCase {
         search.raw["saved_search"]["filters"] = ["levels": ["Senior"]]
         XCTAssertNil(cache.read(for: JobFeedContext(origin: origin, account: search), decided: []))
         XCTAssertNil(cache.read(for: JobFeedContext(origin: URL(string: "https://other.invalid")!, account: account), decided: []))
-        now += JobFeedCache.lifetime
-        XCTAssertNil(cache.read(for: context, decided: []))
+        now += 8 * 24 * 60 * 60
+        XCTAssertEqual(cache.read(for: context, decided: [])?["jobs"].array.count, 25)
         try Data("broken".utf8).write(to: file)
         XCTAssertNil(cache.read(for: context, decided: []))
     }

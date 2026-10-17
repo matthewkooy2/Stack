@@ -80,7 +80,10 @@ struct JobsView: View {
         }
         .onChange(of: store.sessionGeneration) { _, _ in resetForSession() }
         .onChange(of: store.phase) { _, phase in if phase != .ready { resetForSession() } }
-        .onChange(of: scenePhase) { _, phase in if phase != .active { commitDecision() } }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { commitDecision() }
+            else { Task { await load(refresh: false) } }
+        }
         .onChange(of: accountContext) { _, context in
             guard started, context != displayedContext, store.phase == .ready else { return }
             // Includes edits made on another client and timeline changes. Stop showing old matches at once.
@@ -305,7 +308,7 @@ struct JobsView: View {
         }
     }
 
-    /// Applies the saved search (profile defaults plus its overrides) and queues collection once.
+    /// Restores the prepared feed for the saved search before checking the server.
     /// Coming back after the view was torn down only reloads when nothing was ever shown.
     private func start() async {
         if started {
@@ -315,11 +318,15 @@ struct JobsView: View {
         started = true
         search.adopt(saved: store.account.savedSearch)
         displayedContext = accountContext
-        if let cached = store.jobFeedCache.read(for: accountContext, decided: store.account.decidedJobIDs) {
+        let prepared = store.account.raw["prepared_jobs"]
+        if !prepared["checked_at"].isNull {
+            feed.restore(prepared)
+            search.apply(prepared)
+        } else if let cached = store.jobFeedCache.read(for: accountContext, decided: store.account.decidedJobIDs) {
             feed.restore(cached)
             search.apply(cached)
         }
-        await load(refresh: true)
+        await load(refresh: false)
     }
 
     /// Called synchronously from the user's event, so the place in line and the account it belongs to are both

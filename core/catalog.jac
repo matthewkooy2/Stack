@@ -30,6 +30,8 @@ node JobSource {
 node DiscoveryRequest {
     has key: str, kind: str, payload: dict[str, any], created_at: float, status: str = "queued", source_ids: list[str] = [], message: str = "";
 }
+node PreparedJobFeed { has key: str, result: dict[str, any]; }
+node DailyJobsRefresh { has day: str = "", finished: bool = True, failed: bool = False, successes: int = 0; }
 node SavedSearch { has query: str = "", filters: dict[str, any] = {}; }
 node TimelineMigration { has version: int = 0, after_key: str = "", complete: bool = False; }
 node Usage { has key: str, amount: int = 0; }
@@ -131,40 +133,63 @@ def _enqueue(kind: str, payload: dict[str, any]) -> DiscoveryRequest {
     JacRuntime.allow_root(r,UUID(jid(root.shared)),AccessLevel.WRITE); # jac:ignore[E1053]
     return r;
 }
+def _prepared_job_feed() -> dict[str, any] {
+    saved=_saved_search();search=validate_filters(saved.get("query",""),saved.get("filters",{}));
+    fingerprint=digest(json.dumps([search,_match_preferences()],sort_keys=True));
+    feeds=[root -->][?:PreparedJobFeed];
+    if feeds and feeds[0].key==fingerprint { return search_jobs(query=search["query"],filters=search["filters"]); }
+    return {};
+}
+
 def:priv search_jobs(query: str = "", filters: dict[str, any] | None = None, cursor: str = "", refresh: bool = False) -> dict[str, any] {
     # Jac's HTTP binder can deliver a serialized container default when omitted.
     if filters is None or filters in ["None","{}"] { filters={}; }
     try { search=validate_filters(query,filters); c=_criteria(search["query"],search["filters"]); } except Exception as e { return {"error":str(e)}; }
-    preferences=_timeline_preferences();
     fingerprint=digest(json.dumps([search,_match_preferences()],sort_keys=True));
     try { after=decode_cursor(cursor,fingerprint); } except Exception as e { return {"error":str(e)}; }
     if refresh {
         with _catalog_lock { _fresh(); _enqueue_roles(c,search); commit(); }
     }
+    feeds=[root -->][?:PreparedJobFeed];
+    cached=feeds[0] if feeds and feeds[0].key==fingerprint else None;
+    if cached is None {
+        with _catalog_lock {
+            _fresh(); result=_prepare_job_feed(search);
+        }
+    } else { result=cached.result; }
+    order=search["filters"]["sort"];
+    rows=[j for j in result["jobs"] if after is None or rank(j,order)>after][:26];
+    next_cursor="";
+    if len(rows)>25 { rows=rows[:25];next_cursor=encode_cursor(fingerprint,rank(rows[-1],order)); }
+    return {**result,"jobs":rows,"next_cursor":next_cursor,"refresh_requested":refresh};
+}
+
+def _prepare_job_feed(search: dict[str, any]) -> dict[str, any] {
+    c=_criteria(search["query"],search["filters"]);preferences=_timeline_preferences();
+    fingerprint=digest(json.dumps([search,_match_preferences()],sort_keys=True));
     cutoff=time.time()-604800; order=search["filters"]["sort"];
-    results: list[dict[str, any]]=[]; next_cursor=""; excluded: dict[str, int]={}; considered=0;
-    # The shared snapshot contains catalog data only. Personalization stays per request.
+    results: list[dict[str, any]]=[]; excluded: dict[str, int]={}; considered=0;
     for record in _catalog_records() {
         if record["active"] and record["checked_at"]>=cutoff and (not record.get("expires_at") or record["expires_at"]>time.time()) {
             view=dict(record);view["posted"]=posting_label(view.get("posted_at",0));view["timeline"]=assess(view,preferences);
             outcome=evaluate(view,c);
             if outcome["excluded"] {
-                # Explain empty results by the first requirement that removed a same-role listing.
                 conflicts=[x["label"] for x in outcome["checks"] if x["required"] and x["status"]=="conflict"];
                 if conflicts and conflicts[0]!="Role" { excluded[conflicts[0]]=excluded.get(conflicts[0],0)+1; }
                 continue;
             }
-            considered+=1;view["match"]=outcome;
-            if after is None or rank(view,order)>after { results.append(view); }
+            considered+=1;view["match"]=outcome;results.append(view);
         }
     }
-    results=sorted(results,key=lambda (item: dict[str, any]) { rank(item,order); })[:26];
-    if len(results)>25 {
-        results=results[:25];next_cursor=encode_cursor(fingerprint,rank(results[-1],order));
-    }
-    return {"jobs":[card_view(j) for j in results],"next_cursor":next_cursor,"sources":[],"occupations":[x["name"] for x in taxonomy()],"refresh_requested":refresh,"checked_at":time.time(),
+    results=sorted(results,key=lambda (item: dict[str, any]) { rank(item,order); });
+    result={"jobs":[card_view(j) for j in results],"next_cursor":"","sources":[],"occupations":[x["name"] for x in taxonomy()],"checked_at":time.time(),
         "timeline_preferences":preferences,"criteria":_criteria_view(c),"excluded":[{"reason":k,"count":v} for (k,v) in sorted(excluded.items(),key=lambda (kv: tuple[str, int]) { -kv[1]; })],"total":considered};
+    # Prepared matches belong only to this account, never to the shared catalog.
+    feeds=[root -->][?:PreparedJobFeed];
+    feed=feeds[0] if feeds else root ++> PreparedJobFeed(key=fingerprint,result=result);
+    feed.key=fingerprint;feed.result=result;commit();return result;
 }
+
 def _enqueue_roles(c: dict[str, any], search: dict[str, any]) -> None {
     # Provider searches use one keyword each; the catalog applies every other input.
     roles=[r["text"] for r in c["roles_parsed"]][:3] or [""];
@@ -295,6 +320,10 @@ def:pub discovery_claim(token: str, preferred_id: str = "") -> dict[str, any] {
             selected=s;break;
         }
         if selected is None { commit();return {"idle":True}; }
+        daily=[root.shared -->][?:DailyJobsRefresh];
+        if daily and daily[0].finished {
+            daily[0].finished=False;daily[0].failed=False;daily[0].successes=0;
+        }
         s=selected;s.lease=str(uuid4());s.lease_until=now+600;s.status="collecting";
         if not s.cycle { s.cycle=str(uuid4());s.seen=[];s.cycle_invalid=0; }
         config=dict(s.config);config["allowance"]=amount;
@@ -343,6 +372,11 @@ def:pub discovery_complete(token: str, id: str, lease: str, result: dict[str, an
         _fresh();s=_leased_source(id,lease);
         if s is None or s.lease!=lease or not lease { return {"error":"Lease expired or already completed."}; }
         s.lease="";s.lease_until=0;now=time.time();
+        daily=[root.shared -->][?:DailyJobsRefresh];
+        if daily and not daily[0].finished {
+            if error or result.get("invalid",0) { daily[0].failed=True; }
+            elif result.get("complete") { daily[0].successes+=1; }
+        }
         if error {
             s.failures+=1;s.status="error";s.message=error[:300];s.next_at=now+min(21600.0,60.0*(2**min(s.failures,8)));
             for r in [root.shared -->][?:DiscoveryRequest] { if s.key in r.source_ids { r.status="error";r.message=s.message; } }
@@ -366,7 +400,7 @@ def:pub discovery_complete(token: str, id: str, lease: str, result: dict[str, an
                     }
                 }
             }
-            s.last_success=now;s.cycle="";s.seen=[];s.next_at=now+(604800 if s.config["adapter"]=="github_search" else (86400 if s.config["adapter"]=="career" else 21600));
+            s.last_success=now;s.cycle="";s.seen=[];s.next_at=now+(604800 if s.config["adapter"]=="github_search" else 86400);
             if s.config["adapter"]=="career" and not result.get("jobs") and not result.get("candidates") { s.status="review";s.message="No structured jobs or supported links found; needs a tested parser or approved browser renderer."; }
         } else { s.next_at=now+(60 if s.config["adapter"]=="github_search" else 10); }
         for r in [root.shared -->][?:DiscoveryRequest] {

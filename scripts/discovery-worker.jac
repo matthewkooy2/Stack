@@ -14,8 +14,9 @@ with entry:__main__ {
     while True {
         try {
             if not analyzed { progress=call("discovery_analyze",{"token":token});analyzed=progress["complete"];if not analyzed { continue; } }
+            if not args.source { call("discovery_daily",{"token":token,"finish":False}); }
             work=batch(token,args.source);
-            if work.get("idle") { if args.once { break; } time.sleep(15); continue; }
+            if work.get("idle") { if not args.source { call("discovery_daily",{"token":token,"finish":True}); } if args.once { break; } time.sleep(15); continue; }
             result=work["result"];error=work["error"];
             print(work["id"]+": "+(error or str(len(result.get("jobs",[])))+" listings"),flush=True);
             if args.once { if error { raise SystemExit(1); } break; }

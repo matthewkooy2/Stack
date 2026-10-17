@@ -12,8 +12,9 @@ It preserves existing environment files, tokens, and agent configuration, and
 does not activate or interrupt the separate agent worker or user services.
 
 The API retains leases, provider quotas, checkpoints and exponential retries.
-Completed sources refresh every six hours, career pages daily and GitHub search
-weekly. The service retries API connection failures and starts with the existing
+The collector begins a daily refresh at 6:00 a.m. America/New_York, catching up
+after downtime. Once collection succeeds, it persists matched feeds for every
+account. Failed or partial refreshes retain the previous feeds. The service retries API connection failures and starts with the existing
 API on boot. Inspect `systemctl status stack-discovery.service`,
 `journalctl -u stack-discovery.service`, the authenticated `discovery_report`,
 and catalog freshness plus `search_jobs` results to verify ongoing collection.

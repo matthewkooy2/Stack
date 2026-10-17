@@ -1,12 +1,15 @@
 """Stack API. All personal data endpoints require Jac authentication."""
 import time;
+import from datetime { datetime }
+import from zoneinfo { ZoneInfo }
 import from threading { RLock }
 import from jaclang.runtime.runtime { JacRuntime }
-import from core.catalog { _catalog_lock, _catalog_job, _saved_search, _retained_snapshot, _drop_overrides, search_jobs, get_job, save_search, reset_search, import_job_url, get_import_status, source_status, discovery_claim, discovery_complete, discovery_manage, discovery_report, discovery_analyze }
+import from core.catalog { _catalog_lock, _worker_allowed, _fresh, _prepare_job_feed, _prepared_job_feed, _enqueue_roles, _criteria, _cache_clear, JobSource, DailyJobsRefresh, _catalog_job, _saved_search, _retained_snapshot, _drop_overrides, search_jobs, get_job, save_search, reset_search, import_job_url, get_import_status, source_status, discovery_claim, discovery_complete, discovery_manage, discovery_report, discovery_analyze }
 import from core.preferences { MatchPreferences, _match_preferences, _save_match_preferences }
 import from core.timeline { _timeline_preferences, _save_timeline }
 import from discovery.timeline { validate_month }
 import from discovery.matching { validate_preferences }
+import from discovery.normalize { validate_filters, source_enabled }
 glob _write_lock = _catalog_lock;
 import base64;
 import hashlib;
@@ -341,6 +344,49 @@ def _application_job(a: Application) -> dict[str, any] {
     live=_catalog_job(a.job_id);
     return live if live else _retained_snapshot(a.snapshot);
 }
+# The existing collector calls this before collection and once its queue is idle.
+def:pub discovery_daily(token: str, finish: bool = False) -> dict[str, any] {
+    if not _worker_allowed(token) { return {"error":"Worker authorization required."}; }
+    with _write_lock {
+        _fresh();now=datetime.now(ZoneInfo("America/New_York"));day=now.strftime("%Y-%m-%d");
+        states=[root.shared -->][?:DailyJobsRefresh];
+        state=states[0] if states else root.shared ++> DailyJobsRefresh();
+        owners=[a.owner for a in [root.shared -->][?:AgentAdmission]];
+        system=jid(root);
+        if not finish {
+            if now.hour<6 or state.day==day { return {"started":False}; }
+            state.day=day;state.finished=False;state.failed=False;state.successes=0;
+            for owner in owners {
+                _agent_owner(owner);memories=[root -->][?:AgentMemory];
+                if memories and not memories[0].deleted {
+                    saved=_saved_search();search=validate_filters(saved.get("query",""),saved.get("filters",{}));
+                    _enqueue_roles(_criteria(search["query"],search["filters"]),search);
+                }
+            }
+            _agent_owner(system);
+            for source in [root.shared -->][?:JobSource] {
+                if source.status not in ["review","disabled"] and not source_enabled(source.config["adapter"]) { source.next_at=time.time(); }
+            }
+            commit();return {"started":True};
+        }
+        if state.finished { return {"prepared":False}; }
+        sources=[root.shared -->][?:JobSource];
+        if any([s.lease_until>time.time() or (s.status in ["pending","collecting"] and not source_enabled(s.config["adapter"])) for s in sources]) { return {"prepared":False}; }
+        state.finished=True;
+        if state.failed or state.successes==0 or any([s.status in ["error","partial","quota"] for s in sources if not source_enabled(s.config["adapter"])]) {
+            commit();return {"prepared":False};
+        }
+        _cache_clear();commit();
+        for owner in owners {
+            _agent_owner(owner);memories=[root -->][?:AgentMemory];
+            if memories and not memories[0].deleted {
+                saved=_saved_search();_prepare_job_feed(validate_filters(saved.get("query",""),saved.get("filters",{})));
+            }
+        }
+        _agent_owner(system);commit();return {"prepared":True};
+    }
+}
+
 def:priv bootstrap() -> dict[str, any] {
     p = _profile();_backfill_tailored();
     return {
@@ -348,6 +394,7 @@ def:priv bootstrap() -> dict[str, any] {
       "profile":{"name":p.name,"role":p.role,"linkedin_url":p.linkedin_url,"linkedin_target_role":p.linkedin_target_role,"location":p.location,"mode":p.mode,"onboarded":p.onboarded,"notifications":p.notifications,**_timeline_preferences(),"preferences":_match_preferences()},
       "jobs":[_application_job(a) for a in [root -->][?:Application]],
       "saved_search":_saved_search(),
+      "prepared_jobs":_prepared_job_feed(),
       "decisions":[{"job_id":d.job_id,"action":d.action} for d in [root -->][?:Decision]],
       "applications":[_app_view(a) for a in [root -->][?:Application]],
       "people":PEOPLE,

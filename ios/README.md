@@ -52,8 +52,8 @@ touch the TestFlight workflow.
 
 ## Jobs cache
 
-Jobs restores up to 25 server-matched cards for the authenticated account's exact preferences and saved search, then replaces them with fresh first-page results.
-The cache expires after six hours; sign-out removes it. Preference changes, decided jobs, and known closed, expired or stale listings cannot reuse those cards.
+Jobs immediately restores up to 25 prepared cards from account bootstrap or persistent local storage for the authenticated account's exact preferences and saved search. Server reads return the last successfully prepared feed; failed refreshes preserve it.
+There is no six-hour expiry. Sign-out removes the local copy. Preference changes, decided jobs, and known closed or expired listings cannot reuse those cards.
 A first install or missing valid cache still needs a server response. This behavior requires an updated native build after merge.
 
 ## Native listing-browser tests (manual loopback server)

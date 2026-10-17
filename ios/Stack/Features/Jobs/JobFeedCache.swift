@@ -25,10 +25,9 @@ struct JobFeedContext: Codable, Equatable {
     }
 }
 
-/// A bounded, disposable copy of server-matched cards. Only an exact current context can read it.
+/// A persistent local copy of server-matched cards. Only an exact current context can read it.
 /// Cursors are never restored: every refresh starts from the server's first page.
 final class JobFeedCache {
-    static let lifetime: TimeInterval = 6 * 60 * 60
     static let limit = 25
     private let file: URL
     private let now: () -> Date
@@ -41,7 +40,7 @@ final class JobFeedCache {
     }
 
     init(file: URL? = nil, now: @escaping () -> Date = Date.init) {
-        self.file = file ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        self.file = file ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("stack-job-feed-v1.json")
         self.now = now
     }
@@ -50,14 +49,11 @@ final class JobFeedCache {
         guard !context.userID.isEmpty,
               let data = try? Data(contentsOf: file), data.count <= 1_000_000,
               let entry = try? JSONDecoder().decode(Entry.self, from: data),
-              entry.version == 1, entry.context == context,
-              now().timeIntervalSince(entry.savedAt) >= 0,
-              now().timeIntervalSince(entry.savedAt) < Self.lifetime else { return nil }
+              entry.version == 1, entry.context == context else { return nil }
         let jobs = entry.result["jobs"].array.filter { job in
-            let checked = job["checked_at"].double
             let expiry = job["expires_at"].double
             return !job["id"].string.isEmpty && !decided.contains(job["id"].string)
-                && job["active"].bool && checked >= now().timeIntervalSince1970 - 604800
+                && job["active"].bool
                 && (expiry == 0 || expiry > now().timeIntervalSince1970)
         }
         guard !jobs.isEmpty else { return nil }

@@ -31,7 +31,7 @@ def scan(pool: any, owner: any, run: any, context: any) -> any {
         page=browser_context.new_page();
         pool.sessions[key]={'page':page,'context':browser_context,'adapter':'linkedin',
             'touched':time.time(),'url':url};
-        page.goto(url,wait_until='domcontentloaded');
+        page.goto('https://www.linkedin.com/login',wait_until='domcontentloaded');
         pool.publish(owner,run);
         return {'needs_input':True,'message':'Sign in in the browser, then continue to analyze your profile.',
             'requests':[{'key':'browser','label':'Sign in in the browser, then resume the agent.'}]};

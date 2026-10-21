@@ -211,6 +211,10 @@ def _generate(step: any, context: any, configuration: any, received: any, observ
         'interview_coach': interview.INSTRUCTIONS['interview_coach'],
         'profile': 'Suggest a professional headline and about section using only verified candidate facts. Explain your proposed edits and quote evidence. These are drafts for the user to apply manually; do not claim to have edited any website.'
     }[step];
+    if step=='coach' and context.get('session', {}).get('mode')=='library' {
+        import from agents.practice { SCORING }
+        instructions += ' ' + SCORING;
+    }
     if step=='tailor' and context.get('resume_format')=='records' {
         instructions += ' This resume uses reviewed text records and a Stack template. Stack preserves all records across pages and does not trim to one page. Only contiguous bullet groups may reorder. Only record IDs in resume_selection_eligible may be proposed for omission; all others remain. Never omit dated, metric-bearing or credential-bearing records. Supported rewrites only remove an initial "I ", "Successfully " or "Duties included: ", optionally capitalizing the next letter; preserve every remaining word and punctuation. Return no other paraphrases.';
     }

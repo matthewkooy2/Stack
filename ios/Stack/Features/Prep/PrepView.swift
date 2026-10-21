@@ -56,6 +56,7 @@ struct PrepView: View {
             case .tools: PrepToolsSheet().environment(store)
             case .practice: PracticeView().environment(store)
             case .interview: InterviewView().environment(store)
+            case .library: LibraryView().environment(store)
             }
         }
         .onDisappear { model.suspendCapture() }
@@ -103,6 +104,7 @@ struct PrepView: View {
             ListRow(label: "New session", icon: "add-session") { model.focus = .mixed; model.go(.type) }.reveal(0)
             ListRow(label: "Continue session", icon: "continue-session") { model.go(.continueSession) }.reveal(1)
             ListRow(label: "Past sessions", icon: "clock") { model.go(.past) }.reveal(2)
+            ListRow(label: "Practice interview", icon: "library", detail: "Record answers, get scored, keep your best") { tool = .library }.reveal(2)
 
             Card(tint: Palette.surfaceRaised) {
                 Text("Session idea").font(Typeface.caption).foregroundStyle(Palette.muted)
@@ -427,7 +429,7 @@ struct AnswerEditor: View {
 }
 
 enum PrepTool: String, Identifiable {
-    case tools, practice, interview
+    case tools, practice, interview, library
     var id: String { rawValue }
 }
 

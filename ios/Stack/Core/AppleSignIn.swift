@@ -157,11 +157,13 @@ final class AppleSignIn: NSObject, ASAuthorizationControllerDelegate, ASAuthoriz
 
 /// Apple's own control allows an async Stack challenge before presenting authorization.
 struct AppleAccountButton: UIViewRepresentable {
+    var style: ASAuthorizationAppleIDButton.Style = .black
     var disabled = false
     var action: (UIWindow) -> Void
     func makeCoordinator() -> Coordinator { Coordinator(action: action) }
     func makeUIView(context: Context) -> ASAuthorizationAppleIDButton {
-        let button = ASAuthorizationAppleIDButton(type: .continue, style: .black)
+        let button = ASAuthorizationAppleIDButton(type: .continue, style: style)
+        button.cornerRadius = 16
         button.addTarget(context.coordinator, action: #selector(Coordinator.tap(_:)), for: .touchUpInside)
         return button
     }

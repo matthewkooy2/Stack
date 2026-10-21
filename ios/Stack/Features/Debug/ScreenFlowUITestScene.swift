@@ -15,7 +15,9 @@ struct ScreenFlowUITestScene: View {
         return ProcessInfo.processInfo.arguments.first { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) } ?? ""
     }
 
-    private static func makeStore() -> AppStore {
+    private static func makeStore() -> AppStore { makeStore(flow: flow) }
+
+    static func makeStore(flow: String) -> AppStore {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ScreenFlowURLProtocol.self]
         let api = APIClient(origin: URL(string: "https://stack.invalid")!, session: URLSession(configuration: configuration))

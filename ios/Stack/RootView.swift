@@ -32,15 +32,16 @@ struct RootView: View {
             Palette.page.ignoresSafeArea()
             switch store.phase {
             case .starting:
-                VStack(spacing: 18) {
-                    Text("stack").font(Typeface.display).tracking(-1.2).foregroundStyle(Palette.ink)
-                    ProgressView().tint(Palette.muted)
+                ZStack {
+                    Brand.page.ignoresSafeArea()
+                    StackBars(scale: 0.7)
                 }
+                .replayable()
                 .transition(.opacity)
             case .signedOut:
-                AccessView().transition(.opacity)
+                AccessView().replayable().transition(.opacity)
             case .admission:
-                InvitationView().transition(.opacity)
+                InvitationView().replayable().transition(.opacity)
             case .ready:
                 MainTabs().transition(.opacity)
             }
@@ -90,9 +91,9 @@ struct MainTabs: View {
         }
         .onChange(of: selection) { _, tab in visited.insert(tab) }
         .sheet(isPresented: $showProfile) {
-            ProfileView().environment(store)
+            ProfileView().environment(store).replayable()
         }
-        .sheet(item: $agentTask) { target in AgentTaskSheet(taskID: target.id).environment(store) }
+        .sheet(item: $agentTask) { target in AgentTaskSheet(taskID: target.id).environment(store).replayable() }
         .onReceive(NotificationCenter.default.publisher(for: .stackNavigate)) { note in
             guard let destination = note.userInfo?["destination"] as? String else { return }
             go(to: destination)
@@ -141,8 +142,12 @@ struct MainTabs: View {
         }
     }
 
-    @ViewBuilder
     private func screen(for tab: StackTab) -> some View {
+        tabScreen(for: tab).replayable()
+    }
+
+    @ViewBuilder
+    private func tabScreen(for tab: StackTab) -> some View {
         switch tab {
         case .jobs: JobsView(onProfile: { showProfile = true })
         case .applications: ApplicationsView(onProfile: { showProfile = true }, onNavigate: { selection = $0 })

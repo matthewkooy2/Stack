@@ -1,0 +1,690 @@
+{
+ "version": 1,
+ "industries": [
+  {
+   "id": "software",
+   "label": "Software and tech"
+  },
+  {
+   "id": "finance",
+   "label": "Finance and banking"
+  },
+  {
+   "id": "consulting",
+   "label": "Consulting"
+  },
+  {
+   "id": "healthcare",
+   "label": "Healthcare"
+  },
+  {
+   "id": "marketing",
+   "label": "Marketing and media"
+  },
+  {
+   "id": "product",
+   "label": "Product and design"
+  },
+  {
+   "id": "public",
+   "label": "Government and nonprofit"
+  },
+  {
+   "id": "other",
+   "label": "Other"
+  }
+ ],
+ "tracks": [
+  {
+   "id": "behavioral",
+   "label": "Behavioral",
+   "available": true
+  },
+  {
+   "id": "technical",
+   "label": "Technical",
+   "available": false
+  }
+ ],
+ "questions": [
+  {
+   "id": "lib-intro",
+   "track": "Behavioral",
+   "topic": "Introduction",
+   "title": "Walk me through your background",
+   "prompt": "Walk me through your background and what brings you to this role.",
+   "hints": [
+    "Keep it to about 90 seconds.",
+    "End with why this role is the next step."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "*"
+   ],
+   "order": 0
+  },
+  {
+   "id": "lib-proud",
+   "track": "Behavioral",
+   "topic": "Ownership",
+   "title": "A project you are proud of",
+   "prompt": "Tell me about a project you are proud of. What did you personally contribute, and what was the result?",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Separate your work from the team's work."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "*"
+   ],
+   "order": 1
+  },
+  {
+   "id": "lib-conflict",
+   "track": "Behavioral",
+   "topic": "Collaboration",
+   "title": "Disagreement with a teammate",
+   "prompt": "Tell me about a time you disagreed with a teammate. How did you handle it, and what was the outcome?",
+   "hints": [
+    "Explain the shared goal without assigning blame."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "*"
+   ],
+   "order": 2
+  },
+  {
+   "id": "lib-failure",
+   "track": "Behavioral",
+   "topic": "Growth",
+   "title": "A time you failed",
+   "prompt": "Describe a time you failed or made a mistake. How did you respond, and what did you change afterward?",
+   "hints": [
+    "Pick a real example and own your part.",
+    "Spend most of the time on what you learned."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "*"
+   ],
+   "order": 3
+  },
+  {
+   "id": "lib-deadline",
+   "track": "Behavioral",
+   "topic": "Prioritization",
+   "title": "Working under a deadline",
+   "prompt": "Tell me about a time you had to deliver under a tight deadline. How did you prioritize?",
+   "hints": [
+    "Name what you chose not to do, and why."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "*"
+   ],
+   "order": 4
+  },
+  {
+   "id": "lib-leadership",
+   "track": "Behavioral",
+   "topic": "Leadership",
+   "title": "Leading without authority",
+   "prompt": "Tell me about a time you led a group or influenced others without formal authority.",
+   "hints": [
+    "Show how you got buy-in."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "*"
+   ],
+   "order": 5
+  },
+  {
+   "id": "lib-feedback",
+   "track": "Behavioral",
+   "topic": "Growth",
+   "title": "Acting on difficult feedback",
+   "prompt": "Describe a time you received difficult feedback. What did you do with it?",
+   "hints": [
+    "Show a concrete change in behavior."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "*"
+   ],
+   "order": 6
+  },
+  {
+   "id": "lib-ambiguity",
+   "track": "Behavioral",
+   "topic": "Problem solving",
+   "title": "Handling ambiguity",
+   "prompt": "Tell me about a time you had to make progress with unclear goals or incomplete information.",
+   "hints": [
+    "Explain how you reduced the uncertainty."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "*"
+   ],
+   "order": 7
+  },
+  {
+   "id": "lib-initiative",
+   "track": "Behavioral",
+   "topic": "Ownership",
+   "title": "Going beyond the ask",
+   "prompt": "Tell me about a time you took initiative on something nobody asked you to do.",
+   "hints": [
+    "Explain why it mattered and what changed because of it."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "*"
+   ],
+   "order": 8
+  },
+  {
+   "id": "lib-why",
+   "track": "Behavioral",
+   "topic": "Motivation",
+   "title": "Why this field",
+   "prompt": "Why do you want to work in this field, and what will make you successful in it?",
+   "hints": [
+    "Connect a real experience to your interest."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "*"
+   ],
+   "order": 9
+  },
+  {
+   "id": "lib-tech-tradeoff",
+   "track": "Behavioral",
+   "topic": "Engineering judgment",
+   "title": "A technical tradeoff",
+   "prompt": "Tell me about a technical decision where you had to trade off speed, quality, or scope. How did you decide?",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "software"
+   ],
+   "order": 100
+  },
+  {
+   "id": "lib-tech-bug",
+   "track": "Behavioral",
+   "topic": "Problem solving",
+   "title": "A hard bug",
+   "prompt": "Describe the hardest bug or production issue you worked on. How did you find and fix it?",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "software"
+   ],
+   "order": 101
+  },
+  {
+   "id": "lib-tech-explain",
+   "track": "Behavioral",
+   "topic": "Communication",
+   "title": "Explaining something technical",
+   "prompt": "Tell me about a time you explained a technical topic to a non-technical audience.",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "software"
+   ],
+   "order": 102
+  },
+  {
+   "id": "lib-tech-learn",
+   "track": "Behavioral",
+   "topic": "Growth",
+   "title": "Learning a new technology fast",
+   "prompt": "Describe a time you had to learn a new tool or language quickly to get something done.",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "software"
+   ],
+   "order": 103
+  },
+  {
+   "id": "lib-fin-detail",
+   "track": "Behavioral",
+   "topic": "Attention to detail",
+   "title": "Catching an error",
+   "prompt": "Tell me about a time your attention to detail caught an error others missed.",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "finance"
+   ],
+   "order": 100
+  },
+  {
+   "id": "lib-fin-pressure",
+   "track": "Behavioral",
+   "topic": "Resilience",
+   "title": "High-pressure work",
+   "prompt": "Describe a time you worked long or high-pressure hours. How did you keep quality high?",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "finance"
+   ],
+   "order": 101
+  },
+  {
+   "id": "lib-fin-markets",
+   "track": "Behavioral",
+   "topic": "Motivation",
+   "title": "Following the markets",
+   "prompt": "Tell me about a recent market or business event you followed closely and what you took away from it.",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "finance"
+   ],
+   "order": 102
+  },
+  {
+   "id": "lib-fin-client",
+   "track": "Behavioral",
+   "topic": "Client focus",
+   "title": "A demanding stakeholder",
+   "prompt": "Describe a time you managed a demanding client or stakeholder.",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "finance"
+   ],
+   "order": 103
+  },
+  {
+   "id": "lib-con-structure",
+   "track": "Behavioral",
+   "topic": "Problem solving",
+   "title": "Structuring a messy problem",
+   "prompt": "Tell me about a time you broke a big, messy problem into parts and drove it to a recommendation.",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "consulting"
+   ],
+   "order": 100
+  },
+  {
+   "id": "lib-con-influence",
+   "track": "Behavioral",
+   "topic": "Influence",
+   "title": "Changing someone's mind with data",
+   "prompt": "Describe a time you used data or analysis to change a decision-maker's mind.",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "consulting"
+   ],
+   "order": 101
+  },
+  {
+   "id": "lib-con-team",
+   "track": "Behavioral",
+   "topic": "Collaboration",
+   "title": "A difficult team dynamic",
+   "prompt": "Tell me about a time you worked on a team that was not working well. What did you do?",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "consulting"
+   ],
+   "order": 102
+  },
+  {
+   "id": "lib-con-client",
+   "track": "Behavioral",
+   "topic": "Client focus",
+   "title": "Delivering bad news",
+   "prompt": "Describe a time you had to deliver bad news to a client or senior person.",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "consulting"
+   ],
+   "order": 103
+  },
+  {
+   "id": "lib-hc-patient",
+   "track": "Behavioral",
+   "topic": "Empathy",
+   "title": "Caring for someone in a hard moment",
+   "prompt": "Tell me about a time you supported a patient, client, or person through a difficult moment.",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "healthcare"
+   ],
+   "order": 100
+  },
+  {
+   "id": "lib-hc-safety",
+   "track": "Behavioral",
+   "topic": "Judgment",
+   "title": "Speaking up about safety",
+   "prompt": "Describe a time you noticed a safety or quality concern and spoke up.",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "healthcare"
+   ],
+   "order": 101
+  },
+  {
+   "id": "lib-hc-team",
+   "track": "Behavioral",
+   "topic": "Collaboration",
+   "title": "Working across disciplines",
+   "prompt": "Tell me about a time you worked with people from different roles to reach a shared goal.",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "healthcare"
+   ],
+   "order": 102
+  },
+  {
+   "id": "lib-hc-stress",
+   "track": "Behavioral",
+   "topic": "Resilience",
+   "title": "Staying calm under stress",
+   "prompt": "Describe a high-stress situation and how you stayed effective.",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "healthcare"
+   ],
+   "order": 103
+  },
+  {
+   "id": "lib-mkt-campaign",
+   "track": "Behavioral",
+   "topic": "Results",
+   "title": "A campaign or project you ran",
+   "prompt": "Tell me about a campaign or content project you ran. How did you measure success?",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "marketing"
+   ],
+   "order": 100
+  },
+  {
+   "id": "lib-mkt-creative",
+   "track": "Behavioral",
+   "topic": "Creativity",
+   "title": "A creative idea that worked",
+   "prompt": "Describe a creative idea you pitched. How did you get support for it?",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "marketing"
+   ],
+   "order": 101
+  },
+  {
+   "id": "lib-mkt-data",
+   "track": "Behavioral",
+   "topic": "Analysis",
+   "title": "Using data to change course",
+   "prompt": "Tell me about a time data showed your plan was not working. What did you change?",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "marketing"
+   ],
+   "order": 102
+  },
+  {
+   "id": "lib-mkt-audience",
+   "track": "Behavioral",
+   "topic": "Customer focus",
+   "title": "Understanding an audience",
+   "prompt": "Describe how you learned what a specific audience or customer actually wanted.",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "marketing"
+   ],
+   "order": 103
+  },
+  {
+   "id": "lib-pm-user",
+   "track": "Behavioral",
+   "topic": "Customer focus",
+   "title": "Learning from users",
+   "prompt": "Tell me about a time user feedback changed what you built or designed.",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "product"
+   ],
+   "order": 100
+  },
+  {
+   "id": "lib-pm-prioritize",
+   "track": "Behavioral",
+   "topic": "Prioritization",
+   "title": "Saying no",
+   "prompt": "Describe a time you had to say no to a feature or request. How did you decide and communicate it?",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "product"
+   ],
+   "order": 101
+  },
+  {
+   "id": "lib-pm-crit",
+   "track": "Behavioral",
+   "topic": "Growth",
+   "title": "Responding to critique",
+   "prompt": "Tell me about a time your work was critiqued heavily. How did you respond?",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "product"
+   ],
+   "order": 102
+  },
+  {
+   "id": "lib-pm-launch",
+   "track": "Behavioral",
+   "topic": "Ownership",
+   "title": "Shipping something end to end",
+   "prompt": "Walk me through something you took from idea to launch.",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "product"
+   ],
+   "order": 103
+  },
+  {
+   "id": "lib-pub-mission",
+   "track": "Behavioral",
+   "topic": "Motivation",
+   "title": "Connection to the mission",
+   "prompt": "Why does this mission matter to you? Tell me about an experience that shaped that.",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "public"
+   ],
+   "order": 100
+  },
+  {
+   "id": "lib-pub-resources",
+   "track": "Behavioral",
+   "topic": "Resourcefulness",
+   "title": "Doing more with less",
+   "prompt": "Describe a time you achieved a goal with limited time, money, or people.",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "public"
+   ],
+   "order": 101
+  },
+  {
+   "id": "lib-pub-community",
+   "track": "Behavioral",
+   "topic": "Service",
+   "title": "Serving a community",
+   "prompt": "Tell me about a time you worked directly with a community or the public.",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "public"
+   ],
+   "order": 102
+  },
+  {
+   "id": "lib-pub-policy",
+   "track": "Behavioral",
+   "topic": "Judgment",
+   "title": "Following the rules under pressure",
+   "prompt": "Describe a time you had to follow a policy or process even when it was inconvenient.",
+   "hints": [
+    "Use Situation, Task, Action, Result.",
+    "Be specific about what you did."
+   ],
+   "minutes": 3,
+   "languages": [],
+   "industries": [
+    "public"
+   ],
+   "order": 103
+  }
+ ]
+}

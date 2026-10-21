@@ -51,6 +51,7 @@ import from core.automation { BehavioralStory }
 import from agents.stories { empty as empty_story }
 import os;
 import agents.interview as interview_flow;
+import agents.practice as practice;
 import agents.apple_auth as apple_auth;
 
 # Native Apple proof stays separate from Jac's browser Apple provider.
@@ -205,7 +206,104 @@ def:priv interview_continue(id: str, revision: int, action: str = "followup") ->
     }
 }
 
+def _library_attempt(id: str) -> PrepSession {
+    _agent_access();
+    for p in [root -->][?:PrepSession] { if jid(p)==id and p.data.get("mode")=="library" { return p; } }
+    raise ValueError("Practice attempt not found.");
+}
+
+"""Latest coaching run per attempt. Runs are found by target, so attempts never store a run ID."""
+def _library_runs() -> dict[str, AgentRun] {
+    latest: dict[str, AgentRun] = {};
+    for r in [root -->][?:AgentRun] {
+        if r.kind=="prep" and (r.target_id not in latest or r.created_at>=latest[r.target_id].created_at) { latest[r.target_id]=r; }
+    }
+    return latest;
+}
+
+"""Coaching for the attempt's current revision, with its parsed 0-100 score when the model followed the SCORES format."""
+def _library_view(p: PrepSession, runs: dict[str, AgentRun] | None = None) -> dict[str, any] {
+    coached=[f["data"] for f in p.feedback if f.get("revision")==p.revision];
+    parsed=practice.parse_score(str(coached[-1].get("text",""))) if coached else {"score":None,"rubric":{},"feedback":""};
+    r=(runs if runs is not None else _library_runs()).get(jid(p));
+    status="scored" if parsed["score"] is not None else "unscored" if coached else r.status if r is not None else "not_started";
+    return {"id":jid(p),"question_id":p.data["problem_id"],"created_at":p.created_at,"revision":p.revision,"transcript":p.data.get("answer",""),
+        "video_id":p.data.get("video_id",""),"recording_id":p.data.get("recording_id",""),"duration":p.data.get("duration",0.0),
+        "score":parsed["score"],"rubric":parsed["rubric"],"feedback":parsed["feedback"],"status":status,"run":_run_view(r,True) if r is not None else {}};
+}
+
+def _library_views() -> list[dict[str, any]] {
+    runs=_library_runs();
+    return [_library_view(p,runs) for p in [root -->][?:PrepSession] if p.data.get("mode")=="library"];
+}
+
+def:priv practice_options() -> dict[str, any] {
+    _agent_access();return {"industries":practice.industries(),"tracks":practice.tracks(),"industry":_profile().industry};
+}
+
+def:priv practice_profile(industry: str) -> dict[str, any] {
+    _agent_access();
+    if not practice.valid_industry(industry) { return {"error":"Choose one of the listed industries."}; }
+    with _write_lock { _agent_fresh();p=_profile();p.industry=industry;commit(); }
+    return practice_options();
+}
+
+"""One slot per curated question for the profile's industry, each opening on its best attempt."""
+def:priv practice_slots(track: str = "behavioral") -> dict[str, any] {
+    _agent_access();industry=_profile().industry;
+    if not industry { return {"industry":"","slots":[],"needs_industry":True}; }
+    if not any(t["id"]==track and t["available"] for t in practice.tracks()) { return {"error":"This practice track is not available yet."}; }
+    views=_library_views();slots=[];
+    for q in practice.questions_for(industry,track) {
+        ranked=practice.rank([v for v in views if v["question_id"]==q["id"]]);
+        slots.append({"question":q,"attempt_count":len(ranked),"best":ranked[0] if ranked else {}});
+    }
+    return {"industry":industry,"track":track,"slots":slots};
+}
+
+def:priv practice_attempts(question_id: str) -> dict[str, any] {
+    _agent_access();
+    try { q=practice.question(question_id); } except ValueError as e { return {"error":str(e)}; }
+    return {"question":q,"attempts":practice.rank([v for v in _library_views() if v["question_id"]==question_id])};
+}
+
+def:priv practice_attempt_get(id: str) -> dict[str, any] {
+    try { return _library_view(_library_attempt(id)); } except ValueError as e { return {"error":str(e)}; }
+}
+
+"""Saves a reviewed answer transcript and starts coaching. The video itself stays on the device."""
+def:priv practice_attempt_create(question_id: str, client_id: str, answer: str, recording_id: str = "", video_id: str = "", duration: float = 0.0) -> dict[str, any] {
+    _agent_access();
+    if not client_id or len(client_id)>100 { return {"error":"A bounded request ID is required."}; }
+    if not answer.strip() { return {"error":"Review your answer transcript before scoring."}; }
+    if len(answer)>30000 or len(recording_id)>100 or len(video_id)>100 { return {"error":"This answer is too long."}; }
+    try { q=practice.question(question_id); } except ValueError as e { return {"error":str(e)}; }
+    with _write_lock {
+        _agent_fresh();
+        for p in [root -->][?:PrepSession] { if p.data.get("mode")=="library" and p.data.get("client_id")==client_id { return _library_view(p); } }
+        data={"problem_id":q["id"],"mode":"library","track":"behavioral","industry":_profile().industry,"language":"","answer":answer.strip(),
+            "code":"","notes":"","transcript":"","canvas":{},"elapsed_seconds":0,"client_id":client_id,"recording_id":recording_id,
+            "video_id":video_id,"duration":max(0.0,min(float(duration),3600.0))};
+        p=root ++> PrepSession(data=data,created_at=time.time(),updated_at=time.time());commit();
+        run=agent_start("prep",jid(p));
+        view=_library_view(p);
+        if run.get("error") { view["error"]=run["error"]; }
+        return view;
+    }
+}
+
+"""Removes the attempt and its uploaded answer audio. The client deletes its local video."""
+def:priv practice_attempt_delete(id: str) -> dict[str, any] {
+    with _write_lock {
+        try { p=_library_attempt(id); } except ValueError as e { return {"error":str(e)}; }
+        rid=str(p.data.get("recording_id",""));
+        if rid { try { TranscriptionStore().action(jid(root),rid,"delete"); } except ValueError { } }
+        del p;commit();return {"deleted":True,"id":id};
+    }
+}
+
 node Profile {
+    has industry: str = "";
     has linkedin_url: str = "", linkedin_target_role: str = "";
     has name: str = "", role: str = "", location: str = "United States", mode: str = "Any", onboarded: bool = False, notifications: bool = True;
 }
@@ -392,7 +490,7 @@ def:priv bootstrap() -> dict[str, any] {
     p = _profile();_backfill_tailored();
     return {
       "user_id":jid(root),
-      "profile":{"name":p.name,"role":p.role,"linkedin_url":p.linkedin_url,"linkedin_target_role":p.linkedin_target_role,"location":p.location,"mode":p.mode,"onboarded":p.onboarded,"notifications":p.notifications,**_timeline_preferences(),"preferences":_match_preferences()},
+      "profile":{"name":p.name,"role":p.role,"linkedin_url":p.linkedin_url,"linkedin_target_role":p.linkedin_target_role,"location":p.location,"mode":p.mode,"industry":p.industry,"onboarded":p.onboarded,"notifications":p.notifications,**_timeline_preferences(),"preferences":_match_preferences()},
       "jobs":[_application_job(a) for a in [root -->][?:Application]],
       "saved_search":_saved_search(),
       "prepared_jobs":_prepared_job_feed(),

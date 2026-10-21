@@ -183,7 +183,9 @@ def problem(problem_id: str) -> dict[(str, any)] {
             return p;
         }
     }
-    raise ValueError('Practice problem not found.');
+    # Practice-library questions are coached like behavioral problems but stay out of catalog().
+    import from agents.practice { question }
+    return question(problem_id);
 }
 def catalog() -> list[dict[(str, any)]] {
     return [

@@ -53,6 +53,7 @@ targets:
         StackAPIBaseURL: $(STACK_API_URL)
         StackAppleSignInEnabled: $(STACK_APPLE_SIGN_IN_ENABLED)
         NSMicrophoneUsageDescription: Stack records your spoken interview answers so you can review them and get coaching.
+        NSCameraUsageDescription: Stack records video of your practice interview answers so you can watch them back. Videos stay on this iPhone.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
     settings:

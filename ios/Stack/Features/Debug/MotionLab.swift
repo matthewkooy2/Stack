@@ -9,7 +9,7 @@ import SwiftUI
 /// To make a new screen reviewable: add `.replayable()` to it, and, if it is only reachable in a particular state,
 /// add a case to `LabScreen`.
 enum LabScreen: String, CaseIterable, Identifiable {
-    case launch = "Launch screen", login = "Login screen", signIn = "Sign-in form", signUp = "Create-account form"
+    case logo = "Logo marks", launch = "Launch to login", login = "Login screen", signIn = "Sign-in form", signUp = "Create-account form"
     var id: String { rawValue }
 }
 
@@ -49,11 +49,16 @@ private struct MotionLabPreview: View {
 
     @ViewBuilder private var preview: some View {
         switch screen {
-        case .launch:
+        case .logo:
             ZStack {
                 Brand.page.ignoresSafeArea()
-                StackBars(scale: 0.7)
+                HStack(spacing: 24) {
+                    StackMark(size: 150)
+                    StackMark(tiled: true, size: 120)
+                }
             }
+        case .launch:
+            LaunchSequence(isReady: true) { AccessView() }
         case .login:
             AccessView()
         case .signIn:

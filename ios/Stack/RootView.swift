@@ -28,25 +28,22 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        ZStack {
-            Palette.page.ignoresSafeArea()
-            switch store.phase {
-            case .starting:
-                ZStack {
-                    Brand.page.ignoresSafeArea()
-                    StackBars(scale: 0.7)
+        LaunchSequence(isReady: store.phase != .starting) {
+            ZStack {
+                Palette.page.ignoresSafeArea()
+                switch store.phase {
+                case .starting:
+                    Color.clear
+                case .signedOut:
+                    AccessView().replayable().transition(.opacity)
+                case .admission:
+                    InvitationView().replayable().transition(.opacity)
+                case .ready:
+                    MainTabs().transition(.opacity)
                 }
-                .replayable()
-                .transition(.opacity)
-            case .signedOut:
-                AccessView().replayable().transition(.opacity)
-            case .admission:
-                InvitationView().replayable().transition(.opacity)
-            case .ready:
-                MainTabs().transition(.opacity)
             }
+            .animation(reduceMotion ? nil : Motion.fadeAnimation, value: store.phase)
         }
-        .animation(reduceMotion ? nil : Motion.fadeAnimation, value: store.phase)
         .transaction { if reduceMotion { $0.animation = nil; $0.disablesAnimations = true } }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await store.refresh() } }

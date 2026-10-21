@@ -4,6 +4,7 @@ import SwiftUI
 @MainActor
 struct AccessView: View {
     @Environment(AppStore.self) private var store
+    @Environment(\.markInFlight) private var markInFlight
 
     enum Step: Int, StageKey {
         case welcome, signIn, signUp
@@ -32,10 +33,12 @@ struct AccessView: View {
 
     private var welcome: some View {
         VStack(alignment: .leading, spacing: 0) {
-            StackWordmark().reveal(0)
-            Spacer(minLength: 16)
-            StackBars()
-            Spacer(minLength: 16)
+            Spacer(minLength: 24)
+            StackMark(size: 170, animateIn: !markInFlight)
+                .reportsMarkFrame()
+                .opacity(markInFlight ? 0 : 1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: 12)
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: -18) {
                     Text("Your next").foregroundStyle(Brand.ink)

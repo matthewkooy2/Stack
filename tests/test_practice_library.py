@@ -91,6 +91,8 @@ class API(unittest.TestCase):
             'recording_id':rec['id'],'video_id':'video-1','duration':42.5})
         self.assertNotIn('error',first);self.assertEqual(first['status'],'queued');self.assertIsNone(first['score'])
         self.assertEqual(first['video_id'],'video-1')
+        reread=self.rpc('practice_attempt_get',{'id':first['id']})
+        self.assertEqual((reread['status'],reread['run']['id']),('queued',first['run']['id']))
         again=self.rpc('practice_attempt_create',{'question_id':qid,'client_id':'c-1','answer':'duplicate'})
         self.assertEqual(again['id'],first['id'])
         first=self.score(first,{'specificity':2,'ownership':2,'structure':2,'reflection':2})

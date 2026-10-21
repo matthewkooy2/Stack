@@ -212,11 +212,20 @@ def _library_attempt(id: str) -> PrepSession {
     raise ValueError("Practice attempt not found.");
 }
 
+"""Latest coaching run per attempt. Runs are found by target, so attempts never store a run ID."""
+def _library_runs() -> dict[str, AgentRun] {
+    latest: dict[str, AgentRun] = {};
+    for r in [root -->][?:AgentRun] {
+        if r.kind=="prep" and (r.target_id not in latest or r.created_at>=latest[r.target_id].created_at) { latest[r.target_id]=r; }
+    }
+    return latest;
+}
+
 """Coaching for the attempt's current revision, with its parsed 0-100 score when the model followed the SCORES format."""
-def _library_view(p: PrepSession) -> dict[str, any] {
+def _library_view(p: PrepSession, runs: dict[str, AgentRun] | None = None) -> dict[str, any] {
     coached=[f["data"] for f in p.feedback if f.get("revision")==p.revision];
     parsed=practice.parse_score(str(coached[-1].get("text",""))) if coached else {"score":None,"rubric":{},"feedback":""};
-    run_id=str(p.data.get("run_id",""));r=_owned_run(run_id) if run_id else None;
+    r=(runs if runs is not None else _library_runs()).get(jid(p));
     status="scored" if parsed["score"] is not None else "unscored" if coached else r.status if r is not None else "not_started";
     return {"id":jid(p),"question_id":p.data["problem_id"],"created_at":p.created_at,"revision":p.revision,"transcript":p.data.get("answer",""),
         "video_id":p.data.get("video_id",""),"recording_id":p.data.get("recording_id",""),"duration":p.data.get("duration",0.0),
@@ -224,7 +233,8 @@ def _library_view(p: PrepSession) -> dict[str, any] {
 }
 
 def _library_views() -> list[dict[str, any]] {
-    return [_library_view(p) for p in [root -->][?:PrepSession] if p.data.get("mode")=="library"];
+    runs=_library_runs();
+    return [_library_view(p,runs) for p in [root -->][?:PrepSession] if p.data.get("mode")=="library"];
 }
 
 def:priv practice_options() -> dict[str, any] {
@@ -276,7 +286,6 @@ def:priv practice_attempt_create(question_id: str, client_id: str, answer: str, 
             "video_id":video_id,"duration":max(0.0,min(float(duration),3600.0))};
         p=root ++> PrepSession(data=data,created_at=time.time(),updated_at=time.time());commit();
         run=agent_start("prep",jid(p));
-        if run.get("id") { p.data={**p.data,"run_id":run["id"]};commit(); }
         view=_library_view(p);
         if run.get("error") { view["error"]=run["error"]; }
         return view;

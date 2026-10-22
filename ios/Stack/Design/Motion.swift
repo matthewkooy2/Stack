@@ -7,7 +7,16 @@ private struct StackMotionPolicyKey: EnvironmentKey {
     static let defaultValue: StackMotionPolicy = .system
 }
 
+private struct LaunchHoldKey: EnvironmentKey { static let defaultValue = false }
+
 extension EnvironmentValues {
+    /// True while `LaunchSequence` has built the destination but not yet shown it: entrances wait (reveals) or are
+    /// skipped (the sideways slide, which would move the spot the launch mark lands on).
+    var launchHold: Bool {
+        get { self[LaunchHoldKey.self] }
+        set { self[LaunchHoldKey.self] = newValue }
+    }
+
     var stackMotionPolicy: StackMotionPolicy {
         get { self[StackMotionPolicyKey.self] }
         set { self[StackMotionPolicyKey.self] = newValue }
@@ -49,15 +58,16 @@ protocol StageKey: Hashable {
 struct StageEntrance: ViewModifier {
     let direction: CGFloat
     @Environment(\.stackReduceMotion) var reduceMotion
+    @Environment(\.launchHold) var hold
     @State var shown = false
 
     func body(content: Content) -> some View {
         content
-            .opacity(reduceMotion || shown ? 1 : 0)
-            .offset(x: reduceMotion || shown ? 0 : direction * 22)
+            .opacity(reduceMotion || hold || shown ? 1 : 0)
+            .offset(x: reduceMotion || hold || shown ? 0 : direction * 22)
             .animation(reduceMotion ? nil : Motion.stageAnimation, value: shown)
             .onAppear {
-                if reduceMotion { shown = true }
+                if reduceMotion || hold { shown = true }
                 else { DispatchQueue.main.async { shown = true } }
             }
     }
@@ -109,18 +119,22 @@ struct Reveal: ViewModifier {
     var delay = 0.0
     var rise: CGFloat = 14
     @Environment(\.stackReduceMotion) var reduceMotion
+    @Environment(\.launchHold) var hold
     @State var shown = false
 
     func body(content: Content) -> some View {
         content
             .opacity(reduceMotion || shown ? 1 : 0)
             .offset(y: reduceMotion || shown ? 0 : rise)
-            .onAppear {
-                guard !shown else { return }
-                if reduceMotion { shown = true; return }
-                let wait = 0.04 + delay + Double(min(index, 8)) * Motion.stagger
-                withAnimation(Motion.revealAnimation.delay(wait)) { shown = true }
-            }
+            .onAppear { start() }
+            .onChange(of: hold) { _, held in if !held { start() } }
+    }
+
+    private func start() {
+        guard !shown, !hold else { return }
+        if reduceMotion { shown = true; return }
+        let wait = 0.04 + delay + Double(min(index, 8)) * Motion.stagger
+        withAnimation(Motion.revealAnimation.delay(wait)) { shown = true }
     }
 }
 

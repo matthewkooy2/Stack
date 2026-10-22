@@ -33,27 +33,14 @@ struct AccessView: View {
 
     private var welcome: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Spacer(minLength: 24)
-            StackMark(size: 170, animateIn: !markInFlight)
-                .reportsMarkFrame()
-                .opacity(markInFlight ? 0 : 1)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Spacer(minLength: 12)
-            VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: -18) {
-                    Text("Your next").foregroundStyle(Brand.ink)
-                    Text("move.").foregroundStyle(Brand.accent)
-                }
-                .font(.system(size: 70, weight: .heavy))
-                .tracking(-3.4)
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-                Text("Your job search, together.")
-                    .font(.system(.title3))
-                    .foregroundStyle(Brand.muted)
+            // The mark takes all the room above the buttons.
+            GeometryReader { geo in
+                StackMark(size: max(120, min(geo.size.width, geo.size.height)), animateIn: !markInFlight)
+                    .reportsMarkFrame()
+                    .opacity(markInFlight ? 0 : 1)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .reveal(2, delay: 0.45)
-            .padding(.bottom, 28)
+            .padding(.bottom, 16)
             StoreMessages()
             VStack(spacing: 12) {
                 if AppleSignIn.enabled {

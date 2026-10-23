@@ -2,22 +2,19 @@ import Foundation
 import Observation
 
 enum PrepPage: String, StageKey {
-    case home, type, focus, length, question, answer, recording, review, processing, coaching, complete
-    case continueSession, past, history, savedAnswer
+    case home, question, answer, recording, review, processing, coaching, complete
+    case past, history, savedAnswer
 
     var depth: Int {
         switch self {
         case .home: return 0
-        case .type, .continueSession, .past: return 1
-        case .focus: return 2
-        case .length: return 3
-        case .question: return 4
-        case .answer, .recording: return 5
-        case .review: return 6
-        case .processing: return 7
-        case .coaching: return 8
-        case .complete, .history: return 9
-        case .savedAnswer: return 10
+        case .question, .past: return 1
+        case .answer, .recording: return 2
+        case .review: return 3
+        case .processing: return 4
+        case .coaching: return 5
+        case .complete, .history: return 6
+        case .savedAnswer: return 7
         }
     }
 }
@@ -34,6 +31,15 @@ enum PrepFocus: String, CaseIterable {
         case .projects: return "applications"
         case .teamwork: return "network"
         case .setbacks: return "sprout"
+        }
+    }
+
+    var shortName: String {
+        switch self {
+        case .mixed: return "Mixed"
+        case .projects: return "Projects"
+        case .teamwork: return "Teamwork"
+        case .setbacks: return "Setbacks"
         }
     }
 
@@ -56,7 +62,10 @@ final class PrepModel {
     // Navigation
     var page: PrepPage = .home
     var focus: PrepFocus = .mixed
-    var idea = false
+    /// How many times "Another question" was tapped for the current focus.
+    var skipped = 0
+    /// Set when the person chose to start fresh instead of continuing a session in progress.
+    var startedFresh = false
 
     // Server state
     var loaded = false
@@ -188,24 +197,18 @@ final class PrepModel {
 
     func go(_ next: PrepPage) {
         error = ""
-        idea = false
         page = next
     }
 
-    func begin(count: Int) async {
-        guard !busy else { return }
+    /// Creates a session whose first question is `first` and fills the rest from the same pool.
+    @discardableResult
+    func begin(first: PrepQuestion, count: Int = 3) async -> Bool {
+        guard !busy else { return false }
         busy = true
         error = ""
         defer { busy = false }
         do {
-            var plan = (0..<count).map { i -> String in
-                let bases = focus.bases
-                return bases[i % bases.count] + (i >= bases.count ? "-\(i / bases.count + 1)" : "")
-            }
-            if idea {
-                plan = ["disagreement-2"] + plan.filter { $0 != "disagreement-2" }
-                plan = Array(plan.prefix(count))
-            }
+            let plan = sessionPlan(first: first, count: count)
             current = try await sessionRequest { try await transport.create(problemID: plan[0]) }
             var data = current["data"]
             data["behavioral"] = [
@@ -218,7 +221,87 @@ final class PrepModel {
             try await save(data)
             resetAnswer()
             page = .question
-        } catch { fail(error) }
+            return true
+        } catch {
+            fail(error)
+            return false
+        }
+    }
+
+    // MARK: Today's question
+
+    private func base(_ id: String) -> String { String(id.split(separator: "-").first ?? "") }
+
+    /// Behavioral prompts for the chosen focus.
+    private var pool: [PrepQuestion] {
+        catalog.filter { $0.track == "Behavioral" && focus.bases.contains(base($0.id)) }
+    }
+
+    /// Question ids already answered in this account's sessions.
+    private var asked: Set<String> {
+        Set(sessions.flatMap { row in row["data"]["behavioral"]["history"].array.map { $0["problem_id"].string } })
+    }
+
+    /// Prefers questions not answered yet; falls back to the whole pool once all have been.
+    private var freshPool: [PrepQuestion] {
+        let fresh = pool.filter { !asked.contains($0.id) }
+        return fresh.isEmpty ? pool : fresh
+    }
+
+    private var rotation: Int { Int(Date().timeIntervalSince1970 / 86_400) + skipped }
+
+    /// The question home offers. It changes daily, and with each "Another question".
+    var offered: PrepQuestion? {
+        let list = freshPool
+        return list.isEmpty ? nil : list[rotation % list.count]
+    }
+
+    /// A session in progress that home offers to continue, with the question it is on.
+    var continuing: (id: String, prompt: String, label: String)? {
+        guard !startedFresh, let row = activeSessions.first else { return nil }
+        let behavioral = row["data"]["behavioral"]
+        let prompt = catalog.first { $0.id == row["data"]["problem_id"].string }?.prompt ?? ""
+        guard !prompt.isEmpty else { return nil }
+        return (row["id"].string, prompt, "\(behavioral["index"].int + 1) of \(behavioral["plan"].array.count)")
+    }
+
+    /// `first`, then questions from other topics first, so a session has some variety.
+    private func sessionPlan(first: PrepQuestion, count: Int) -> [String] {
+        let rest = freshPool.filter { $0.id != first.id }
+        let offset = rest.isEmpty ? 0 : rotation % rest.count
+        let rotated = Array(rest[offset...] + rest[..<offset])
+        var plan = [first.id]
+        var topics: Set<String> = [base(first.id)]
+        for item in rotated where plan.count < count && !topics.contains(base(item.id)) {
+            plan.append(item.id)
+            topics.insert(base(item.id))
+        }
+        for item in rotated where plan.count < count && !plan.contains(item.id) { plan.append(item.id) }
+        return plan
+    }
+
+    func choose(_ next: PrepFocus) {
+        focus = next
+        skipped = 0
+        startedFresh = true
+    }
+
+    func another() { skipped += 1; startedFresh = true }
+
+    /// Starts a session from the offered question and goes straight to recording, or to typing.
+    func answerOffered(typing: Bool = false) async {
+        guard let first = offered, await begin(first: first) else { return }
+        if typing { go(.answer) } else { await recordAnswer() }
+    }
+
+    /// Throws the take away and returns to the question.
+    func cancelRecording() {
+        epoch += 1
+        pendingCapture = nil
+        _ = recorder.stop(cancelled: true)
+        resetAnswer()
+        error = ""
+        page = .question
     }
 
     func openSession(_ id: String) async {
@@ -354,9 +437,6 @@ final class PrepModel {
         error = ""
         epoch += 1
         switch page {
-        case .type: page = .home
-        case .focus: page = .type
-        case .length: page = idea ? .home : .focus
         case .history: page = .coaching
         case .savedAnswer: page = .history
         case .answer, .review:

@@ -6,43 +6,52 @@ struct PrepView: View {
     @Environment(AppStore.self) private var store
     @State var model = PrepModel()
     @State private var tool: PrepTool?
+    @State private var showTopics = false
+    @State private var pendingTool: PrepTool?
+
+    /// Pages that fill the screen and draw their own top bar, in the new look.
+    private var fillsScreen: Bool { [.home, .question, .recording].contains(model.page) }
+
+    private var screenMessage: String { model.error.isEmpty ? model.recorder.error : model.error }
 
     var body: some View {
         GeometryReader { proxy in
             ScrollView {
                 Stage(key: model.page, step: model.index) {
                     VStack(alignment: .leading, spacing: Spacing.stack) {
-                        if model.page != .home {
+                        if !fillsScreen {
                             BackButton(label: "Back to Prep", disabled: model.locked) { Task { await model.back() } }
                         }
-                        if [.question, .answer, .review, .processing, .coaching].contains(model.page) {
+                        if [.answer, .review, .processing, .coaching].contains(model.page) {
                             Text("Question \(model.index + 1) of \(model.plan.count)")
                                 .font(Typeface.caption).foregroundStyle(Palette.muted)
                         }
                         pageContent
-                        MessageLine(text: model.error.isEmpty ? model.recorder.error : model.error)
-                            .fadeSwitch(!(model.error.isEmpty && model.recorder.error.isEmpty))
-                        if model.page != .recording {
+                        if !fillsScreen {
+                            MessageLine(text: screenMessage)
+                                .fadeSwitch(!screenMessage.isEmpty)
                             MessageLine(text: model.recorder.stopNotice, isError: false)
                                 .fadeSwitch(!model.recorder.stopNotice.isEmpty)
+                            if model.recorder.permissionDenied {
+                                StackButton(label: "Open microphone settings", kind: .secondary) { AppSettings.open() }
+                                Text("Allow microphone access, then return and choose Record answer again. You can also type instead.")
+                                    .font(Typeface.caption).foregroundStyle(Palette.muted)
+                            }
+                            Text("Saving…").font(Typeface.caption).foregroundStyle(Palette.muted)
+                                .fadeSwitch(model.busy || model.saving)
                         }
-                        if model.recorder.permissionDenied {
-                            StackButton(label: "Open microphone settings", kind: .secondary) { AppSettings.open() }
-                            Text("Allow microphone access, then return and choose Record answer again. You can also type instead.")
-                                .font(Typeface.caption).foregroundStyle(Palette.muted)
-                        }
-                        Text("Saving…").font(Typeface.caption).foregroundStyle(Palette.muted)
-                            .fadeSwitch(model.busy || model.saving)
                     }
                     .padding(.horizontal, Spacing.page)
                     .padding(.top, 8)
                     .padding(.bottom, 16)
-                    .frame(maxWidth: .infinity, minHeight: proxy.size.height - 8, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, minHeight: proxy.size.height - 8,
+                           maxHeight: fillsScreen ? proxy.size.height - 8 : nil, alignment: .topLeading)
                 }
             }
             .scrollIndicators(.hidden)
             .scrollDismissesKeyboard(.interactively)
         }
+        .background(Brand.page.ignoresSafeArea())
         .sensoryFeedback(.success, trigger: model.page) { _, new in new == .coaching || new == .complete }
         .task {
             model.bind(store)
@@ -50,6 +59,11 @@ struct PrepView: View {
         }
         .onChange(of: isActive) { _, active in
             if !active { model.suspendCapture() }
+        }
+        .sheet(isPresented: $showTopics, onDismiss: {
+            if let next = pendingTool { pendingTool = nil; tool = next }
+        }) {
+            PrepTopicSheet(selected: model.focus, onFocus: { model.choose($0) }, onTool: { pendingTool = $0 })
         }
         .sheet(item: $tool) { value in
             switch value {
@@ -78,9 +92,6 @@ struct PrepView: View {
     private var pageContent: some View {
         switch model.page {
         case .home: home
-        case .type: chooseType
-        case .focus: chooseFocus
-        case .length: chooseLength
         case .question: questionPage
         case .answer: typedAnswer
         case .recording: recordingPage
@@ -88,127 +99,54 @@ struct PrepView: View {
         case .processing: processing
         case .coaching: coaching
         case .complete: complete
-        case .continueSession, .past: sessionList
+        case .past: sessionList
         case .history: savedAnswers
         case .savedAnswer: savedAnswer
         }
     }
 
-    // MARK: Home
+    // MARK: Home and questions
 
+    private var micLinks: [ScreenLink] {
+        model.recorder.permissionDenied ? [ScreenLink("Open microphone settings") { AppSettings.open() }] : []
+    }
+
+    /// "Interview at <company>" when a saved role is at the interview stage.
+    private var interviewContext: String? {
+        let role = store.account.applications.first { !$0.isDemo && $0.status.lowercased().contains("interview") }
+        return role.map { "Interview at \($0.job.company)" }
+    }
+
+    @ViewBuilder
     private var home: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Prep").font(.system(size: 40, weight: .bold)).tracking(-1).foregroundStyle(Palette.ink)
-                .padding(.bottom, 12)
-            ListRow(label: "New session", icon: "add-session") { model.focus = .mixed; model.go(.type) }.reveal(0)
-            ListRow(label: "Continue session", icon: "continue-session") { model.go(.continueSession) }.reveal(1)
-            ListRow(label: "Past sessions", icon: "clock") { model.go(.past) }.reveal(2)
-
-            Card(tint: Palette.surfaceRaised) {
-                Text("Session idea").font(Typeface.caption).foregroundStyle(Palette.muted)
-                Text("Tell me about a time you changed your mind.")
-                    .font(.system(.title2)).foregroundStyle(Palette.text)
-                StackButton(label: "Start session", kind: .dark) {
-                    model.focus = .teamwork
-                    model.go(.length)
-                    model.idea = true
-                }
-            }
-            .padding(.top, 28)
-            .reveal(3)
-
-            weekTracker.padding(.top, 28).reveal(4).fadeSwitch(model.loaded, keep: true)
-            StackButton(label: "More practice tools", kind: .secondary) { tool = .tools }.reveal(5)
+        if let resume = model.continuing {
+            PrepQuestionScreen(progress: "Continue · \(resume.label)", prompt: resume.prompt, primary: "Continue",
+                               busy: model.busy, message: screenMessage,
+                               links: [ScreenLink("Start something new") { withAnimation(Motion.ease(0.4)) { model.startedFresh = true } }],
+                               onHistory: { model.go(.past) },
+                               onPrimary: { Task { await model.openSession(resume.id) } })
+        } else if let offered = model.offered {
+            PrepQuestionScreen(topic: model.focus.shortName, context: interviewContext, prompt: offered.prompt,
+                               busy: model.busy, message: screenMessage,
+                               links: [ScreenLink("Another question") { withAnimation(Motion.ease(0.4)) { model.another() } },
+                                       ScreenLink("Type instead") { Task { await model.answerOffered(typing: true) } }] + micLinks,
+                               onTopic: { showTopics = true },
+                               onHistory: { model.go(.past) },
+                               onPrimary: { Task { await model.answerOffered() } })
+        } else {
+            Color.clear
         }
     }
 
-    private var weekTracker: some View {
-        let week = model.week
-        let count = week.filter(\.practiced).count
-        return VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 14) {
-                GlyphView(name: "sparkles", size: 20, color: Palette.muted)
-                Text("\(count) practice \(count == 1 ? "day" : "days") this week")
-                    .font(Typeface.body).foregroundStyle(Palette.text)
-            }
-            HStack {
-                ForEach(Array(week.enumerated()), id: \.offset) { index, day in
-                    VStack(spacing: 10) {
-                        Text(day.label).font(Typeface.caption).foregroundStyle(Palette.muted)
-                        ZStack {
-                            Circle().stroke(Palette.outline, lineWidth: 1).frame(width: 30, height: 30)
-                            if day.practiced {
-                                Circle().fill(Palette.ring).frame(width: 30, height: 30)
-                                GlyphView(name: "check", size: 14).pop(delay: 0.25 + Double(index) * 0.07)
-                            }
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel(day.practiced ? "Practiced" : "No practice")
-                }
-            }
-        }
-    }
-
-    // MARK: Setup
-
-    private var chooseType: some View {
-        VStack(alignment: .leading, spacing: Spacing.stack) {
-            Text("Choose your session type").font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink)
-            Spacer(minLength: 110)
-            VStack(spacing: Spacing.option) {
-                OptionRow(label: "Behavioral", icon: "chat") { model.go(.focus) }.reveal(0)
-                OptionRow(label: "Technical", icon: "code", oat: true) { tool = .practice }
-                    .reveal(1)
-            }
-        }
-    }
-
-    private var chooseFocus: some View {
-        VStack(alignment: .leading, spacing: Spacing.stack) {
-            Text("Choose your focus").font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink)
-            Spacer(minLength: 110)
-            VStack(spacing: Spacing.option) {
-                ForEach(Array(PrepFocus.allCases.enumerated()), id: \.element) { index, choice in
-                    OptionRow(label: choice.rawValue, icon: choice.icon, oat: index % 2 == 1) {
-                        model.focus = choice
-                        model.go(.length)
-                    }
-                    .reveal(index)
-                }
-            }
-        }
-    }
-
-    private var chooseLength: some View {
-        VStack(alignment: .leading, spacing: Spacing.stack) {
-            Text("Choose your session length").font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink)
-            Spacer(minLength: 110)
-            VStack(spacing: Spacing.option) {
-                ForEach([1, 3, 5], id: \.self) { count in
-                    OptionRow(label: "\(count) \(count == 1 ? "question" : "questions")", icon: "question-file",
-                              oat: count == 3, disabled: model.busy) {
-                        Task { await model.begin(count: count) }
-                    }
-                }
-            }
-        }
+    private var questionPage: some View {
+        PrepQuestionScreen(progress: "\(model.index + 1) of \(model.plan.count)", prompt: model.question?.prompt ?? "",
+                           busy: model.busy, message: screenMessage,
+                           links: [ScreenLink("Type instead") { model.go(.answer) },
+                                   ScreenLink("Stop for now") { Task { await model.back() } }] + micLinks,
+                           onPrimary: { Task { await model.recordAnswer() } })
     }
 
     // MARK: Answering
-
-    private var questionPage: some View {
-        VStack(alignment: .leading, spacing: Spacing.stack) {
-            Text(model.question?.prompt ?? "").font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink).reveal(0)
-            Spacer(minLength: 100)
-            VStack(spacing: Spacing.option) {
-                StackButton(label: "Record answer", icon: "mic", disabled: model.busy) { Task { await model.recordAnswer() } }
-                StackButton(label: "Type instead", kind: .secondary) { model.go(.answer) }
-            }
-            .reveal(2)
-        }
-    }
 
     private var typedAnswer: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -222,10 +160,11 @@ struct PrepView: View {
     }
 
     private var recordingPage: some View {
-        RecordingSurface(recorder: model.recorder, questionNumber: model.index + 1,
-                         questionCount: model.plan.count, prompt: model.question?.prompt ?? "",
-                         busy: model.busy, onStop: { Task { await model.finishAnswer() } },
-                         onTogglePause: { model.togglePause() })
+        PrepRecordingScreen(recorder: model.recorder, progress: "\(model.index + 1) of \(model.plan.count)",
+                            busy: model.busy, message: screenMessage,
+                            onDone: { Task { await model.finishAnswer() } },
+                            onTogglePause: { model.togglePause() },
+                            onCancel: { model.cancelRecording() })
     }
 
     private var review: some View {
@@ -352,18 +291,16 @@ struct PrepView: View {
             Text("\(model.plan.count) \(model.plan.count == 1 ? "question" : "questions") practiced. Your answers and coaching are saved.")
                 .font(Typeface.body).foregroundStyle(Palette.text)
             StackButton(label: "Back to Prep") { model.go(.home) }
-            StackButton(label: "New session", kind: .secondary) { model.go(.type) }
+            StackButton(label: "Another session", kind: .secondary) { model.another(); model.go(.home) }
         }
     }
 
     // MARK: Lists
 
     private var sessionList: some View {
-        let continuing = model.page == .continueSession
-        let rows = continuing ? model.activeSessions : model.sessions
-        return VStack(alignment: .leading, spacing: Spacing.group) {
-            Text(continuing ? "Continue session" : "Past sessions").font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink)
-            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+        VStack(alignment: .leading, spacing: Spacing.group) {
+            Text("Past sessions").font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink)
+            ForEach(Array(model.sessions.enumerated()), id: \.offset) { index, row in
                 let w = row["data"]["behavioral"]
                 OptionRow(label: "\(w["focus"].string) · \(w["index"].int + 1) of \(w["plan"].array.count)", icon: "chat",
                           oat: index % 2 == 1, disabled: model.busy) {
@@ -371,8 +308,8 @@ struct PrepView: View {
                 }
                 .reveal(index)
             }
-            if rows.isEmpty {
-                Text("No sessions yet. Start with New session.").font(Typeface.caption).foregroundStyle(Palette.muted)
+            if model.sessions.isEmpty {
+                Text("No sessions yet. Your practice will show up here.").font(Typeface.caption).foregroundStyle(Palette.muted)
             }
         }
     }

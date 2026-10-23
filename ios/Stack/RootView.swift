@@ -190,8 +190,8 @@ private struct TabBar: View {
         .padding(.horizontal, 10)
         .padding(.top, 8)
         .padding(.bottom, 4)
-        .background(Palette.page)
-        .overlay(alignment: .top) { Rectangle().fill(Palette.rule).frame(height: 1) }
+        .background(selection == .prep ? Brand.page : Palette.page)
+        .overlay(alignment: .top) { Rectangle().fill(selection == .prep ? Brand.rule : Palette.rule).frame(height: 1) }
         .sensoryFeedback(.selection, trigger: selection)
     }
 }

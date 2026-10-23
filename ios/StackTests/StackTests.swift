@@ -76,8 +76,8 @@ final class PrepCodecTests: XCTestCase {
 }
 
 final class PrepFlowTests: XCTestCase {
-    func testPageDepthsOrderTheSetupToCoachingPath() {
-        let path: [PrepPage] = [.home, .type, .focus, .length, .question, .answer, .review, .processing, .coaching, .complete]
+    func testPageDepthsOrderTheQuestionToCoachingPath() {
+        let path: [PrepPage] = [.home, .question, .answer, .review, .processing, .coaching, .complete]
         XCTAssertEqual(path.map(\.depth), path.map(\.depth).sorted())
     }
 

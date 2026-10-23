@@ -88,6 +88,8 @@ final class PrepModel {
     var busy = false
     /// True from tapping Done until the answer is saved and sent for coaching.
     var finishing = false
+    /// True when a saved answer was opened without the list in between, so Back returns to History.
+    var openedDirectly = false
     var saving = false
     var error = ""
 
@@ -159,6 +161,24 @@ final class PrepModel {
 
     var strengths: [JSON] { feedback["rubric"].array.filter { $0["score"].double >= 3 } }
     var improvements: [JSON] { feedback["rubric"].array.filter { $0["score"].double < 3 } }
+
+    /// Consecutive days with practice, counted back from today (or from yesterday while today has none yet).
+    var streak: Int {
+        let calendar = Calendar(identifier: .gregorian)
+        let days = Set(sessions.compactMap { row -> Date? in
+            let behavioral = row["data"]["behavioral"]
+            guard behavioral["complete"].bool || !behavioral["history"].array.isEmpty else { return nil }
+            return calendar.startOfDay(for: Date(timeIntervalSince1970: row["updated_at"].double))
+        })
+        var day = calendar.startOfDay(for: Date())
+        if !days.contains(day) { day = calendar.date(byAdding: .day, value: -1, to: day) ?? day }
+        var count = 0
+        while days.contains(day), count < 400 {
+            count += 1
+            day = calendar.date(byAdding: .day, value: -1, to: day) ?? day
+        }
+        return count
+    }
 
     /// Days of the current week (Monday first) and which of them had practice.
     var week: [(label: String, practiced: Bool)] {
@@ -363,6 +383,10 @@ final class PrepModel {
             else if ["queued", "running", "needs_input", "blocked", "failed", "cancelled"].contains(state) { page = .processing }
             else if !draft.isEmpty || localURL != nil || !recording.object.isEmpty { page = .review }
             else { page = .question }
+            if behavioral["complete"].bool || !behavioral["history"].array.isEmpty {
+                let answers = behavioral["history"].array
+                if answers.count == 1, let only = answers.first { await viewSaved(only); openedDirectly = true } else if !answers.isEmpty { page = .history }
+            }
         } catch { fail(error) }
     }
 
@@ -444,8 +468,10 @@ final class PrepModel {
         error = ""
         epoch += 1
         switch page {
-        case .history: page = .coaching
-        case .savedAnswer: page = .history
+        case .history: page = .past
+        case .savedAnswer:
+            page = openedDirectly ? .past : .history
+            openedDirectly = false
         case .answer, .review:
             busy = true
             do { try await persistAnswer(); page = .home } catch { fail(error) }

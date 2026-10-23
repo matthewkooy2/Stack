@@ -10,7 +10,10 @@ struct PrepView: View {
     @State private var pendingTool: PrepTool?
 
     /// Pages that fill the screen and draw their own top bar, in the new look.
-    private var fillsScreen: Bool { [.home, .question, .recording, .processing, .coaching].contains(model.page) }
+    private var fillsScreen: Bool { [.home, .question, .recording, .processing, .coaching, .complete].contains(model.page) }
+
+    /// Pages that draw their own back button.
+    private var ownsBack: Bool { [.past, .history, .savedAnswer].contains(model.page) }
 
     private var screenMessage: String { model.error.isEmpty ? model.recorder.error : model.error }
 
@@ -19,8 +22,8 @@ struct PrepView: View {
             ScrollView {
                 Stage(key: model.page, step: model.index) {
                     VStack(alignment: .leading, spacing: Spacing.stack) {
-                        if !fillsScreen {
-                            BackButton(label: "Back to Prep", disabled: model.locked) { Task { await model.back() } }
+                        if !fillsScreen && !ownsBack {
+                            BrandBackButton(disabled: model.locked) { Task { await model.back() } }
                         }
                         if [.answer, .review].contains(model.page) {
                             Text("Question \(model.index + 1) of \(model.plan.count)")
@@ -276,59 +279,56 @@ struct PrepView: View {
     }
 
     private var complete: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            Halo(size: 76) { GlyphView(name: "done", size: 34) }.pop()
-            Text("Session complete").font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink)
-            Text("\(model.plan.count) \(model.plan.count == 1 ? "question" : "questions") practiced. Your answers and coaching are saved.")
-                .font(Typeface.body).foregroundStyle(Palette.text)
-            StackButton(label: "Back to Prep") { model.go(.home) }
-            StackButton(label: "Another session", kind: .secondary) { model.another(); model.go(.home) }
-        }
+        PrepDoneScreen(answers: model.history.count, streak: model.streak,
+                       onDone: { model.go(.home) },
+                       onAgain: { model.another(); model.go(.home) })
     }
 
     // MARK: Lists
 
     private var sessionList: some View {
-        VStack(alignment: .leading, spacing: Spacing.group) {
-            Text("Past sessions").font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink)
-            ForEach(Array(model.sessions.enumerated()), id: \.offset) { index, row in
-                let w = row["data"]["behavioral"]
-                OptionRow(label: "\(w["focus"].string) · \(w["index"].int + 1) of \(w["plan"].array.count)", icon: "chat",
-                          oat: index % 2 == 1, disabled: model.busy) {
-                    Task { await model.openSession(row["id"].string) }
-                }
-                .reveal(index)
-            }
-            if model.sessions.isEmpty {
-                Text("No sessions yet. Your practice will show up here.").font(Typeface.caption).foregroundStyle(Palette.muted)
-            }
+        // A session with no answers and no end is just a question someone opened and left; it says nothing.
+        let rows = model.sessions
+            .filter { $0["data"]["behavioral"]["complete"].bool || !$0["data"]["behavioral"]["history"].array.isEmpty }
+            .sorted { $0["updated_at"].double > $1["updated_at"].double }
+        let items = rows.map { row -> HistoryItem in
+            let work = row["data"]["behavioral"]
+            let answers = work["history"].array.count
+            let first = model.catalog.first { $0.id == work["plan"].strings.first }?.prompt ?? ""
+            let when = shortDate(row["updated_at"].double)
+            let count = "\(answers) \(answers == 1 ? "answer" : "answers")"
+            return HistoryItem(id: row["id"].string, title: first.isEmpty ? "Practice session" : splitPrompt(first).lead,
+                               detail: [when, count, work["complete"].bool ? "" : "In progress"].filter { !$0.isEmpty }.joined(separator: " · "))
         }
+        return PrepListScreen(title: "History", items: items, empty: "Your sessions will show up here.",
+                              onBack: { Task { await model.back() } },
+                              onSelect: { item in Task { await model.openSession(item.id) } })
     }
 
     private var savedAnswers: some View {
-        VStack(alignment: .leading, spacing: Spacing.group) {
-            Text("Saved answers").font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink)
-            ForEach(Array(model.history.enumerated()), id: \.offset) { index, entry in
-                OptionRow(label: "Question \(entry["index"].int + 1)", icon: "play", oat: index % 2 == 1) {
-                    Task { await model.viewSaved(entry) }
-                }
-                .reveal(index)
-            }
-            StackButton(label: "Return to session", kind: .secondary) { model.go(.coaching) }
+        let focus = PrepFocus(rawValue: model.workflow["focus"].string)?.shortName ?? "Session"
+        let items = model.history.map { entry -> HistoryItem in
+            let prompt = model.catalog.first { $0.id == entry["problem_id"].string }?.prompt ?? ""
+            return HistoryItem(id: String(entry["index"].int), title: "Question \(entry["index"].int + 1)",
+                               detail: splitPrompt(prompt).lead)
         }
+        return PrepListScreen(title: focus, items: items, empty: "No answers saved in this session.",
+                              onBack: { Task { await model.back() } },
+                              onSelect: { item in
+                                  if let entry = model.history.first(where: { String($0["index"].int) == item.id }) {
+                                      Task { await model.viewSaved(entry) }
+                                  }
+                              })
     }
 
     private var savedAnswer: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text("Answer \(model.archived["index"].int + 1)").font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink)
-            if let prompt = model.catalog.first(where: { $0.id == model.archived["problem_id"].string })?.prompt {
-                Text(prompt).font(Typeface.caption).foregroundStyle(Palette.muted)
-            }
+        let shown = CoachingPresentation.make(from: model.archived["feedback"])
+        let prompt = model.catalog.first { $0.id == model.archived["problem_id"].string }?.prompt ?? ""
+        return PrepSavedAnswerScreen(heading: "Question \(model.archived["index"].int + 1)", prompt: prompt,
+                                     answer: model.archived["answer"].string, verdict: shown.verdict,
+                                     criteria: shown.criteria, focus: shown.focus,
+                                     onBack: { Task { await model.back() } }) {
             if let url = model.archivedURL { AnswerPlayback(url: url, isActive: isActive) }
-            Text(model.archived["answer"].string).font(Typeface.body).foregroundStyle(Palette.text)
-            Text("Your coaching").font(Typeface.title).foregroundStyle(Palette.ink)
-            Text(model.archived["feedback"]["summary"].string).font(Typeface.body).foregroundStyle(Palette.text)
-            StackButton(label: "Saved answers", kind: .secondary) { model.go(.history) }
         }
     }
 }

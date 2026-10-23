@@ -465,3 +465,154 @@ struct PrepCoachingScreen: View {
         }
     }
 }
+
+/// A round white back button, the same as on the sign-in forms.
+struct BrandBackButton: View {
+    var disabled = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "chevron.left")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(Brand.ink)
+                .frame(width: 44, height: 44)
+                .background(Color.white, in: Circle())
+                .overlay(Circle().stroke(Brand.rule, lineWidth: 1))
+        }
+        .buttonStyle(.tap(scale: 0.92, dim: 1))
+        .disabled(disabled)
+        .accessibilityLabel("Back")
+    }
+}
+
+/// The end of a session: the mark lands, one line, nothing to decide.
+@MainActor
+struct PrepDoneScreen: View {
+    let answers: Int
+    let streak: Int
+    let onDone: () -> Void
+    let onAgain: () -> Void
+
+    private var detail: String {
+        let count = "\(answers) \(answers == 1 ? "answer" : "answers")"
+        return streak > 0 ? "\(count) · \(streak) day streak" : count
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            VStack(spacing: 14) {
+                StackMark(size: 200)
+                Text("Nice work.").font(.system(size: 46, weight: .heavy)).tracking(-2.2).foregroundStyle(Brand.ink)
+                    .reveal(0, delay: 0.9)
+                Text(detail).font(.system(.title3)).foregroundStyle(Brand.muted).reveal(1, delay: 0.9)
+            }
+            .frame(maxWidth: .infinity)
+            Spacer()
+            PrimaryPill(title: "Done", action: onDone).reveal(2, delay: 0.9)
+            QuietLinks(links: [ScreenLink("Practice again", action: onAgain)]).padding(.top, 6).reveal(3, delay: 0.9)
+        }
+    }
+}
+
+struct HistoryItem: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let detail: String
+}
+
+/// A plain list: a big title, then rows with a hairline between them.
+@MainActor
+struct PrepListScreen: View {
+    let title: String
+    let items: [HistoryItem]
+    var empty = ""
+    let onBack: () -> Void
+    let onSelect: (HistoryItem) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack { BrandBackButton(action: onBack); Spacer() }.reveal(0)
+            Text(title).font(.system(size: 36, weight: .heavy)).tracking(-1.8).foregroundStyle(Brand.ink)
+                .padding(.top, 18).padding(.bottom, 8).reveal(1)
+            if items.isEmpty {
+                Text(empty).font(Typeface.body).foregroundStyle(Brand.muted).padding(.top, 16)
+            }
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                Button { onSelect(item) } label: {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(item.title).font(.system(size: 20, weight: .semibold)).tracking(-0.5).foregroundStyle(Brand.ink)
+                                .lineLimit(2).multilineTextAlignment(.leading)
+                            if !item.detail.isEmpty {
+                                Text(item.detail).font(Typeface.caption).foregroundStyle(Brand.muted).lineLimit(2)
+                            }
+                        }
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.right").font(.system(size: 13, weight: .bold)).foregroundStyle(Brand.muted)
+                    }
+                    .padding(.vertical, 14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.tap(scale: 0.99, dim: 1))
+                .overlay(alignment: .bottom) { Rectangle().fill(Brand.rule).frame(height: 1) }
+                .reveal(index + 2)
+            }
+        }
+    }
+}
+
+/// One saved answer: the question, the audio, what was said, and the coaching it got, with every reason showing.
+@MainActor
+struct PrepSavedAnswerScreen<Playback: View>: View {
+    let heading: String
+    let prompt: String
+    let answer: String
+    let verdict: String
+    let criteria: [CoachCriterion]
+    let focus: String
+    let onBack: () -> Void
+    @ViewBuilder var playback: () -> Playback
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack { BrandBackButton(action: onBack); Spacer() }.reveal(0)
+            Text(heading).font(.system(size: 36, weight: .heavy)).tracking(-1.8).foregroundStyle(Brand.ink)
+                .padding(.top, 18).reveal(1)
+            if !prompt.isEmpty { Text(prompt).font(Typeface.caption).foregroundStyle(Brand.muted).padding(.top, 6) }
+            playback().padding(.top, 18)
+            if !answer.isBlank {
+                label("What you said").padding(.top, 26)
+                Text(answer).font(Typeface.body).foregroundStyle(Brand.ink).padding(.top, 6)
+            }
+            if !verdict.isBlank {
+                label("Coaching").padding(.top, 26)
+                Text(verdict).font(.system(size: 24, weight: .bold)).tracking(-0.8).foregroundStyle(Brand.ink)
+                    .fixedSize(horizontal: false, vertical: true).padding(.top, 6)
+            }
+            ForEach(criteria) { item in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(item.name).font(.system(size: 18, weight: .semibold)).foregroundStyle(Brand.ink)
+                        Spacer()
+                        Text("\(item.score)/4").font(.system(.subheadline).weight(.semibold).monospacedDigit())
+                            .foregroundStyle(item.score == 0 ? Palette.danger : Brand.muted)
+                    }
+                    if !item.why.isBlank { Text(item.why).font(Typeface.body).foregroundStyle(Brand.muted) }
+                }
+                .padding(.vertical, 12)
+                .overlay(alignment: .bottom) { Rectangle().fill(Brand.rule).frame(height: 1) }
+            }
+            if !focus.isBlank {
+                label("Work on").padding(.top, 22)
+                Text(focus).font(.system(size: 20, weight: .bold)).tracking(-0.5).foregroundStyle(Brand.ink).padding(.top, 6)
+            }
+        }
+    }
+
+    private func label(_ text: String) -> some View {
+        Text(text).font(.system(.subheadline).weight(.semibold)).foregroundStyle(Brand.accent)
+    }
+}

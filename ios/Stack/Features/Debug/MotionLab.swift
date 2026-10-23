@@ -9,7 +9,7 @@ import SwiftUI
 /// To make a new screen reviewable: add `.replayable()` to it, and, if it is only reachable in a particular state,
 /// add a case to `LabScreen`.
 enum LabScreen: String, CaseIterable, Identifiable {
-    case prepQuestion = "Prep question", prepWorking = "Prep reading", prepCoaching = "Prep coaching", prepCoachingA = "Coaching: real reply A", prepCoachingB = "Coaching: real reply B", logo = "Logo marks", launch = "Launch to login", login = "Login screen", signIn = "Sign-in form", signUp = "Create-account form"
+    case prepQuestion = "Prep question", prepWorking = "Prep reading", prepCoaching = "Prep coaching", prepDone = "Prep done", prepSaved = "Prep saved answer", prepCoachingA = "Coaching: real reply A", prepCoachingB = "Coaching: real reply B", logo = "Logo marks", launch = "Launch to login", login = "Login screen", signIn = "Sign-in form", signUp = "Create-account form"
     var id: String { rawValue }
 }
 
@@ -86,6 +86,21 @@ private struct MotionLabPreview: View {
                                    primary: "Next question", onAnswer: {}, onPrimary: {}, onAgain: {})
                     .padding(.horizontal, Spacing.page).padding(.vertical, 24)
             }
+        case .prepDone:
+            ZStack {
+                Brand.page.ignoresSafeArea()
+                PrepDoneScreen(answers: 3, streak: 5, onDone: {}, onAgain: {})
+                    .padding(.horizontal, Spacing.page).padding(.vertical, 24)
+            }
+        case .prepSaved:
+            let shown = CoachingPresentation.make(from: ["text": .string(CoachingSamples.overallStyle)])
+            ScrollView {
+                PrepSavedAnswerScreen(heading: "Question 1", prompt: "Tell me about a time you took ownership of a problem without being asked.",
+                                      answer: "I noticed our billing sync failed silently, so I added alerts and fixed the retry logic before anyone asked.",
+                                      verdict: shown.verdict, criteria: shown.criteria, focus: shown.focus, onBack: {}) { EmptyView() }
+                    .padding(.horizontal, Spacing.page).padding(.vertical, 24)
+            }
+            .background(Brand.page.ignoresSafeArea())
         case .logo:
             ZStack {
                 Brand.page.ignoresSafeArea()

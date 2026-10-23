@@ -86,6 +86,8 @@ final class PrepModel {
 
     // Status
     var busy = false
+    /// True from tapping Done until the answer is saved and sent for coaching.
+    var finishing = false
     var saving = false
     var error = ""
 
@@ -97,6 +99,8 @@ final class PrepModel {
     @ObservationIgnored private var dirty = false
     @ObservationIgnored private var autosaveFailed = false
     @ObservationIgnored private var pendingCapture: CapturedRecording?
+    /// The first save of a new recording. It runs in the background so recording can start at once.
+    @ObservationIgnored private var startupSave: Task<Void, Never>?
 
     func bind(_ store: AppStore) {
         guard self.store == nil else { return }
@@ -322,6 +326,9 @@ final class PrepModel {
                let last = current["data"]["behavioral"]["history"].array.last {
                 feedback = last["feedback"]
             }
+            #if DEBUG
+            if !feedback.object.isEmpty { PrepTrace.dump("prep-last-feedback", feedback) }
+            #endif
             let behavioral = current["data"]["behavioral"]
             localClientID = behavioral["local_id"].string
             localURL = RecordingStore.exists(owner: owner, clientID: localClientID)
@@ -500,7 +507,11 @@ final class PrepModel {
             feedback = [:]
             dirty = false
             page = .recording
-            try await persistAnswer()
+            // The server save is not needed to record, so it must not hold Done and Pause back.
+            startupSave = Task { @MainActor [weak self] in
+                guard let self else { return }
+                do { try await self.persistAnswer() } catch { self.fail(error) }
+            }
         } catch {
             _ = recorder.stop(cancelled: true)
             fail(error)
@@ -516,28 +527,49 @@ final class PrepModel {
     }
 
     func finishAnswer() async {
-        guard !busy else { return }
+        guard !busy, !finishing else { return }
+        #if DEBUG
+        PrepTrace.mark("done tapped", restart: true)
+        #endif
+        finishing = true
         busy = true
         error = ""
-        defer { busy = false }
         guard let saved = recorder.stop() else {
+            busy = false
+            finishing = false
             error = "No audio was saved. Record your answer again."
             return
         }
         await keepCapture(saved)
+        busy = false
+        finishing = false
+        await startCoachingIfReady()
     }
 
     private func captureStopped(_ saved: CapturedRecording) async {
         guard page == .recording, store?.phase == .ready, store?.sessionGeneration == boundGeneration else { return }
         if busy { pendingCapture = saved; return }
         busy = true
-        defer { busy = false }
         await keepCapture(saved)
+        busy = false
+        await startCoachingIfReady()
+    }
+
+    /// After a recording is saved, coaching starts by itself once there is text to coach on. Without text
+    /// (a phone that cannot transcribe, or a server transcript still pending) the working screen waits, and
+    /// `poll()` tries again when the transcript arrives.
+    func startCoachingIfReady() async {
+        guard page == .processing, run.object.isEmpty, !draft.isBlank, !busy else { return }
+        await coach()
     }
 
     private func keepCapture(_ saved: CapturedRecording) async {
         let observed = epoch
         await saved.finalized.value
+        await startupSave?.value
+        #if DEBUG
+        PrepTrace.mark("recording finalized")
+        #endif
         do {
             try requireSession()
             guard observed == epoch else { return }
@@ -546,9 +578,15 @@ final class PrepModel {
             draft = RecordingStore.transcript(at: saved.url)?.text ?? ""
             dirty = !draft.isEmpty
             recording = [:]
-            page = .review
+            page = .processing
             try await persistAnswer()
+        #if DEBUG
+        PrepTrace.mark("answer saved to server")
+        #endif
             try await uploadAnswer()
+        #if DEBUG
+        PrepTrace.mark("audio uploaded")
+        #endif
         } catch {
             fail(error)
             page = .review
@@ -627,7 +665,14 @@ final class PrepModel {
             try await persistAnswer()
             feedback = [:]
             page = .processing
+        #if DEBUG
+        PrepTrace.mark("coaching requested")
+        #endif
             run = try await call("agent_start", ["kind": "prep", "target_id": current["id"]])
+        #if DEBUG
+        PrepTrace.mark("coaching run created")
+        #endif
+            
         } catch { fail(error) }
     }
 
@@ -664,6 +709,11 @@ final class PrepModel {
                     }
                 }
             }
+            if page == .processing, run.object.isEmpty, !draft.isBlank, !busy {
+                polling = false
+                await startCoachingIfReady()
+                return
+            }
             if page == .processing {
                 let result = try await sessionRequest { try await transport.get(current["id"].string) }
                 guard observed == epoch else { return }
@@ -671,11 +721,20 @@ final class PrepModel {
                 if let match = result["feedback"].array.last(where: { $0["revision"].int == revision }) {
                     current = result
                     feedback = match["data"]
+        #if DEBUG
+        PrepTrace.mark("coaching received")
+        PrepTrace.dump("prep-last-feedback", feedback)
+        #endif
                     page = .coaching
                     await reload()
                 } else if !run["id"].string.isEmpty {
                     let latest = try await call("agent_run", ["id": run["id"]])
-                    if observed == epoch { run = latest }
+                    if observed == epoch {
+                        #if DEBUG
+                        if latest["status"].string != run["status"].string { PrepTrace.mark("run " + latest["status"].string) }
+                        #endif
+                        run = latest
+                    }
                 }
             }
         } catch {

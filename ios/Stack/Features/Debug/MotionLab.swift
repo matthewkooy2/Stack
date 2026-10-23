@@ -9,7 +9,7 @@ import SwiftUI
 /// To make a new screen reviewable: add `.replayable()` to it, and, if it is only reachable in a particular state,
 /// add a case to `LabScreen`.
 enum LabScreen: String, CaseIterable, Identifiable {
-    case prepQuestion = "Prep question", logo = "Logo marks", launch = "Launch to login", login = "Login screen", signIn = "Sign-in form", signUp = "Create-account form"
+    case prepQuestion = "Prep question", prepWorking = "Prep reading", prepCoaching = "Prep coaching", prepCoachingA = "Coaching: real reply A", prepCoachingB = "Coaching: real reply B", logo = "Logo marks", launch = "Launch to login", login = "Login screen", signIn = "Sign-in form", signUp = "Create-account form"
     var id: String { rawValue }
 }
 
@@ -56,6 +56,34 @@ private struct MotionLabPreview: View {
                                    prompt: "Tell me about a time you changed your mind. What did you learn from it?",
                                    links: [ScreenLink("Another question") {}, ScreenLink("Type instead") {}],
                                    onTopic: {}, onHistory: {}, onPrimary: {})
+                    .padding(.horizontal, Spacing.page).padding(.vertical, 24)
+            }
+        case .prepWorking:
+            ZStack {
+                Brand.page.ignoresSafeArea()
+                PrepWorkingScreen(progress: "1 of 3", links: [ScreenLink("Your answer") {}])
+                    .padding(.horizontal, Spacing.page).padding(.vertical, 24)
+            }
+        case .prepCoaching:
+            ZStack {
+                Brand.page.ignoresSafeArea()
+                PrepCoachingScreen(progress: "1 of 3", verdict: "Clear ownership. The ending needs a result.",
+                                   criteria: [
+                                       CoachCriterion(name: "Specificity", score: 3, why: "You named the migration and the week it slipped, which made the story concrete."),
+                                       CoachCriterion(name: "Ownership", score: 4, why: "You separated what you did from what the team did, and used I for your decisions."),
+                                       CoachCriterion(name: "Structure", score: 2, why: "The situation ran long and the result came last, in one rushed sentence."),
+                                       CoachCriterion(name: "Reflection", score: 1, why: "You didn't say what you would do differently or what you learned."),
+                                   ],
+                                   focus: "Finish with what happened because of your change.", primary: "Next question",
+                                   onAnswer: {}, onPrimary: {}, onAgain: {})
+                    .padding(.horizontal, Spacing.page).padding(.vertical, 24)
+            }
+        case .prepCoachingA, .prepCoachingB:
+            let shown = CoachingPresentation.make(from: ["text": .string(screen == .prepCoachingA ? CoachingSamples.overallStyle : CoachingSamples.assessmentStyle)])
+            ZStack {
+                Brand.page.ignoresSafeArea()
+                PrepCoachingScreen(progress: "1 of 3", verdict: shown.verdict, criteria: shown.criteria, focus: shown.focus,
+                                   primary: "Next question", onAnswer: {}, onPrimary: {}, onAgain: {})
                     .padding(.horizontal, Spacing.page).padding(.vertical, 24)
             }
         case .logo:

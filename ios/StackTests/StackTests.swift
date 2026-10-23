@@ -94,3 +94,46 @@ final class RecordingStoreTests: XCTestCase {
         XCTAssertThrowsError(try RecordingStore.url(owner: "owner", clientID: "short"))
     }
 }
+
+final class CoachingTextTests: XCTestCase {
+    func testOverallStyleReply() {
+        let shown = CoachingPresentation.make(from: ["text": .string(CoachingSamples.overallStyle)])
+        XCTAssertEqual(shown.verdict, "0/4 — no assessable interview answer was captured.")
+        XCTAssertEqual(shown.criteria.map(\.name), ["Specificity", "Ownership", "Structure", "Reflection"])
+        XCTAssertEqual(shown.criteria.map(\.score), [0, 0, 0, 0])
+        XCTAssertEqual(shown.criteria.first?.why, "No relevant situation, actions, or measurable result.")
+        XCTAssertEqual(shown.focus, "Retry with a 90-second STAR answer.")
+    }
+
+    func testAssessmentStyleReplyUsesTheBehavioralListAndAShortHeadline() {
+        let shown = CoachingPresentation.make(from: ["text": .string(CoachingSamples.assessmentStyle)])
+        XCTAssertEqual(shown.criteria.map(\.name), ["Specificity", "Ownership", "Structure", "Reflection"])
+        XCTAssertEqual(shown.criteria.map(\.score), [0, 0, 0, 0])
+        XCTAssertLessThanOrEqual(shown.verdict.count, 95)
+        XCTAssertEqual(shown.verdict, "The response is incomplete and largely unintelligible.")
+        XCTAssertTrue(shown.focus.hasPrefix("Record a 90-second answer using five explicit beats ("), shown.focus)
+        XCTAssertTrue(shown.focus.contains("situation"))
+        XCTAssertEqual(CoachingText.parse(CoachingSamples.assessmentStyle).followUps.count, 2)
+    }
+
+    func testReadsScoresWithAndWithoutOutOfFour() {
+        let parsed = CoachingText.parse("Overall: 3/4 — solid.\n\nBehavioral rubric:\nOwnership: 4/4 — clear use of I.\nStructure: 2.5 — result came last.")
+        XCTAssertEqual(parsed.verdict, "3/4 — solid.")
+        XCTAssertEqual(parsed.criteria.map(\.score), [4, 3])
+    }
+
+    func testProseWithNoScoresStillGivesAShortVerdict() {
+        let shown = CoachingPresentation.make(from: ["text": "You answered clearly and kept it short. Next time add the result."])
+        XCTAssertEqual(shown.verdict, "You answered clearly and kept it short.")
+        XCTAssertTrue(shown.criteria.isEmpty)
+    }
+
+    func testStructuredCoachingStillWorks() {
+        let feedback: JSON = ["summary": "Specific ownership; add a tradeoff.",
+                              "rubric": [["criterion": "ownership", "score": 4, "feedback": "Clear."]],
+                              "next_exercises": ["Practice a tradeoff."]]
+        let shown = CoachingPresentation.make(from: feedback)
+        XCTAssertEqual(shown.criteria, [CoachCriterion(name: "Ownership", score: 4, why: "Clear.")])
+        XCTAssertEqual(shown.focus, "Practice a tradeoff.")
+    }
+}

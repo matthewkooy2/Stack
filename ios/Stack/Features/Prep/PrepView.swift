@@ -10,7 +10,7 @@ struct PrepView: View {
     @State private var pendingTool: PrepTool?
 
     /// Pages that fill the screen and draw their own top bar, in the new look.
-    private var fillsScreen: Bool { [.home, .question, .recording].contains(model.page) }
+    private var fillsScreen: Bool { [.home, .question, .recording, .processing, .coaching].contains(model.page) }
 
     private var screenMessage: String { model.error.isEmpty ? model.recorder.error : model.error }
 
@@ -22,7 +22,7 @@ struct PrepView: View {
                         if !fillsScreen {
                             BackButton(label: "Back to Prep", disabled: model.locked) { Task { await model.back() } }
                         }
-                        if [.answer, .review, .processing, .coaching].contains(model.page) {
+                        if [.answer, .review].contains(model.page) {
                             Text("Question \(model.index + 1) of \(model.plan.count)")
                                 .font(Typeface.caption).foregroundStyle(Palette.muted)
                         }
@@ -81,7 +81,7 @@ struct PrepView: View {
         .task(id: model.needsPolling) {
             guard model.needsPolling else { return }
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(2))
+                try? await Task.sleep(for: .seconds(model.page == .processing ? 0.8 : 2))
                 if Task.isCancelled { break }
                 await model.poll()
             }
@@ -153,15 +153,15 @@ struct PrepView: View {
             Text(model.question?.prompt ?? "").font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink).reveal(0)
             AnswerEditor(text: Binding(get: { model.draft }, set: { model.edited($0) }),
                          placeholder: "Your answer…", label: "Your answer", disabled: model.busy)
-            StackButton(label: "Review your answer", disabled: model.busy || model.saving || model.draft.isBlank) {
-                model.go(.review)
+            PrimaryPill(title: "Get coaching", disabled: model.busy || model.saving || model.draft.isBlank) {
+                Task { await model.coach() }
             }
         }
     }
 
     private var recordingPage: some View {
         PrepRecordingScreen(recorder: model.recorder, progress: "\(model.index + 1) of \(model.plan.count)",
-                            busy: model.busy, message: screenMessage,
+                            busy: model.finishing, message: screenMessage,
                             onDone: { Task { await model.finishAnswer() } },
                             onTogglePause: { model.togglePause() },
                             onCancel: { model.cancelRecording() })
@@ -169,19 +169,19 @@ struct PrepView: View {
 
     private var review: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Review your answer").font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink)
-            Text(model.question?.title ?? "").font(Typeface.caption).foregroundStyle(Palette.muted)
+            Text("Your answer").font(.system(size: 36, weight: .heavy)).tracking(-1.8).foregroundStyle(Brand.ink)
+            Text(model.question?.prompt ?? "").font(Typeface.caption).foregroundStyle(Brand.muted)
             if let url = model.localURL, FileManager.default.fileExists(atPath: url.path) {
                 AnswerPlayback(url: url, isActive: isActive)
             }
             if model.transcribing {
                 Card {
-                    Text(model.transcriptionUnavailable ? "Transcription unavailable" : "Transcribing your answer…")
+                    Text(model.transcriptionUnavailable ? "Transcription unavailable" : "Reading your answer…")
                         .font(Typeface.body).foregroundStyle(Palette.text)
                         .breathe(!["failed", "cancelled"].contains(model.recording["status"].string) && !model.transcriptionUnavailable)
                     Text(transcriptionNote).font(Typeface.caption).foregroundStyle(Palette.muted)
                     if ["failed", "cancelled"].contains(model.recording["status"].string) {
-                        StackButton(label: "Retry transcription") { Task { await model.retryTranscription() } }
+                        StackButton(label: "Try reading it again") { Task { await model.retryTranscription() } }
                     }
                 }
                 .reveal()
@@ -190,14 +190,43 @@ struct PrepView: View {
                 StackButton(label: "Upload saved answer", disabled: model.busy) { Task { await model.retryUpload() } }.reveal()
             }
             AnswerEditor(text: Binding(get: { model.draft }, set: { model.edited($0) }),
-                         placeholder: "Type or review your answer before coaching", label: "Review transcript",
+                         placeholder: "Type or fix your answer before coaching", label: "Your answer",
                          disabled: model.busy && !model.canReviewPhoneText)
-            VStack(spacing: Spacing.option) {
-                StackButton(label: "Get coaching", disabled: model.busy || model.saving || model.draft.isBlank) { Task { await model.coach() } }
-                StackButton(label: "Record again", kind: .secondary, disabled: model.busy) { Task { await model.recordAnswer() } }
-                if !model.feedback.object.isEmpty {
-                    StackButton(label: "Return to coaching", kind: .secondary) { model.go(.coaching) }
+            if !model.feedback.object.isEmpty { coachingDetails }
+            VStack(spacing: 6) {
+                PrimaryPill(title: model.feedback.object.isEmpty ? "Get coaching" : "Update coaching",
+                            disabled: model.busy || model.saving || model.draft.isBlank) { Task { await model.coach() } }
+                QuietLinks(links: [ScreenLink("Record again") { Task { await model.recordAnswer() } }]
+                           + (model.feedback.object.isEmpty ? [] : [ScreenLink("Back to coaching") { model.go(.coaching) }]))
+            }
+        }
+    }
+
+    /// All of the coaching text, for people who want more than the two sentences.
+    private var coachingDetails: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Full coaching").font(.system(.subheadline).weight(.semibold)).foregroundStyle(Brand.accent)
+            let raw = model.feedback["text"].string.isBlank ? model.feedback["summary"].string : model.feedback["text"].string
+            if model.feedback["rubric"].array.isEmpty {
+                ForEach(Array(CoachingText.paragraphs(raw).enumerated()), id: \.offset) { _, paragraph in
+                    Text(paragraph).font(Typeface.body).foregroundStyle(Brand.ink)
                 }
+            } else if !raw.isEmpty {
+                Text(model.feedback["summary"].string).font(Typeface.body).foregroundStyle(Brand.ink)
+            }
+            ForEach(Array(model.feedback["rubric"].array.enumerated()), id: \.offset) { _, item in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item["criterion"].string.capitalized).font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.muted)
+                    Text(item["feedback"].string).font(Typeface.body).foregroundStyle(Brand.ink)
+                }
+            }
+            ForEach(Array(model.feedback["next_exercises"].strings.enumerated()), id: \.offset) { _, value in
+                Text(value).font(Typeface.body).foregroundStyle(Brand.ink)
+            }
+            if let quote = model.feedback["evidence"].array.first?["quote"].string, !quote.isEmpty {
+                Text("“\(quote)”").font(Typeface.caption).foregroundStyle(Brand.muted)
+                    .padding(.leading, 15)
+                    .overlay(alignment: .leading) { Rectangle().fill(Brand.rule).frame(width: 3) }
             }
         }
     }
@@ -211,77 +240,39 @@ struct PrepView: View {
 
     // MARK: Coaching
 
+    @ViewBuilder
     private var processing: some View {
+        let progress = "\(model.index + 1) of \(model.plan.count)"
         let state = model.run["status"].string
         let stalled = ["needs_input", "blocked", "failed", "cancelled"].contains(state)
-        let labels = ["queued": "Waiting to start", "running": "Writing your coaching", "needs_input": "Needs your input",
-                      "blocked": "Blocked", "failed": "Couldn’t finish", "cancelled": "Cancelled"]
-        return VStack(alignment: .leading, spacing: 22) {
-            Text("Preparing your coaching").font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink)
-            Halo(active: !stalled, size: 76) { GlyphView(name: "sparkles", size: 32) }
-            let message = model.run["message"].string
-            Text(message.isEmpty ? "Your answer is saved. Coaching will appear here when ready." : message)
-                .font(Typeface.body).foregroundStyle(Palette.text)
-            Text(labels[state] ?? state.replacingOccurrences(of: "_", with: " "))
-                .font(Typeface.caption).foregroundStyle(Palette.muted)
-            if stalled {
-                StackButton(label: "Retry coaching", disabled: model.busy) { Task { await model.retryCoach() } }
-            }
-            StackButton(label: "View your answer", kind: .secondary) { model.go(.review) }
+        let unreadable = model.run.object.isEmpty && model.draft.isBlank
+            && (["failed", "cancelled"].contains(model.recording["status"].string) || model.transcriptionUnavailable)
+        if stalled {
+            PrepWorkingScreen(progress: progress, message: "We couldn’t finish your coaching.",
+                              detail: model.run["message"].string, stalled: true,
+                              primary: "Try again", busy: model.busy, onPrimary: { Task { await model.retryCoach() } },
+                              links: [ScreenLink("Your answer") { model.go(.review) }])
+        } else if unreadable {
+            PrepWorkingScreen(progress: progress, message: "We couldn’t read your recording.",
+                              detail: "Your audio is saved. You can type your answer instead.", stalled: true,
+                              primary: "Type your answer", onPrimary: { model.go(.review) },
+                              links: [ScreenLink("Try reading it again") { Task { await model.retryTranscription() } }])
+        } else {
+            PrepWorkingScreen(progress: progress, links: [ScreenLink("Your answer") { model.go(.review) }])
         }
     }
 
     private var coaching: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Your coaching").font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink)
-            Text(model.question?.title ?? "").font(Typeface.caption).foregroundStyle(Palette.muted)
-            StackButton(label: "View your answer", kind: .secondary) { model.go(.review) }
-
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 14) {
-                    GlyphView(name: "done", size: 26)
-                    Text("What worked").font(Typeface.title).foregroundStyle(Palette.ink)
-                }
-                Text(model.strengths.first?["feedback"].string ?? model.feedback["summary"].string)
-                    .font(Typeface.body).foregroundStyle(Palette.text)
-                if let quote = model.feedback["evidence"].array.first?["quote"].string, !quote.isEmpty {
-                    Text("“\(quote)”").font(Typeface.caption).foregroundStyle(Palette.muted)
-                        .padding(.leading, 15)
-                        .overlay(alignment: .leading) { Rectangle().fill(Palette.halo).frame(width: 3) }
-                }
-            }
-            .reveal(1)
-
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 14) {
-                    GlyphView(name: "sprout", size: 26)
-                    Text("Try next").font(Typeface.title).foregroundStyle(Palette.ink)
-                }
-                ForEach(Array(model.feedback["next_exercises"].strings.enumerated()), id: \.offset) { _, value in
-                    Text(value).font(Typeface.body).foregroundStyle(Palette.text)
-                }
-                if let improvement = model.improvements.first?["feedback"].string, !improvement.isEmpty {
-                    Text(improvement).font(Typeface.body).foregroundStyle(Palette.text)
-                }
-            }
-            .reveal(2)
-
-            Card {
-                Text("A stronger ending").font(Typeface.caption).foregroundStyle(Palette.muted)
-                Text("The result was… and next time I would…").font(Typeface.body).foregroundStyle(Palette.text)
-            }
-            .reveal(3)
-
-            VStack(spacing: Spacing.group) {
-                if !model.history.isEmpty {
-                    StackButton(label: "Saved answers", kind: .secondary) { model.go(.history) }
-                }
-                StackButton(label: model.isLastQuestion ? "Finish session" : "Next question", icon: "next",
-                            disabled: model.busy || model.workflow["complete"].bool) { Task { await model.nextAnswer() } }
-                StackButton(label: "Try this answer again", kind: .secondary) { model.tryAgain() }
-            }
-            .reveal(4)
-        }
+        let shown = CoachingPresentation.make(from: model.feedback)
+        return PrepCoachingScreen(progress: "\(model.index + 1) of \(model.plan.count)",
+                                  verdict: shown.verdict.isBlank ? "Here’s how that went." : shown.verdict,
+                                  criteria: shown.criteria, focus: shown.focus,
+                                  worked: model.strengths.first?["feedback"].string ?? "",
+                                  primary: model.isLastQuestion ? "Finish" : "Next question",
+                                  busy: model.busy || model.workflow["complete"].bool, message: screenMessage,
+                                  onAnswer: { model.go(.review) },
+                                  onPrimary: { Task { await model.nextAnswer() } },
+                                  onAgain: { model.tryAgain() })
     }
 
     private var complete: some View {
@@ -354,10 +345,12 @@ struct AnswerEditor: View {
         TextField(placeholder, text: $text, axis: .vertical)
             .lineLimit(6...16)
             .font(Typeface.body)
-            .foregroundStyle(Palette.text)
-            .padding(20)
+            .foregroundStyle(Brand.ink)
+            .tint(Brand.accent)
+            .padding(18)
             .frame(maxWidth: .infinity, minHeight: 180, alignment: .topLeading)
-            .background(Palette.field, in: RoundedRectangle(cornerRadius: Spacing.radius, style: .continuous))
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Brand.rule, lineWidth: 1))
             .disabled(disabled)
             .accessibilityLabel(label)
     }

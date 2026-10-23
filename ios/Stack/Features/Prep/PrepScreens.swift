@@ -30,7 +30,7 @@ func splitPrompt(_ prompt: String) -> (lead: String, rest: String) {
 }
 
 /// A big blue pill, the same as the login screen's main button.
-private struct PrimaryPill: View {
+struct PrimaryPill: View {
     let title: String
     var icon: String?
     var disabled = false
@@ -53,7 +53,7 @@ private struct PrimaryPill: View {
     }
 }
 
-private struct QuietLinks: View {
+struct QuietLinks: View {
     let links: [ScreenLink]
     var body: some View {
         HStack(spacing: 24) {
@@ -285,5 +285,183 @@ struct PrepTopicSheet: View {
         .buttonStyle(.tap(scale: 0.99))
         .accessibilityLabel(title)
         .accessibilityAddTraits(checked ? .isSelected : [])
+    }
+}
+
+/// While the answer is read and the coaching written: the coin mark breathing, one line, nothing to decide.
+/// When it stalls, the same screen offers the one next step.
+@MainActor
+struct PrepWorkingScreen: View {
+    let progress: String
+    var message = "Reading your answer…"
+    var detail = ""
+    var stalled = false
+    var primary: String?
+    var busy = false
+    var onPrimary: (() -> Void)?
+    var links: [ScreenLink] = []
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(progress).font(.system(.subheadline).weight(.semibold)).foregroundStyle(Brand.muted)
+                Spacer()
+            }
+            .frame(minHeight: 44)
+            .reveal(0)
+            Spacer()
+            VStack(spacing: 22) {
+                StackMark(size: 170).compositingGroup().breathe(!stalled, minimum: 0.55)
+                Text(message)
+                    .font(.system(size: 24, weight: .bold)).tracking(-0.7)
+                    .foregroundStyle(Brand.ink)
+                    .multilineTextAlignment(.center)
+                if !detail.isEmpty {
+                    Text(detail).font(Typeface.caption).foregroundStyle(Brand.muted).multilineTextAlignment(.center)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .reveal(1)
+            Spacer()
+            if let primary, let onPrimary {
+                PrimaryPill(title: primary, disabled: busy, action: onPrimary).reveal(2)
+            }
+            QuietLinks(links: links).padding(.top, 6).reveal(3)
+        }
+        .accessibilityElement(children: .contain)
+    }
+}
+
+/// One scored part of the coaching, with the reason for its score.
+struct CoachCriterion: Identifiable, Equatable {
+    let name: String
+    let score: Int          // 0 to 4
+    let why: String
+    var id: String { name }
+}
+
+/// Coaching as a scorecard: a one-line verdict, four scores readable at a glance, and one thing to work on.
+/// Each row opens to say why it got its score. When the coaching has no scores it shows its two key points instead.
+@MainActor
+struct PrepCoachingScreen: View {
+    let progress: String
+    let verdict: String
+    let criteria: [CoachCriterion]
+    let focus: String
+    var worked = ""
+    let primary: String
+    var busy = false
+    var message = ""
+    let onAnswer: () -> Void
+    let onPrimary: () -> Void
+    let onAgain: () -> Void
+
+    @Environment(\.stackReduceMotion) private var reduceMotion
+    @State private var open: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(progress).font(.system(.subheadline).weight(.semibold)).foregroundStyle(Brand.muted)
+                Spacer()
+                Button(action: onAnswer) {
+                    Text("Your answer").font(.system(.subheadline).weight(.semibold)).foregroundStyle(Brand.ink)
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.tap(scale: 0.97))
+            }
+            .frame(minHeight: 44)
+            .reveal(0)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(verdict)
+                        .font(.system(size: 30, weight: .heavy)).tracking(-1.4)
+                        .foregroundStyle(Brand.ink)
+                        .minimumScaleFactor(0.7)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 18)
+                        .reveal(1)
+                    if criteria.isEmpty {
+                        if !worked.isBlank { block("Worked", worked).padding(.top, 28).reveal(2) }
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(Array(criteria.enumerated()), id: \.element.id) { index, item in
+                                row(item, index: index)
+                            }
+                        }
+                        .padding(.top, 22)
+                        .reveal(2)
+                    }
+                    if !focus.isBlank { block("Work on", focus).padding(.top, 28).reveal(3) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 16)
+            }
+            .scrollIndicators(.hidden)
+            .frame(maxHeight: .infinity)
+            if !message.isEmpty {
+                Text(message).font(Typeface.caption).foregroundStyle(Palette.danger).padding(.bottom, 10)
+            }
+            PrimaryPill(title: primary, disabled: busy, action: onPrimary).reveal(4)
+            QuietLinks(links: [ScreenLink("Try this answer again", action: onAgain)]).padding(.top, 6).reveal(5)
+        }
+    }
+
+    private func row(_ item: CoachCriterion, index: Int) -> some View {
+        let isOpen = open == item.id
+        return VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(reduceMotion ? nil : Motion.ease(0.32)) { open = isOpen ? nil : item.id }
+            } label: {
+                HStack(spacing: 12) {
+                    Text(item.name).font(.system(size: 19, weight: .semibold)).tracking(-0.4).foregroundStyle(Brand.ink)
+                    Spacer(minLength: 8)
+                    Text("\(item.score)/4")
+                        .font(.system(.subheadline).weight(.semibold).monospacedDigit())
+                        .foregroundStyle(item.score == 0 ? Palette.danger : Brand.muted)
+                    dots(item.score, delay: 0.35 + Double(index) * 0.08)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .bold)).foregroundStyle(Brand.muted)
+                        .rotationEffect(.degrees(isOpen ? 180 : 0))
+                }
+                .frame(minHeight: 56)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.tap(scale: 0.99, dim: 1))
+            .accessibilityLabel("\(item.name), \(item.score) of 4")
+            .accessibilityHint(isOpen ? "Hides why" : "Shows why")
+            if isOpen && !item.why.isBlank {
+                Text(item.why)
+                    .font(Typeface.body).foregroundStyle(Brand.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, 16)
+                    .transition(.opacity.combined(with: .offset(y: -6)))
+            }
+            Rectangle().fill(Brand.rule).frame(height: 1)
+        }
+    }
+
+    /// Four dots, filled to the score. They fill in one after another when the screen appears.
+    private func dots(_ score: Int, delay: Double) -> some View {
+        HStack(spacing: 6) {
+            ForEach(0..<4, id: \.self) { i in
+                Circle()
+                    .fill(i < score ? Brand.accent : Brand.rule)
+                    .frame(width: 11, height: 11)
+                    .pop(delay: delay + Double(i) * 0.05)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func block(_ label: String, _ text: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(label).font(.system(.subheadline).weight(.semibold)).foregroundStyle(Brand.accent)
+            Text(text)
+                .font(.system(size: 22, weight: .bold)).tracking(-0.6)
+                .foregroundStyle(Brand.ink)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }

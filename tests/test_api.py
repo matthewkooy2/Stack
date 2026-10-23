@@ -3,6 +3,7 @@ import base64
 import concurrent.futures
 import json
 import os
+from pathlib import Path
 import time
 import unittest
 import urllib.request
@@ -25,6 +26,15 @@ def rpc(token,endpoint,**args):
     assert status==200,(status,data)
     assert data.get('ok'),data
     return data['data']['result']
+
+def feed(token, **args):
+    """search_jobs as the app calls it, letting the collector's upkeep prepare the feed in the background (#105)."""
+    result=rpc(token,'search_jobs',**args)
+    if isinstance(result,dict) and result.get('updating'):
+        worker_token=Path('storage/discovery/worker-token').read_text().strip()
+        request('/function/discovery_maintain',{'token':worker_token})
+        result=rpc(token,'search_jobs',**args)
+    return result
 
 def account():
     user='test_'+uuid.uuid4().hex[:14]; password=uuid.uuid4().hex

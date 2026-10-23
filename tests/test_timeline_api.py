@@ -1,7 +1,7 @@
 """Timeline analysis persists in shared listings; preferences/results remain per user."""
 import unittest,uuid
 from test_catalog_api import worker
-from test_api import account,rpc,request
+from test_api import account,rpc,request,feed
 from discovery.normalize import normalize,digest
 
 class TimelineAPI(unittest.TestCase):
@@ -19,12 +19,12 @@ class TimelineAPI(unittest.TestCase):
   r=rpc(self.a,'save_timeline',graduation_month='2027-05',available_from='2027-06')
   self.assertEqual(r['profile']['graduation_month'],'2027-05')
   self.assertEqual(rpc(self.b,'bootstrap')['profile']['graduation_month'],'')
-  jobs=rpc(self.a,'search_jobs',query=self.label)['jobs']
+  jobs=feed(self.a,query=self.label)['jobs']
   self.assertEqual({j['timeline']['status'] for j in jobs},{'match','unclear'});self.assertEqual(len(jobs),2)
-  confirmed=rpc(self.a,'search_jobs',query=self.label,filters={'timeline':'confirmed'})['jobs']
+  confirmed=feed(self.a,query=self.label,filters={'timeline':'confirmed'})['jobs']
   self.assertEqual(len(confirmed),1);self.assertEqual(rpc(self.a,'get_job',id=confirmed[0]['id'])['timeline']['evidence'][0]['quote'],self.jobs[0]['description'])
-  self.assertEqual(len(rpc(self.b,'search_jobs',query=self.label)['jobs']),4)
-  self.assertEqual(len(rpc(self.a,'search_jobs',query=self.label,filters={'timeline':'all'})['jobs']),4)
+  self.assertEqual(len(feed(self.b,query=self.label)['jobs']),4)
+  self.assertEqual(len(feed(self.a,query=self.label,filters={'timeline':'all'})['jobs']),4)
   self.assertEqual(rpc(self.a,'get_job',id=self.jobs[1]['id'])['timeline']['status'],'incompatible')
   self.assertEqual(rpc(self.b,'get_job',id=self.jobs[1]['id'])['timeline']['status'],'unset')
   rpc(self.a,'swipe',job_id=self.jobs[0]['id'],action='apply')

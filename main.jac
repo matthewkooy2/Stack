@@ -3,7 +3,7 @@ import time;
 import from datetime { datetime }
 import from zoneinfo { ZoneInfo }
 import from jaclang.runtime.runtime { JacRuntime }
-import from core.catalog { _worker_allowed, _fresh, _prepare_job_feed, _prepared_job_feed, _enqueue_roles, _criteria, _cache_clear, JobSource, DailyJobsRefresh, _catalog_job, _saved_search, _retained_snapshot, _drop_overrides, search_jobs, get_job, save_search, reset_search, import_job_url, get_import_status, source_status, discovery_claim, discovery_complete, discovery_manage, discovery_report, discovery_analyze }
+import from core.catalog { _worker_allowed, _fresh, _prepare_job_feed, _prepared_job_feed, _enqueue_roles, _criteria, _catalog_rebuild, discovery_maintain, JobSource, DailyJobsRefresh, _catalog_job, _saved_search, _retained_snapshot, _drop_overrides, search_jobs, get_job, save_search, reset_search, import_job_url, get_import_status, source_status, discovery_claim, discovery_complete, discovery_manage, discovery_report, discovery_analyze }
 import from core.preferences { MatchPreferences, _match_preferences, _save_match_preferences }
 import from core.timeline { _timeline_preferences, _save_timeline }
 import from discovery.timeline { validate_month }
@@ -349,7 +349,7 @@ def:pub discovery_daily(token: str, finish: bool = False) -> dict[str, any] {
         if state.failed or state.successes==0 or any([s.status in ["error","partial","quota"] for s in sources if not source_enabled(s.config["adapter"])]) {
             commit();return {"prepared":False};
         }
-        _cache_clear();commit();
+        _catalog_rebuild();commit();
         for owner in owners {
             _agent_owner(owner);memories=[root -->][?:AgentMemory];
             if memories and not memories[0].deleted {

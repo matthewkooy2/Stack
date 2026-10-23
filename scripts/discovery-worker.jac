@@ -15,6 +15,8 @@ with entry:__main__ {
         try {
             if not analyzed { progress=call("discovery_analyze",{"token":token});analyzed=progress["complete"];if not analyzed { continue; } }
             if not args.source { call("discovery_daily",{"token":token,"finish":False}); }
+            # Catalog view and queued account feeds are prepared here, never on a user request.
+            if not args.source { call("discovery_maintain",{"token":token}); }
             work=batch(token,args.source);
             if work.get("idle") { if not args.source { call("discovery_daily",{"token":token,"finish":True}); } if args.once { break; } time.sleep(15); continue; }
             result=work["result"];error=work["error"];

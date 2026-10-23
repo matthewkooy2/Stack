@@ -554,4 +554,28 @@ final class JobDeckFeedTests: XCTestCase {
         XCTAssertFalse(screen.log.contains("accepted filters"))
         XCTAssertFalse(feed.busy)
     }
+
+    /// #105: the first page says whether the server is still preparing newer matches; continuation pages do not reset it.
+    func testUpdatingComesFromTheFirstPageOfALoad() async {
+        let preparing = parse("{\"jobs\":[{\"id\":\"a\",\"title\":\"Role a\"}],\"next_cursor\":\"c1\",\"updating\":true}")
+        let first = spawn { await self.feed.load(refresh: false, source: self.makeSource()) }
+        await desk.requested(1)
+        desk.answer(0, preparing)
+        await first.value
+        XCTAssertTrue(feed.updating)
+
+        // The deck is short, so the feed fetches the next page by itself; that page carries no flag.
+        await desk.requested(2)
+        XCTAssertEqual(desk.requests[1].cursor, "c1")
+        desk.answer(1, page(["b"]))
+        await desk.settle()
+        XCTAssertEqual(feed.jobs.map(\.id), ["a", "b"])
+        XCTAssertTrue(feed.updating, "a continuation page must not clear the flag")
+
+        let fresh = spawn { await self.feed.load(refresh: false, source: self.makeSource()) }
+        await desk.requested(3)
+        desk.answer(2, page(["c"]))
+        await fresh.value
+        XCTAssertFalse(feed.updating)
+    }
 }

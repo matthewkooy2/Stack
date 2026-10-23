@@ -51,6 +51,7 @@ struct JobsView: View {
         }
         .task { await start() }
         .task(id: importID) { await watchImport() }
+        .task(id: awaitingFeed) { await watchPreparation() }
         .onDisappear {
             // A full-screen cover reports the screen underneath as disappeared. It is still the same visit:
             // keep the pending Undo and the paging in flight until the browser or sheet closes.
@@ -208,7 +209,7 @@ struct JobsView: View {
     /// Exceptional state stays inside the card, never as a permanent header above it.
     @ViewBuilder
     private var feedback: some View {
-        if pendingDecision != nil || !feed.loadError.isEmpty || !banner.isEmpty || !search.notices.isEmpty {
+        if pendingDecision != nil || !feed.loadError.isEmpty || !banner.isEmpty || !search.notices.isEmpty || (feed.updating && !deck.isEmpty) {
             VStack(alignment: .leading, spacing: 6) {
                 if let pending = pendingDecision {
                     HStack {
@@ -223,6 +224,9 @@ struct JobsView: View {
                 if !feed.loadError.isEmpty, !deck.isEmpty {
                     Text(feed.loadError).font(Typeface.caption).foregroundStyle(Palette.danger)
                 }
+                if feed.updating, !deck.isEmpty {
+                    Text("Updating your matches…").font(Typeface.caption).foregroundStyle(Brand.muted)
+                }
                 if !banner.isEmpty { Text(banner).font(Typeface.caption).foregroundStyle(Brand.muted) }
                 if !search.notices.isEmpty {
                     DisclosureGroup("Search notices") {
@@ -235,8 +239,22 @@ struct JobsView: View {
         }
     }
 
+    /// Nothing to show yet because the server is still preparing this search's matches.
+    private var awaitingFeed: Bool { feed.loaded && feed.updating && deck.isEmpty && feed.loadError.isEmpty }
+
+    /// Matches are prepared in the background; check again until they arrive (about two minutes at most).
+    private func watchPreparation() async {
+        for _ in 0..<30 {
+            guard awaitingFeed else { return }
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled, awaitingFeed else { return }
+            await load(refresh: false)
+        }
+    }
+
     private var emptyTitle: String {
         if !feed.loadError.isEmpty { return "Could not load roles" }
+        if feed.updating { return "Preparing your matches" }
         if search.missingGraduation { return "Add your graduation month" }
         if !feed.nextCursor.isEmpty { return "More roles to review" }
         if search.filters["timeline"].string == "confirmed" { return "No confirmed timeline matches." }
@@ -245,6 +263,7 @@ struct JobsView: View {
 
     private var emptyMessage: String {
         if !feed.loadError.isEmpty { return feed.loadError }
+        if feed.updating { return "Stack is matching roles to your search. This usually takes a few seconds." }
         if search.missingGraduation {
             return "Add your graduation month so timelines can be confirmed, or relax the timeline in Filters."
         }

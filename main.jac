@@ -2,15 +2,14 @@
 import time;
 import from datetime { datetime }
 import from zoneinfo { ZoneInfo }
-import from threading { RLock }
 import from jaclang.runtime.runtime { JacRuntime }
-import from core.catalog { _catalog_lock, _worker_allowed, _fresh, _prepare_job_feed, _prepared_job_feed, _enqueue_roles, _criteria, _cache_clear, JobSource, DailyJobsRefresh, _catalog_job, _saved_search, _retained_snapshot, _drop_overrides, search_jobs, get_job, save_search, reset_search, import_job_url, get_import_status, source_status, discovery_claim, discovery_complete, discovery_manage, discovery_report, discovery_analyze }
+import from core.catalog { _worker_allowed, _fresh, _prepare_job_feed, _prepared_job_feed, _enqueue_roles, _criteria, _cache_clear, JobSource, DailyJobsRefresh, _catalog_job, _saved_search, _retained_snapshot, _drop_overrides, search_jobs, get_job, save_search, reset_search, import_job_url, get_import_status, source_status, discovery_claim, discovery_complete, discovery_manage, discovery_report, discovery_analyze }
 import from core.preferences { MatchPreferences, _match_preferences, _save_match_preferences }
 import from core.timeline { _timeline_preferences, _save_timeline }
 import from discovery.timeline { validate_month }
 import from discovery.matching { validate_preferences }
 import from discovery.normalize { validate_filters, source_enabled }
-glob _write_lock = _catalog_lock;
+import core.locks as locks;
 import base64;
 import hashlib;
 import from uuid { uuid4, UUID }
@@ -97,7 +96,7 @@ def _owned_interview(id: str) -> PrepSession {
 def:priv interview_create(application_id: str, client_id: str) -> dict[str, any] {
     _agent_access();
     if not client_id or len(client_id)>100 { return {"error":"A bounded request ID is required."}; }
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();
         for p in [root -->][?:PrepSession] { if p.data.get("mode")=="interview" and p.data.get("client_id")==client_id { return interview_get(jid(p)); } }
         apps=[a for a in [root -->][?:Application] if jid(a)==application_id and not a.demo];
@@ -132,7 +131,7 @@ def _interview_queue(p: PrepSession, final: bool = False) -> None {
 }
 
 def:priv interview_answer(id: str, revision: int, answer: str, client_id: str, recording_id: str = "") -> dict[str, any] {
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();
         try {
             p=_owned_interview(id);text=interview_flow.answer_text(answer);
@@ -155,7 +154,7 @@ def:priv interview_answer(id: str, revision: int, answer: str, client_id: str, r
 }
 
 def:priv interview_correct(id: str, revision: int, index: int, answer: str) -> dict[str, any] {
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();
         try {
             p=_owned_interview(id);text=interview_flow.answer_text(answer);
@@ -169,7 +168,7 @@ def:priv interview_correct(id: str, revision: int, index: int, answer: str) -> d
 }
 
 def:priv interview_continue(id: str, revision: int, action: str = "followup") -> dict[str, any] {
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();
         try {
             p=_owned_interview(id);
@@ -242,7 +241,7 @@ def _profile() -> Profile { _agent_access();return _profile_data(); }
 def _profile_data() -> Profile {
     items = [root -->][?:Profile];
     if items and [root -->][?:MatchPreferences] { return items[0]; }
-    with _write_lock {
+    with locks.account() {
         items = [root -->][?:Profile];
         if items and [root -->][?:MatchPreferences] { return items[0]; }
         _refresh_transaction();
@@ -289,7 +288,7 @@ def:priv resume_bank_save(name: str, source: str, records: list[dict[str, any]],
     if id is None { id=""; }
     if not id and (revision is None or revision=="0") { revision=0; }
     if confirm is None or confirm=="False" { confirm=False; }
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();items=[r for r in [root -->][?:Resume] if r.review.get("kind")==BANK_KIND];
         current=[r for r in items if jid(r)==id];
         if id and not current { return _error("Experience not found."); }
@@ -306,7 +305,7 @@ def:priv resume_bank_save(name: str, source: str, records: list[dict[str, any]],
 
 def:priv resume_bank_delete(id: str, revision: int) -> dict[str, any] {
     _agent_access();
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();items=[r for r in [root -->][?:Resume] if jid(r)==id and r.review.get("kind")==BANK_KIND];
         if not items { return _error("Experience not found."); }
         r=items[0];
@@ -317,7 +316,7 @@ def:priv resume_bank_delete(id: str, revision: int) -> dict[str, any] {
 
 def:priv resume_bank_select(id: str, revision: int, selection: list[dict[str, any]]) -> dict[str, any] {
     _agent_access();
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_resume(id);
         if r is None { return _error("Resume not found."); }
         if revision!=r.review_revision { return _error("Resume changed. Reload before choosing experience."); }
@@ -348,7 +347,7 @@ def _application_job(a: Application) -> dict[str, any] {
 # The existing collector calls this before collection and once its queue is idle.
 def:pub discovery_daily(token: str, finish: bool = False) -> dict[str, any] {
     if not _worker_allowed(token) { return {"error":"Worker authorization required."}; }
-    with _write_lock {
+    with locks.sweep() {
         _fresh();now=datetime.now(ZoneInfo("America/New_York"));day=now.strftime("%Y-%m-%d");
         states=[root.shared -->][?:DailyJobsRefresh];
         state=states[0] if states else root.shared ++> DailyJobsRefresh();
@@ -419,7 +418,7 @@ def:priv save_profile(name: str, role: str, location: str, mode: str, notificati
     else { chosen={**chosen,**preferences}; }
     try { validate_month(graduation);validate_month(availability);validate_preferences(chosen); } except Exception as e { return _error(str(e)); }
     p = _profile();
-    with _write_lock {
+    with locks.account() {
         _refresh_transaction(); p=[root -->][?:Profile][0];
         _save_timeline(graduation,availability);
         changed=_save_match_preferences(role,location,chosen);
@@ -432,13 +431,13 @@ def:priv save_profile(name: str, role: str, location: str, mode: str, notificati
 }
 def:priv save_timeline(graduation_month: str, available_from: str = "") -> dict[str, any] {
     try { validate_month(graduation_month);validate_month(available_from); } except Exception as e { return _error(str(e)); }
-    with _write_lock { _refresh_transaction(); _save_timeline(graduation_month,available_from); commit(); }
+    with locks.account() { _refresh_transaction(); _save_timeline(graduation_month,available_from); commit(); }
     return bootstrap();
 }
 """Save or pass a job. `start_agent` is accepted from older clients and ignored:
 a right swipe only saves; agent help is offered afterwards and starts on request."""
 def:priv swipe(job_id: str, action: str, start_agent: bool = False) -> dict[str, any] {
-    with _write_lock {
+    with locks.account() {
         _refresh_transaction();
         _profile();
         job=_catalog_job(job_id); demo=job_id in [j["id"] for j in JOBS];
@@ -489,7 +488,7 @@ def:priv upload_resume(name: str, content: str, transfer_ms: float = 0.0) -> dic
     } except ValueError as e { return _error(str(e)); }
     except Exception { return _error("This resume could not be opened. Please export a new copy."); }
     fingerprint=hashlib.sha256(raw).hexdigest();
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();
         for existing in [root -->][?:Resume] {
             if existing.upload_digest==fingerprint and existing.name==Path(name).name { return bootstrap(); }
@@ -563,7 +562,7 @@ def _backfill_tailored() -> None {
     }
     # bootstrap() follows other writes (such as an upload); keep them before re-reading under the lock.
     commit();
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();settings=_settings();
         if settings.tailored_backfilled { return; }
         for r in [root -->][?:AgentRun] { _save_tailored(r); }
@@ -572,7 +571,7 @@ def _backfill_tailored() -> None {
 }
 """Independently check approved record documents; legacy checks remain unavailable."""
 def _check_tailored(id: str) -> None {
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();x=_owned_tailored(id);
         if x is not None {
             if x.format=="records" and x.docx_key {
@@ -625,7 +624,7 @@ def:priv score_resume(application_id: str) -> dict[str, any] {
 }
 
 def:priv delete_tailored_resume(id: str) -> dict[str, any] {
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();x=_owned_tailored(id);
         if x is None { return _error("Tailored resume not found."); }
         if x.docx_key { _file_path(x.docx_key).unlink(missing_ok=True); }
@@ -651,7 +650,7 @@ def _resume_source(r: Resume) -> dict[str, any] {
 def _save_template(id: str, template: dict[str, any], files: dict[str, any]) -> dict[str, any] {
     key=str(uuid4());stored={};
     for (suffix,data) in files.items() { _write_private(key+suffix,data);stored[suffix]=key+suffix; }
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_resume(id);
         if r is None {
             for name in stored.values() { _file_path(name).unlink(missing_ok=True); }
@@ -670,7 +669,7 @@ def:priv upload_resume_source(id: str, name: str, content: str, transfer_ms: flo
     try { raw=base64.b64decode(content,validate=True); } except Exception { return _error("This file could not be read. Choose it again."); }
     if not raw or len(raw)>2097152 { return _error("Upload a LaTeX source of 2 MB or less."); }
     fingerprint=hashlib.sha256(name.encode()+raw).hexdigest();
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_resume(id);
         if r is None { return _error("Resume not found."); }
         current=r.processing.get("source",{});
@@ -683,7 +682,7 @@ def:priv upload_resume_source(id: str, name: str, content: str, transfer_ms: flo
 }
 def:priv use_resume_template(id: str, template: str) -> dict[str, any] {
     _agent_access();
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_resume(id);
         if r is None { return _error("Resume not found."); }
         if template=="" {
@@ -713,7 +712,7 @@ def:priv read_resume_source(id: str) -> dict[str, any] {
     data: bytes = b"";
     if key and _file_path(key).exists() { data=_file_path(key).read_bytes(); }
     else {
-        with _write_lock {
+        with locks.account() {
             _agent_fresh();current=_owned_resume(id);
             if current is None { return _error("Resume not found."); }
             t=_resume_ticket(str(current.processing.get("source",{}).get("id","")));
@@ -729,7 +728,7 @@ def:priv read_resume_source(id: str) -> dict[str, any] {
 }
 def:pub agent_worker_resume_source(token: str, id: str, owner: str, lease: str) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
-    with _write_lock {
+    with locks.account(owner) {
         _agent_fresh();
         try {
             r=_agent_leased(id,owner,lease);
@@ -831,7 +830,7 @@ def _application_agent_context(a: Application) -> dict[str, any] {
 def:priv agent_start(kind: str, target_id: str) -> dict[str, any] {
     _agent_access();
     if kind=="application" { return _error("The application assistant has been retired. Apply on the employer site yourself."); }
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();
         if kind in ["jobs","resume","autofill"] {
             for a in [root -->][?:Application] {
@@ -881,7 +880,7 @@ def:priv agent_start(kind: str, target_id: str) -> dict[str, any] {
 A chosen resume_id is attached to the job first."""
 def:priv agent_continue_tailoring(id: str, resume_id: str = "") -> dict[str, any] {
     _agent_access();
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_run(id);
         if r is None { return _error("Task not found."); }
         steps=_steps(r);
@@ -904,7 +903,7 @@ def:priv agent_continue_tailoring(id: str, resume_id: str = "") -> dict[str, any
 }
 
 def:priv agent_linkedin_profile(url: str = "", target_role: str | None = None) -> dict[str, any] {
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();p=_profile_data();
         if url { p.linkedin_url=profile_url(url); }
         if target_role is not None and target_role!="None" { p.linkedin_target_role=target_role.strip(); }
@@ -914,7 +913,7 @@ def:priv agent_linkedin_profile(url: str = "", target_role: str | None = None) -
 
 def:priv agent_linkedin_start(url: str = "", target_role: str = "") -> dict[str, any] {
     saved=agent_linkedin_profile(url,target_role);
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();now=time.time();
         r=root ++> AgentRun(workflow_version=2,kind="linkedin",target_id="self",
             context={"linkedin_url":saved["url"],"target_role":saved["target_role"]},
@@ -931,7 +930,7 @@ def _resume_review(r: Resume) -> dict[str, any] {
 }
 def:priv agent_extract_resume(id: str) -> dict[str, any] {
     _agent_access();
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_resume(id);
         if r is None { return _error("Resume not found."); }
         if r.review.get("records") {
@@ -952,7 +951,7 @@ def:priv resume_save_records(id: str, revision: int, records: list[dict[str, any
     _agent_access();
     if template not in ["classic","jake"] { return _error("Choose the Classic or Jake template."); }
     try { checked=validate_records(records); } except ValueError as e { return _error(str(e)); }
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_resume(id);
         if r is None { return _error("Resume not found."); }
         if r.review_revision!=revision { return _error("Resume review changed. Reload it before saving."); }
@@ -1000,7 +999,7 @@ def:priv story_create(source_key: str, source_revision: str, excerpt: str, title
     _agent_access();
     if not reviewed_single_event { return _error("Review the excerpt and confirm it describes one event before saving a story."); }
     if not title.strip() or len(title)>160 or not excerpt.strip() or len(excerpt)>8000 { return _error("Use a title under 160 characters and a single event excerpt under 8,000 characters."); }
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();sources=[s for s in story_sources()["sources"] if s["key"]==source_key];
         if not sources or sources[0]["revision"]!=source_revision { return _error("The source changed or is unavailable. Review its current version."); }
         source=sources[0];
@@ -1025,7 +1024,7 @@ def _invalidate_builtin_resume(r: Resume) -> None {
 Confirming makes these details the trusted resume (records and facts); any draft withdraws both."""
 def:priv resume_save_details(id: str, revision: int, values: dict[str, any], confirm: bool = False) -> dict[str, any] {
     _agent_access();
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_resume(id);
         if r is None { return _error("Resume not found."); }
         if r.review_revision!=revision { return _error("Resume review changed. Reload it before saving."); }
@@ -1068,7 +1067,7 @@ def _linkedin_browser_control(r: AgentRun, action: str, generation: int, control
     state=browser_worker.browser_call("control",{"owner":jid(root),"id":id,"action":action,
         "generation":generation,"controller":controller,"instance":instance,"linkedin":True});
     if action=="resume" { return {**_linkedin_execute(id),"control":state}; }
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_run(id) as AgentRun;
         if action=="take" { r.status="paused";r.message="You have browser control"; }
         elif action=="stop" { r.status="cancelled";r.message="Cancelled"; }
@@ -1091,7 +1090,7 @@ def:priv agent_browser_control(id: str, action: str, generation: int = -1, contr
     if action=="take" and [a for a in [root -->][?:AgentAction] if a.run_id==id and a.status=="intent"] { return {"error":"An approved action is already being sent. Wait for its receipt before taking control."}; }
     previous=r.context.get("browser_return",r.status);
     if action=="take" {
-        with _write_lock {
+        with locks.account() {
             _agent_fresh();r=_browser_run(id);
             if r is None { return {"error":"This browser step has ended."}; }
             if [a for a in [root -->][?:AgentAction] if a.run_id==id and a.status=="intent"] { return {"error":"Wait for the approved action's receipt before taking control."}; }
@@ -1102,7 +1101,7 @@ def:priv agent_browser_control(id: str, action: str, generation: int = -1, contr
     try { state=browser_worker.browser_call("control",{"owner":jid(root),"id":id,"action":action,"generation":generation,"controller":controller,"instance":instance},5); }
     except ValueError as e { return {"error":str(e)}; }
     except Exception { return {"error":"Control could not be confirmed. Reconnect before sending input."}; }
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_run(id);
         if r is None or r.status in ["completed","cancelled","failed"] or (r.kind=="linkedin" and r.index!=0) { return {"error":"The browser step ended while control was changing."}; }
         if action in ["take","resume"] and r.context.get("browser_instance","")==state["instance"] and r.context.get("browser_generation",0)>state["generation"] { return {"error":"Browser control changed while this request was finishing. Reconnect before continuing."}; }
@@ -1160,7 +1159,7 @@ def:priv agent_browser(id: str, event: dict[str, any]) -> dict[str, any] {
 def:pub agent_finish(token: str, id: str, owner: str, lease: str, result: dict[str, any]) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
     created="";
-    with _write_lock {
+    with locks.account(owner) {
         output=_agent_complete(token,id,owner,lease,result);
         if output.get("error") { return output; }
         _agent_owner(owner);r=_owned_run(id);
@@ -1198,7 +1197,7 @@ def _create_study_plan(application_id: str) -> list[dict[str, any]] {
 }
 def:priv prep_for_application(application_id: str) -> dict[str, any] {
     _agent_access();
-    with _write_lock { _agent_fresh();result=_create_study_plan(application_id);commit();return {"plan":result}; }
+    with locks.account() { _agent_fresh();result=_create_study_plan(application_id);commit();return {"plan":result}; }
 }
 def _apply_confirmed_mail(event: dict[str, any]) -> None {
     if not event.get("ambiguous") {
@@ -1248,7 +1247,7 @@ def _project_agent(r: AgentRun) -> None {
 }
 def:pub agent_schedule(token: str, wake_key: str = "") -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
-    with _write_lock {
+    with locks.sweep() {
         _agent_fresh();accounts=[a.owner for a in [root.shared -->][?:AgentAdmission]];count=0;
         for owner in accounts {
             commit();_agent_owner(owner);m=_agent_memory();
@@ -1341,7 +1340,7 @@ def _delete_verified_account(user_id: str, apple_fresh: str = "") -> dict[str, a
 def _delete_account_locked(user_id: str) -> dict[str, any] {
     manager=__import__("jaclang.server.identity.user_manager",fromlist=["UserManager"]).UserManager();
     if manager.get_root_id(user_id)!=jid(root) { return {"error":"This account could not be confirmed."}; }
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();owner=jid(root);m=_agent_memory();m.deleted=True;m.policy={"enabled":False};m.facts=[];m.admitted=False;
         for r in [root -->][?:AgentRun] { r.lease="";r.status="cancelled"; }
         for t in [root.shared -->][?:AgentTicket] { if t.owner==owner { del t; } }
@@ -1371,7 +1370,7 @@ def _delete_account_locked(user_id: str) -> dict[str, any] {
 def:priv agent_resolve_event(id: str, application_id: str, status: str) -> dict[str, any] {
     _agent_access();
     if status not in ["Submitted","Assessment","Interview","Rejected"] { return {"error":"Choose the status confirmed by this message."}; }
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();events=[e for e in [root -->][?:AgentEvent] if jid(e)==id];
         applications=[a for a in [root -->][?:Application] if jid(a)==application_id and not a.demo];
         if not events or not applications { return {"error":"This event or application was not found."}; }
@@ -1411,7 +1410,7 @@ def _queue_resume(r: Resume, kind: str, key: str, fingerprint: str, transfer_ms:
 }
 def:priv retry_resume_processing(id: str, kind: str) -> dict[str, any] {
     _agent_access();
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_resume(id);
         if r is None or kind not in ["pdf","source","import"] { return _error("Resume processing not found."); }
         if kind=="pdf" { return _error("PDF detail extraction is temporarily unavailable."); }
@@ -1434,7 +1433,7 @@ def _resume_leased(id: str, owner: str, lease: str) -> ResumeTicket {
 }
 def:pub resume_processing_claim(token: str) -> dict[str, any] {
     if not _agent_system(token) { return _error("Worker authorization required."); }
-    with _write_lock {
+    with locks.sweep() {
         _agent_fresh();now=time.time();
         tickets=[t for t in [root.shared --> [?:ResumeTicket, created_at]] if t.status in ["queued","parsing","compiling"] and t.lease_until<=now];
         for t in tickets {
@@ -1461,7 +1460,7 @@ def:pub resume_processing_claim(token: str) -> dict[str, any] {
 }
 def:pub resume_processing_stage(token: str, id: str, owner: str, lease: str, parse_ms: float) -> dict[str, any] {
     if not _agent_system(token) { return _error("Worker authorization required."); }
-    with _write_lock {
+    with locks.account(owner) {
         _agent_fresh();
         try { t=_resume_leased(id,owner,lease); } except ValueError as e { return _error(str(e)); }
         if t.kind!="source" or t.status!="parsing" { return _error("Invalid processing stage."); }
@@ -1473,7 +1472,7 @@ def:pub resume_processing_stage(token: str, id: str, owner: str, lease: str, par
 }
 def:pub resume_processing_finish(token: str, id: str, owner: str, lease: str, result: dict[str, any]) -> dict[str, any] {
     if not _agent_system(token) { return _error("Worker authorization required."); }
-    with _write_lock {
+    with locks.account(owner) {
         _agent_fresh();
         try { t=_resume_leased(id,owner,lease); } except ValueError as e { return _error(str(e)); }
         r=_owned_resume(t.resume_id);
@@ -1509,7 +1508,7 @@ def:pub resume_processing_finish(token: str, id: str, owner: str, lease: str, re
 }
 def:priv resume_transfer_complete(id: str, job_id: str, elapsed_ms: float) -> dict[str, any] {
     _agent_access();
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_resume(id);t=_resume_ticket(job_id);
         if r is None or t is None or t.owner!=jid(root) or t.resume_id!=id { return _error("Resume processing not found."); }
         if r.processing.get(t.kind,{}).get("id")!=job_id { return _error("Upload was replaced."); }

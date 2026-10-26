@@ -1,6 +1,6 @@
 # Stack iOS (SwiftUI) build and run
 
-Follow AGENTS.md and ios/README.md. The app lives in `ios/`, scheme `Stack`, bundle id `com.matthewkooy.stack.swift`.
+Follow AGENTS.md and ios/README.md. For any SwiftUI screen, also follow [ios/UI_STYLE.md](ios/UI_STYLE.md): the current minimalist blue look, its components and motion rules. The app lives in `ios/`, scheme `Stack`, bundle id `com.matthewkooy.stack.swift`.
 
 ## Simulator
 

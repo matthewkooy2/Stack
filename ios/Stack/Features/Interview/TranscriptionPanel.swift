@@ -11,7 +11,6 @@ struct TranscriptionPanel: View {
     var prompt = "Record your answer."
 
     @Environment(AppStore.self) private var store
-    @Environment(\.scenePhase) private var scenePhase
 
     @State private var recorder = AudioRecorder()
     @State private var recordings: [JSON] = []
@@ -99,9 +98,6 @@ struct TranscriptionPanel: View {
                 if Task.isCancelled { break }
                 await refresh()
             }
-        }
-        .onChange(of: scenePhase) { _, phase in
-            if phase != .active { suspendRecording() }
         }
         .onDisappear { if !showRecordingSurface { suspendRecording() } }
         .fullScreenCover(isPresented: $showRecordingSurface) {

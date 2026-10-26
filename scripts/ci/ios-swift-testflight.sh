@@ -30,7 +30,7 @@ python3 scripts/ci/resume-review/prepare.py
 xcodebuild archive -project ios/Stack.xcodeproj -scheme Stack -configuration Release \
   -destination 'generic/platform=iOS' -archivePath "$ARCHIVE" \
   -derivedDataPath "$CI_DIR/DerivedData" "${SIGNING[@]}" \
-  PRODUCT_BUNDLE_IDENTIFIER=com.matthewkooy.stack MARKETING_VERSION=0.2.0 \
+  STACK_BUNDLE_ID=com.matthewkooy.stack MARKETING_VERSION=0.2.0 \
   STACK_APPLE_SIGN_IN_ENABLED=YES STACK_APPLE_ENTITLEMENTS=Stack/StackApple.entitlements \
   "CURRENT_PROJECT_VERSION=$BUILD_NUMBER" "STACK_API_URL=$STACK_API_URL"
 python3 - "$APP/Info.plist" "$BUILD_NUMBER" "$STACK_API_URL" <<'PY'

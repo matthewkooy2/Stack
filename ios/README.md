@@ -1,6 +1,6 @@
 # Stack for iPhone (SwiftUI)
 
-A native SwiftUI rebuild of the Stack app. The visual language and motion come from the Prep
+A native SwiftUI rebuild of the Stack app. New and restyled screens follow [UI_STYLE.md](UI_STYLE.md); the cream palette described below is the older look. The visual language and motion come from the Prep
 workflow: a cream palette, one easing curve, staggered reveals, directional page transitions,
 press and release feedback, a recording halo, and Reduce Motion support.
 

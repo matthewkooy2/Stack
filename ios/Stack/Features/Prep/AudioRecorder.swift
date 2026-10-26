@@ -411,13 +411,14 @@ struct AnswerPlayback: View {
 
     var body: some View {
         Button { player.toggle(url: url) } label: {
-            HStack(spacing: 14) {
-                GlyphView(name: player.isPlaying ? "pause" : "play", size: 20)
-                Text(player.isPlaying ? "Pause your answer" : "Play your answer")
-                    .font(Typeface.button).foregroundStyle(Palette.icon)
+            HStack(spacing: 10) {
+                Image(systemName: player.isPlaying ? "pause.fill" : "play.fill").font(.system(size: 17, weight: .semibold))
+                Text(player.isPlaying ? "Pause" : "Play your answer").font(.system(.headline).weight(.semibold))
             }
-            .frame(maxWidth: .infinity, minHeight: 58)
-            .background(Palette.button, in: RoundedRectangle(cornerRadius: Spacing.radius, style: .continuous))
+            .foregroundStyle(Brand.accent)
+            .frame(maxWidth: .infinity, minHeight: 54)
+            .background(Brand.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.tap)
         .onDisappear { player.stop() }

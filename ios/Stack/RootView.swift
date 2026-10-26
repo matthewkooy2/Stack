@@ -28,24 +28,22 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        ZStack {
-            Palette.page.ignoresSafeArea()
-            switch store.phase {
-            case .starting:
-                VStack(spacing: 18) {
-                    Text("stack").font(Typeface.display).tracking(-1.2).foregroundStyle(Palette.ink)
-                    ProgressView().tint(Palette.muted)
+        LaunchSequence(isReady: store.phase != .starting) {
+            ZStack {
+                Palette.page.ignoresSafeArea()
+                switch store.phase {
+                case .starting:
+                    Color.clear
+                case .signedOut:
+                    AccessView().replayable().transition(.opacity)
+                case .admission:
+                    InvitationView().replayable().transition(.opacity)
+                case .ready:
+                    MainTabs().transition(.opacity)
                 }
-                .transition(.opacity)
-            case .signedOut:
-                AccessView().transition(.opacity)
-            case .admission:
-                InvitationView().transition(.opacity)
-            case .ready:
-                MainTabs().transition(.opacity)
             }
+            .animation(reduceMotion ? nil : Motion.fadeAnimation, value: store.phase)
         }
-        .animation(reduceMotion ? nil : Motion.fadeAnimation, value: store.phase)
         .transaction { if reduceMotion { $0.animation = nil; $0.disablesAnimations = true } }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await store.refresh() } }
@@ -86,13 +84,13 @@ struct MainTabs: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            TabBar(selection: $selection, namespace: highlight)
+            TabBar(selection: $selection, namespace: highlight, resumeIsEmpty: store.account.resumes.isEmpty)
         }
         .onChange(of: selection) { _, tab in visited.insert(tab) }
         .sheet(isPresented: $showProfile) {
-            ProfileView().environment(store)
+            ProfileView().environment(store).replayable()
         }
-        .sheet(item: $agentTask) { target in AgentTaskSheet(taskID: target.id).environment(store) }
+        .sheet(item: $agentTask) { target in AgentTaskSheet(taskID: target.id).environment(store).replayable() }
         .onReceive(NotificationCenter.default.publisher(for: .stackNavigate)) { note in
             guard let destination = note.userInfo?["destination"] as? String else { return }
             go(to: destination)
@@ -141,8 +139,12 @@ struct MainTabs: View {
         }
     }
 
-    @ViewBuilder
     private func screen(for tab: StackTab) -> some View {
+        tabScreen(for: tab).replayable()
+    }
+
+    @ViewBuilder
+    private func tabScreen(for tab: StackTab) -> some View {
         switch tab {
         case .jobs: JobsView(onProfile: { showProfile = true })
         case .applications: ApplicationsView(onProfile: { showProfile = true }, onNavigate: { selection = $0 })
@@ -157,6 +159,15 @@ private struct TabBar: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Binding var selection: StackTab
     let namespace: Namespace.ID
+    let resumeIsEmpty: Bool
+
+    private var resumeUpload: Bool { selection == .resume && resumeIsEmpty }
+    private var pageColor: Color { selection == .prep || resumeUpload ? Brand.page : Palette.page }
+
+    private func tint(for tab: StackTab) -> Color {
+        if resumeUpload { return selection == tab ? Brand.accent : Brand.muted }
+        return selection == tab ? Palette.icon : Palette.muted
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -165,16 +176,16 @@ private struct TabBar: View {
                     withAnimation(reduceMotion ? nil : Motion.ease(0.32)) { selection = tab }
                 } label: {
                     VStack(spacing: 4) {
-                        GlyphView(name: tab.icon, size: 21, color: selection == tab ? Palette.icon : Palette.muted)
+                        GlyphView(name: tab.icon, size: 21, color: tint(for: tab))
                         Text(tab.rawValue)
                             .font(.system(size: 11, weight: selection == tab ? .semibold : .regular))
-                            .foregroundStyle(selection == tab ? Palette.icon : Palette.muted)
+                            .foregroundStyle(tint(for: tab))
                     }
                     .frame(maxWidth: .infinity, minHeight: 52)
                     .background {
                         if selection == tab {
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(Palette.halo.opacity(0.7))
+                                .fill(resumeUpload ? Color.clear : Palette.halo.opacity(0.7))
                                 .matchedGeometryEffect(id: "tab-highlight", in: namespace)
                         }
                     }
@@ -188,8 +199,8 @@ private struct TabBar: View {
         .padding(.horizontal, 10)
         .padding(.top, 8)
         .padding(.bottom, 4)
-        .background(Palette.page)
-        .overlay(alignment: .top) { Rectangle().fill(Palette.rule).frame(height: 1) }
+        .background(pageColor.ignoresSafeArea(edges: .bottom))
+        .overlay(alignment: .top) { Rectangle().fill(selection == .prep || resumeUpload ? Brand.rule : Palette.rule).frame(height: 1) }
         .sensoryFeedback(.selection, trigger: selection)
     }
 }

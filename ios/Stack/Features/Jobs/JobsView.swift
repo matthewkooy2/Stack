@@ -664,27 +664,32 @@ struct JobDetailView: View {
     }
 }
 
-/// Wraps its children onto as many rows as needed.
+/// Wraps its children onto as many rows as needed. A child wider than the row is measured at the row's width, so
+/// long text wraps inside its chip instead of pushing the whole layout past the screen edge.
 struct FlowLayout: Layout {
     var spacing: CGFloat = 8
+
+    private func size(of view: LayoutSubview, within width: CGFloat) -> CGSize {
+        view.sizeThatFits(ProposedViewSize(width: width.isFinite ? width : nil, height: nil))
+    }
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let width = proposal.width ?? .infinity
         var x: CGFloat = 0, y: CGFloat = 0, rowHeight: CGFloat = 0, maxX: CGFloat = 0
         for view in subviews {
-            let size = view.sizeThatFits(.unspecified)
+            let size = size(of: view, within: width)
             if x + size.width > width, x > 0 { x = 0; y += rowHeight + spacing; rowHeight = 0 }
             x += size.width + spacing
             rowHeight = max(rowHeight, size.height)
             maxX = max(maxX, x - spacing)
         }
-        return CGSize(width: maxX, height: y + rowHeight)
+        return CGSize(width: width.isFinite ? min(maxX, width) : maxX, height: y + rowHeight)
     }
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         var x = bounds.minX, y = bounds.minY, rowHeight: CGFloat = 0
         for view in subviews {
-            let size = view.sizeThatFits(.unspecified)
+            let size = size(of: view, within: bounds.width)
             if x + size.width > bounds.maxX, x > bounds.minX { x = bounds.minX; y += rowHeight + spacing; rowHeight = 0 }
             view.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
             x += size.width + spacing

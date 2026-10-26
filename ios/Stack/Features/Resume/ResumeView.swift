@@ -25,31 +25,13 @@ struct ResumeView: View {
     }
 
     var body: some View {
-        Page {
-            ScreenHeader(title: "Resume", onProfile: onProfile).reveal(0)
-            StackButton(label: uploading ? "Uploading…" : "Upload a PDF resume", icon: "upload", disabled: uploading || store.busy) {
-                importing = true
-            }
-            .reveal(1)
-
-            StoreMessages()
-
+        Group {
             if store.account.resumes.isEmpty {
-                EmptyNote(icon: "resume", title: "No resume yet", message: "Upload a PDF to tailor it to each role.")
+                ResumeUploadScreen(uploading: uploading, disabled: store.busy, error: store.error,
+                                   attentionCount: store.account.attentionRunCount,
+                                   onUpload: { importing = true }, onProfile: onProfile)
             } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(store.account.resumes.enumerated()), id: \.element.id) { index, resume in
-                        resumeRow(resume).reveal(index + 2)
-                    }
-                }
-            }
-
-            VStack(spacing: 0) {
-                ListRow(label: "Tailor for a job", icon: "sparkles", detail: tailorDetail) { showTailor = true }
-                if !store.account.tailored.isEmpty {
-                    ListRow(label: "Tailored resumes", icon: "resume", detail: "\(store.account.tailored.count) saved") { showTailored = true }
-                }
-                ListRow(label: "Experience bank", icon: "star", detail: "Confirmed facts for tailoring") { showBank = true }
+                library
             }
         }
         .refreshable { await store.refresh() }
@@ -64,6 +46,32 @@ struct ResumeView: View {
             SheetPage(title: "Tailored resumes") { TailoredResumesSection() }.environment(store)
         }
         .sheet(isPresented: $showBank) { ExperienceBankView().environment(store) }
+    }
+
+    private var library: some View {
+        Page {
+            ScreenHeader(title: "Resume", onProfile: onProfile).reveal(0)
+            StackButton(label: uploading ? "Uploading…" : "Upload a PDF resume", icon: "upload", disabled: uploading || store.busy) {
+                importing = true
+            }
+            .reveal(1)
+
+            StoreMessages()
+
+            VStack(spacing: 0) {
+                ForEach(Array(store.account.resumes.enumerated()), id: \.element.id) { index, resume in
+                    resumeRow(resume).reveal(index + 2)
+                }
+            }
+
+            VStack(spacing: 0) {
+                ListRow(label: "Tailor for a job", icon: "sparkles", detail: tailorDetail) { showTailor = true }
+                if !store.account.tailored.isEmpty {
+                    ListRow(label: "Tailored resumes", icon: "resume", detail: "\(store.account.tailored.count) saved") { showTailored = true }
+                }
+                ListRow(label: "Experience bank", icon: "star", detail: "Confirmed facts for tailoring") { showBank = true }
+            }
+        }
     }
 
     private var tailorDetail: String {

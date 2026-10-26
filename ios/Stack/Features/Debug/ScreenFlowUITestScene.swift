@@ -5,7 +5,7 @@ import UIKit
 /// Offline UI-test host for the real Settings, Resume, Network, Applications, Jobs-detail and sign-in
 /// screens. Excluded entirely from Release builds. It never signs in, adopts a token or reaches a live
 /// service: every request goes through `ScreenFlowURLProtocol`, which answers from a fictional account.
-/// Chosen with the launch argument `--screen-flow=<settings|resume|network|applications|jobs|onboarding|recovery>`.
+/// Chosen with the launch argument `--screen-flow=<settings|resume|resume-upload|network|applications|jobs|onboarding|recovery>`.
 @MainActor
 struct ScreenFlowUITestScene: View {
     @State private var store = ScreenFlowUITestScene.makeStore()
@@ -15,7 +15,9 @@ struct ScreenFlowUITestScene: View {
         return ProcessInfo.processInfo.arguments.first { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) } ?? ""
     }
 
-    private static func makeStore() -> AppStore {
+    private static func makeStore() -> AppStore { makeStore(flow: flow) }
+
+    static func makeStore(flow: String) -> AppStore {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ScreenFlowURLProtocol.self]
         let api = APIClient(origin: URL(string: "https://stack.invalid")!, session: URLSession(configuration: configuration))
@@ -49,7 +51,7 @@ struct ScreenFlowUITestScene: View {
     private var screen: some View {
         switch Self.flow {
         case "settings": ProfileView()
-        case "resume": ResumeView(onProfile: {})
+        case "resume", "resume-upload": ResumeView(onProfile: {})
         case "resume-review": ResumeReviewFixtureHost()
         case "network": NetworkView(onProfile: {})
         case "applications", "applications-autofill-unavailable": ApplicationsView(onProfile: {}, onNavigate: { _ in })
@@ -329,7 +331,8 @@ final class ScreenFlowServer: @unchecked Sendable {
                         "fix": "Configure the browser worker for autofill.", "action": ""]],
         ]]
         return [
-            "user_id": .string(reviewUser), "profile": profile, "resumes": .array(resumes), "selected_resume": "resume-1",
+            "user_id": .string(reviewUser), "profile": profile,
+            "resumes": flow == "resume-upload" ? [] : .array(resumes), "selected_resume": "resume-1",
             "applications": .array(applications), "people": .array(people), "contacts": .array(contacts),
             "agents": ["features": .array(features), "runs": .array(autofillStarted ? [Self.autofillRun] : []), "active": 0, "attention": 0,
                        "model_provider": ["provider": "", "message": ""]],

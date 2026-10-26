@@ -18,7 +18,7 @@ enum CoachingText {
     private static let scoreLine = try! NSRegularExpression(
         pattern: #"^\s*[-•*]?\s*([A-Z][A-Za-z' /&-]{2,32}?):\s*(\d(?:\.\d+)?)\s*(?:/\s*4|out of 4)?\s*[—–:\-]+\s*(.+?)\s*$"#)
     private static let numbered = try! NSRegularExpression(pattern: #"^\s*\d+[.)]\s*([^:]{2,40}):"#)
-    private static let verdictPrefixes = ["overall:", "assessment:", "summary:", "verdict:"]
+    private static let verdictPrefixes = ["overall assessment:", "overall:", "assessment:", "summary:", "verdict:"]
 
     static func parse(_ raw: String) -> ParsedCoaching {
         let text = raw.replacingOccurrences(of: "\r\n", with: "\n")
@@ -137,6 +137,28 @@ enum CoachingText {
         raw.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n\n")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+    }
+}
+
+/// Mock-interview coaching arrives as paragraphs headed "Strengths:" and "Improvements:" (and sometimes a next step).
+/// This reads each section's first sentence so the screen can show one line per section.
+struct InterviewNote: Equatable {
+    var strength = ""
+    var improvement = ""
+
+    static func parse(_ raw: String) -> InterviewNote {
+        var note = InterviewNote()
+        for paragraph in CoachingText.paragraphs(raw) {
+            let lower = paragraph.lowercased()
+            for (label, keyPath) in [("strengths:", \InterviewNote.strength), ("strength:", \InterviewNote.strength),
+                                     ("improvements:", \InterviewNote.improvement), ("improvement:", \InterviewNote.improvement),
+                                     ("next step:", \InterviewNote.improvement)] where lower.hasPrefix(label) {
+                let body = paragraph.dropFirst(label.count).trimmingCharacters(in: .whitespacesAndNewlines)
+                if note[keyPath: keyPath].isEmpty { note[keyPath: keyPath] = CoachingText.headline(body, limit: 150) }
+            }
+        }
+        if note.strength.isEmpty && note.improvement.isEmpty { note.strength = CoachingText.headline(raw, limit: 150) }
+        return note
     }
 }
 

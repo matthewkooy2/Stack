@@ -133,6 +133,12 @@ final class CoachingTextTests: XCTestCase {
         XCTAssertEqual(parsed.verdict, "0/4 — The transcript is unrelated to the question.")
     }
 
+    func testInterviewNoteReadsStrengthsAndImprovements() {
+        let note = InterviewNote.parse("Strengths: Your answer is concise. The numbers make it credible.\n\nImprovements: Add context on who was affected. Also explain the risk.")
+        XCTAssertEqual(note.strength, "Your answer is concise.")
+        XCTAssertEqual(note.improvement, "Add context on who was affected.")
+    }
+
     func testStructuredCoachingStillWorks() {
         let feedback: JSON = ["summary": "Specific ownership; add a tradeoff.",
                               "rubric": [["criterion": "ownership", "score": 4, "feedback": "Clear."]],

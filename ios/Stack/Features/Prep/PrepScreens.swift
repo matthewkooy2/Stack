@@ -242,12 +242,12 @@ struct PrepRecordingScreen: View {
     }
 }
 
-/// Choose what to practice: a focus, or another kind of practice. One sheet instead of the old setup pages.
+/// Choose what to practice: a focus, or a mock interview for a saved role.
 @MainActor
 struct PrepTopicSheet: View {
     let selected: PrepFocus
     let onFocus: (PrepFocus) -> Void
-    let onTool: (PrepTool) -> Void
+    let onInterview: () -> Void
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -256,9 +256,7 @@ struct PrepTopicSheet: View {
                 row(focus.shortName, checked: focus == selected) { onFocus(focus); dismiss() }
             }
             Rectangle().fill(Brand.rule).frame(height: 1).padding(.vertical, 6)
-            row("Technical") { dismiss(); onTool(.practice) }
-            row("Mock interview") { dismiss(); onTool(.interview) }
-            row("More tools", muted: true) { dismiss(); onTool(.tools) }
+            row("Mock interview") { dismiss(); onInterview() }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, Spacing.page)
@@ -355,6 +353,8 @@ struct PrepCoachingScreen: View {
     let onAnswer: () -> Void
     let onPrimary: () -> Void
     let onAgain: () -> Void
+    /// The quiet link under the button; nil hides it.
+    var secondary: String? = "Try this answer again"
 
     @Environment(\.stackReduceMotion) private var reduceMotion
     @State private var open: String?
@@ -404,7 +404,7 @@ struct PrepCoachingScreen: View {
                 Text(message).font(Typeface.caption).foregroundStyle(Palette.danger).padding(.bottom, 10)
             }
             PrimaryPill(title: primary, disabled: busy, action: onPrimary).reveal(4)
-            QuietLinks(links: [ScreenLink("Try this answer again", action: onAgain)]).padding(.top, 6).reveal(5)
+            QuietLinks(links: secondary.map { [ScreenLink($0, action: onAgain)] } ?? []).padding(.top, 6).reveal(5)
         }
     }
 

@@ -66,15 +66,9 @@ struct PrepView: View {
         .sheet(isPresented: $showTopics, onDismiss: {
             if let next = pendingTool { pendingTool = nil; tool = next }
         }) {
-            PrepTopicSheet(selected: model.focus, onFocus: { model.choose($0) }, onTool: { pendingTool = $0 })
+            PrepTopicSheet(selected: model.focus, onFocus: { model.choose($0) }, onInterview: { pendingTool = .interview })
         }
-        .sheet(item: $tool) { value in
-            switch value {
-            case .tools: PrepToolsSheet().environment(store)
-            case .practice: PracticeView().environment(store)
-            case .interview: InterviewView().environment(store)
-            }
-        }
+        .fullScreenCover(item: $tool) { _ in MockInterviewFlow().environment(store) }
         .onDisappear { model.suspendCapture() }
         .task(id: model.autosaveToken) {
             guard [.answer, .review].contains(model.page) else { return }
@@ -357,43 +351,6 @@ struct AnswerEditor: View {
 }
 
 enum PrepTool: String, Identifiable {
-    case tools, practice, interview
+    case interview
     var id: String { rawValue }
-}
-
-/// Practice beyond the behavioral workflow: job-specific mock interviews, technical exercises and
-/// recording with transcription.
-@MainActor
-struct PrepToolsSheet: View {
-    @State private var showInterview = false
-    @State private var showPractice = false
-    @State private var showRecording = false
-
-    var body: some View {
-        SheetPage(title: "Practice tools") {
-            OptionRow(label: "Mock interview", icon: "chat", detail: "For a role you saved") { showInterview = true }.reveal(0)
-            OptionRow(label: "Technical practice", icon: "code", detail: "Exercises, tests and coaching", oat: true) { showPractice = true }.reveal(1)
-            OptionRow(label: "Record and transcribe", icon: "mic", detail: "Review spoken answers as text") { showRecording = true }.reveal(2)
-        }
-        .sheet(isPresented: $showInterview) { InterviewSheetHost() }
-        .sheet(isPresented: $showPractice) { PracticeSheetHost() }
-        .sheet(isPresented: $showRecording) { RecordingSheetHost() }
-    }
-}
-
-private struct InterviewSheetHost: View {
-    @Environment(AppStore.self) private var store
-    var body: some View { InterviewView().environment(store) }
-}
-
-private struct PracticeSheetHost: View {
-    @Environment(AppStore.self) private var store
-    var body: some View { PracticeView().environment(store) }
-}
-
-private struct RecordingSheetHost: View {
-    @Environment(AppStore.self) private var store
-    var body: some View {
-        SheetPage(title: "Record and transcribe") { TranscriptionPanel() }.environment(store)
-    }
 }

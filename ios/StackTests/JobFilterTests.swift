@@ -274,4 +274,59 @@ final class JobFilterTests: XCTestCase {
         XCTAssertTrue(entry.entryLevelActive)
         XCTAssertEqual(entry.togglingEntryLevel().filters["occupation"].string, "Software Developers")
     }
+
+    // Manual requirements-sheet regressions. These are not added to the essential CI selection.
+    func testRequirementSummaryUsesEffectiveProfileValuesAndFriendlyNiceToHaveNames() {
+        let value = search(criteria: [
+            "stage": "Student", "years": 0, "education": "Bachelor's",
+            "exclude_companies": ["Acme"], "exclude_terms": ["clearance"],
+            "soft": ["modes", "employment_types", "salary"],
+            "sources": ["stage": "profile", "years": "profile", "education": "profile", "soft": "profile"],
+        ])
+        let rows = Dictionary(uniqueKeysWithValues: value.profileRequirements.map { ($0.id, $0) })
+        XCTAssertEqual(rows["stage"]?.value, "Student")
+        XCTAssertEqual(rows["stage"]?.source, "Profile")
+        XCTAssertEqual(rows["years"]?.value, "0 years", "zero experience is a known value, not missing information")
+        XCTAssertEqual(rows["education"]?.value, "Bachelor's")
+        XCTAssertEqual(rows["exclude_companies"]?.value, "Acme")
+        XCTAssertEqual(rows["exclude_terms"]?.value, "clearance")
+        XCTAssertEqual(rows["soft"]?.value, "Work arrangement, Employment type, Pay")
+    }
+
+    func testRequirementSummaryPreservesExplicitEmptySearchOverrides() {
+        let value = search(filters: ["exclude_companies": [], "exclude_terms": [], "soft": []], criteria: [
+            "exclude_companies": ["Acme"], "exclude_terms": ["clearance"], "soft": ["location"],
+            "sources": ["exclude_companies": "profile", "exclude_terms": "profile", "soft": "profile"],
+        ])
+        for key in ["exclude_companies", "exclude_terms", "soft"] {
+            let row = value.profileRequirements.first { $0.id == key }
+            XCTAssertEqual(row?.value, "None", "an explicit empty override must not restore a profile preference")
+            XCTAssertEqual(row?.source, "This search")
+        }
+    }
+
+    func testRequirementSummaryDistinguishesUnsetFromUnavailableWithoutInventingPreferences() {
+        XCTAssertTrue(search().profileRequirements.allSatisfy { $0.value == "Not available yet" && $0.source.isEmpty })
+        let value = search(criteria: ["stage": "", "years": .null, "education": "", "exclude_companies": [], "exclude_terms": [], "soft": []])
+        let rows = Dictionary(uniqueKeysWithValues: value.profileRequirements.map { ($0.id, $0.value) })
+        for key in ["stage", "years", "education"] { XCTAssertEqual(rows[key], "Not set") }
+        for key in ["exclude_companies", "exclude_terms", "soft"] { XCTAssertEqual(rows[key], "None") }
+        XCTAssertEqual(search(criteria: ["years": 1]).profileRequirements.first { $0.id == "years" }?.value, "1 year")
+    }
+
+    func testRequirementsEditingKeepsExclusionsNiceToHavesSortAndUnknownSavedKeys() {
+        let original = search(filters: [
+            "exclude_companies": ["Acme"], "exclude_terms": [], "soft": ["location"],
+            "sort": "newest", "future_key": ["enabled": true],
+        ], criteria: ["roles": "Designer", "stage": "Early career", "years": 2, "education": "Bachelor's"])
+        let baseline = JobFilterDraft(search: original)
+        var edited = baseline
+        edited.location = "Austin"
+        let result = edited.filters(over: original.filters, from: baseline)
+        for key in ["exclude_companies", "exclude_terms", "soft", "sort", "future_key"] {
+            XCTAssertEqual(result[key], original.filters[key])
+        }
+        XCTAssertEqual(result["location"].string, "Austin")
+        for key in ["stage", "years", "education"] { XCTAssertTrue(result[key].isNull) }
+    }
 }

@@ -37,6 +37,37 @@ struct JobSearch: Equatable {
 
     var sortLabel: String { filters["sort"].string == "newest" ? "Newest first" : "Best match" }
 
+    /// Matching inputs that are not editable in this sheet. These are effective server values,
+    /// not inferred preferences. An explicit empty search override must remain empty.
+    var profileRequirements: [JobRequirement] {
+        func row(_ key: String, _ label: String, empty: String = "Not set", allowsOverride: Bool = false,
+                 format: (JSON) -> String = { $0.string }) -> JobRequirement {
+            let overridden = allowsOverride && !filters[key].isNull
+            let known = overridden || criteria.object.keys.contains(key)
+            let value = overridden ? filters[key] : criteria[key]
+            let text = format(value)
+            let provenance = overridden ? "search" : criteria["sources"][key].string
+            let source = ["profile": "Profile", "search": "This search"][provenance] ?? ""
+            return JobRequirement(id: key, label: label,
+                                  value: !known ? "Not available yet" : (text.isEmpty ? empty : text), source: source)
+        }
+        let niceToHave = ["location": "Location", "modes": "Work arrangement", "employment_types": "Employment type",
+                          "salary": "Pay", "level": "Level", "experience": "Experience", "education": "Education"]
+        return [
+            row("stage", "Career stage"),
+            row("years", "Experience", format: { value in
+                value.isNull || value.string.isEmpty ? "" : "\(value.string) \(value.double == 1 ? "year" : "years")"
+            }),
+            row("education", "Education"),
+            row("exclude_companies", "Hidden employers", empty: "None", allowsOverride: true,
+                format: { $0.strings.joined(separator: ", ") }),
+            row("exclude_terms", "Hidden terms", empty: "None", allowsOverride: true,
+                format: { $0.strings.joined(separator: ", ") }),
+            row("soft", "Nice to have, not required", empty: "None", allowsOverride: true,
+                format: { $0.strings.map { niceToHave[$0] ?? $0 }.joined(separator: ", ") }),
+        ]
+    }
+
     // MARK: Quick picks
 
     static let entryQuery = "Software engineer"
@@ -191,6 +222,13 @@ struct JobActiveFilter: Identifiable, Equatable {
     let label: String
 }
 
+struct JobRequirement: Identifiable, Equatable {
+    let id: String
+    let label: String
+    let value: String
+    let source: String
+}
+
 enum JobSheet: String, Identifiable {
     case filters, timeline, sources, importLink
     var id: String { rawValue }
@@ -335,6 +373,15 @@ struct JobFilterDraft: Equatable {
 @MainActor
 struct JobFiltersSheet: View {
     let search: JobSearch
+    let title: String
+    let disabled: Bool
+    let error: String
+    /// Immediate actions are supplied by the parent, which owns saving and sheet routing.
+    /// They are unavailable while the form has pending edits, so those edits cannot be silently lost.
+    let onQuickChange: ((String, JSON) -> Void)?
+    let onReset: (() -> Void)?
+    let onTool: ((JobSheet) -> Void)?
+    let onProfile: (() -> Void)?
     /// Called synchronously at the tap, so the caller can fix its place in line and account before any task starts.
     /// It returns the work to run.
     let onApply: (String, JSON) -> () async -> Void
@@ -344,17 +391,35 @@ struct JobFiltersSheet: View {
     @State private var working = false
     @State private var showMore = false
 
-    init(search: JobSearch, onApply: @escaping (String, JSON) -> () async -> Void) {
+    init(search: JobSearch, title: String = "Filters", disabled: Bool = false, error: String = "",
+         onQuickChange: ((String, JSON) -> Void)? = nil, onReset: (() -> Void)? = nil,
+         onTool: ((JobSheet) -> Void)? = nil, onProfile: (() -> Void)? = nil,
+         onApply: @escaping (String, JSON) -> () async -> Void) {
         self.search = search
+        self.title = title
+        self.disabled = disabled
+        self.error = error
+        self.onQuickChange = onQuickChange
+        self.onReset = onReset
+        self.onTool = onTool
+        self.onProfile = onProfile
         self.onApply = onApply
         let start = JobFilterDraft(search: search)
         baseline = start
         _draft = State(initialValue: start)
+        // An active advanced requirement should not disappear behind a disclosure on first open.
+        _showMore = State(initialValue: !start.minimum.isEmpty || start.occupation != "Any" || start.confirmedOnly
+                         || start.timeline != "compatible" || start.datedOnly || start.age != "Any")
     }
 
+    private var edited: Bool { draft != baseline }
+    private var immediateActionsDisabled: Bool { disabled || working || edited }
+    private var hasImmediateActions: Bool { onQuickChange != nil || onReset != nil || onTool != nil || onProfile != nil }
+
     var body: some View {
-        SheetPage(title: "Filters") {
+        SheetPage(title: title) {
             VStack(alignment: .leading, spacing: 20) {
+                if hasImmediateActions { searchTools }
                 StackField(label: "Role or job title",
                            text: Binding(get: { draft.query }, set: { draft.query = $0; draft.anyRole = false }),
                            placeholder: "Nurse, electrician, software engineer…")
@@ -386,7 +451,9 @@ struct JobFiltersSheet: View {
                 }
                 .accessibilityLabel(showMore ? "Fewer filters" : "More filters")
                 if showMore { more }
-                StackButton(label: "Show opportunities", disabled: working) {
+                MessageLine(text: error).fadeSwitch(!error.isEmpty)
+                StoreMessages()
+                StackButton(label: "Show opportunities", disabled: working || disabled) {
                     working = true
                     let apply = onApply(draft.anyRole ? "" : draft.query, draft.filters(over: search.filters, from: baseline))
                     Task {
@@ -394,10 +461,107 @@ struct JobFiltersSheet: View {
                         working = false
                     }
                 }
-                Text("These choices apply to this search. Career stage, experience, education, exclusions and nice-to-haves come from your profile. Title aliases use O*NET 31.0 data · CC BY 4.0 · U.S. Department of Labor.")
+                profileRequirements
+                Text("Search choices override your profile for this search only. Reset returns to your profile. Title aliases use O*NET 31.0 data · CC BY 4.0 · U.S. Department of Labor.")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
+            .disabled(working || disabled)
         }
+    }
+
+    private var searchTools: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if let onQuickChange {
+                group("Quick picks & sort") {
+                    FlowLayout(spacing: 8) {
+                        Chip(label: "Entry-level software", selected: search.entryLevelActive) {
+                            let next = search.togglingEntryLevel()
+                            onQuickChange(next.query, next.filters)
+                        }
+                        Chip(label: "Internships", selected: search.internshipActive) {
+                            let next = search.togglingInternship()
+                            onQuickChange(next.query, next.filters)
+                        }
+                        Menu {
+                            Button("Best match") { let next = search.sorting(by: "relevance"); onQuickChange(next.query, next.filters) }
+                            Button("Newest first") { let next = search.sorting(by: "newest"); onQuickChange(next.query, next.filters) }
+                        } label: { Chip(label: search.sortLabel) }
+                        .accessibilityLabel("Sort: \(search.sortLabel)")
+                    }
+                }
+                .disabled(immediateActionsDisabled)
+            }
+            if search.hasOverrides {
+                group("Search overrides") {
+                    FlowLayout(spacing: 8) {
+                        ForEach(search.active) { item in
+                            if let onQuickChange {
+                                Chip(label: "\(item.label)  ✕") {
+                                    let next = search.removing(item.id)
+                                    onQuickChange(next.query, next.filters)
+                                }
+                                .accessibilityLabel("Remove filter \(item.label)")
+                            } else {
+                                Chip(label: item.label)
+                            }
+                        }
+                        if let onReset {
+                            Button("Reset to profile", action: onReset)
+                                .font(Typeface.caption.weight(.semibold)).foregroundStyle(Palette.dark)
+                                .padding(.vertical, 10)
+                                .accessibilityLabel("Reset filters to profile")
+                        }
+                    }
+                }
+                .disabled(immediateActionsDisabled)
+            }
+            if let onTool {
+                FlowLayout(spacing: 8) {
+                    Chip(label: search.graduation.isEmpty ? "Set timeline" : "Graduation: \(search.graduation)") { onTool(.timeline) }
+                    Chip(label: "Live sources") { onTool(.sources) }
+                    Chip(label: "Import a link") { onTool(.importLink) }
+                }
+                .disabled(immediateActionsDisabled)
+            }
+            if edited {
+                Text("Apply your edits before using quick picks, reset or other tools, or discard them below.")
+                    .font(Typeface.caption).foregroundStyle(Palette.muted)
+                Button("Discard edits") { draft = baseline }
+                    .font(Typeface.caption.weight(.semibold)).foregroundStyle(Palette.dark)
+                    .accessibilityLabel("Discard unsaved requirement edits")
+            }
+        }
+    }
+
+    private var profileRequirements: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Profile & matching").font(Typeface.option).foregroundStyle(Palette.icon)
+            Text("These values are part of the current search. Nice-to-haves affect ranking rather than hide conflicting listings.")
+                .font(Typeface.caption).foregroundStyle(Palette.muted)
+            ForEach(search.notices, id: \.self) { notice in
+                Text(notice).font(Typeface.caption).foregroundStyle(Palette.muted)
+            }
+            ForEach(search.profileRequirements) { requirement in
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(requirement.label).font(Typeface.caption).foregroundStyle(Palette.muted)
+                    Text(requirement.value).font(Typeface.body).foregroundStyle(Palette.text)
+                    if !requirement.source.isEmpty {
+                        Text(requirement.source).font(Typeface.caption).foregroundStyle(Palette.muted)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("job-requirement-\(requirement.id)")
+            }
+            if let onProfile {
+                Button("Edit profile preferences", action: onProfile)
+                    .font(Typeface.caption.weight(.semibold)).foregroundStyle(Palette.dark)
+                    .padding(.vertical, 10)
+                    .disabled(immediateActionsDisabled)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .background(Palette.oat, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     @ViewBuilder
@@ -415,6 +579,8 @@ struct JobFiltersSheet: View {
                 ChoiceChips(options: ["Show and flag them", "Confirmed matches only"],
                             isSelected: { ($0 == "Confirmed matches only") == draft.confirmedOnly },
                             onTap: { draft.confirmedOnly = $0 == "Confirmed matches only" })
+                Text("Confirmed means the listing provides evidence for every required detail. Missing details are excluded.")
+                    .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             group("Graduation timeline") {
                 ChoiceChips(options: ["compatible", "confirmed", "all"], isSelected: { draft.timeline == $0 },

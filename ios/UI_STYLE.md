@@ -7,10 +7,11 @@ screens. Read it before adding or restyling any SwiftUI.
 
 New look (use these as the reference): launch sequence, `Features/Access/AccessView.swift` (welcome, sign in,
 create account), `Features/Prep/PrepScreens.swift` with `PrepView.swift`, and the Resume tab's first-use screen
-(`Features/Resume/ResumeUploadScreen.swift`). The populated Resume view is still the old look.
+(`Features/Resume/ResumeUploadScreen.swift`), the Jobs deck (`Features/Jobs/JobCard.swift`, `JobsView.swift`) and the Network tab
+(`Features/Network/NetworkView.swift`, `PresenceView.swift`). The populated Resume view is still the old look.
 
-Old cream look (still in place, restyle only when asked): Jobs, Applications, Network, Resume (once a resume exists), Profile, and the
-Interview and Practice sheets. These use `Palette` and the components in `Design/Components.swift`.
+Old cream look (still in place, restyle only when asked): Applications, Resume (once a resume exists), Profile, the Interview and
+Practice sheets, and the sheets opened from Jobs and Network (requirements, job details, sources, import, discovery, public profiles). These use `Palette` and the components in `Design/Components.swift`.
 `ios/README.md` still describes the cream palette; that is the old look, not the target.
 
 Do not restyle a tab you were not asked to touch. Do not mix the two looks on one screen, except for the tab bar,

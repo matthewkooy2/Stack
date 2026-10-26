@@ -45,9 +45,9 @@ struct JobListing: Identifiable, Equatable {
     }
 }
 
-/// The system browser UI: loading progress, error page with reload, back/forward, share and "Open in Safari"
-/// all come from `SFSafariViewController`, so they behave exactly as people expect. It runs out of process, so
-/// Stack never sees the page contents, cookies or anything typed into a form.
+/// Safari owns the presentation, Reader availability, navigation, sharing and reload controls. Its native
+/// chrome adapts to the installed iOS version; Stack adds no address bar, grabber or imitation Reader UI.
+/// It runs out of process, so Stack never sees the page contents, cookies or anything typed into a form.
 @MainActor
 struct SafariListingPresenter: UIViewControllerRepresentable {
     @Binding var item: JobListing?
@@ -106,18 +106,17 @@ struct SafariListingPresenter: UIViewControllerRepresentable {
             guard let selection, let anchor, anchor.viewIfLoaded?.window != nil,
                   anchor.presentedViewController == nil else { return }
             let configuration = SFSafariViewController.Configuration()
+            // Open the employer's original page. Safari offers Reader only when the page supports it.
             configuration.entersReaderIfAvailable = false
             configuration.barCollapsingEnabled = true
             let controller = SFSafariViewController(url: selection.url, configuration: configuration)
-            controller.preferredBarTintColor = UIColor(Palette.page)
-            controller.preferredControlTintColor = UIColor(Palette.dark)
             controller.dismissButtonStyle = .close
-            controller.modalPresentationStyle = .fullScreen
             controller.delegate = self
             browser = controller
             presentedID = selection.id
             trace("present")
-            // Safari must be presented modally, never embedded as a child of a SwiftUI cover.
+            // Keep Safari's default presentation style, transitioning delegate and system bar effects.
+            // Apple recommends this native transition for websites, not a page/form sheet or SwiftUI cover.
             anchor.present(controller, animated: true)
             controller.presentationController?.delegate = self
         }
@@ -173,8 +172,8 @@ struct SafariListingPresenter: UIViewControllerRepresentable {
 }
 
 extension View {
-    /// Presents the listing full screen over the current screen, which stays alive underneath, so its deck,
-    /// filters, scroll position and selection are exactly as they were when the browser closes.
+    /// Presents the listing with Safari's native modal transition while keeping the underlying screen's
+    /// deck, filters, scroll position and selection alive until the browser closes.
     @ViewBuilder
     func jobListingBrowser(item: Binding<JobListing?>) -> some View {
         #if DEBUG
@@ -192,9 +191,9 @@ extension View {
 }
 
 #if DEBUG
-/// Stands in for the system browser in offline UI tests that only need Stack's own presentation and state, so
-/// they stay deterministic and never load a page. The real browser is exercised separately against loopback
-/// fixture pages (`JobListingSafariUITests`).
+/// Stands in for the system browser in offline UI tests that only need Stack's selection and coverage state.
+/// This full-screen fixture does not reproduce Safari's native chrome or transition. The real browser is
+/// exercised separately against loopback fixture pages (`JobListingSafariUITests`).
 @MainActor
 private struct StubListingBrowser: View {
     let listing: JobListing

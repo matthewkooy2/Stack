@@ -5,10 +5,14 @@ import SwiftUI
 struct PublicProfilesView: View {
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
-    @State private var platform = "LinkedIn"
+    @State private var platform: String
     @State private var field: ProfileDraftField?
     @State private var draft = ""
     @State private var generation = -1
+
+    init(initialPlatform: String = "LinkedIn") {
+        _platform = State(initialValue: ["LinkedIn", "GitHub", "Portfolio"].contains(initialPlatform) ? initialPlatform : "LinkedIn")
+    }
 
     private var fields: [ProfileDraftField] { ProfileDraftField.fields(for: platform) }
     private func key(_ field: ProfileDraftField) -> String { platform + ":" + field.id }

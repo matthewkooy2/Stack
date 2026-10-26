@@ -94,11 +94,10 @@ private struct ScreenFlowJobHost: View {
 
     var body: some View {
         VStack(spacing: Spacing.stack) {
-            JobCard(job: job)
+            JobCard(job: job, onOpen: {
+                if listing == nil { listing = JobListing(job: job) }
+            }, accessibilityID: "job-card")
                 .frame(height: 440)
-                .onTapGesture { if listing == nil { listing = JobListing(job: job) } }
-                .accessibilityAddTraits(.isButton)
-                .accessibilityIdentifier("job-card")
             StackButton(label: "Open job details") { detail = job }
         }
         .padding(.horizontal, Spacing.page)

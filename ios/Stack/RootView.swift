@@ -61,7 +61,7 @@ struct RootView: View {
     }
 }
 
-/// The five destinations, with a cream bar whose selection glides between items.
+/// The five destinations retain their order, with the current brand on Jobs and Prep.
 @MainActor
 struct MainTabs: View {
     @Environment(AppStore.self) private var store
@@ -113,6 +113,7 @@ struct MainTabs: View {
         guard let tab = map[destination] else { return }
         showProfile = false
         visited.insert(tab)
+        if tab == .network { store.pendingOpen["network_section"] = "network" }
         withAnimation(Motion.ease(0.32)) { selection = tab }
         if destination != "prep" { Task { await store.refresh() } }
     }
@@ -160,6 +161,8 @@ private struct TabBar: View {
     @Binding var selection: StackTab
     let namespace: Namespace.ID
 
+    private var branded: Bool { selection == .jobs || selection == .network }
+
     var body: some View {
         HStack(spacing: 0) {
             ForEach(StackTab.allCases) { tab in
@@ -167,16 +170,16 @@ private struct TabBar: View {
                     withAnimation(reduceMotion ? nil : Motion.ease(0.32)) { selection = tab }
                 } label: {
                     VStack(spacing: 4) {
-                        GlyphView(name: tab.icon, size: 21, color: selection == tab ? Palette.icon : Palette.muted)
+                        GlyphView(name: tab.icon, size: 21, color: selection == tab ? (branded ? Brand.accent : Palette.icon) : (branded ? Brand.muted : Palette.muted))
                         Text(tab.rawValue)
                             .font(.system(size: 11, weight: selection == tab ? .semibold : .regular))
-                            .foregroundStyle(selection == tab ? Palette.icon : Palette.muted)
+                            .foregroundStyle(selection == tab ? (branded ? Brand.accent : Palette.icon) : (branded ? Brand.muted : Palette.muted))
                     }
                     .frame(maxWidth: .infinity, minHeight: 52)
                     .background {
                         if selection == tab {
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(Palette.halo.opacity(0.7))
+                                .fill(branded ? Brand.accent.opacity(0.10) : Palette.halo.opacity(0.7))
                                 .matchedGeometryEffect(id: "tab-highlight", in: namespace)
                         }
                     }
@@ -190,8 +193,8 @@ private struct TabBar: View {
         .padding(.horizontal, 10)
         .padding(.top, 8)
         .padding(.bottom, 4)
-        .background(selection == .prep ? Brand.page : Palette.page)
-        .overlay(alignment: .top) { Rectangle().fill(selection == .prep ? Brand.rule : Palette.rule).frame(height: 1) }
+        .background(branded || selection == .prep ? Brand.page : Palette.page)
+        .overlay(alignment: .top) { Rectangle().fill(branded || selection == .prep ? Brand.rule : Palette.rule).frame(height: 1) }
         .sensoryFeedback(.selection, trigger: selection)
     }
 }

@@ -34,6 +34,8 @@ final class NetworkDrafts {
 @MainActor
 struct NetworkAgentSection: View {
     @Bindable var drafts: NetworkDrafts
+    /// A roster row opens the existing contact tools, limited to that real contact.
+    var contactID: String? = nil
     let onOpenTask: (String) -> Void
     let onNavigate: (String) -> Void
 
@@ -41,9 +43,15 @@ struct NetworkAgentSection: View {
 
     @State private var contacts: [JSON] = []
     @State private var loaded = false
+    @State private var loading = false
     @State private var working = false
     @State private var error = ""
     @State private var notice = ""
+
+    private var visibleContacts: [JSON] {
+        guard let contactID else { return contacts }
+        return contacts.filter { $0["id"].string == contactID }
+    }
 
     private var feature: AgentFeature? { store.account.feature("networking") }
 
@@ -54,20 +62,31 @@ struct NetworkAgentSection: View {
             if let feature { FeatureCardView(feature: feature, onAction: onNavigate, compact: true) }
             MessageLine(text: error).fadeSwitch(!error.isEmpty)
             MessageLine(text: notice, isError: false).fadeSwitch(!notice.isEmpty)
-            ForEach(Array(contacts.enumerated()), id: \.offset) { _, contact in contactCard(contact) }
-            if loaded, contacts.isEmpty, !drafts.adding { Text("No contacts yet.").font(Typeface.caption).foregroundStyle(Palette.muted) }
-            if drafts.adding { form } else {
-                StackButton(label: "Add a contact", icon: "add-session", kind: .secondary) { drafts.adding = true }
+            if loading && !loaded { ProgressView("Loading contacts…") }
+            if !error.isEmpty {
+                StackButton(label: "Retry loading contacts", kind: .secondary, disabled: loading || working) {
+                    Task { await load() }
+                }
             }
-            DisclosureSection("Follow-up timing",
-                              detail: drafts.policyLoaded ? "Up to \(drafts.followupLimit) every \(drafts.followupDays) days" : "") {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Sets how many follow-ups may be drafted. Sending still follows your review and outbound permissions.")
-                        .font(Typeface.caption).foregroundStyle(Palette.muted)
-                    StackField(label: "Follow-ups per contact (0–3)", text: $drafts.followupLimit, keyboard: .numberPad)
-                    StackField(label: "Days between follow-ups", text: $drafts.followupDays, keyboard: .numberPad)
-                    StackButton(label: "Save follow-up timing", kind: .secondary, disabled: working || !drafts.policyLoaded) {
-                        Task { await saveFollowupPolicy() }
+            ForEach(Array(visibleContacts.enumerated()), id: \.offset) { _, contact in contactCard(contact) }
+            if loaded, visibleContacts.isEmpty, error.isEmpty, !drafts.adding {
+                Text(contactID == nil ? "No contacts yet." : "This contact is no longer available.")
+                    .font(Typeface.caption).foregroundStyle(Palette.muted)
+            }
+            if contactID == nil {
+                if drafts.adding { form } else {
+                    StackButton(label: "Add a contact", icon: "add-session", kind: .secondary) { drafts.adding = true }
+                }
+                DisclosureSection("Follow-up timing",
+                                  detail: drafts.policyLoaded ? "Up to \(drafts.followupLimit) every \(drafts.followupDays) days" : "") {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Sets how many follow-ups may be drafted. Sending still follows your review and outbound permissions.")
+                            .font(Typeface.caption).foregroundStyle(Palette.muted)
+                        StackField(label: "Follow-ups per contact (0–3)", text: $drafts.followupLimit, keyboard: .numberPad)
+                        StackField(label: "Days between follow-ups", text: $drafts.followupDays, keyboard: .numberPad)
+                        StackButton(label: "Save follow-up timing", kind: .secondary, disabled: working || !drafts.policyLoaded) {
+                            Task { await saveFollowupPolicy() }
+                        }
                     }
                 }
             }
@@ -144,9 +163,13 @@ struct NetworkAgentSection: View {
     }
 
     private func load() async {
+        guard !loading else { return }
+        loading = true
+        error = ""
+        defer { loading = false }
         do {
             contacts = try await store.call("agent_contacts")["contacts"].array
-            if !drafts.policyLoaded {
+            if contactID == nil && !drafts.policyLoaded {
                 let policy = try await store.call("agent_settings")["policy"]
                 drafts.followupLimit = String(policy["followup_limit"].int)
                 drafts.followupDays = policy["followup_days"].isNull ? "7" : String(policy["followup_days"].int)

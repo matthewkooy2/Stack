@@ -34,6 +34,10 @@ enum CoachingText {
                 }
             }
             result.verdict = headline(first)
+            // "Overall: 0/4" on a line of its own says nothing; the sentence after it is the headline.
+            if result.verdict.range(of: #"^\d(\.\d)?\s*/\s*4\.?$"#, options: .regularExpression) != nil, paragraphs.count > 1 {
+                result.verdict = result.verdict.trimmingCharacters(in: CharacterSet(charactersIn: ".")) + " — " + headline(paragraphs[1], limit: 70)
+            }
         }
 
         var rows: [Section: [CoachCriterion]] = [:]

@@ -94,6 +94,7 @@ final class PrepModel {
     var error = ""
 
     let recorder = AudioRecorder()
+    @ObservationIgnored private let liveActivity = PrepLiveActivity()
     @ObservationIgnored private weak var store: AppStore?
     @ObservationIgnored private var boundGeneration: Int?
     @ObservationIgnored private var epoch = 0
@@ -321,6 +322,7 @@ final class PrepModel {
     /// Throws the take away and returns to the question.
     func cancelRecording() {
         epoch += 1
+        liveActivity.end()
         pendingCapture = nil
         _ = recorder.stop(cancelled: true)
         resetAnswer()
@@ -383,7 +385,9 @@ final class PrepModel {
             else if ["queued", "running", "needs_input", "blocked", "failed", "cancelled"].contains(state) { page = .processing }
             else if !draft.isEmpty || localURL != nil || !recording.object.isEmpty { page = .review }
             else { page = .question }
-            if behavioral["complete"].bool || !behavioral["history"].array.isEmpty {
+            // A finished session opens to its answers (straight to the answer when there is only one). One still in
+            // progress carries on from where it stopped.
+            if behavioral["complete"].bool {
                 let answers = behavioral["history"].array
                 if answers.count == 1, let only = answers.first { await viewSaved(only); openedDirectly = true } else if !answers.isEmpty { page = .history }
             }
@@ -487,6 +491,8 @@ final class PrepModel {
     /// Hidden tabs stay mounted, so leaving Prep must explicitly release the microphone.
     func suspendCapture() {
         epoch += 1
+        // Only a recording ends the activity here. Leaving the tab during the wait for coaching must not clear it.
+        if recordingActive { liveActivity.end() }
         let stopped = recorder.stop(reason: "Recording stopped when you left Prep. The partial answer was kept.")
         let captured = stopped ?? pendingCapture
         pendingCapture = nil
@@ -533,6 +539,7 @@ final class PrepModel {
             feedback = [:]
             dirty = false
             page = .recording
+            liveActivity.startRecording(question: question?.prompt ?? "")
             // The server save is not needed to record, so it must not hold Done and Pause back.
             startupSave = Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -549,6 +556,7 @@ final class PrepModel {
         error = ""
         do {
             if recorder.isPaused { try recorder.resume() } else { recorder.pause() }
+            liveActivity.setPaused(recorder.isPaused, elapsed: recorder.elapsed)
         } catch { fail(error) }
     }
 
@@ -563,9 +571,11 @@ final class PrepModel {
         guard let saved = recorder.stop() else {
             busy = false
             finishing = false
+            liveActivity.end()
             error = "No audio was saved. Record your answer again."
             return
         }
+        liveActivity.setCoaching(question: question?.prompt ?? "")
         await keepCapture(saved)
         busy = false
         finishing = false
@@ -615,6 +625,7 @@ final class PrepModel {
         #endif
         } catch {
             fail(error)
+            liveActivity.end()
             page = .review
         }
     }
@@ -694,6 +705,7 @@ final class PrepModel {
         #if DEBUG
         PrepTrace.mark("coaching requested")
         #endif
+            liveActivity.setCoaching(question: question?.prompt ?? "")
             run = try await call("agent_start", ["kind": "prep", "target_id": current["id"]])
         #if DEBUG
         PrepTrace.mark("coaching run created")
@@ -752,6 +764,7 @@ final class PrepModel {
         PrepTrace.dump("prep-last-feedback", feedback)
         #endif
                     page = .coaching
+                    liveActivity.setReady()
                     await reload()
                 } else if !run["id"].string.isEmpty {
                     let latest = try await call("agent_run", ["id": run["id"]])
@@ -760,6 +773,7 @@ final class PrepModel {
                         if latest["status"].string != run["status"].string { PrepTrace.mark("run " + latest["status"].string) }
                         #endif
                         run = latest
+                        if ["failed", "cancelled", "blocked", "needs_input"].contains(latest["status"].string) { liveActivity.setFailed() }
                     }
                 }
             }
@@ -808,7 +822,8 @@ final class PrepModel {
     }
 
     func tryAgain() {
-        feedback = [:]
+        // A new attempt starts empty: the last transcript must not turn up in the box or the recording.
+        resetAnswer()
         var data = current["data"]
         data["behavioral"]["complete"] = false
         current["data"] = data

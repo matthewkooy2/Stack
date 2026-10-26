@@ -128,6 +128,11 @@ final class CoachingTextTests: XCTestCase {
         XCTAssertTrue(shown.criteria.isEmpty)
     }
 
+    func testAScoreOnItsOwnLineGetsTheNextSentenceAsItsHeadline() {
+        let parsed = CoachingText.parse("Overall: 0/4\n\nThe transcript is unrelated to the question. Retry before treating this as evidence.\n\nBehavioral rubric:\nOwnership: 0/4 — not described.")
+        XCTAssertEqual(parsed.verdict, "0/4 — The transcript is unrelated to the question.")
+    }
+
     func testStructuredCoachingStillWorks() {
         let feedback: JSON = ["summary": "Specific ownership; add a tradeoff.",
                               "rubric": [["criterion": "ownership", "score": 4, "feedback": "Clear."]],

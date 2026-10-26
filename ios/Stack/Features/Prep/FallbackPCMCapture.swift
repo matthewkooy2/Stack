@@ -96,7 +96,7 @@ final class FallbackPCMCapture: AudioPCMCapture {
     let meter = PCMLevelMeter()
     /// Seconds of audio saved so far, about every 200 ms.
     var onProgress: ((Double) -> Void)?
-    /// The capture ended without a Stop (interruption, background, route reset, limit, error).
+    /// The capture ended without a Stop (interruption, route reset, limit, error). Going to the background does not end it.
     /// The file is already closed when this is called.
     var onEnded: ((String) -> Void)?
 
@@ -207,9 +207,6 @@ final class FallbackPCMCapture: AudioPCMCapture {
             center.addObserver(forName: AVAudioSession.interruptionNotification, object: nil, queue: .main) { [weak self] notification in
                 guard notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt == AVAudioSession.InterruptionType.began.rawValue else { return }
                 Task { @MainActor [weak self] in self?.end("Microphone interrupted. The partial answer was kept.") }
-            },
-            center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor [weak self] in self?.end("Recording stopped when Stack entered the background. Audio was kept.") }
             },
             center.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor [weak self] in self?.end("Audio service reset. The partial answer was kept.") }

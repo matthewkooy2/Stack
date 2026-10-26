@@ -88,13 +88,15 @@ struct AccessView: View {
         VStack(alignment: .leading, spacing: 0) {
             AccessBackButton { go(.welcome) }.disabled(store.busy).reveal(0)
             VStack(alignment: .leading, spacing: 10) {
-                VStack(alignment: .leading, spacing: -10) {
-                    Text(signUp ? "Create your" : "Welcome").foregroundStyle(Brand.ink)
-                    Text(signUp ? "account." : "back.").foregroundStyle(Brand.accent)
-                }
+                // One text element, so it reads and is found as the screen's heading.
+                (Text(signUp ? "Create your\n" : "Welcome\n").foregroundStyle(Brand.ink)
+                    + Text(signUp ? "account." : "back.").foregroundStyle(Brand.accent))
+                .accessibilityLabel(signUp ? "Create your account" : "Welcome back")
+                .accessibilityAddTraits(.isHeader)
+                .lineSpacing(-10)
                 .font(.system(size: 48, weight: .heavy))
                 .tracking(-2.2)
-                .lineLimit(1)
+                .lineLimit(2)
                 .minimumScaleFactor(0.6)
                 Text(signUp ? "It takes less than a minute." : "Sign in to pick up where you left off.")
                     .font(.system(.title3)).foregroundStyle(Brand.muted)

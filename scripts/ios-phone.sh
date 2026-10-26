@@ -11,6 +11,7 @@
 #   STACK_PHONE      device name or UDID (default: the first paired physical iPhone)
 #   STACK_IOS_TEAM   Apple developer team ID used for signing (default 38BZ2B7677)
 #   STACK_API_URL    API origin baked into the build (default: the Tailscale desktop)
+#   STACK_BUNDLE_ID  bundle ID (default com.matthewkooy.stack, replacing the Expo app on the phone)
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -18,7 +19,9 @@ ROOT=$PWD
 
 TEAM=${STACK_IOS_TEAM:-38BZ2B7677}
 export STACK_API_URL=${STACK_API_URL:-https://ryans-desktop.tailfe312e.ts.net:8443}
-BUNDLE=com.matthewkooy.stack.swift
+# The production ID: the backend's Apple sign-in only accepts tokens issued for it. This replaces the Expo build
+# of Stack on the phone. Set STACK_BUNDLE_ID=com.matthewkooy.stack.swift for a separate dev copy.
+BUNDLE=${STACK_BUNDLE_ID:-com.matthewkooy.stack}
 WORK=$ROOT/.jac/ci-ios-device
 DERIVED=$WORK/DerivedData
 APP=$DERIVED/Build/Products/Debug-iphoneos/Stack.app
@@ -67,7 +70,7 @@ if [[ "$MODE" == build ]]; then
       -destination "id=$UDID" -derivedDataPath "$DERIVED" \
       -allowProvisioningUpdates \
       DEVELOPMENT_TEAM="$TEAM" CODE_SIGN_STYLE=Automatic \
-      "STACK_API_URL=$STACK_API_URL" STACK_APPLE_SIGN_IN_ENABLED=YES \
+      "STACK_API_URL=$STACK_API_URL" "STACK_BUNDLE_ID=$BUNDLE" STACK_APPLE_SIGN_IN_ENABLED=YES \
       STACK_APPLE_ENTITLEMENTS=Stack/StackApple.entitlements \
       >"$WORK/build.log" 2>&1; then
     grep -E "error:" "$WORK/build.log" | sort -u | head -15 || true

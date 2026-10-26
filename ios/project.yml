@@ -16,6 +16,9 @@ settings:
     # Opt in only after the reviewed App ID/provisioning and backend activation gates.
     STACK_APPLE_SIGN_IN_ENABLED: "NO"
     STACK_APPLE_ENTITLEMENTS: ""
+    # The app's bundle ID; the Dynamic Island widget extension uses it plus ".activity". Release builds and
+    # scripts/ios-phone.sh pass com.matthewkooy.stack, the ID the backend's Apple sign-in expects.
+    STACK_BUNDLE_ID: "com.matthewkooy.stack.swift"
     STACK_LISTING_FIXTURE_PORT: "18765"
     STACK_LISTING_REQUIRE_ACCEPTANCE: "0"
     STACK_LISTING_ERROR_TEXT: ""
@@ -51,7 +54,7 @@ targets:
           NSAllowsLocalNetworking: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.matthewkooy.stack.swift
+        PRODUCT_BUNDLE_IDENTIFIER: $(STACK_BUNDLE_ID)
         CODE_SIGN_ENTITLEMENTS: $(STACK_APPLE_ENTITLEMENTS)
         TARGETED_DEVICE_FAMILY: "1"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -71,7 +74,7 @@ targets:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.matthewkooy.stack.swift.activity
+        PRODUCT_BUNDLE_IDENTIFIER: $(STACK_BUNDLE_ID).activity
         TARGETED_DEVICE_FAMILY: "1"
         SKIP_INSTALL: YES
         APPLICATION_EXTENSION_API_ONLY: YES

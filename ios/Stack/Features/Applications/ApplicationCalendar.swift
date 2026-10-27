@@ -150,7 +150,7 @@ struct ApplicationCalendarView: View {
                                     .foregroundStyle(isSelected ? Palette.onDark : Palette.text)
                                 HStack(spacing: 3) {
                                     Circle().fill(hasActivity ? Palette.ring : .clear).frame(width: 6, height: 6)
-                                    Circle().fill(hasEvent ? Color(hex: 0xC8742B) : .clear).frame(width: 6, height: 6)
+                                    Circle().fill(hasEvent ? Brand.accent : .clear).frame(width: 6, height: 6)
                                 }
                             }
                             .frame(maxWidth: .infinity, minHeight: 44)

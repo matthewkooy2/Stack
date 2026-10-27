@@ -61,7 +61,7 @@ struct RootView: View {
     }
 }
 
-/// The five destinations, with a cream bar whose selection glides between items.
+/// The five destinations retain their order, with the blue look on Jobs, Network and Prep.
 @MainActor
 struct MainTabs: View {
     @Environment(AppStore.self) private var store
@@ -113,6 +113,7 @@ struct MainTabs: View {
         guard let tab = map[destination] else { return }
         showProfile = false
         visited.insert(tab)
+        if tab == .network { store.pendingOpen["network_section"] = "network" }
         withAnimation(Motion.ease(0.32)) { selection = tab }
         if destination != "prep" { Task { await store.refresh() } }
     }
@@ -162,10 +163,17 @@ private struct TabBar: View {
     let resumeIsEmpty: Bool
 
     private var resumeUpload: Bool { selection == .resume && resumeIsEmpty }
-    private var pageColor: Color { selection == .prep || resumeUpload ? Brand.page : Palette.page }
+    /// Screens in the blue look: the bar's icons and selection follow it. Prep keeps the page colour only.
+    private var branded: Bool { selection == .jobs || selection == .network || resumeUpload }
+    private var brandedPage: Bool { branded || selection == .prep }
+    private var pageColor: Color { brandedPage ? Brand.page : Palette.page }
+    private var highlight: Color {
+        if resumeUpload { return .clear }
+        return branded ? Brand.accent.opacity(0.10) : Palette.halo.opacity(0.7)
+    }
 
     private func tint(for tab: StackTab) -> Color {
-        if resumeUpload { return selection == tab ? Brand.accent : Brand.muted }
+        if branded { return selection == tab ? Brand.accent : Brand.muted }
         return selection == tab ? Palette.icon : Palette.muted
     }
 
@@ -185,7 +193,7 @@ private struct TabBar: View {
                     .background {
                         if selection == tab {
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(resumeUpload ? Color.clear : Palette.halo.opacity(0.7))
+                                .fill(highlight)
                                 .matchedGeometryEffect(id: "tab-highlight", in: namespace)
                         }
                     }
@@ -200,7 +208,7 @@ private struct TabBar: View {
         .padding(.top, 8)
         .padding(.bottom, 4)
         .background(pageColor.ignoresSafeArea(edges: .bottom))
-        .overlay(alignment: .top) { Rectangle().fill(selection == .prep || resumeUpload ? Brand.rule : Palette.rule).frame(height: 1) }
+        .overlay(alignment: .top) { Rectangle().fill(brandedPage ? Brand.rule : Palette.rule).frame(height: 1) }
         .sensoryFeedback(.selection, trigger: selection)
     }
 }

@@ -182,7 +182,7 @@ struct InvitationView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.stack) {
-                Text("Enter your invitation").font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink).reveal(0)
+                Text("Enter your invitation").font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink).reveal(0)
                 StackField(label: "Beta invitation", text: $code, keyboard: .asciiCapable, autocapitalization: .never).reveal(1)
                 MessageLine(text: store.error).fadeSwitch(!store.error.isEmpty)
                 StackButton(label: "Continue", disabled: store.busy || code.isBlank) { Task { await store.acceptInvitation(code) } }.reveal(2)

@@ -1,6 +1,6 @@
 import XCTest
 
-/// Drives the real `JobsView` (deck, search bar, details sheet, undo) against the offline `--screen-flow=deck`
+/// Drives the real `JobsView` (deck, requirements sheet, details sheet, undo) against the offline `--screen-flow=deck`
 /// fixture: a fictional account answered by a stub URLProtocol, no sign-in or network. The listing browser is
 /// replaced here by a deterministic in-app stub (`--stub-listing-browser`), so these tests cover Stack's own
 /// presentation, state and dismissal wiring. The real `SFSafariViewController` is driven against loopback
@@ -99,21 +99,27 @@ final class JobsDeckFlowUITests: XCTestCase {
 
     func testFilterAndDeckSurviveTheBrowserAndResetRestoresIt() {
         let app = launch()
+        app.buttons["job-requirements"].tap()
         let entry = app.buttons["Entry-level software"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 5))
         entry.tap()
         XCTAssertTrue(card(app, "job-entry").waitForExistence(timeout: 10), "the filter replaced the deck")
-        XCTAssertTrue(entry.isSelected)
+        XCTAssertFalse(app.staticTexts["Requirements"].exists, "saving a quick pick closes requirements")
 
         card(app, "job-entry").tap()
         XCTAssertEqual(listingURL(app), "https://example.invalid/jobs/entry")
         closeListing(app)
         XCTAssertTrue(card(app, "job-entry").exists, "the filtered card is still on top")
-        XCTAssertTrue(app.buttons["Entry-level software"].isSelected, "the filter is still active")
+        app.buttons["job-requirements"].tap()
+        XCTAssertTrue(entry.waitForExistence(timeout: 5))
+        XCTAssertTrue(entry.isSelected, "the filter is still active")
         capture("deck-filter-after-browser")
 
         app.buttons["Reset filters to profile"].tap()
         XCTAssertTrue(card(app, "job-alpha").waitForExistence(timeout: 10), "reset restored the profile deck")
-        XCTAssertFalse(app.buttons["Entry-level software"].isSelected)
+        app.buttons["job-requirements"].tap()
+        XCTAssertTrue(entry.waitForExistence(timeout: 5))
+        XCTAssertFalse(entry.isSelected)
     }
 
     func testDetailsButtonKeepsDetailsAndActionsReachableAroundTheBrowser() {
@@ -147,4 +153,41 @@ final class JobsDeckFlowUITests: XCTestCase {
         app.buttons["Pass"].tap()
         XCTAssertTrue(card(app, "job-bravo").waitForExistence(timeout: 15), "the deferred page filled the deck")
     }
+
+    func testHorizontalSwipesDecideButShortAndVerticalDragsDoNotOpenTheBrowser() {
+        let app = launch()
+        let first = card(app, "job-alpha")
+        let middle = first.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+        middle.press(forDuration: 0.05, thenDragTo: first.coordinate(withNormalizedOffset: CGVector(dx: 0.64, dy: 0.45)))
+        XCTAssertTrue(first.exists, "a short horizontal drag keeps the card")
+        XCTAssertFalse(app.staticTexts["stub-browser-url"].exists, "ending a drag is not a tap")
+        middle.press(forDuration: 0.05, thenDragTo: first.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)))
+        XCTAssertTrue(first.exists, "vertical content scrolling cannot decide a job")
+        XCTAssertFalse(app.staticTexts["stub-browser-url"].exists)
+
+        first.swipeRight()
+        XCTAssertTrue(card(app, "job-bravo").waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Saved Platform Analyst"].exists)
+        app.buttons["Undo"].tap()
+        XCTAssertTrue(first.waitForExistence(timeout: 5))
+        first.swipeLeft()
+        XCTAssertTrue(card(app, "job-bravo").waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Passed Platform Analyst"].exists)
+        XCTAssertFalse(app.staticTexts["stub-browser-url"].exists)
+    }
+
+    func testRequirementsAreInsideTheCardAndOpeningThemDoesNotOpenAListing() {
+        let app = launch()
+        XCTAssertFalse(app.staticTexts["Jobs"].exists, "there is no Jobs heading above the card")
+        XCTAssertFalse(app.buttons["Entry-level software"].exists, "quick picks live behind the card control")
+        let requirements = app.buttons["job-requirements"]
+        XCTAssertTrue(requirements.isHittable)
+        requirements.tap()
+        XCTAssertTrue(app.staticTexts["Requirements"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.staticTexts["stub-browser-url"].exists)
+        app.buttons["Close"].tap()
+        XCTAssertTrue(card(app, "job-alpha").waitForExistence(timeout: 5))
+        capture("deck-minimal-card")
+    }
+
 }

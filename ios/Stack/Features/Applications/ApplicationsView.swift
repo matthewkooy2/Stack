@@ -87,7 +87,7 @@ struct ApplicationDetailView: View {
                 Page {
                     HStack { BackButton(label: "Close") { dismiss() }; Spacer() }
                     VStack(alignment: .leading, spacing: 10) {
-                        Text(app.job.title).font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink)
+                        Text(app.job.title).font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
                         Text("\(app.job.company) · \(app.job.location)").font(Typeface.body).foregroundStyle(Palette.muted)
                         Chip(label: app.status + (app.isDemo ? " · Demo" : ""), selected: true)
                     }
@@ -184,7 +184,7 @@ struct ReminderSheet: View {
             Palette.page.ignoresSafeArea()
             VStack(alignment: .leading, spacing: Spacing.stack) {
                 HStack { BackButton(label: "Close") { dismiss() }; Spacer() }
-                Text("Follow-up reminder").font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink)
+                Text("Follow-up reminder").font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
                 StackField(label: "Reminder", text: $title)
                 DatePicker("When", selection: $due, in: Date()..., displayedComponents: [.date, .hourAndMinute])
                     .font(Typeface.body)

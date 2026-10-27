@@ -168,12 +168,12 @@ struct TaskDetailView: View {
             Text(review["consequence"].string).font(Typeface.body.weight(.semibold)).foregroundStyle(Palette.ink)
             if !review["blocked"].string.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(review["blocked"].string).font(Typeface.caption).foregroundStyle(Color(hex: 0x8A4B08))
+                    Text(review["blocked"].string).font(Typeface.caption).foregroundStyle(Palette.danger)
                     Chip(label: step == "send" ? "Connect Gmail sending" : "Connect Google Calendar") {
                         onNavigate(step == "send" ? "connect:send" : "connect:calendar")
                     }
                 }
-                .padding(12).background(Color(hex: 0xFFE7C2), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .padding(12).background(Palette.danger.opacity(0.10), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
             StackButton(label: approveLabel(step), icon: "check", disabled: busy || !review["blocked"].string.isEmpty) {
                 Task { await approve() }
@@ -470,7 +470,7 @@ struct ChangeRow: View {
                 Text("Why: \(change["reason"].string)").font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             if rejected, onToggle == nil {
-                Text("Rejected · your original stays").font(Typeface.caption).foregroundStyle(Color(hex: 0x8A4B08))
+                Text("Rejected · your original stays").font(Typeface.caption).foregroundStyle(Palette.danger)
             }
         }
         .opacity(rejected ? 0.55 : 1)

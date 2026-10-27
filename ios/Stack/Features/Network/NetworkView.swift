@@ -1,106 +1,231 @@
 import SwiftUI
 
-private struct Connection: Identifiable, Hashable {
-    let record: ContactRecord
-    let person: Person
-    var id: String { record.id }
-}
-
+/// Both surfaces live inside the existing Network destination. Ordinary bottom-tab navigation
+/// preserves the selected surface; explicit contact destinations open the roster instead.
 @MainActor
 struct NetworkView: View {
     @Environment(AppStore.self) private var store
+    @Environment(\.stackReduceMotion) private var reduceMotion
     var onProfile: () -> Void
 
-    @State private var showSavedOnly = false
-    @State private var selected: Connection?
-    @State private var tool: NetworkTool?
+    @State private var section: NetworkSection = .presence
+    @State private var roster = NetworkRoster()
+    @State private var selected: NetworkContact?
+    @State private var showContacts = false
     @State private var linkedIn = false
-    /// Held here, not in the sheets, so closing a tool never discards unfinished edits.
+    @State private var secondary: NetworkSecondaryTool?
+    @State private var presenceRefresh = 0
+    /// Held above sheets so closing a tool never discards unfinished edits.
     @State private var drafts = NetworkDrafts()
 
-    private var connections: [Connection] {
-        store.account.contacts.compactMap { record in
-            store.account.person(for: record).map { Connection(record: record, person: $0) }
+    var body: some View {
+        VStack(spacing: 0) {
+            header
+            ZStack(alignment: .top) {
+                // Keep both surfaces mounted so switching pills retains expansion and draft state.
+                Page { PresenceView(refreshID: presenceRefresh) }
+                    .opacity(section == .presence ? 1 : 0)
+                    .allowsHitTesting(section == .presence)
+                    .accessibilityHidden(section != .presence)
+                Page { networkContent }
+                    .opacity(section == .network ? 1 : 0)
+                    .allowsHitTesting(section == .network)
+                    .accessibilityHidden(section != .network)
+                    .refreshable { await roster.load(store: store) }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .background(Brand.page.ignoresSafeArea())
+        .tint(Brand.accent)
+        .task { openPendingContact(); await roster.load(store: store); openPendingContact() }
+        .onChange(of: store.pendingOpen) { _, _ in openPendingContact() }
+        .onChange(of: roster.loading) { _, loading in if !loading { openPendingContact() } }
+        .onChange(of: roster.contacts) { _, _ in openPendingContact() }
+        .onChange(of: store.sessionGeneration) { _, _ in reset() }
+        .onChange(of: store.phase) { _, phase in if phase != .ready { reset() } }
+        .sheet(item: $selected, onDismiss: refreshContacts) { contact in
+            NetworkToolSheet(title: contact.name, contactID: contact.id, drafts: drafts).environment(store)
+        }
+        .sheet(isPresented: $showContacts, onDismiss: refreshContacts) {
+            NetworkToolSheet(title: "Your contacts", drafts: drafts).environment(store)
+        }
+        .sheet(item: $secondary) { tool in
+            switch tool {
+            case .profiles: PublicProfilesView().environment(store)
+            case .discovery(let id): DiscoveryCatalogView(initialRecordID: id).environment(store)
+            }
+        }
+        .fullScreenCover(isPresented: $linkedIn, onDismiss: {
+            presenceRefresh += 1
+            Task { await store.refresh() }
+        }) { LinkedInFlow().environment(store) }
     }
 
-    private var shown: [Connection] { showSavedOnly ? connections.filter(\.record.saved) : connections }
+    private var header: some View {
+        HStack(alignment: .top, spacing: 4) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 0) { sectionButton(.presence); sectionButton(.network) }
+                VStack(alignment: .leading, spacing: 4) { sectionButton(.presence); sectionButton(.network) }
+            }
+            Spacer(minLength: 0)
+            Menu {
+                Button("LinkedIn review", systemImage: "sparkles") { linkedIn = true }
+                Button("Public profile drafts", systemImage: "person.crop.rectangle") { secondary = .profiles }
+                Button("Discovery catalog", systemImage: "person.text.rectangle") { secondary = .discovery(nil) }
+                Button("Refresh contacts", systemImage: "arrow.clockwise") { refreshContacts() }
+                Button("Profile", systemImage: "person.crop.circle", action: onProfile)
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Brand.ink)
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
+            }
+            .accessibilityLabel("Network options")
+            .accessibilityIdentifier("network-options")
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+        .padding(.bottom, 20)
+    }
 
-    var body: some View {
-        Page {
-            ScreenHeader(title: "Network", onProfile: onProfile).reveal(0)
-            HStack(spacing: 8) {
-                Chip(label: "Discover", selected: !showSavedOnly) { withAnimation(Motion.fadeAnimation) { showSavedOnly = false } }
-                Chip(label: "Saved", selected: showSavedOnly) { withAnimation(Motion.fadeAnimation) { showSavedOnly = true } }
+    private func sectionButton(_ value: NetworkSection) -> some View {
+        Button {
+            withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { section = value }
+        } label: {
+            Text(value.rawValue)
+                .font(.subheadline.weight(section == value ? .semibold : .regular))
+                .foregroundStyle(section == value ? Brand.accent : Brand.muted)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.horizontal, 14)
+                .frame(minHeight: 44)
+                .background(section == value ? Brand.accent.opacity(0.10) : .clear, in: Capsule())
+        }
+        .buttonStyle(.tap(scale: 0.98))
+        .accessibilityIdentifier(value == .presence ? "network-presence-tab" : "network-roster-tab")
+        .accessibilityAddTraits(section == value ? .isSelected : [])
+    }
+
+    @ViewBuilder
+    private var networkContent: some View {
+        if roster.loading {
+            ProgressView("Loading contacts…")
+                .frame(maxWidth: .infinity).padding(.vertical, 36)
+                .foregroundStyle(Brand.muted)
+        }
+        if !roster.error.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(roster.error).font(.subheadline).foregroundStyle(Brand.muted)
+                Button("Retry loading contacts") { refreshContacts() }
+                    .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+                    .disabled(roster.loading)
             }
-            .reveal(1)
-            if shown.isEmpty {
-                EmptyNote(icon: "network", title: showSavedOnly ? "No saved contacts" : "No suggestions yet",
-                          message: "Saved contacts keep your draft and notes together.")
-            } else {
-                VStack(spacing: Spacing.option) {
-                    ForEach(Array(shown.enumerated()), id: \.element.id) { index, connection in
-                        Button { selected = connection } label: {
-                            HStack(spacing: 16) {
-                                Avatar(initials: connection.person.initials, tint: Color(cssHex: connection.person.colorHex))
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(connection.person.name).font(Typeface.option).foregroundStyle(Palette.icon)
-                                    Text("\(connection.person.role) · \(connection.person.company)")
-                                        .font(Typeface.caption).foregroundStyle(Palette.muted)
-                                    Text(connection.person.signal).font(Typeface.caption).foregroundStyle(Palette.text)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                if connection.record.saved { GlyphView(name: "star", size: 16, color: Palette.muted) }
-                            }
-                            .padding(18)
-                            .background(index.isMultiple(of: 2) ? Palette.surface : Palette.oat,
-                                        in: RoundedRectangle(cornerRadius: Spacing.radius, style: .continuous))
-                        }
-                        .buttonStyle(.tap(scale: 0.98))
-                        .reveal(index + 2)
-                    }
+            .accessibilityIdentifier("network-load-error")
+        }
+        if roster.loaded && roster.contacts.isEmpty && roster.error.isEmpty {
+            Text("No contacts yet.")
+                .font(.body).foregroundStyle(Brand.muted)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 28)
+                .accessibilityIdentifier("network-empty")
+        }
+        VStack(spacing: 0) {
+            ForEach(Array(roster.contacts.enumerated()), id: \.element.id) { index, contact in
+                contactRow(contact, accent: index == 0)
+                Rectangle().fill(Brand.rule).frame(height: 1)
+            }
+        }
+        Button { showContacts = true } label: {
+            Label("Your contacts", systemImage: "person.2")
+                .font(.headline)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, minHeight: 54)
+                .padding(.vertical, 4)
+                .background(Brand.accent, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+        }
+        .buttonStyle(.tap(scale: 0.98))
+        .accessibilityIdentifier("network-your-contacts")
+    }
+
+    private func contactRow(_ contact: NetworkContact, accent: Bool) -> some View {
+        Button { selected = contact } label: {
+            HStack(spacing: 14) {
+                Text(contact.initials)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(accent ? Brand.accent : Brand.ink)
+                    .frame(width: 48, height: 48)
+                    .background(accent ? Brand.accent.opacity(0.10) : .white, in: Circle())
+                    .overlay { Circle().strokeBorder(accent ? .clear : Brand.rule, lineWidth: 1) }
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(contact.name).font(.title3.weight(.bold)).foregroundStyle(Brand.ink)
+                    if !contact.role.isEmpty { Text(contact.role).font(.body).foregroundStyle(Brand.muted) }
+                    if !contact.company.isEmpty { Text(contact.company).font(.body).foregroundStyle(Brand.muted) }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+                Image(systemName: "chevron.right")
+                    .font(.body).foregroundStyle(Brand.ink).accessibilityHidden(true)
             }
-            VStack(spacing: 0) {
-                ListRow(label: "Your contacts", icon: "network", detail: "Add people and draft outreach for review") { tool = .contacts }
-                ListRow(label: "LinkedIn review", icon: "sparkles", detail: "Fixes and rewrites for your profile") { linkedIn = true }
-                ListRow(label: "Public profiles", icon: "profile", detail: "LinkedIn, GitHub and portfolio drafts") { tool = .profiles }
-            }
-            .reveal(shown.count + 2)
+            .padding(.vertical, 20)
+            .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
+            .contentShape(Rectangle())
         }
-        .refreshable { await store.refresh() }
-        .task(id: store.pendingOpen) {
-            guard store.pendingOpen["target_type"] == "contact", let id = store.pendingOpen["target_id"],
-                  let record = store.account.contacts.first(where: { $0.id == id }),
-                  let person = store.account.person(for: record) else { return }
+        .buttonStyle(.tap(scale: 0.99))
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("Open contact and outreach drafts")
+        .accessibilityIdentifier("network-contact-\(contact.id)")
+    }
+
+    private func refreshContacts() { Task { await roster.load(store: store) } }
+
+    private func openPendingContact() {
+        if store.pendingOpen["network_section"] == "network" {
+            section = .network
+            store.pendingOpen.removeValue(forKey: "network_section")
+        }
+        guard store.pendingOpen["target_type"] == "contact", let id = store.pendingOpen["target_id"] else { return }
+        section = .network
+        // Catalog reminders can resolve from the cached account even if the real-contact read fails.
+        if let record = store.account.contacts.first(where: { $0.id == id }), store.account.person(for: record) != nil {
+            secondary = .discovery(id)
             store.pendingOpen = [:]
-            selected = Connection(record: record, person: person)
+            return
         }
-        .sheet(item: $selected) { connection in
-            ContactDetailView(recordID: connection.record.id).environment(store)
-        }
-        .onChange(of: store.sessionGeneration) { _, _ in drafts.reset() }
-        .onChange(of: store.phase) { _, phase in if phase != .ready { drafts.reset() } }
-        .fullScreenCover(isPresented: $linkedIn) { LinkedInFlow().environment(store) }
-        .sheet(item: $tool) { value in
-            switch value {
-            case .contacts: NetworkToolSheet(title: "Your contacts", tool: .contacts, drafts: drafts).environment(store)
-            case .profiles: PublicProfilesView().environment(store)
-            }
+        // Missing or deleted real contacts never open a blank detail sheet.
+        guard roster.loaded, !roster.loading else { return }
+        if let contact = roster.contacts.first(where: { $0.id == id }) { selected = contact }
+        else { showContacts = true }
+        store.pendingOpen = [:]
+    }
+
+    private func reset() {
+        roster.reset(); drafts.reset(); selected = nil; showContacts = false; linkedIn = false
+        section = .presence
+        secondary = nil
+    }
+}
+
+private enum NetworkSecondaryTool: Identifiable {
+    case profiles
+    case discovery(String?)
+    var id: String {
+        switch self {
+        case .profiles: return "profiles"
+        case .discovery(let id): return "discovery:" + (id ?? "")
         }
     }
 }
 
-enum NetworkTool: String, Identifiable {
-    case contacts, profiles
-    var id: String { rawValue }
+enum NetworkSection: String, CaseIterable {
+    case presence = "Your Presence"
+    case network = "Your Network"
 }
 
 /// Outreach gets its own screen, with agent tasks opening from here.
 @MainActor
 private struct NetworkToolSheet: View {
     let title: String
-    let tool: NetworkTool
+    var contactID: String? = nil
     let drafts: NetworkDrafts
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -110,7 +235,7 @@ private struct NetworkToolSheet: View {
 
     var body: some View {
         SheetPage(title: title) {
-            NetworkAgentSection(drafts: drafts, onOpenTask: { task = TaskTarget(id: $0) }, onNavigate: navigate)
+            NetworkAgentSection(drafts: drafts, contactID: contactID, onOpenTask: { task = TaskTarget(id: $0) }, onNavigate: navigate)
         }
         .sheet(item: $task) { target in AgentTaskSheet(taskID: target.id).environment(store) }
         .sheet(item: $hubPage) { page in AgentHubView(initialPage: page, initialAction: hubAction).environment(store) }
@@ -129,81 +254,6 @@ private struct NetworkToolSheet: View {
         default:
             dismiss()
             NotificationCenter.default.post(name: .stackNavigate, object: nil, userInfo: ["destination": action])
-        }
-    }
-}
-
-@MainActor
-private struct ContactDetailView: View {
-    let recordID: String
-    @Environment(AppStore.self) private var store
-    @Environment(\.dismiss) private var dismiss
-
-    @State private var draft = ""
-    @State private var notes = ""
-    @State private var seeded = false
-    @State private var showReminder = false
-    @State private var reminderTitle = "Reach out"
-    @State private var reminderDate = Date().addingTimeInterval(86_400)
-
-    private var record: ContactRecord? { store.account.contacts.first { $0.id == recordID } }
-    private var person: Person? { record.flatMap { store.account.person(for: $0) } }
-
-    var body: some View {
-        ZStack {
-            Palette.page.ignoresSafeArea()
-            if let record, let person {
-                Page {
-                    HStack { BackButton(label: "Close") { dismiss() }; Spacer() }
-                    HStack(spacing: 16) {
-                        Avatar(initials: person.initials, tint: Color(cssHex: person.colorHex), size: 72)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(person.name).font(Typeface.title).foregroundStyle(Palette.ink)
-                            Text("\(person.role) · \(person.company)").font(Typeface.caption).foregroundStyle(Palette.muted)
-                        }
-                    }
-                    .reveal(0)
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(person.bio).font(Typeface.body).foregroundStyle(Palette.text)
-                        if !person.reason.isEmpty {
-                            Text("Why connect: \(person.reason)").font(Typeface.caption).foregroundStyle(Palette.muted)
-                        }
-                    }
-                    .reveal(1)
-                    StackField(label: "Outreach draft", text: $draft, multiline: true).reveal(3)
-                    Text("Saved here. Nothing is sent.").font(Typeface.caption).foregroundStyle(Palette.muted)
-                    DisclosureSection("Private notes", open: !notes.isBlank) {
-                        StackField(label: "Private notes", text: $notes, multiline: true)
-                    }
-                    StackButton(label: "Save draft and notes", disabled: store.busy) { save(record.saved) }
-                    StackButton(label: record.saved ? "Remove from saved" : "Save contact", icon: "star", kind: .secondary, disabled: store.busy) {
-                        save(!record.saved)
-                    }
-                    StackButton(label: "Add a reminder", icon: "bell", kind: .secondary) { showReminder = true }
-                    MessageLine(text: store.error).fadeSwitch(!store.error.isEmpty)
-                    MessageLine(text: store.notice, isError: false).fadeSwitch(!store.notice.isEmpty)
-                }
-                .onAppear { if !seeded { draft = record.draft; notes = record.notes; seeded = true } }
-            }
-        }
-        .sheet(isPresented: $showReminder) {
-            ReminderSheet(title: $reminderTitle, due: $reminderDate) {
-                Task {
-                    let ok = await store.mutate(
-                        "save_reminder",
-                        ["id": "", "target_type": "contact", "target_id": .string(recordID),
-                         "title": .string(reminderTitle), "due_at": .number(reminderDate.timeIntervalSince1970)],
-                        notice: "Reminder saved.", askNotifications: true
-                    )
-                    if ok { showReminder = false }
-                }
-            }
-        }
-    }
-
-    private func save(_ saved: Bool) {
-        Task {
-            await store.mutate("save_contact", ["id": .string(recordID), "saved": .bool(saved), "draft": .string(draft), "notes": .string(notes)])
         }
     }
 }

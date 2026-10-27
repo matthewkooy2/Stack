@@ -147,7 +147,7 @@ struct PrepView: View {
 
     private var typedAnswer: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text(model.question?.prompt ?? "").font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink).reveal(0)
+            Text(model.question?.prompt ?? "").font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink).reveal(0)
             AnswerEditor(text: Binding(get: { model.draft }, set: { model.edited($0) }),
                          placeholder: "Your answer…", label: "Your answer", disabled: model.busy)
             PrimaryPill(title: "Get coaching", disabled: model.busy || model.saving || model.draft.isBlank) {

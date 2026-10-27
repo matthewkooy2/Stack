@@ -5,7 +5,7 @@ Measured 2026-09-27T19:55:52.225347+00:00. Counts are a snapshot; the local work
 - Catalog: **1296** records; **401** active US listings.
 - Live audit: **120/120** sampled listings remained in the official employer feeds; duplicate fraction **0.0%**.
 - This is a quality audit of collected listings, not a claim of nationwide or all-profession coverage.
-- Adzuna, TheirStack, and USAJOBS are implemented but unavailable until credentials and applicable access flags are configured.
+- This snapshot predates the daily sweep. Paid providers (Adzuna, TheirStack, USAJOBS) have since been removed; see [job discovery](JOB_DISCOVERY.md).
 - Brave is disabled. The optional browser renderer has not been installed or certified against a live site.
 - The 200-employer directory contains discovery candidates; unsupported/blocked pages remain explicit coverage gaps.
 

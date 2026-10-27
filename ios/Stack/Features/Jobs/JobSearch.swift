@@ -230,7 +230,7 @@ struct JobRequirement: Identifiable, Equatable {
 }
 
 enum JobSheet: String, Identifiable {
-    case filters, timeline, sources, importLink
+    case filters, timeline, sources
     var id: String { rawValue }
 }
 
@@ -264,7 +264,6 @@ struct JobSearchBar: View {
                 Menu {
                     Button(search.graduation.isEmpty ? "Set graduation timeline" : "Graduation: \(search.graduation)") { sheet = .timeline }
                     Button("Live sources") { sheet = .sources }
-                    Button("Import a link") { sheet = .importLink }
                 } label: { Chip(label: "More") }
                 .accessibilityLabel("More job tools")
             }
@@ -519,7 +518,6 @@ struct JobFiltersSheet: View {
                 FlowLayout(spacing: 8) {
                     Chip(label: search.graduation.isEmpty ? "Set timeline" : "Graduation: \(search.graduation)") { onTool(.timeline) }
                     Chip(label: "Live sources") { onTool(.sources) }
-                    Chip(label: "Import a link") { onTool(.importLink) }
                 }
                 .disabled(immediateActionsDisabled)
             }
@@ -677,35 +675,6 @@ struct JobSourcesSheet: View {
                 sources = result["sources"].array
             } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
             loading = false
-        }
-    }
-}
-
-@MainActor
-struct JobImportSheet: View {
-    @Environment(AppStore.self) private var store
-    let onQueued: (String) -> Void
-    @State private var url = ""
-    @State private var working = false
-    @State private var error = ""
-
-    var body: some View {
-        SheetPage(title: "Import a job") {
-            StackField(label: "Public job URL", text: $url, placeholder: "https://", keyboard: .URL, autocapitalization: .never)
-            Text("Paste a public employer or job-board link. Unsupported pages will be flagged for review.")
-                .font(Typeface.body).foregroundStyle(Palette.text)
-            MessageLine(text: error).fadeSwitch(!error.isEmpty)
-            StackButton(label: "Verify job link", disabled: working || url.isBlank) {
-                working = true
-                error = ""
-                Task {
-                    do {
-                        let result = try await store.call("import_job_url", ["url": .string(url.trimmingCharacters(in: .whitespaces))])
-                        onQueued(result["id"].string)
-                    } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
-                    working = false
-                }
-            }
         }
     }
 }

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Local source administration and coverage audit; never prints credentials."""
+"""Local source administration, an on-demand sweep, and coverage audit; never prints credentials."""
 import argparse,json,sys,time
 from pathlib import Path
 from collections import Counter,defaultdict
 from urllib.request import Request,urlopen
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from discovery.sources import collect
+from discovery.sweep import sweep
 from discovery.transport import json_fetch
 from urllib.parse import quote
 from discovery.normalize import canonical
@@ -19,17 +19,17 @@ def call(name,**args):
     return result
 
 def report(audit=False):
-    data=call('discovery_report');jobs=data['jobs'];sources={s['id']:s for s in data['sources']};sectors=sorted({x['sector'] for x in json.loads((ROOT/'discovery/employers.json').read_text())})
+    data=call('discovery_report');jobs=data['jobs'];sources={s['id']:s for s in data['sources']};sectors=sorted({s.get('sector','Uncategorized') for s in data['sources']})
     active=[j for j in jobs if j['active'] and not j['stale'] and j['country']=='US']
     rows=[]
     for sector in sectors:
         ss=[s for s in sources.values() if s.get('sector')==sector]
         js=[j for j in active if any(sources.get(x['source_id'],{}).get('sector')==sector for x in j['sources'])]
-        missing=[s['name'] for s in ss if not s.get('last_success') or s['status'] in ('error','review','unavailable','partial')]
+        missing=[s['name'] for s in ss if not s.get('last_success') or s['status'] in ('error','review','partial')]
         rows.append({'sector':sector,'registered_sources':len(ss),'active_us_jobs':len(js),'missing_or_incomplete_employers':missing})
     output={'generated_at':time.time(),'catalog_jobs':len(jobs),'active_us_jobs':len(active),'occupation_counts':dict(Counter(j['occupation'] for j in active)),
-      'sectors':rows,'sources':data['sources'],'reserved_usage':data['usage'],'audit':{'status':'not_run','required_sample':120},
-      'limits':['Registered employers are discovery candidates, not verified coverage.','Missing credentials and review-needed sites remain uncovered.','Physical iPhone acceptance must be performed separately.']}
+      'sectors':rows,'sources':data['sources'],'last_sweep':data['sweep'],'audit':{'status':'not_run','required_sample':120},
+      'limits':['Only configured boards and the boards their GitHub lists point to are swept.','Physical iPhone acceptance must be performed separately.']}
     if audit:
         # Refetch direct employer feeds independently of the stored/imported provider results.
         configs={c['id']:c for c in json.loads((ROOT/'discovery/sources.json').read_text()) if c['adapter'] in ('ashby','lever','smartrecruiters','greenhouse')}
@@ -84,8 +84,9 @@ def report(audit=False):
     print('Audit:',output['audit']['status'],'— artifacts/discovery-coverage.json')
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser();parser.add_argument('action',choices=['report','audit','refresh','retry','disable','purge','configure']);parser.add_argument('source',nargs='?');args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('action',choices=['report','audit','sweep','enable','disable','purge']);parser.add_argument('source',nargs='?');args=parser.parse_args()
     if args.action in ('report','audit'):report(args.action=='audit')
+    elif args.action=='sweep':sweep((ROOT/'storage/discovery/worker-token').read_text().strip())
     else:
         if not args.source:parser.error('A source ID is required.')
         print(call('discovery_manage',id=args.source,action=args.action))

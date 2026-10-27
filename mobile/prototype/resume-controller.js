@@ -11,7 +11,7 @@ import { ResumeTools, ResumeScenarios } from './resume-tools-controller';
 import React, { useState, useRef, useEffect } from 'react';
 import { subscribePreviewLoading, resumeLoadingSnapshot } from './loading';
 import { Menu, Plus, ArrowLeft, ArrowUpRight, ChevronRight, FileText, Upload, Check, Layers, Users, BriefcaseBusiness, GraduationCap } from 'lucide-react-native';
-const tabs = [['Network', Users], ['Applications', BriefcaseBusiness], ['Jobs', Layers], ['Resume', FileText], ['Prep', GraduationCap]];
+const tabs = [['Network', Users], ['Applications', BriefcaseBusiness], ['Resume', FileText], ['Prep', GraduationCap]];
 const sample = {
   name: 'Alex Morgan',
   email: 'alex@example.com',
@@ -483,7 +483,7 @@ export function ResumePreview({
         "s2": {},
         "s3": {},
         "s4": {
-          "onClick": () => onNavigate('Jobs')
+          "onClick": () => onNavigate('Applications')
         },
         "s5": {
           "component": ArrowUpRight,

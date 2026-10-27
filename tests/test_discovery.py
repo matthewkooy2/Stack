@@ -95,16 +95,8 @@ class DiscoveryContracts(unittest.TestCase):
  def test_smartrecruiters_details_and_completion(self):
   with patch.object(s,'json_fetch',side_effect=[{'content':[{'id':'1'}],'totalFound':1},{'id':'1','name':'Chef','location':{'country':'us','city':'Detroit'},'jobAd':{'sections':{'jobDescription':{'text':'Cook meals'}}}}]):
    r=s.collect({**SOURCE,'adapter':'smartrecruiters','board':'test'},{});self.assertTrue(r['complete']);self.assertEqual(r['jobs'][0]['description'],'Cook meals')
- def test_adzuna_redirect_snippet_estimate(self):
-  with patch.dict('os.environ',{'ADZUNA_APP_ID':'x','ADZUNA_APP_KEY':'y'}),patch.object(s,'json_fetch',return_value={'results':[{'id':'1','title':'Nurse','redirect_url':'https://adzuna.com/redirect/1','company':{'display_name':'Example'},'salary_is_predicted':'1','salary_min':100000}]}):
-   j=s.collect({**SOURCE,'adapter':'adzuna'}, {})['jobs'][0];self.assertTrue(j['snippet']);self.assertEqual(j['url'],'https://adzuna.com/redirect/1');self.assertEqual(j['salary'],'Pay not listed');self.assertEqual(j['attribution']['label'],'Jobs by Adzuna')
- def test_theirstack_excludes_previously_purchased(self):
-  with patch.dict('os.environ',{'THEIRSTACK_API_KEY':'test'}),patch.object(s,'json_fetch',return_value={'data':[]}) as fetch:
-   s.collect({**SOURCE,'adapter':'theirstack','excluded_ids':[123],'allowance':7},{});body=fetch.call_args.kwargs['body'];self.assertEqual(body['limit'],7);self.assertEqual(body['job_id_not'],[123])
- def test_usajobs_eligibility_expiry(self):
-  payload={'SearchResult':{'SearchResultItems':[{'MatchedObjectId':'1','MatchedObjectDescriptor':{'PositionTitle':'Nurse','OrganizationName':'VA','PositionURI':'https://usajobs.gov/job/1','PositionID':'VA1','ApplicationCloseDate':'2027-01-01','UserArea':{'Details':{'WhoMayApply':{'Name':'Veterans'}}}}}]}}
-  with patch.dict('os.environ',{'USAJOBS_API_KEY':'x','USAJOBS_EMAIL':'test@example.com'}),patch.object(s,'json_fetch',return_value=payload):
-   j=s.collect({**SOURCE,'adapter':'usajobs'}, {})['jobs'][0];self.assertIn('Veterans',j['eligibility']);self.assertGreater(j['expires_at'],0)
+ def test_paid_providers_are_not_adapters(self):
+  for adapter in ('adzuna','theirstack','usajobs'):self.assertNotIn(adapter,s.ADAPTERS)
  def test_jsonld_graph_remote_geography(self):
   import json
   data={'@graph':[{'@type':'JobPosting','title':'Nurse','hiringOrganization':{'name':'Example'},'description':'Care','jobLocationType':'TELECOMMUTE','applicantLocationRequirements':{'name':'United States'},'baseSalary':{'currency':'USD','value':{'minValue':30,'maxValue':40,'unitText':'HOUR'}}}]}

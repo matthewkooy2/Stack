@@ -6,7 +6,7 @@ Five tabs, in order: sample **Network**, real **Applications** tracking, swipeab
 
 LinkedIn profile review is available from Network: sign in through the browser handoff, then review recruiter-focused weaknesses and suggested rewrites. See [setup and current verification limits](docs/LINKEDIN_PROFILE_REVIEW.md).
 
-See [job-discovery setup, source coverage, and budget controls](docs/JOB_DISCOVERY.md). Provider credentials are optional for public feeds and required for Adzuna, TheirStack, and USAJOBS.
+See [job discovery](docs/JOB_DISCOVERY.md): jobs are collected once a day from public job boards, and each account's matches are stored for the app to read.
 
 ## Develop on Linux or Windows/WSL2
 

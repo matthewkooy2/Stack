@@ -1,2 +1,0 @@
-# Optional approved-site renderer; install into the interpreter used by Jac.
-playwright==1.55.0

@@ -9,7 +9,7 @@ import { Menu, ArrowLeft, ChevronRight, ChevronDown, Code2, MessageCircle, Check
 import { subscribePreviewLoading, prepLoadingSnapshot } from './loading';
 import { MockInterview } from './mock-interview-controller';
 import questions from './prep-questions.json';
-const tabs = [['Network', Users], ['Applications', BriefcaseBusiness], ['Jobs', Layers], ['Resume', FileText], ['Prep', GraduationCap]];
+const tabs = [['Network', Users], ['Applications', BriefcaseBusiness], ['Resume', FileText], ['Prep', GraduationCap]];
 let practiceNotes = {},
   completed = [];
 export function PrepPreview({

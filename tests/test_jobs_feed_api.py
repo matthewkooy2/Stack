@@ -1,17 +1,16 @@
 """Disposable persisted Jobs searches: role/level scope, timelines and pagination."""
 import os
-import sys
 from pathlib import Path
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
 
 if os.environ.get('JAC_DB_URL'):
     raise RuntimeError('Jobs verification requires disposable embedded data; unset JAC_DB_URL.')
 os.environ['JAC_DB_SCRATCH'] = '1'
 from jaclang.testing.testing import JacTestClient
-from discovery.normalize import normalize, digest
+from discovery.normalize import normalize
+from tests.catalog_fixture import BOARD, open_worker_gate, sweep
 
 ROOT = Path(__file__).resolve().parents[1]
 PRESET = {'levels': ['Entry-level'], 'employment_types': ['Full-time'], 'confirmed_level': True}
@@ -29,20 +28,8 @@ class JobsFeedAPI(unittest.TestCase):
         self.client.set_auth_token(self.token)
         self.rpc('bootstrap')
         # Test worker boundary only; never read a real collector token or production graph.
-        # JacTestClient prepares a namespaced application module distinct from ordinary
-        # Python imports. Patch that loaded test module, rather than an unused alias.
-        catalogs = [module for name, module in list(sys.modules.items())
-                    if name.endswith('core.catalog') and hasattr(module, '_worker_allowed')]
-        self.assertTrue(catalogs, 'Prepared catalog test module must be loaded')
-        for module in catalogs:
-            gate = patch.object(module, '_worker_allowed', return_value=True)
-            gate.start()
-            self.addCleanup(gate.stop)
+        open_worker_gate(self)
         self.url = 'https://example.com/jobs-fixture'
-        self.source = 'career:' + digest(self.url)
-        self.rpc('import_job_url', {'url': self.url})
-        claim = self.system('discovery_claim', {'preferred_id': self.source})
-        self.assertEqual(claim['id'], self.source)
         rows = []
         for i in range(72):
             title = ('Fry Cook' if i < 35 else 'Senior Software Engineer' if i < 40 else
@@ -56,9 +43,8 @@ class JobsFeedAPI(unittest.TestCase):
             rows.append(normalize({'title': title, 'company': 'Fixture ' + str(i),
                                    'url': self.url + '/' + str(i), 'country': 'US',
                                    'employment_type': 'Internship' if 40 <= i < 43 else 'Full-time',
-                                   'description': text, 'posted_at': time.time() - i * 100}, claim['config']))
-        self.system('discovery_complete', {'id': self.source, 'lease': claim['lease'],
-                                          'result': {'jobs': rows, 'complete': True}})
+                                   'description': text, 'posted_at': time.time() - i * 100}, BOARD))
+        sweep(self.system, {BOARD['id']: rows})
 
     def rpc(self, name, args=None):
         response = self.client.post('/function/' + name, json=args or {})

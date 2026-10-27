@@ -102,7 +102,7 @@ struct ProfileView: View {
 
     private var details: some View {
         VStack(alignment: .leading, spacing: Spacing.stack) {
-            Text("Your details").font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink)
+            Text("Your details").font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
             VStack(spacing: 18) {
                 StackField(label: "Your name", text: $name)
                 StackField(label: "Target role", text: $role, placeholder: "Separate several roles with commas")
@@ -119,7 +119,7 @@ struct ProfileView: View {
 
     private var matching: some View {
         VStack(alignment: .leading, spacing: Spacing.stack) {
-            Text("Job matching").font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink)
+            Text("Job matching").font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
             MatchInputsView(form: $preferences)
             StoreMessages()
             saveButton
@@ -136,7 +136,7 @@ struct ProfileView: View {
 
     private var account: some View {
         VStack(alignment: .leading, spacing: Spacing.stack) {
-            Text("Account").font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink)
+            Text("Account").font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
             GoogleAccountCard()
             if store.apple.hasAppleSession { AppleAccountCard() }
             ToggleRow(label: "Reminder notifications", isOn: $notifications)

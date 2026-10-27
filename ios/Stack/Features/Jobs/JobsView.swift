@@ -541,7 +541,7 @@ struct JobDetailView: View {
                     BackButton(label: "Close") { dismiss() }
                     Spacer()
                 }
-                Text(displayed.title).font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink).reveal(0)
+                Text(displayed.title).font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink).reveal(0)
                 Text("\(displayed.company) · \(displayed.location)").font(Typeface.body).foregroundStyle(Palette.muted).reveal(1)
                 if !displayed.posted.isEmpty { Text(displayed.posted).font(Typeface.caption).foregroundStyle(Palette.muted) }
                 if loading { ProgressView().tint(Palette.muted) }

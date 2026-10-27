@@ -339,7 +339,7 @@ struct RecordingSurface: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Question \(questionNumber) of \(questionCount)")
 
-            Text(prompt).font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink)
+            Text(prompt).font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
                 .accessibilityAddTraits(.isHeader)
 
             Spacer(minLength: compact ? 8 : 24)

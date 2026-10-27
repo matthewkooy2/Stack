@@ -60,7 +60,7 @@ struct GlyphView: View {
     }
 }
 
-/// The primary action: a cream button. `dark` is the filled brown variant, `secondary` a quiet text link.
+/// The primary action: a blue pill. `dark` is the same pill in ink, `secondary` a quiet text link.
 @MainActor
 struct StackButton: View {
     enum Kind { case primary, secondary, dark }
@@ -74,15 +74,16 @@ struct StackButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 14) {
-                if !icon.isEmpty { GlyphView(name: icon, size: 21, color: kind == .dark ? Palette.onDark : Palette.icon) }
+                if !icon.isEmpty { GlyphView(name: icon, size: 21, color: kind == .secondary ? Palette.muted : .white) }
                 Text(label)
-                    .font(kind == .secondary ? Typeface.caption : Typeface.button)
+                    .font(kind == .secondary ? Typeface.caption.weight(.semibold) : .system(.headline).weight(.semibold))
                     .foregroundStyle(foreground)
                     .multilineTextAlignment(.center)
             }
             .frame(maxWidth: kind == .dark ? nil : .infinity, minHeight: kind == .secondary ? 48 : 58)
             .padding(.horizontal, kind == .dark ? 26 : 17)
-            .background(background, in: RoundedRectangle(cornerRadius: kind == .dark ? 32 : Spacing.radius, style: .continuous))
+            .background(background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .opacity(disabled ? 0.45 : 1)
             .contentShape(Rectangle())
         }
         .buttonStyle(.tap(scale: kind == .secondary ? 0.985 : 0.97))
@@ -93,9 +94,9 @@ struct StackButton: View {
 
     private var foreground: Color {
         switch kind {
-        case .primary: return Palette.icon
+        case .primary: return .white
         case .secondary: return Palette.muted
-        case .dark: return Palette.onDark
+        case .dark: return .white
         }
     }
 
@@ -124,17 +125,16 @@ struct OptionRow: View {
             HStack(spacing: 20) {
                 if !icon.isEmpty { GlyphView(name: icon, size: 26).frame(width: 32) }
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(label).font(Typeface.option).foregroundStyle(Palette.icon)
+                    Text(label).font(.system(size: 20, weight: .semibold)).tracking(-0.5).foregroundStyle(Palette.icon)
                     if !detail.isEmpty { Text(detail).font(Typeface.caption).foregroundStyle(Palette.muted) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if showsChevron { GlyphView(name: "chevron", size: 16, color: Palette.muted) }
             }
-            .padding(.horizontal, 22)
             .padding(.vertical, 18)
             .frame(minHeight: 72)
-            .background(oat ? Palette.oat : Palette.surface, in: RoundedRectangle(cornerRadius: Spacing.radius, style: .continuous))
             .contentShape(Rectangle())
+            .overlay(alignment: .bottom) { Rectangle().fill(Palette.rule).frame(height: 1) }
         }
         .buttonStyle(.tap(scale: 0.98))
         .disabled(disabled)
@@ -156,7 +156,7 @@ struct ListRow<Trailing: View>: View {
             HStack(spacing: 22) {
                 if !icon.isEmpty { GlyphView(name: icon, size: 26).frame(width: 32) }
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(label).font(Typeface.option).foregroundStyle(Palette.icon)
+                    Text(label).font(.system(size: 20, weight: .semibold)).tracking(-0.5).foregroundStyle(Palette.icon)
                     if !detail.isEmpty { Text(detail).font(Typeface.caption).foregroundStyle(Palette.muted).lineLimit(2) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -190,6 +190,7 @@ struct BackButton: View {
             GlyphView(name: "return", size: 20, color: Palette.muted)
                 .frame(width: 44, height: 44)
                 .background(Palette.backChip, in: Circle())
+                .overlay(Circle().stroke(Palette.rule, lineWidth: 1))
         }
         .buttonStyle(.tap(scale: 0.92, dim: 1))
         .disabled(disabled)
@@ -199,15 +200,15 @@ struct BackButton: View {
 
 @MainActor
 struct Card<Content: View>: View {
-    var tint: Color = Palette.surface
+    var tint: Color = .clear
     var spacing: CGFloat = 16
     @ViewBuilder var content: () -> Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: spacing, content: content)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(22)
-            .background(tint, in: RoundedRectangle(cornerRadius: Spacing.cardRadius, style: .continuous))
+            .padding(.vertical, 22)
+            .overlay(alignment: .bottom) { Rectangle().fill(Palette.rule).frame(height: 1) }
     }
 }
 
@@ -223,7 +224,8 @@ struct Chip: View {
             .foregroundStyle(selected ? Palette.onDark : Palette.text)
             .padding(.horizontal, 14)
             .padding(.vertical, 9)
-            .background(selected ? Palette.dark : Palette.oat, in: Capsule())
+            .background(selected ? Brand.accent : Color.white, in: Capsule())
+            .overlay(Capsule().stroke(selected ? Color.clear : Palette.rule, lineWidth: 1))
             .animation(Motion.fadeAnimation, value: selected)
         if let action {
             Button(action: action) { chip }.buttonStyle(.tap(scale: 0.95, dim: 1)).accessibilityLabel(label)
@@ -275,13 +277,15 @@ struct StackField: View {
             .font(Typeface.body)
             .accessibilityLabel(label)
             .foregroundStyle(Palette.text)
+            .tint(Brand.accent)
             .keyboardType(keyboard)
             .textInputAutocapitalization(autocapitalization)
             .autocorrectionDisabled(keyboard != .default || secure)
             .padding(.horizontal, 18)
             .padding(.vertical, 16)
             .frame(minHeight: multiline ? 140 : 54, alignment: .topLeading)
-            .background(Palette.field, in: RoundedRectangle(cornerRadius: Spacing.radius, style: .continuous))
+            .background(Palette.field, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Palette.rule, lineWidth: 1))
         }
     }
 }
@@ -312,7 +316,7 @@ struct ScreenHeader: View {
     var body: some View {
         HStack(alignment: .top) {
             VStack(alignment: .leading, spacing: 6) {
-                Text(title).font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink)
+                Text(title).font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
                 if !subtitle.isEmpty { Text(subtitle).font(Typeface.caption).foregroundStyle(Palette.muted) }
             }
             Spacer(minLength: 12)
@@ -321,9 +325,10 @@ struct ScreenHeader: View {
                     GlyphView(name: "profile", size: 26, color: Palette.icon)
                         .frame(width: 44, height: 44)
                         .background(Palette.backChip, in: Circle())
+                        .overlay(Circle().stroke(Palette.rule, lineWidth: 1))
                         .overlay(alignment: .topTrailing) {
                             if store.account.attentionRunCount > 0 {
-                                Circle().fill(Color(hex: 0xC8742B)).frame(width: 12, height: 12)
+                                Circle().fill(Brand.accent).frame(width: 12, height: 12)
                                     .overlay(Circle().stroke(Palette.page, lineWidth: 2))
                             }
                         }

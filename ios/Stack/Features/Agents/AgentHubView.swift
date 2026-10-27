@@ -99,7 +99,7 @@ struct AgentHubView: View {
     private var hub: some View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Your agents.").font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink)
+                Text("Your agents.").font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
                 Text("\(store.account.activeRunCount) in progress · \(store.account.attentionRunCount) need you. Updates every few seconds.")
                     .font(Typeface.body).foregroundStyle(Palette.muted)
             }

@@ -29,6 +29,9 @@ struct JobCardCopy {
         return job.raw["highlights"]["pay_excerpt"].string
     }
 
+    /// When the employer only states pay in text, show that text in place of a "Pay not listed" headline.
+    var showsPayHeadline: Bool { payExcerpt.isEmpty }
+
     var roleExcerpt: String {
         let supplied = job.raw["highlights"]["responsibilities"].strings.first { !$0.isBlank }
         return supplied ?? job.summary.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -94,12 +97,16 @@ struct JobCard: View {
                             .font(.body).foregroundStyle(Brand.muted)
                             .fixedSize(horizontal: false, vertical: true)
                             .padding(.bottom, 18)
-                        pay
-                            .padding(.bottom, copy.payExcerpt.isEmpty ? 30 : 8)
+                        if copy.showsPayHeadline {
+                            pay
+                                .padding(.bottom, copy.payExcerpt.isEmpty ? 30 : 8)
+                        }
                         if !copy.payExcerpt.isEmpty {
-                            Text(copy.payExcerpt).font(.subheadline).foregroundStyle(Brand.muted)
+                            Text(copy.payExcerpt)
+                                .font(copy.showsPayHeadline ? .subheadline : .body.weight(.semibold))
+                                .foregroundStyle(copy.showsPayHeadline ? Brand.muted : Brand.ink)
                                 .fixedSize(horizontal: false, vertical: true)
-                                .padding(.bottom, 24)
+                                .padding(.bottom, copy.showsPayHeadline ? 24 : 26)
                         }
                         if !copy.tags.isEmpty {
                             Text(copy.tags).font(.body.weight(.semibold)).foregroundStyle(Brand.ink)
@@ -120,13 +127,6 @@ struct JobCard: View {
                             }
                         }
                         Spacer(minLength: 24)
-                        HStack {
-                            Spacer()
-                            Image(systemName: JobListing(job: job) == nil ? "info.circle" : "arrow.up.right")
-                                .font(.system(size: 21, weight: .regular)).foregroundStyle(Brand.muted)
-                                .frame(width: 44, height: 44)
-                                .accessibilityHidden(true)
-                        }
                     }
                     .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .topLeading)
                     .contentShape(Rectangle())

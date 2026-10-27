@@ -9,6 +9,7 @@ import SwiftUI
 /// To make a new screen reviewable: add `.replayable()` to it, and, if it is only reachable in a particular state,
 /// add a case to `LabScreen`.
 enum LabScreen: String, CaseIterable, Identifiable {
+    case jobsDeck = "Jobs deck", network = "Network", applications = "Applications", resume = "Resume", profile = "Profile"
     case resumeUpload = "Resume upload"
     case prepQuestion = "Prep question", prepWorking = "Prep reading", prepCoaching = "Prep coaching", prepDone = "Prep done", prepSaved = "Prep saved answer", prepCoachingA = "Coaching: real reply A", prepCoachingB = "Coaching: real reply B", logo = "Logo marks", launch = "Launch to login", login = "Login screen", signIn = "Sign-in form", signUp = "Create-account form"
     var id: String { rawValue }
@@ -50,6 +51,16 @@ private struct MotionLabPreview: View {
 
     @ViewBuilder private var preview: some View {
         switch screen {
+        case .jobsDeck:
+            LabFlow(flow: "deck") { JobsView(onProfile: {}) }
+        case .network:
+            LabFlow(flow: "network") { NetworkView(onProfile: {}) }
+        case .applications:
+            LabFlow(flow: "applications") { ApplicationsView(onProfile: {}, onNavigate: { _ in }) }
+        case .resume:
+            LabFlow(flow: "resume") { ResumeView(onProfile: {}) }
+        case .profile:
+            LabFlow(flow: "settings") { ProfileView() }
         case .resumeUpload:
             ResumeUploadScreen(onUpload: { take += 1 })
         case .prepQuestion:
@@ -121,6 +132,26 @@ private struct MotionLabPreview: View {
         case .signUp:
             AccessView(initialStep: .signUp)
         }
+    }
+}
+
+/// A screen on the offline fixture account for one flow, built once so replaying it keeps the same store.
+@MainActor
+private struct LabFlow<Content: View>: View {
+    @State private var store: AppStore
+    private let content: () -> Content
+
+    init(flow: String, @ViewBuilder content: @escaping () -> Content) {
+        _store = State(initialValue: ScreenFlowUITestScene.makeStore(flow: flow))
+        self.content = content
+    }
+
+    var body: some View {
+        ZStack {
+            Brand.page.ignoresSafeArea()
+            content()
+        }
+        .environment(store)
     }
 }
 

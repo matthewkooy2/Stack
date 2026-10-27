@@ -20,7 +20,7 @@ struct ProcessingStatusView: View {
                     .foregroundStyle(status == "failed" ? Palette.danger : Palette.dark)
                     .breathe(["queued", "parsing", "compiling"].contains(status), minimum: 0.6)
                 if ["queued", "parsing", "compiling"].contains(status) {
-                    Text("Saved on the server. You can close Stack and reopen later.")
+                    Text("Saved. You can close Stack and reopen later.")
                         .font(Typeface.caption).foregroundStyle(Palette.muted)
                 }
                 if !timings.isEmpty { Text(timings).font(Typeface.caption).foregroundStyle(Palette.muted) }
@@ -145,7 +145,7 @@ struct LatexSetupView: View {
         working = true
         defer { working = false }
         do {
-            let file = try readPickedFile(url, limit: 2 * 1024 * 1024, tooLarge: "LaTeX source must be 2 MB or smaller.")
+            let file = try await readPickedFileInBackground(url, limit: 2 * 1024 * 1024, tooLarge: "LaTeX source must be 2 MB or smaller.")
             try await store.callAccount("upload_resume_source",
                                         ["id": .string(resume.id), "name": .string(file.name), "content": .string(file.content)],
                                         timeout: 90)

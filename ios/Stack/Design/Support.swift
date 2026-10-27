@@ -191,6 +191,14 @@ func readPickedFile(_ url: URL, limit: Int, tooLarge: String) throws -> (name: S
     return (url.lastPathComponent, data.base64EncodedString())
 }
 
+/// `readPickedFile` on a background thread. Reading a large or not-yet-downloaded file and encoding it takes long
+/// enough to freeze the screen, so callers show their progress first and await this.
+func readPickedFileInBackground(_ url: URL, limit: Int, tooLarge: String) async throws -> (name: String, content: String) {
+    try await Task.detached(priority: .userInitiated) {
+        try readPickedFile(url, limit: limit, tooLarge: tooLarge)
+    }.value
+}
+
 extension String {
     var isBlank: Bool { trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     var commaSeparated: [String] {

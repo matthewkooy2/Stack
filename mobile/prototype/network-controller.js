@@ -11,7 +11,7 @@ import { backend, describeError } from './backend';
 import { useLive } from './live-store';
 import { syncLive, liveError, saveContactLive, importContactsLive, stopContactLive, saveReminderLive, createTaskLive, sendTaskLive, reconcileTaskLive, retryTaskLive } from './network-model';
 import { saveLinkedInTarget, startLinkedInRun, linkedinAvailability } from './network-live';
-const tabs = [['Network', Users], ['Applications', BriefcaseBusiness], ['Jobs', Layers], ['Resume', FileText], ['Prep', GraduationCap]];
+const tabs = [['Network', Users], ['Applications', BriefcaseBusiness], ['Resume', FileText], ['Prep', GraduationCap]];
 const labels = {
   generating: 'Creating draft',
   review: 'Needs your approval',

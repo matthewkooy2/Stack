@@ -23,12 +23,9 @@ SERVICES = ("stack-gateway.service", "stack-worker.service", "stack-api.service"
 
 
 def deployment_services():
-    # Preserve the operator's activation choice. Never activate an absent or
-    # disabled collector as a side effect of publishing application code.
-    state = subprocess.run(["systemctl", "is-enabled", "stack-discovery.service"],
-                           capture_output=True, text=True, timeout=30)
-    return (("stack-discovery.service",) + SERVICES
-            if state.returncode == 0 and state.stdout.strip() == "enabled" else SERVICES)
+    # The daily jobs sweep is a timer-started oneshot that reads the published
+    # code on its next run, so publishing never starts or restarts it.
+    return SERVICES
 
 
 def run(args, cwd=None):

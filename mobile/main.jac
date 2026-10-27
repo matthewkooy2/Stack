@@ -7,7 +7,6 @@ import from .components.UI { Button, Field, Chip, Empty, Logo }
 import from .components.Prep { Prep }
 import from .components.Agents { AgentHub, AgentLaunch, AgentBadge, ResumeAgents, runsFor, runLabel }
 import from .components.Network { NetworkAgent }
-import from .components.Discovery { Discovery }
 import from .components.MatchInputs { MatchInputs }
 import from .components.ResumeRecords { ResumeRecords }
 import from .components.BulletBank { BulletBank }
@@ -38,7 +37,7 @@ def _preferenceForm(p: dict[str, any]) -> dict[str, any] {
 def StackApp -> JsxElement {
     has logged: bool = False, starting: bool = True, busy: bool = False, refreshing: bool = False,
         pendingSwipes: int = 0, revision: int = 0, signup: bool = True, username: str = "", password: str = "", invite: str = "", error: str = "", notice: str = "",
-        state: dict[str, any] = {}, tab: str = "Jobs", modal: str = "", selected: str = "", applicationFilter: str = "All", networkFilter: str = "Discover",
+        state: dict[str, any] = {}, tab: str = "Applications", modal: str = "", selected: str = "", applicationFilter: str = "All", networkFilter: str = "Discover",
         name: str = "", role: str = "", location: str = "United States", mode: str = "Any", notifications: bool = True, graduation: str = "", availableFrom: str = "", prefs: dict[str, any] = {}, profileRevision: int = 0,
         notes: str = "", draft: str = "", rename: str = "", pdfUri: str = "", reminderId: str = "", reminderTitle: str = "", reminderDue: float = 0.0, targetType: str = "", targetId: str = "", returnModal: str = "", pendingOpen: dict[str, any] = {},
         uploadProgress: dict[str, any] = {}, hubPage: str = "Needs you", hubTask: str = "", hubOpenings: int = 0, savedJob: str = "", accessPage: str = "welcome",
@@ -50,7 +49,7 @@ def StackApp -> JsxElement {
     async def logout -> None {
         busy=True;
         try { await signOut(); } except Exception as e { error=errorText(e); busy=False; return; }
-        logged=False; sessionReady=False; googleInfo={}; state={}; modal=""; password=""; username=""; tab="Jobs"; pdfUri=""; notice=""; error=""; pendingOpen={}; busy=False;accessPage="welcome";
+        logged=False; sessionReady=False; googleInfo={}; state={}; modal=""; password=""; username=""; tab="Applications"; pdfUri=""; notice=""; error=""; pendingOpen={}; busy=False;accessPage="welcome";
     }
     def openRecord(kind: str, id: str) -> None {
         selected=id; error=""; notice="";
@@ -71,7 +70,7 @@ def StackApp -> JsxElement {
     """Route a setup or result action to the tab or Agents page that handles it."""
     def navigate(action: str) -> None {
         if action=="resume-details" and len(state["resumes"])>0 { selected=state["selected_resume"] or state["resumes"][0]["id"];modal="Resume details";return; }
-        destinations={"resume":"Resume","jobs":"Jobs","applications":"Applications","contacts":"Network","prep":"Prep"};
+        destinations={"resume":"Resume","jobs":"Applications","applications":"Applications","contacts":"Network","prep":"Prep"};
         # Refresh on arrival, so a result just produced in Agents (such as a tailored resume) is already listed.
         if destinations.get(action,"") { modal="";tab=destinations[action];refresh();return; }
         if action=="facts" { openAgents("Facts");return; }
@@ -221,7 +220,7 @@ def StackApp -> JsxElement {
             if realAuthEnabled and not logged { error="Sign in before reviewing demo screens.";return; }
             if not logged { await socialLogin("google"); }
             modal="";
-            if screen in ["Jobs","Applications","Network","Resume","Prep"] { tab=screen; }
+            if screen in ["Applications","Network","Resume","Prep"] { tab=screen; }
             elif screen=="Edit profile" { editProfile(); }
             elif screen[0:7]=="Agents:" { openAgents(screen[7:]); }
             else { modal=screen; }

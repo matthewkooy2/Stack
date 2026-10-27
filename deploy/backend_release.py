@@ -19,7 +19,7 @@ VERSION = 3
 MAX_BYTES = 64 * 1024 * 1024
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 DIGEST = re.compile(r"[0-9a-f]{64}\Z")
-SCRIPTS = {"scripts/agent-worker.jac", "scripts/discovery-worker.jac", "scripts/gateway-service.jac"}
+SCRIPTS = {"scripts/agent-worker.jac", "scripts/discovery-worker.jac", "scripts/jobs-sweep.jac", "scripts/gateway-service.jac"}
 
 
 def digest(data):

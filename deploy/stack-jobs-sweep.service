@@ -1,0 +1,26 @@
+[Unit]
+Description=Stack daily jobs sweep
+After=stack-api.service
+Wants=stack-api.service
+
+[Service]
+Type=oneshot
+User=stack
+Group=stack
+WorkingDirectory=/opt/stack
+EnvironmentFile=/etc/stack/discovery.env
+Environment=STACK_JAC_BIN=/usr/local/bin/jac
+Environment=HOME=/var/lib/stack
+Environment=XDG_CACHE_HOME=/var/lib/stack/.cache
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=JAC_SCHEMA_REPAIR=detect
+ExecStart=/opt/stack/scripts/jac run --backend python --no-serve scripts/jobs-sweep.jac
+TimeoutStartSec=3h
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+InaccessiblePaths=/var/lib/stack-codex
+ReadWritePaths=/opt/stack/.jac /var/lib/stack/.cache

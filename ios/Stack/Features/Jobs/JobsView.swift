@@ -17,7 +17,6 @@ struct JobsView: View {
     @State var sheet: JobSheet?
     @State var started = false
     @State private var displayedContext: JobFeedContext?
-    @State var importID = ""
     @State var banner = ""
     @State private var pendingDecision: (job: Job, save: Bool, generation: Int)?
     @State private var undoTimer: Task<Void, Never>?
@@ -50,7 +49,6 @@ struct JobsView: View {
             }
         }
         .task { await start() }
-        .task(id: importID) { await watchImport() }
         .onDisappear {
             // A full-screen cover reports the screen underneath as disappeared. It is still the same visit:
             // keep the pending Undo and the paging in flight until the browser or sheet closes.
@@ -68,7 +66,8 @@ struct JobsView: View {
         .onChange(of: store.phase) { _, phase in if phase != .ready { resetForSession() } }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { commitDecision() }
-            else { Task { await load(refresh: false) } }
+            // Matches change once a day, so coming back only reloads after a newer sweep could have run.
+            else if JobSweep.isNewer(than: feed.computedAt) { Task { await load(refresh: false) } }
         }
         .onChange(of: accountContext) { _, context in
             guard started, context != displayedContext, store.phase == .ready else { return }
@@ -113,13 +112,6 @@ struct JobsView: View {
                 .environment(store)
             case .sources:
                 JobSourcesSheet().environment(store)
-            case .importLink:
-                JobImportSheet { id in
-                    importID = id
-                    banner = "Link queued for verification. It will appear only if a supported, active US job is found."
-                    sheet = nil
-                }
-                .environment(store)
             }
         }
     }
@@ -181,11 +173,8 @@ struct JobsView: View {
                             Task { await load(refresh: false, more: true) }
                         }
                     } else {
-                        StackButton(label: "Refresh jobs", icon: "refresh", disabled: feed.busy) {
-                            Task { await load(refresh: true) }
-                        }
+                        StackButton(label: "Change requirements", disabled: feed.busy) { sheet = .filters }
                     }
-                    StackButton(label: "Import a job link", kind: .secondary) { sheet = .importLink }
                 }
                 .padding(20)
             }
@@ -256,7 +245,7 @@ struct JobsView: View {
             let reasons = search.excluded.prefix(4).map { "\($0["reason"].string) (\($0["count"].int))" }.joined(separator: ", ")
             return "Hidden by your requirements: \(reasons). Mark some as nice to have to see them ranked lower."
         }
-        return "New verified roles appear here as they are found."
+        return "New roles arrive every morning."
     }
 
     /// A tap reads the listing in the in-app browser; a job without a safe web link opens its details instead.
@@ -384,11 +373,7 @@ struct JobsView: View {
         started = true
         search.adopt(saved: store.account.savedSearch)
         displayedContext = accountContext
-        let prepared = store.account.raw["prepared_jobs"]
-        if !prepared["checked_at"].isNull {
-            feed.restore(prepared)
-            search.apply(prepared)
-        } else if let cached = store.jobFeedCache.read(for: accountContext, decided: store.account.decidedJobIDs) {
+        if let cached = store.jobFeedCache.read(for: accountContext, decided: store.account.decidedJobIDs) {
             feed.restore(cached)
             search.apply(cached)
         }
@@ -456,31 +441,6 @@ struct JobsView: View {
         })
     }
 
-    /// Follows an imported link until the server has verified it or given up.
-    private func watchImport() async {
-        guard !importID.isEmpty else { return }
-        let id = importID
-        var polls = 0
-        while !Task.isCancelled, polls < 40 {
-            polls += 1
-            do {
-                let result = try await store.call("get_import_status", ["id": .string(id)])
-                let status = result["status"].string
-                banner = "Import: \(status). \(result["message"].string)"
-                if ["complete", "review", "error"].contains(status) {
-                    importID = ""
-                    await load(refresh: false)
-                    return
-                }
-            } catch {
-                if !(error is CancellationError) { feed.loadError = error.localizedDescription }
-                importID = ""
-                return
-            }
-            try? await Task.sleep(for: .seconds(3))
-        }
-    }
-
     private func isCurrent(_ generation: Int) -> Bool {
         generation == store.sessionGeneration && store.phase == .ready
     }
@@ -495,10 +455,9 @@ struct JobsView: View {
         if displayedContext != context { feed.invalidate(clearing: true) }
         displayedContext = context
         return JobDeckSource(
-            fetch: { [store] cursor, refresh in
-                try await store.api.call("search_jobs", [
-                    "query": .string(query), "filters": filters, "refresh": .bool(refresh), "cursor": .string(cursor),
-                ])
+            fetch: { [store] cursor, _ in
+                // The server reads the stored matches for the saved search; nothing is collected on request.
+                try await store.api.call("job_feed", ["cursor": .string(cursor)])
             },
             deckCount: { deck.count },
             isCurrent: { isCurrent(generation) && accountContext == context },

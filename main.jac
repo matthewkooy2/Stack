@@ -1,15 +1,13 @@
 """Stack API. All personal data endpoints require Jac authentication."""
 import time;
-import from datetime { datetime }
-import from zoneinfo { ZoneInfo }
 import from threading { RLock }
 import from jaclang.runtime.runtime { JacRuntime }
-import from core.catalog { _catalog_lock, _worker_allowed, _fresh, _prepare_job_feed, _prepared_job_feed, _enqueue_roles, _criteria, _cache_clear, JobSource, DailyJobsRefresh, _catalog_job, _saved_search, _retained_snapshot, _drop_overrides, search_jobs, get_job, save_search, reset_search, import_job_url, get_import_status, source_status, discovery_claim, discovery_complete, discovery_manage, discovery_report, discovery_analyze }
+import from core.catalog { _catalog_lock, _worker_allowed, _fresh, _criteria, _catalog_job, _saved_search, _retained_snapshot, _drop_overrides, _compute_matches, _store_matches, _match_records, _search_or_saved, _deactivate_missing, _retire_shared, _retire_account, _sweep_run, _stored_match_ids, SweepRun, job_feed, search_jobs, get_job, save_search, reset_search, import_job_url, get_import_status, source_status, jobs_sweep_begin, jobs_sweep_source, discovery_manage, discovery_report }
 import from core.preferences { MatchPreferences, _match_preferences, _save_match_preferences }
 import from core.timeline { _timeline_preferences, _save_timeline }
 import from discovery.timeline { validate_month }
 import from discovery.matching { validate_preferences }
-import from discovery.normalize { validate_filters, source_enabled }
+import from discovery.normalize { validate_filters }
 glob _write_lock = _catalog_lock;
 import base64;
 import hashlib;
@@ -345,46 +343,45 @@ def _application_job(a: Application) -> dict[str, any] {
     live=_catalog_job(a.job_id);
     return live if live else _retained_snapshot(a.snapshot);
 }
-# The existing collector calls this before collection and once its queue is idle.
-def:pub discovery_daily(token: str, finish: bool = False) -> dict[str, any] {
+"""Finishes the daily sweep in bounded steps: first closes listings the clean sources no longer list, then stores
+each account's matches. Matching runs outside the write lock; each account's result is written on its own."""
+def:pub jobs_sweep_finish(token: str, run: str) -> dict[str, any] {
     if not _worker_allowed(token) { return {"error":"Worker authorization required."}; }
+    system=jid(root);
     with _write_lock {
-        _fresh();now=datetime.now(ZoneInfo("America/New_York"));day=now.strftime("%Y-%m-%d");
-        states=[root.shared -->][?:DailyJobsRefresh];
-        state=states[0] if states else root.shared ++> DailyJobsRefresh();
-        owners=[a.owner for a in [root.shared -->][?:AgentAdmission]];
-        system=jid(root);
-        if not finish {
-            if now.hour<6 or state.day==day { return {"started":False}; }
-            state.day=day;state.finished=False;state.failed=False;state.successes=0;
-            for owner in owners {
-                _agent_owner(owner);memories=[root -->][?:AgentMemory];
-                if memories and not memories[0].deleted {
-                    saved=_saved_search();search=validate_filters(saved.get("query",""),saved.get("filters",{}));
-                    _enqueue_roles(_criteria(search["query"],search["filters"]),search);
-                }
-            }
-            _agent_owner(system);
-            for source in [root.shared -->][?:JobSource] {
-                if source.status not in ["review","disabled"] and not source_enabled(source.config["adapter"]) { source.next_at=time.time(); }
-            }
-            commit();return {"started":True};
+        _fresh();r=_sweep_run(run);
+        if r is None or r.status not in ["collecting","matching"] { return {"error":"This sweep is not running."}; }
+        if r.status=="collecting" {
+            r.deactivated=_deactivate_missing(r);_retire_shared();r.status="matching";r.after="";
+            commit();return {"done":False,"deactivated":r.deactivated};
         }
-        if state.finished { return {"prepared":False}; }
-        sources=[root.shared -->][?:JobSource];
-        if any([s.lease_until>time.time() or (s.status in ["pending","collecting"] and not source_enabled(s.config["adapter"])) for s in sources]) { return {"prepared":False}; }
-        state.finished=True;
-        if state.failed or state.successes==0 or any([s.status in ["error","partial","quota"] for s in sources if not source_enabled(s.config["adapter"])]) {
-            commit();return {"prepared":False};
-        }
-        _cache_clear();commit();
-        for owner in owners {
-            _agent_owner(owner);memories=[root -->][?:AgentMemory];
-            if memories and not memories[0].deleted {
-                saved=_saved_search();_prepare_job_feed(validate_filters(saved.get("query",""),saved.get("filters",{})));
+        after=r.after;
+    }
+    owners=sorted([a.owner for a in [root.shared -->][?:AgentAdmission] if a.owner>after]);
+    records=_match_records();deadline=time.time()+30;last=after;count=0;
+    for owner in owners {
+        _agent_owner(owner);memories=[root -->][?:AgentMemory];
+        if memories and not memories[0].deleted {
+            ranked: dict[str, any]={};
+            # A saved search that no longer validates keeps the account's previous matches.
+            try { ranked=_compute_matches(_search_or_saved(None,None),records); } except ValueError { ranked={}; }
+            with _write_lock {
+                _agent_fresh();
+                if ranked { _store_matches(ranked);count+=1; }
+                _retire_account();commit();
             }
         }
-        _agent_owner(system);commit();return {"prepared":True};
+        last=owner;
+        if time.time()>deadline { break; }
+    }
+    _agent_owner(system);
+    with _write_lock {
+        _fresh();current=_sweep_run(run);
+        if current is None { return {"error":"This sweep is not running."}; }
+        done=last==(owners[-1] if owners else after);
+        current.after=last;current.prepared=current.prepared+count;
+        if done { current.status="done";current.finished_at=time.time(); }
+        commit();return {"done":done,"prepared":current.prepared};
     }
 }
 
@@ -395,7 +392,6 @@ def:priv bootstrap() -> dict[str, any] {
       "profile":{"name":p.name,"role":p.role,"linkedin_url":p.linkedin_url,"linkedin_target_role":p.linkedin_target_role,"location":p.location,"mode":p.mode,"onboarded":p.onboarded,"notifications":p.notifications,**_timeline_preferences(),"preferences":_match_preferences()},
       "jobs":[_application_job(a) for a in [root -->][?:Application]],
       "saved_search":_saved_search(),
-      "prepared_jobs":_prepared_job_feed(),
       "decisions":[{"job_id":d.job_id,"action":d.action} for d in [root -->][?:Decision]],
       "applications":[_app_view(a) for a in [root -->][?:Application]],
       "people":PEOPLE,
@@ -1261,10 +1257,10 @@ def:pub agent_schedule(token: str, wake_key: str = "") -> dict[str, any] {
             if m.policy.get("analyze_top_matches") {
                 today=time.time()-86400;recent=[r for r in [root -->][?:AgentRun] if r.kind=="jobs" and r.created_at>today];
                 if len(recent)<3 {
-                    saved=_saved_search();matches=search_jobs(str(saved.get("query","")),saved.get("filters",{}));
-                    for candidate in matches.get("jobs",[])[:max(0,3-len(recent))] {
-                        job=_catalog_job(str(candidate["id"]));p=_profile();
-                        if job is not None { _agent_start("jobs","job:"+str(candidate["id"]),{"job":job,"profile":{"name":p.name,"role":p.role,"preferences":_match_preferences()},"resume_id":_settings().selected_resume}); }
+                    # The sweep's stored matches; never recompute inside this write transaction.
+                    for candidate in _stored_match_ids()[:max(0,3-len(recent))] {
+                        job=_catalog_job(candidate);p=_profile();
+                        if job { _agent_start("jobs","job:"+candidate,{"job":job,"profile":{"name":p.name,"role":p.role,"preferences":_match_preferences()},"resume_id":_settings().selected_resume}); }
                     }
                 }
             }

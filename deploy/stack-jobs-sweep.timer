@@ -1,0 +1,10 @@
+[Unit]
+Description=Stack daily jobs sweep at 10:00 New York time
+
+[Timer]
+OnCalendar=*-*-* 10:00:00 America/New_York
+Persistent=true
+Unit=stack-jobs-sweep.service
+
+[Install]
+WantedBy=timers.target

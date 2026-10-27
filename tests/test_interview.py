@@ -25,7 +25,8 @@ if os.environ.get('JAC_DB_URL'):
 os.environ['JAC_DB_SCRATCH'] = '1'
 from jaclang.testing.testing import JacTestClient
 from agents import interview as flow
-from discovery.normalize import normalize, digest
+from discovery.normalize import normalize
+from tests.catalog_fixture import career, publish
 
 ANSWER1 = 'I built a SQL tracker for a class project. I inspected the query plan and added an index. I verified the result with fixture queries.'
 ANSWER2 = 'I compared indexed and full table scans on our fixture data. I explained the write overhead to my teammate. We chose the index for the read-heavy tracker.'
@@ -69,17 +70,14 @@ class Journey:
             self.rpc('agent_settings')
             self.rpc('agent_save_policy',{'policy':{'enabled':True,'expires_at':time.time()+3600,'actions':['model']}})
         self.client.set_auth_token(self.tokens[0])
-        # Seed a normalized catalog listing through token-gated discovery APIs, then save it as the user.
+        # Seed a normalized catalog listing through the token-gated sweep APIs, then save it as the user.
         worker_file=Path('storage/discovery/worker-token');worker_file.parent.mkdir(parents=True,exist_ok=True)
         if not worker_file.exists(): worker_file.write_text('mat5-synthetic-discovery')
         discovery_token=worker_file.read_text().strip();url='https://example.com/mat5-role'
-        self.rpc('import_job_url',{'url':url});self.client.clear_auth()
-        work=self.rpc('discovery_claim',{'token':discovery_token,'preferred_id':'career:'+digest(url)})
-        assert not work.get('idle'),work
+        self.client.clear_auth();source=career(url)
         job=normalize({'title':'SQL Tools Engineer','company':'Synthetic class team','url':url+'/engineer',
-                       'country':'US','location':'Detroit, MI','description':DESCRIPTION,'posted_at':time.time()},work['config'])
-        self.rpc('discovery_complete',{'token':discovery_token,'id':work['id'],'lease':work['lease'],
-            'result':{'jobs':[job],'complete':True}})
+                       'country':'US','location':'Detroit, MI','description':DESCRIPTION,'posted_at':time.time()},source)
+        publish(lambda name,args:self.rpc(name,{'token':discovery_token,**args}),source,[job])
         self.client.set_auth_token(self.tokens[0]);self.rpc('swipe',{'job_id':job['id'],'action':'apply'})
         self.application=self.rpc('bootstrap')['applications'][0]['id']
         self.rpc('agent_save_facts',{'facts':[FACT]})

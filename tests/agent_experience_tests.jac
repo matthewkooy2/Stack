@@ -62,16 +62,16 @@ def finish(client: any, claim: dict[str, any], result: dict[str, any]) -> dict[s
 def authorize(client: any, claim: dict[str, any], payload_hash: str) -> dict[str, any] {
     return work(client,"agent_authorize",{"id":claim["id"],"owner":claim["owner"],"lease":claim["lease"],"payload_hash":payload_hash});
 }
-"""Publish one active Lever-hosted catalog job through the real discovery endpoints."""
+"""Publish one active Lever-hosted catalog job through the real sweep endpoints."""
 def lever_job(client: any, token: str, discovery: str) -> str {
     marker="ExperienceTest"+secrets.token_hex(4);url="https://example.com/"+marker;
     source="career:"+hashlib.sha256(url.encode()).hexdigest()[:32];
-    client.set_auth_token(token);rpc(client,"import_job_url",{"url":url});
-    client.clear_auth();claim=rpc(client,"discovery_claim",{"token":discovery,"preferred_id":source});
-    assert claim["id"]==source, claim;
+    config={"id":source,"adapter":"career","name":"Test","url":url,"domain":"example.com","sector":"Technology","approved":True};
     job_id="job_"+hashlib.sha256((url+"/0").encode()).hexdigest()[:32];now=time.time();
     job={"id":job_id,"identity":url+"/0","canonical_url":url+"/0","url":"https://jobs.lever.co/stacktest/"+marker,"title":marker+" Analyst","company":"Review Test Co","description":"Analyze data.","country":"US","location":"Detroit, MI","locations":["Detroit, MI"],"mode":"Remote","employment_type":"Full-time","seniority":"Entry-level","occupation":"Business","compensation":{},"salary":"Pay not listed","salary_note":"","source":"smartrecruiters","source_id":source,"source_name":"Test","source_job_id":"0","attribution":{},"posted":"Today","posted_at":now,"checked_at":now,"discovered_at":now,"expires_at":0,"snippet":False,"requirements":[],"qualifications":"","eligibility":"","remote_eligibility":"","initial":"R","color":"#EDF2FF","tags":[],"reason":"Test","demo":False};
-    rpc(client,"discovery_complete",{"token":discovery,"id":source,"lease":claim["lease"],"result":{"jobs":[job],"complete":True}});
+    client.clear_auth();
+    run=rpc(client,"jobs_sweep_begin",{"token":discovery,"only":[config]})["run"];
+    assert rpc(client,"jobs_sweep_source",{"token":discovery,"run":run,"id":source,"jobs":[job],"complete":True}).get("saved");
     return job_id;
 }
 

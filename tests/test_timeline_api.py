@@ -1,18 +1,18 @@
 """Timeline analysis persists in shared listings; preferences/results remain per user."""
 import unittest,uuid
-from test_catalog_api import worker
+from test_catalog_api import worker,sweep
+from catalog_fixture import career
 from test_api import account,rpc,request
-from discovery.normalize import normalize,digest
+from discovery.normalize import normalize
 
 class TimelineAPI(unittest.TestCase):
  @classmethod
  def setUpClass(cls):
   _,_,cls.a=account();_,_,cls.b=account();cls.label='TimelineTest'+uuid.uuid4().hex[:8]
-  cls.url='https://example.com/'+cls.label;cls.source='career:'+digest(cls.url)
-  rpc(cls.a,'import_job_url',url=cls.url);work=worker('discovery_claim',preferred_id=cls.source)
+  cls.url='https://example.com/'+cls.label;source=career(cls.url);cls.source=source['id']
   descriptions=['Must be graduating between December 2026 and June 2027.','Graduating in 2026.','Bachelor degree required.','Graduating in 2027. Start date: January 2027.']
-  cls.jobs=[normalize({'title':cls.label+' '+str(i),'company':'Timeline Test','url':cls.url+'/'+str(i),'country':'US','description':d},work['config']) for i,d in enumerate(descriptions)]
-  worker('discovery_complete',id=cls.source,lease=work['lease'],result={'jobs':cls.jobs,'complete':True})
+  cls.jobs=[normalize({'title':cls.label+' '+str(i),'company':'Timeline Test','url':cls.url+'/'+str(i),'country':'US','description':d},source) for i,d in enumerate(descriptions)]
+  sweep(source,[{'jobs':cls.jobs}])
  @classmethod
  def tearDownClass(cls):worker('discovery_manage',id=cls.source,action='purge')
  def test_analysis_and_two_account_isolation(self):
@@ -35,7 +35,7 @@ class TimelineAPI(unittest.TestCase):
   self.assertEqual(rpc(self.a,'bootstrap')['profile']['graduation_month'],'2026-05')
   status,_=request('/function/save_timeline',{'graduation_month':'2027-05'})
   self.assertIn(status,(401,403))
-  _,r=request('/function/discovery_analyze',{'token':'wrong'})
+  _,r=request('/function/jobs_sweep_finish',{'token':'wrong','run':'x'})
   self.assertIn('error',r['data']['result'])
 
 if __name__=='__main__':unittest.main()

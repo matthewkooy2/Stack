@@ -38,6 +38,9 @@ final class JobCardPresentationTests: XCTestCase {
         XCTAssertEqual(unknown.payPeriod, "")
         let excerpt = JobCardCopy(job: Job(["salary": "Pay not listed", "highlights": ["pay_excerpt": "Salary depends on location: $90k–$110k."]]))
         XCTAssertEqual(excerpt.payExcerpt, "Salary depends on location: $90k–$110k.")
+        XCTAssertFalse(excerpt.showsPayHeadline)
+        XCTAssertTrue(yearly.showsPayHeadline)
+        XCTAssertTrue(JobCardCopy(job: Job(["salary": "Pay not listed"])).showsPayHeadline)
     }
 
     func testOnlyDecisiveHorizontalDragsSaveOrPass() {

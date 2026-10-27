@@ -280,11 +280,12 @@ struct JobsView: View {
 
     private func stamp(for width: CGFloat) -> some View {
         let saving = width > 0
-        let label: Text = Text(saving ? "SAVE" : "PASS")
-            .font(Font.system(.headline, design: .rounded).weight(.heavy))
-        return label.foregroundStyle(saving ? Palette.success : Palette.danger)
+        let tint = saving ? Brand.accent : Brand.muted
+        let label: Text = Text(saving ? "Save" : "Pass")
+            .font(.system(.headline).weight(.heavy))
+        return label.foregroundStyle(tint)
             .padding(.horizontal, 12).padding(.vertical, 6)
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(saving ? Palette.success : Palette.danger, lineWidth: 2))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(tint, lineWidth: 2))
             .rotationEffect(.degrees(saving ? -10 : 10))
             .padding(22)
             .opacity(min(Double(abs(width)) / 110.0, 1.0))

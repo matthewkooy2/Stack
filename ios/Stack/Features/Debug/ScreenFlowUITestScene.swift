@@ -50,6 +50,8 @@ struct ScreenFlowUITestScene: View {
     @ViewBuilder
     private var screen: some View {
         switch Self.flow {
+        case "browser-keyboard":
+            RemoteBrowserView(id: "keyboard-fixture", task: ["id": "keyboard-fixture", "status": "paused"], onChanged: {})
         case "settings": ProfileView()
         case "resume", "resume-upload": ResumeView(onProfile: {})
         case "resume-review": ResumeReviewFixtureHost()

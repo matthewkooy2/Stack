@@ -271,6 +271,7 @@ struct RemoteBrowserView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var model = RemoteBrowserModel()
     @State private var text = ""
+    @FocusState private var keyboardFocused: Bool
     @State private var area: CGSize = .zero
     @State private var dragStart: CGPoint?
 
@@ -304,6 +305,7 @@ struct RemoteBrowserView: View {
                         .font(Typeface.caption).foregroundStyle(Palette.muted)
                     HStack(spacing: 8) {
                         TextField("Text to type", text: $text)
+                            .focused($keyboardFocused)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .padding(12)
@@ -311,6 +313,13 @@ struct RemoteBrowserView: View {
                             .disabled(!model.canInput)
                             .accessibilityLabel("Remote browser keyboard")
                         Chip(label: "Send") { flush() }
+                    }
+                    HStack(spacing: 8) {
+                        Chip(label: keyboardFocused ? "Hide keyboard" : "Show keyboard") {
+                            keyboardFocused.toggle()
+                        }
+                        .disabled(!keyboardFocused && !model.canInput)
+                        .accessibilityHint("Keeps unsent text without sending it to the remote browser")
                     }
                     VStack(alignment: .leading, spacing: 8) {
                         HStack(spacing: 8) {
@@ -335,6 +344,13 @@ struct RemoteBrowserView: View {
             .padding(Spacing.page)
         }
         .task {
+            #if DEBUG
+            if ProcessInfo.processInfo.arguments.contains("--screen-flow=browser-keyboard") {
+                model.control = ["mode": "user", "relaxed": true]
+                model.connection = "connected"
+                return
+            }
+            #endif
             model.open(store: store, id: id, linkedin: task["kind"].string == "linkedin", onChanged: onChanged)
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(500))

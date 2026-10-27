@@ -9,6 +9,10 @@ struct ResumeView: View {
 
     @State var importing = false
     @State var uploading = false
+    @State private var uploadName = ""
+    /// Set when an upload starts from the first-use screen, so the list fades in over it instead of rising a beat later.
+    @State private var cameFromUpload = false
+    @Environment(\.stackReduceMotion) private var reduceMotion
     @State var managing: ResumeItem?
     @State var showTailor = false
     @State var showTailored = false
@@ -27,17 +31,25 @@ struct ResumeView: View {
     var body: some View {
         Group {
             if store.account.resumes.isEmpty {
-                ResumeUploadScreen(uploading: uploading, disabled: store.busy, error: store.error,
+                ResumeUploadScreen(uploading: uploading, fileName: uploadName, disabled: store.busy, error: store.error,
                                    attentionCount: store.account.attentionRunCount,
                                    onUpload: { importing = true }, onProfile: onProfile)
+                    .transition(.opacity)
             } else {
-                library
+                library.transition(.opacity)
             }
         }
+        .animation(reduceMotion ? nil : Motion.fadeAnimation, value: store.account.resumes.isEmpty)
         .refreshable { await store.refresh() }
         .pollsWhileProcessing(processingActive)
         .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf]) { result in
-            Task { await upload(result) }
+            // Show progress in this turn of the run loop; the read and the request happen after it.
+            guard case .success(let url) = result, store.phase == .ready else { return }
+            uploading = true
+            uploadName = url.lastPathComponent
+            if store.account.resumes.isEmpty { cameFromUpload = true }
+            store.error = ""
+            Task { await upload(url) }
         }
         .sheet(item: $managing) { resume in ManageResumeSheet(resume: resume).environment(store) }
         .onChange(of: store.sessionGeneration) { _, _ in setupFor = ""; scores = [:] }
@@ -50,17 +62,17 @@ struct ResumeView: View {
 
     private var library: some View {
         Page {
-            ScreenHeader(title: "Resume", onProfile: onProfile).reveal(0)
-            StackButton(label: uploading ? "Uploading…" : "Upload a PDF resume", icon: "upload", disabled: uploading || store.busy) {
+            entrance(ScreenHeader(title: "Resume", onProfile: onProfile), 0)
+            StackButton(label: uploading ? "Uploading \(uploadName)" : "Upload a PDF resume", icon: "upload", disabled: uploading || store.busy) {
                 importing = true
             }
-            .reveal(1)
+            .modifier(Entrance(index: 1, skipped: cameFromUpload))
 
             StoreMessages()
 
             VStack(spacing: 0) {
                 ForEach(Array(store.account.resumes.enumerated()), id: \.element.id) { index, resume in
-                    resumeRow(resume).reveal(index + 2)
+                    entrance(resumeRow(resume), index + 2)
                 }
             }
 
@@ -72,6 +84,10 @@ struct ResumeView: View {
                 ListRow(label: "Experience bank", icon: "star", detail: "Confirmed facts for tailoring") { showBank = true }
             }
         }
+    }
+
+    @ViewBuilder private func entrance<Content: View>(_ content: Content, _ index: Int) -> some View {
+        content.modifier(Entrance(index: index, skipped: cameFromUpload))
     }
 
     private var tailorDetail: String {
@@ -100,15 +116,11 @@ struct ResumeView: View {
         }
     }
 
-    private func upload(_ result: Result<URL, Error>) async {
-        guard case .success(let url) = result else { return }
+    private func upload(_ url: URL) async {
         let generation = store.sessionGeneration
-        guard store.phase == .ready else { return }
-        uploading = true
-        store.error = ""
-        defer { uploading = false }
+        defer { uploading = false; uploadName = "" }
         do {
-            let file = try readPickedFile(url, limit: 10 * 1024 * 1024, tooLarge: "PDF must be 10 MB or smaller.")
+            let file = try await readPickedFileInBackground(url, limit: 10 * 1024 * 1024, tooLarge: "PDF must be 10 MB or smaller.")
             await store.mutate(
                 "upload_resume",
                 ["name": .string(file.name), "content": .string(file.content)],
@@ -116,6 +128,16 @@ struct ResumeView: View {
                 timeout: 90
             )
         } catch { if generation == store.sessionGeneration { store.fail(error) } }
+    }
+}
+
+/// The usual staggered entrance, or none when the screen is already fading in over another one.
+private struct Entrance: ViewModifier {
+    let index: Int
+    let skipped: Bool
+
+    func body(content: Content) -> some View {
+        if skipped { content } else { content.reveal(index) }
     }
 }
 

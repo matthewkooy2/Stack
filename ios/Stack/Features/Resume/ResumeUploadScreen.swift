@@ -3,6 +3,7 @@ import SwiftUI
 /// The first-use Resume screen. The paper stack is the upload button, not a second illustration above one.
 struct ResumeUploadScreen: View {
     var uploading = false
+    var fileName = ""
     var disabled = false
     var error = ""
     var attentionCount = 0
@@ -58,8 +59,9 @@ struct ResumeUploadScreen: View {
 
                     HStack(spacing: 8) {
                         if uploading { ProgressView().tint(Brand.accent) }
-                        Text(uploading ? "Uploading…" : "PDF · Up to 10 MB")
+                        Text(uploading ? (fileName.isEmpty ? "Uploading…" : "Uploading \(fileName)") : "PDF · Up to 10 MB")
                             .font(Typeface.caption).foregroundStyle(Brand.muted)
+                            .lineLimit(1).truncationMode(.middle)
                     }
                     .frame(minHeight: 24)
                     .accessibilityElement(children: .combine)

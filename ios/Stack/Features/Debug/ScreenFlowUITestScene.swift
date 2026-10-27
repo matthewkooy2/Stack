@@ -136,6 +136,9 @@ final class ScreenFlowServer: @unchecked Sendable {
     private var reviewOriginalValues: [String: String] = [:]
     private var reviewProcessing: JSON = .null
     private var reviewImportPolls = 0
+    /// The `resume-upload` flow: the name of the PDF the person uploaded, and how many times its import has been polled.
+    private var uploadedName = ""
+    private var uploadPolls = 0
     private var reviewAccountProcessing: JSON?
     // Separate synthetic server storage, never the account's live backend or draft files.
     private let reviewPersistence = UserDefaults(suiteName: "StackOfflineResumeReviewServer")!
@@ -212,6 +215,8 @@ final class ScreenFlowServer: @unchecked Sendable {
             JSON.object(["kind": "import", "status": .string($0)])
         } ?? .null
         reviewImportPolls = 0
+        uploadedName = ""
+        uploadPolls = 0
         reviewAccountProcessing = argument("resume-review-account-processing").map {
             JSON.object(["kind": "import", "status": .string($0)])
         }
@@ -251,6 +256,7 @@ final class ScreenFlowServer: @unchecked Sendable {
     /// How long a request is held before it is answered, so a test can open the browser while a page is pending.
     func delay(for name: String, body: JSON) -> TimeInterval {
         lock.lock(); defer { lock.unlock() }
+        if flow == "resume-upload", name == "upload_resume" { return 1.5 }
         return flow == "deck-paging" && name == "search_jobs" && !body["cursor"].string.isEmpty ? 3 : 0
     }
 
@@ -302,6 +308,11 @@ final class ScreenFlowServer: @unchecked Sendable {
             ["id": "resume-2", "name": "Backup resume.pdf", "size": 90_000, "created_at": 1_690_000_000,
              "details_status": "Confirmed", "format": format],
         ]
+        let uploaded: [JSON] = uploadedName.isEmpty ? [] : [
+            ["id": "resume-uploaded", "name": .string(uploadedName), "size": 150_000, "created_at": 1_700_000_000,
+             "details_status": "Needs review", "format": format,
+             "processing": ["import": ["kind": "import", "status": .string(uploadPolls > 2 ? "completed" : "parsing")]]],
+        ]
         let history: [JSON] = [["status": "Saved", "at": 1_700_000_000, "source": "You"]]
         let applications: [JSON] = [[
             "id": "application-1", "status": "Saved", "notes": .string(notes), "resume_id": "", "demo": false,
@@ -331,7 +342,8 @@ final class ScreenFlowServer: @unchecked Sendable {
         ]]
         return [
             "user_id": .string(reviewUser), "profile": profile,
-            "resumes": flow == "resume-upload" ? [] : .array(resumes), "selected_resume": "resume-1",
+            "resumes": flow == "resume-upload" ? .array(uploaded) : .array(resumes),
+            "selected_resume": flow == "resume-upload" && !uploadedName.isEmpty ? "resume-uploaded" : "resume-1",
             "applications": .array(applications), "people": .array(people), "contacts": .array(contacts),
             "agents": ["features": .array(features), "runs": .array(autofillStarted ? [Self.autofillRun] : []), "active": 0, "attention": 0,
                        "model_provider": ["provider": "", "message": ""]],
@@ -355,10 +367,16 @@ final class ScreenFlowServer: @unchecked Sendable {
         func fail(_ message: String) -> (Int, JSON) { (500, ["ok": false, "error": ["message": .string(message)]]) }
         switch name {
         case "bootstrap":
+            if !uploadedName.isEmpty { uploadPolls += 1 }
             if flow == "resume-review", ["queued", "parsing"].contains(reviewProcessing["status"].string) {
                 reviewImportPolls += 1
                 reviewProcessing["status"] = reviewImportPolls > 1 ? "completed" : "parsing"
             }
+            return ok(buildSnapshot())
+        case "upload_resume":
+            guard flow == "resume-upload" else { return ok(buildSnapshot()) }
+            uploadedName = body["name"].string
+            uploadPolls = 0
             return ok(buildSnapshot())
         case "retry_resume_processing":
             guard flow == "resume-review", body["id"].string == "resume-1", body["kind"].string == "import" else {

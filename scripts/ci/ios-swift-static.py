@@ -153,7 +153,7 @@ def check_backend_calls() -> list[str]:
     if not allowed:
         return ["could not read the published function list from mobile/feature-rpcs.js"]
     # Account sign-in helpers and the anonymous endpoints are published separately.
-    allowed |= {"auth_google_status", "auth_google_recover", "agent_admission", "agent_accept_invite"}
+    allowed |= {"auth_google_status", "auth_google_recover", "auth_apple_begin", "auth_apple_finish", "agent_admission", "agent_accept_invite"}
     problems = []
     pattern = re.compile(r"\.(?:call|callAccount|mutate)\(\s*\"([a-z_]+)\"")
     for path in SOURCES:

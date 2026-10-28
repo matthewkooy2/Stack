@@ -112,9 +112,10 @@ Page and error text is matched by accessibility label only.
 - Public-profile drafts are local to the signed-in session; sign-out clears them. LinkedIn suggestions
   can be edited, selected, approved and copied. Neither feature publishes text to an external profile.
 
+See [native Apple sign-in](../docs/APPLE_NATIVE_SIGNIN.md) for its minimal identity-to-Stack-session flow.
+
 ## Not ported
 
-- Apple sign-in (not connected on any current client or on the backend).
 - On-device speech transcripts from the native Stack Speech module. Audio is transcribed by the
   server worker; `transcription_upload` is called without `local_transcript`.
 - Push registration (`agent_register_push`, `agent_remove_push`). The backend sends through Expo push

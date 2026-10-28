@@ -190,40 +190,11 @@ struct InvitationView: View {
                     GoogleAccountCard().reveal(3)
                 }
                 StackButton(label: "Sign out", kind: .secondary, disabled: store.busy) { Task { await store.signOut() } }
-                if store.apple.hasAppleSession { AppleAccountCard() }
             }
             .padding(.horizontal, Spacing.page)
             .padding(.vertical, 24)
         }
         .scrollIndicators(.hidden)
-    }
-}
-
-/// Apple account deletion, including before beta admission.
-@MainActor
-struct AppleAccountCard: View {
-    @Environment(AppStore.self) private var store
-    @State private var deletionWindow: UIWindow?
-    @State private var confirmDeletion = false
-    var body: some View {
-        Card(spacing: 12) {
-            Text("Delete account").font(Typeface.section)
-            Text("Delete your Stack account with fresh Apple confirmation. This removes saved Stack data and revokes its Apple grant.")
-                .font(Typeface.caption).foregroundStyle(Palette.muted)
-            Button("Delete account", role: .destructive) {
-                deletionWindow = UIApplication.shared.connectedScenes
-                    .filter { $0.activationState == .foregroundActive }
-                    .compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
-                confirmDeletion = true
-            }.disabled(store.busy || store.googlePending)
-        }
-        .alert("Delete your Stack account?", isPresented: $confirmDeletion) {
-            Button("Delete account", role: .destructive) {
-                if let window = deletionWindow { Task { await store.deleteWithApple(window: window) } }
-                deletionWindow = nil
-            }
-            Button("Cancel", role: .cancel) { deletionWindow = nil }
-        } message: { Text("Your saved Stack data will be permanently removed after Apple confirms this account. You can then sign up again using any sign-in method.") }
     }
 }
 

@@ -138,7 +138,6 @@ struct ProfileView: View {
         VStack(alignment: .leading, spacing: Spacing.stack) {
             Text("Account").font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
             GoogleAccountCard()
-            if store.apple.hasAppleSession { AppleAccountCard() }
             ToggleRow(label: "Reminder notifications", isOn: $notifications)
             DisclosureSection("Agent model", detail: modelSummary) {
                 VStack(alignment: .leading, spacing: 10) {

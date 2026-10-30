@@ -345,11 +345,24 @@ final class AppStore {
 
     // MARK: Reminders
 
-    /// Schedules a local alert for each open reminder.
+    /// Schedules follow-up alerts and the daily accountability reminders.
     func reconcileReminders(ask: Bool) async {
+        await reconcileFollowUps(ask: ask)
+        _ = await reconcileNudges(ask: false)
+    }
+
+    /// Removes this device's pending follow-up alerts, leaving accountability reminders in place.
+    private func removeFollowUps(_ center: UNUserNotificationCenter) async {
+        let ids = await center.pendingNotificationRequests().map(\.identifier)
+            .filter { $0.hasPrefix("stack-") && !$0.hasPrefix(Nudge.prefix) }
+        center.removePendingNotificationRequests(withIdentifiers: ids)
+    }
+
+    /// Schedules a local alert for each open reminder.
+    private func reconcileFollowUps(ask: Bool) async {
         let generation = sessionGeneration
         guard account.notificationsOn || ask else {
-            UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+            await removeFollowUps(UNUserNotificationCenter.current())
             return
         }
         let center = UNUserNotificationCenter.current()
@@ -364,7 +377,7 @@ final class AppStore {
             if ask { notice = "Reminder saved. Enable notifications in iPhone Settings to receive alerts." }
             return
         }
-        center.removeAllPendingNotificationRequests()
+        await removeFollowUps(center)
         let now = Date().timeIntervalSince1970
         for reminder in account.reminders where !reminder.done && reminder.dueAt > now {
             let content = UNMutableNotificationContent()
@@ -380,5 +393,39 @@ final class AppStore {
                 return
             }
         }
+    }
+
+    // MARK: Accountability reminders
+
+    enum NudgeOutcome: Equatable { case scheduled(Int), off, denied }
+
+    /// Replaces the accountability reminders with the saved settings and current counts. With `ask`, a first
+    /// enable asks for notification permission; a denial is reported so the screen can point to Settings.
+    func reconcileNudges(ask: Bool) async -> NudgeOutcome {
+        let generation = sessionGeneration
+        let owner = account.userID
+        let center = UNUserNotificationCenter.current()
+        let stale = await center.pendingNotificationRequests().map(\.identifier).filter { $0.hasPrefix(Nudge.prefix) }
+        center.removePendingNotificationRequests(withIdentifiers: stale)
+        let settings = NudgeSettings.load(for: owner)
+        guard settings.enabled, !owner.isEmpty, phase == .ready else { return .off }
+        var status = await center.notificationSettings().authorizationStatus
+        if ask, status == .notDetermined {
+            _ = try? await center.requestAuthorization(options: [.alert, .sound])
+            status = await center.notificationSettings().authorizationStatus
+        }
+        guard generation == sessionGeneration else { return .off }
+        guard status == .authorized || status == .provisional else { return .denied }
+        let now = Date().timeIntervalSince1970
+        let due = account.reminders.filter { !$0.done && $0.dueAt <= now + 86_400 }.count
+        let plan = Nudge.plan(settings, followUpsDue: due, applications: account.applications.count)
+        for nudge in plan {
+            try? await center.add(nudge.request(owner: owner))
+            if generation != sessionGeneration {
+                center.removePendingNotificationRequests(withIdentifiers: plan.map { $0.request(owner: owner).identifier })
+                return .off
+            }
+        }
+        return .scheduled(plan.count)
     }
 }

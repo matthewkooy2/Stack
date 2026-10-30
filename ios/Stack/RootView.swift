@@ -131,6 +131,11 @@ struct MainTabs: View {
         case "contact":
             store.pendingOpen = ["target_type": "contact", "target_id": id]
             go(to: "network")
+        case "tab":
+            // An accountability reminder names the tab where its step happens.
+            showProfile = false
+            agentTask = nil
+            go(to: id)
         default:
             break
         }

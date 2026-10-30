@@ -117,6 +117,8 @@ def generate(
     step: any, context: any, configuration: any = None, record: any = None, observe: any = None
 ) -> any {
     c = configuration if (configuration is not None) else config();
+    faster = c.get('coach_models', {}).get(c['provider'], '') if step == 'coach' else '';
+    if faster { c = {**c, 'model': faster}; }
     attempt = {
         'attempt_id': uuid4().hex,
         'provider': c['provider'],

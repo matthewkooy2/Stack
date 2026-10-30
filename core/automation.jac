@@ -668,7 +668,7 @@ def:priv agent_stop_contact(id: str) -> dict[str, any] {
 def:priv prep_catalog() -> dict[str, any] { _agent_access();return {"problems":catalog()}; }
 def:priv prep_sessions() -> dict[str, any] {
     _agent_access();
-    sessions=[p for p in [root --> [?:PrepSession, -updated_at]] if p.data.get("mode")!="interview"];
+    sessions=[p for p in [root --> [?:PrepSession, -updated_at]] if p.data.get("mode") not in ["interview","library"]];
     return {"sessions":[{"id":jid(p),"data":p.data,"revision":p.revision,"updated_at":p.updated_at} for p in sessions[:50]]};
 }
 def:priv prep_create(problem_id: str, language: str = "", application_id: str = "") -> dict[str, any] {
@@ -691,6 +691,7 @@ def:priv prep_save(id: str, revision: int, data: dict[str, any]) -> dict[str, an
         for p in [root -->][?:PrepSession] {
             if jid(p)==id {
                 if p.data.get("mode")=="interview" { return {"error":"Use interview controls to preserve the conversation."}; }
+                if p.data.get("mode")=="library" { return {"error":"Practice library answers are saved as attempts. Record a new attempt instead."}; }
                 if p.revision!=revision { return {"error":"This session changed on another device. Reload before saving."}; }
                 validated["application_id"]=p.data.get("application_id","");p.data=validated;p.revision+=1;p.updated_at=time.time();commit();return prep_get(id);
             }

@@ -140,6 +140,7 @@ final class AppStore {
             UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
         }
         RecordingStore.removeAll()
+        VideoLibraryStore.removeAll()
         jobFeedCache.remove()
         api.forget()
         prep.resetCatalog()

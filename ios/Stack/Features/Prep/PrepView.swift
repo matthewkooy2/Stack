@@ -66,9 +66,15 @@ struct PrepView: View {
         .sheet(isPresented: $showTopics, onDismiss: {
             if let next = pendingTool { pendingTool = nil; tool = next }
         }) {
-            PrepTopicSheet(selected: model.focus, onFocus: { model.choose($0) }, onInterview: { pendingTool = .interview })
+            PrepTopicSheet(selected: model.focus, onFocus: { model.choose($0) }, onInterview: { pendingTool = .interview },
+                           onPractice: { pendingTool = .library })
         }
-        .fullScreenCover(item: $tool) { _ in MockInterviewFlow().environment(store) }
+        .fullScreenCover(item: $tool) { value in
+            switch value {
+            case .interview: MockInterviewFlow().environment(store)
+            case .library: LibraryView().environment(store)
+            }
+        }
         .onDisappear { model.suspendCapture() }
         .task(id: model.autosaveToken) {
             guard [.answer, .review].contains(model.page) else { return }
@@ -351,6 +357,6 @@ struct AnswerEditor: View {
 }
 
 enum PrepTool: String, Identifiable {
-    case interview
+    case interview, library
     var id: String { rawValue }
 }

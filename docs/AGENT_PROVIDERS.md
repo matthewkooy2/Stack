@@ -25,6 +25,21 @@ Ollama or LM Studio; without an installed model configuration Settings explains
 that Local is unavailable. Runtime sign-in, model/service errors appear on the
 task; no provider fallback or model installation occurs.
 
+## Practice coaching output
+
+The coach step asks every provider (openai, meta, codex-cli, claude-cli and the
+local services) for the schema in `agents/coaching.jac`: `verdict`, `scores`
+(`name`, `score` 0 to 4, `why`), `work_on`, up to two `follow_ups` and an
+optional `example`. Stack trims and bounds those fields in the provider and again
+before it stores the artifact, then adds `summary` (the verdict) and a rendered
+`text` with the same layout every time, so older clients keep working.
+
+A reply that parses as JSON but has neither a verdict nor a score is rejected and
+the run asks for a retry. A reply that is not JSON at all, such as a local model
+that ignored the format, is kept as prose (`format: "text"`), as before. Clients
+should read the structured fields when `format` is `structured` and fall back to
+`text` otherwise.
+
 ## Installed local models
 
 The general worker can use installed local instruction models for job fit,

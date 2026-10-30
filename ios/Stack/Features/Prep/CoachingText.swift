@@ -163,8 +163,24 @@ struct InterviewNote: Equatable {
 }
 
 /// How a coaching reply becomes the scorecard, whether it arrives structured or as prose.
+/// Current replies carry `verdict`, `scores` and `work_on` (#112); older ones carry a `rubric` or only prose.
 enum CoachingPresentation {
+    static func criteria(from feedback: JSON) -> [CoachCriterion] {
+        feedback["scores"].array.compactMap { item in
+            let name = item["name"].string
+            guard !name.isEmpty else { return nil }
+            return CoachCriterion(name: name.prefix(1).uppercased() + name.dropFirst(),
+                                  score: min(max(Int(item["score"].double.rounded()), 0), 4), why: item["why"].string)
+        }
+    }
+
     static func make(from feedback: JSON) -> (verdict: String, criteria: [CoachCriterion], focus: String) {
+        let scores = criteria(from: feedback)
+        if !scores.isEmpty || !feedback["verdict"].string.isBlank {
+            let weakest = scores.min { $0.score < $1.score }?.why ?? ""
+            let focus = feedback["work_on"].string.isBlank ? CoachingText.firstSentence(weakest) : feedback["work_on"].string
+            return (feedback["verdict"].string, scores, focus)
+        }
         let structured: [CoachCriterion] = feedback["rubric"].array.compactMap { item in
             let name = item["criterion"].string
             guard !name.isEmpty else { return nil }

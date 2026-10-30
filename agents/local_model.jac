@@ -197,8 +197,10 @@ def complete(
             }
         };
     }
+    # Coaching sends its schema but, like the interview steps, keeps any nonempty reply;
+    # agents.coaching decides between structured and prose (#112).
     plain = step == 'coach' or step in ['interview_turn', 'interview_coach'];
-    if plain {
+    if plain and step != 'coach' {
         payload.pop('format', None);payload.pop('response_format', None);
     }
     headers = {'Content-Type': 'application/json', 'Accept': 'application/json'};

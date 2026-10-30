@@ -161,6 +161,10 @@ final class PrepModel {
     }
 
     var strengths: [JSON] { feedback["rubric"].array.filter { $0["score"].double >= 3 } }
+    /// The first thing that went well, from structured scores or an older rubric.
+    var worked: String {
+        CoachingPresentation.criteria(from: feedback).first { $0.score >= 3 }?.why ?? strengths.first?["feedback"].string ?? ""
+    }
     var improvements: [JSON] { feedback["rubric"].array.filter { $0["score"].double < 3 } }
 
     /// Consecutive days with practice, counted back from today (or from yesterday while today has none yet).

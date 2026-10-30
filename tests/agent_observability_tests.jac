@@ -5,7 +5,7 @@ import time;
 import from pathlib { Path }
 import from unittest.mock { patch }
 import from jaclang.testing.testing { JacTestClient }
-import from agents { provider, local_cli, worker }
+import from agents { provider, local_cli, worker, coaching }
 import from agents.tracing { trace_data }
 
 def rpc(client: JacTestClient, name: str, args: dict[str, any] | None = None) -> dict[str, any] {
@@ -35,9 +35,9 @@ test "traces and feedback are persistent private and bound to reviewed output" {
                     result=rpc(client,"agent_trace",{**auth,"event":event,"data":trace_data(data)});
                     assert result.get("saved"),result;
                 }
-                artifact={"summary":"Specific ownership; add a tradeoff.","rubric":[{"criterion":"Structure","score":3,"feedback":"Clear."}],"next_exercises":[],"followup_questions":[],"evidence":[]};
-                def fake_cli(name: str, model: str, system: str, prompt: str, schema: dict[str, any], observe: any = None, record_response: any = None) -> dict[str, any] {
-                    assert "Synthetic project answer" in prompt;
+                artifact={"verdict":"Specific ownership; add a tradeoff.","scores":[{"name":"Structure","score":3,"why":"Clear."}],"work_on":"","follow_ups":[],"example":""};
+                def fake_cli(name: str, model: str, system: str, prompt: str, schema: dict[str, any], observe: any = None, record_response: any = None, lenient: bool = False) -> dict[str, any] {
+                    assert lenient;assert "Synthetic project answer" in prompt;
                     if record_response { record_response(json.dumps(artifact), "model_json"); }
                     observe("model_response",{"text":json.dumps(artifact),"exit_code":0});
                     return artifact;
@@ -70,7 +70,7 @@ test "traces and feedback are persistent private and bound to reviewed output" {
                 assert rpc(client,"agent_run",{"id":run["id"]})["feedback"][0]["note"]==feedback["note"];
                 assert len(rpc(client,"agent_traces",{"id":run["id"]})["events"])==5;
                 assert rpc(client,"prep_get",{"id":session["id"]})["feedback"][0]["run_id"]==run["id"];
-                exported=rpc(client,"agent_export");assert exported["feedback"][0]["snapshot"]["artifacts"]["coach"]==artifact,repr(exported["feedback"]);
+                exported=rpc(client,"agent_export");assert exported["feedback"][0]["snapshot"]["artifacts"]["coach"]==coaching.artifact(artifact),repr(exported["feedback"]);
                 other=client.register_user("trace-other","Trace-password-456");assert other.ok;
                 assert "error" in rpc(client,"agent_run",{"id":run["id"]});
                 assert "error" in rpc(client,"agent_traces",{"id":run["id"]});

@@ -2,7 +2,7 @@
 import time;
 import from uuid { uuid4 }
 import from core.automation { BehavioralStory, _agent_access, _agent_fresh, _agent_start }
-import from core.catalog { _catalog_lock }
+import core.locks as locks;
 import from agents.stories { corrected, missing, TOPICS }
 
 def _story(id: str) -> BehavioralStory | None {
@@ -22,7 +22,7 @@ def:priv story_list(topic: str = "") -> dict[str, any] {
 }
 def:priv story_save(id: str, revision: int, fields: dict[str, any]) -> dict[str, any] {
     _agent_access();
-    with _catalog_lock {
+    with locks.account() {
         _agent_fresh();s=_story(id);
         if s is None { return {"error":"Story not found."}; }
         if s.revision!=revision { return {"error":"The story changed. Reopen it before saving."}; }
@@ -33,7 +33,7 @@ def:priv story_save(id: str, revision: int, fields: dict[str, any]) -> dict[str,
 }
 def:priv story_generate(id: str, revision: int) -> dict[str, any] {
     _agent_access();
-    with _catalog_lock {
+    with locks.account() {
         _agent_fresh();s=_story(id);
         if s is None { return {"error":"Story not found."}; }
         if s.revision!=revision { return {"error":"The story changed. Reopen it before generating."}; }
@@ -45,7 +45,7 @@ def:priv story_generate(id: str, revision: int) -> dict[str, any] {
 }
 def:priv story_delete(id: str, revision: int) -> dict[str, any] {
     _agent_access();
-    with _catalog_lock {
+    with locks.account() {
         _agent_fresh();s=_story(id);
         if s is None { return {"error":"Story not found."}; }
         if s.revision!=revision { return {"error":"The story changed. Reopen it before deleting."}; }

@@ -4,7 +4,7 @@ from pathlib import Path
 from urllib.request import Request,urlopen
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from discovery.normalize import normalize,digest
-from test_api import account,rpc,request,BASE
+from test_api import account,rpc,request,BASE,feed
 TOKEN=Path('storage/discovery/worker-token').read_text().strip()
 def worker(name,**args):
     _,result=request('/function/'+name,{'token':TOKEN,**args})
@@ -35,36 +35,36 @@ class CatalogAPI(unittest.TestCase):
     _,r=request('/function/discovery_claim',{'token':TOKEN},token=self.a)
     self.assertIn('error',r['data']['result'])
  def test_02_shared_search_and_keyset_pagination(self):
-    first=rpc(self.a,'search_jobs',query=self.label,filters={})
+    first=feed(self.a,query=self.label,filters={})
     self.assertEqual(len(first['jobs']),25);self.assertTrue(first['next_cursor'])
     second=rpc(self.a,'search_jobs',query=self.label,filters={},cursor=first['next_cursor'])
     self.assertEqual(len(second['jobs']),5);self.assertFalse(second['next_cursor'])
     self.assertEqual(len({j['id'] for j in first['jobs']+second['jobs']}),30)
-    self.assertEqual([j['id'] for j in first['jobs']],[j['id'] for j in rpc(self.b,'search_jobs',query=self.label,filters={})['jobs']])
+    self.assertEqual([j['id'] for j in first['jobs']],[j['id'] for j in feed(self.b,query=self.label,filters={})['jobs']])
     self.assertIn('error',rpc(self.a,'search_jobs',query='changed',filters={},cursor=first['next_cursor']))
  def test_02b_newest_date_filter_and_sort_persistence(self):
-    first=rpc(self.a,'search_jobs',query=self.label,filters={'has_posting_date':True,'sort':'newest'})
+    first=feed(self.a,query=self.label,filters={'has_posting_date':True,'sort':'newest'})
     second=rpc(self.a,'search_jobs',query=self.label,filters={'has_posting_date':True,'sort':'newest'},cursor=first['next_cursor'])
     jobs=first['jobs']+second['jobs']
     self.assertEqual(len(jobs),27)
     self.assertTrue(all(j['posted_at'] for j in jobs))
     self.assertEqual([j['posted_at'] for j in jobs],sorted([j['posted_at'] for j in jobs],reverse=True))
     self.assertIn('error',rpc(self.a,'search_jobs',query=self.label,filters={'has_posting_date':True,'sort':'relevance'},cursor=first['next_cursor']))
-    relevant=rpc(self.a,'search_jobs',query=self.label+' Nurse 2',filters={'sort':'relevance'})
+    relevant=feed(self.a,query=self.label+' Nurse 2',filters={'sort':'relevance'})
     self.assertEqual(relevant['jobs'][0]['title'],self.label+' Nurse 2')
     rpc(self.a,'save_search',query=self.label,filters={'has_posting_date':True,'sort':'relevance'})
     saved=rpc(self.a,'bootstrap')['saved_search']['filters']
     self.assertTrue(saved['has_posting_date']);self.assertEqual(saved['sort'],'relevance')
  def test_03_filters_expiry_and_real_apply(self):
     # Fixtures do not state a work arrangement: shown as unconfirmed, hidden when only confirmed matches are wanted.
-    remote=rpc(self.a,'search_jobs',query=self.label,filters={'mode':'Remote'})['jobs']
+    remote=feed(self.a,query=self.label,filters={'mode':'Remote'})['jobs']
     self.assertTrue(remote);self.assertTrue(all(j['match']['verdict']=='uncertain' for j in remote))
     self.assertIn('Work arrangement: Work arrangement not stated',remote[0]['match']['uncertain'])
-    self.assertEqual(rpc(self.a,'search_jobs',query=self.label,filters={'mode':'Remote','confirmed_only':True})['jobs'],[])
-    self.assertTrue(rpc(self.a,'search_jobs',query=self.label,filters={'salary_min':40,'salary_period':'hour'})['jobs'])
+    self.assertEqual(feed(self.a,query=self.label,filters={'mode':'Remote','confirmed_only':True})['jobs'],[])
+    self.assertTrue(feed(self.a,query=self.label,filters={'salary_min':40,'salary_period':'hour'})['jobs'])
     # $30-45/hour is at most $93,600/year at 2,080 hours.
-    self.assertTrue(rpc(self.a,'search_jobs',query=self.label,filters={'salary_min':90000,'salary_period':'year'})['jobs'])
-    self.assertFalse(rpc(self.a,'search_jobs',query=self.label,filters={'salary_min':100000,'salary_period':'year'})['jobs'])
+    self.assertTrue(feed(self.a,query=self.label,filters={'salary_min':90000,'salary_period':'year'})['jobs'])
+    self.assertFalse(feed(self.a,query=self.label,filters={'salary_min':100000,'salary_period':'year'})['jobs'])
     self.assertIn('error',rpc(self.a,'swipe',job_id=self.expired['id'],action='apply'))
     job_id=self.jobs[0]['id']
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
@@ -100,11 +100,11 @@ class CatalogAPI(unittest.TestCase):
  def test_07_warm_cache_tracks_expiry_and_updates(self):
     worker('discovery_manage',id=self.source_id,action='refresh')
     w=worker('discovery_claim',preferred_id=self.source_id)
-    rpc(self.a,'search_jobs',query=self.label)  # Warm before the worker commits.
+    feed(self.a,query=self.label)  # Warm the view and prepare the feed before the worker commits.
     changed=dict(self.jobs[0],description='Build updated software for clinical teams.')
     expired=dict(self.jobs[-1],expires_at=time.time()-100)
     worker('discovery_complete',id=self.source_id,lease=w['lease'],result={'jobs':[changed,expired],'complete':True})
-    first=rpc(self.a,'search_jobs',query=self.label)
+    first=feed(self.a,query=self.label)
     jobs=first['jobs']+rpc(self.a,'search_jobs',query=self.label,cursor=first['next_cursor'])['jobs']
     self.assertNotIn(expired['id'],[j['id'] for j in jobs])
     self.assertEqual(jobs[0]['highlights']['responsibilities'],['Build updated software for clinical teams.'])

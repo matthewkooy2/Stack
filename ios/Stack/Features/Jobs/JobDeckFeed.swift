@@ -28,6 +28,8 @@ final class JobDeckFeed {
     private(set) var jobs: [Job] = []
     private(set) var loaded = false
     private(set) var nextCursor = ""
+    /// The server served its last prepared feed while it prepares a newer one in the background.
+    private(set) var updating = false
     /// One search save or deck load at a time, so a slow older response cannot overwrite a newer search.
     private(set) var gate = JobRequestGate()
     var loadError = ""
@@ -192,6 +194,7 @@ final class JobDeckFeed {
                 }
             }
             nextCursor = result["next_cursor"].string
+            if !continuing { updating = result["updating"].bool }
             source.received(result)
             return .applied
         } catch {

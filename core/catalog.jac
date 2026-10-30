@@ -14,10 +14,14 @@ import from discovery.matching { facts, current_facts, criteria, evaluate, FACTS
 import from core.preferences { _match_preferences }
 import from discovery.ranking { rank, encode_cursor, decode_cursor, posting_label }
 import from core.timeline { _timeline_preferences }
+import from core.automation { _agent_owner, AgentMemory }
 import from discovery.timeline { analyze, assess, timeline_includes, VERSION }
 import from discovery.sources { identify }
 import from discovery.transport { public_url }
-glob _catalog_cache: dict[str, any] = {"root":"","at":0.0,"rows":{}};
+# The processed catalog view (#107). Requests only read the current snapshot; background
+# upkeep (discovery_maintain, discovery_daily, migrations) rebuilds it and swaps it in.
+glob _catalog_cache: dict[str, any] = {"root":"","at":0.0,"rows":{},"building":False,"pending":{},"stale":False,"duration":0.0};
+glob CATALOG_REPAIR_SECONDS: float = 1800.0;
 
 node CatalogJob {
     has key: str, canonical_url: str, identity: str, data: dict[str, any], observations: dict[str, any] = {}, active: bool = True, checked_at: float = 0.0, discovered_at: float = 0.0, bucket: str = "";
@@ -30,6 +34,8 @@ node DiscoveryRequest {
     has key: str, kind: str, payload: dict[str, any], created_at: float, status: str = "queued", source_ids: list[str] = [], message: str = "";
 }
 node PreparedJobFeed { has key: str, result: dict[str, any]; }
+"""One account waiting for its feed to be prepared in the background (#105)."""
+node FeedRequest { has owner: str, requested_at: float, search: dict[str, any] = {}; }
 node DailyJobsRefresh { has day: str = "", finished: bool = True, failed: bool = False, successes: int = 0; }
 node SavedSearch { has query: str = "", filters: dict[str, any] = {}; }
 node TimelineMigration { has version: int = 0, after_key: str = "", complete: bool = False; }
@@ -82,22 +88,57 @@ def _job_view(j: CatalogJob) -> dict[str, any] {
     data["facts"]=current_facts(data); data["tags"]=[x for x in data["facts"]["employment"]+[data["facts"]["level"]] if x];
     return data;
 }
-def _cache_clear() -> None { _catalog_cache["at"]=0.0; }
+"""Marks the view for a background rebuild. The current snapshot keeps serving meanwhile."""
+def _cache_clear() -> None { with locks.cache() { _catalog_cache["stale"]=True; } }
 def _cache_put(data: dict[str, any]) -> None {
-    with locks.cache() { if _catalog_cache["at"] { _catalog_cache["rows"][data["id"]]=data; } }
+    with locks.cache() {
+        # Updates committed during a rebuild are re-applied on top of the new snapshot.
+        if _catalog_cache["building"] { _catalog_cache["pending"][data["id"]]=data; }
+        if _catalog_cache["at"] { _catalog_cache["rows"][data["id"]]=data; }
+    }
 }
 def _cache_after_commit(j: CatalogJob) -> None {
     view=_job_view(j);JacRuntime.get_context().on_commit(lambda { _cache_put(view); });
 }
+"""The current snapshot of the view, possibly stale and empty before the first warm-up. Never builds."""
 def _catalog_records() -> list[dict[str, any]] {
+    with locks.cache() { return list(_catalog_cache["rows"].values()); }
+}
+def _catalog_row(key: str) -> dict[str, any] | None {
+    with locks.cache() { return _catalog_cache["rows"].get(key); }
+}
+def _catalog_status() -> dict[str, any] {
     with locks.cache() {
-        if _catalog_cache["root"]!=jid(root.shared) or _catalog_cache["at"]<time.time()-300 {
-            rows={};
-            for j in [root.shared -->][?:CatalogJob] { rows[j.key]=_job_view(j); }
-            _catalog_cache.update({"root":jid(root.shared),"at":time.time(),"rows":rows});
-        }
-        return list(_catalog_cache["rows"].values());
+        ready=bool(_catalog_cache["at"]) and _catalog_cache["root"]==jid(root.shared);
+        return {"ready":ready,"age":time.time()-_catalog_cache["at"] if ready else None,"stale":_catalog_cache["stale"],
+            "building":_catalog_cache["building"],"jobs":len(_catalog_cache["rows"]),"rebuild_seconds":_catalog_cache["duration"]};
     }
+}
+def _shared_jobs -> list[CatalogJob] { return [root.shared -->][?:CatalogJob]; }
+"""Background only: processes every job outside the cache turn, then swaps the snapshot in.
+A failed rebuild keeps the previous snapshot. Returns the job count, or -1 when one is already running."""
+def _catalog_rebuild() -> int {
+    with locks.cache() {
+        if _catalog_cache["building"] { return -1; }
+        _catalog_cache["building"]=True;_catalog_cache["pending"]={};
+    }
+    started=time.time();rows: dict[str, any]={};built=False;
+    try {
+        for j in _shared_jobs() { rows[j.key]=_job_view(j); }
+        built=True;
+    } finally {
+        with locks.cache() {
+            if built {
+                rows.update(_catalog_cache["pending"]);
+                _catalog_cache.update({"root":jid(root.shared),"at":time.time(),"rows":rows,"stale":False,"duration":time.time()-started});
+            }
+            _catalog_cache["building"]=False;_catalog_cache["pending"]={};
+        }
+    }
+    return len(rows);
+}
+def _live(row: dict[str, any]) -> bool {
+    return bool(row.get("active",True)) and (not row.get("expires_at") or row["expires_at"]>time.time());
 }
 def _saved_search() -> dict[str, any] {
     items=[root -->][?:SavedSearch]; return {"query":items[0].query,"filters":items[0].filters} if items else {};
@@ -145,25 +186,70 @@ def:priv search_jobs(query: str = "", filters: dict[str, any] | None = None, cur
     if filters is None or filters in ["None","{}"] { filters={}; }
     try { search=validate_filters(query,filters); c=_criteria(search["query"],search["filters"]); } except Exception as e { return {"error":str(e)}; }
     fingerprint=digest(json.dumps([search,_match_preferences()],sort_keys=True));
-    try { after=decode_cursor(cursor,fingerprint); } except Exception as e { return {"error":str(e)}; }
     if refresh {
         with locks.account() { _fresh(); _enqueue_roles(c,search); commit(); }
     }
+    # Never prepare here (#105): serve the last prepared feed and queue a background preparation.
     feeds=[root -->][?:PreparedJobFeed];
-    cached=feeds[0] if feeds and feeds[0].key==fingerprint else None;
-    if cached is None {
-        with locks.account() {
-            _fresh(); result=_prepare_job_feed(search);
-        }
-    } else { result=cached.result; }
+    feed=feeds[0] if feeds else None;
+    result=dict(feed.result) if feed is not None else _empty_feed(search,c);
+    updating=feed is None or feed.key!=fingerprint;
+    # Cursors stay bound to the requested search, so paging survives the feed being replaced underneath.
+    try { after=decode_cursor(cursor,fingerprint); } except Exception as e { return {"error":str(e)}; }
     order=search["filters"]["sort"];
-    rows=[j for j in result["jobs"] if after is None or rank(j,order)>after][:26];
+    rows=_current_cards([j for j in result["jobs"] if after is None or rank(j,order)>after],26);
     next_cursor="";
     if len(rows)>25 { rows=rows[:25];next_cursor=encode_cursor(fingerprint,rank(rows[-1],order)); }
-    return {**result,"jobs":rows,"next_cursor":next_cursor,"refresh_requested":refresh};
+    if updating { _request_feed(search); }
+    return {**result,"jobs":rows,"next_cursor":next_cursor,"refresh_requested":refresh,"updating":updating};
 }
 
+"""Shape of a feed that has not been prepared yet."""
+def _empty_feed(search: dict[str, any], c: dict[str, any]) -> dict[str, any] {
+    return {"jobs":[],"next_cursor":"","sources":[],"occupations":[x["name"] for x in taxonomy()],"checked_at":0.0,
+        "timeline_preferences":_timeline_preferences(),"criteria":_criteria_view(c),"excluded":[],"total":0};
+}
+
+"""Up to `limit` saved cards, re-rendered from the live catalog view: closed, expired and removed
+jobs are dropped and listing edits show at once. Ranking and match details stay as prepared."""
+def _current_cards(cards: list[dict[str, any]], limit: int) -> list[dict[str, any]] {
+    ready=_catalog_status()["ready"];out: list[dict[str, any]]=[];
+    for card in cards {
+        if len(out)>=limit { break; }
+        row=_catalog_row(card["id"]) if ready else None;
+        if row is None {
+            # Before the first warm-up, the saved card is the best copy; it still must not be expired.
+            if not ready and _live(card) { out.append(card); }
+            continue;
+        }
+        if not _live(row) { continue; }
+        view=dict(row);view["posted"]=posting_label(view.get("posted_at",0));
+        view["timeline"]=card.get("timeline",{});view["match"]=card.get("match",{});
+        out.append(card_view(view));
+    }
+    return out;
+}
+
+"""Queues this account's search for background preparation. One request per account: the latest search wins."""
+def _request_feed(search: dict[str, any]) -> None {
+    me=jid(root);
+    pending=[root.shared --> [?:FeedRequest, owner==me]];
+    if pending and pending[0].search==search { return; }
+    with locks.account() {
+        _fresh();
+        pending=[root.shared --> [?:FeedRequest, owner==me]];
+        if pending { pending[0].search=search;pending[0].requested_at=time.time(); }
+        else {
+            r=root.shared ++> FeedRequest(owner=me,requested_at=time.time(),search=search);
+            JacRuntime.allow_root(r,UUID(jid(root.shared)),AccessLevel.WRITE); # jac:ignore[E1053]
+        }
+        commit();
+    }
+}
+
+"""Background only (discovery_maintain, discovery_daily): matches and ranks the whole catalog for this account."""
 def _prepare_job_feed(search: dict[str, any]) -> dict[str, any] {
+    if not _catalog_status()["ready"] { _catalog_rebuild(); }
     c=_criteria(search["query"],search["filters"]);preferences=_timeline_preferences();
     fingerprint=digest(json.dumps([search,_match_preferences()],sort_keys=True));
     cutoff=time.time()-604800; order=search["filters"]["sort"];
@@ -447,7 +533,7 @@ def:pub discovery_analyze(token: str) -> dict[str, any] {
         # Timeline analysis and matching facts share one resumable migration.
         wanted=VERSION*1000+FACTS_VERSION;
         if migration.version!=wanted { migration.version=wanted;migration.after_key="";migration.complete=False; }
-        if migration.complete { _catalog_records();return {"complete":True,"updated":0}; }
+        if migration.complete { _catalog_rebuild();return {"complete":True,"updated":0}; }
         after_key=migration.after_key;
         batch=[root.shared --> [?:CatalogJob, key>after_key, key]][:50];
         for j in batch { data=dict(j.data);
@@ -455,6 +541,35 @@ def:pub discovery_analyze(token: str) -> dict[str, any] {
             data["timeline_analysis"]=analyze(data);data["facts"]=facts(data);j.data=data;_cache_after_commit(j);migration.after_key=j.key; }
         migration.complete=len(batch)<50;commit();return {"complete":migration.complete,"updated":len(batch)};
     }
+}
+
+"""Background catalog and feed upkeep, called by the collector loop and never on a user's request (#105, #107).
+Warms or repairs the catalog view, then prepares queued account feeds until the time budget is spent."""
+def:pub discovery_maintain(token: str, budget_seconds: float = 5.0) -> dict[str, any] {
+    if not _worker_allowed(token) { return {"error":"Worker authorization required."}; }
+    started=time.time();system=jid(root);budget=max(0.5,min(float(budget_seconds),60.0));
+    status=_catalog_status();rebuilt=False;
+    if not status["ready"] or status["stale"] or status["age"]>CATALOG_REPAIR_SECONDS { rebuilt=_catalog_rebuild()>=0; }
+    prepared=0;
+    # Only each account's own turn is taken: agent and resume claims (sweep) never wait for feed preparation.
+    _fresh();
+    for request in [root.shared --> [?:FeedRequest, requested_at]] {
+        if time.time()-started>budget { break; }
+        owner=request.owner;wanted=dict(request.search);
+        _agent_owner(owner);
+        # The account turn keeps this request unchanged while its feed is prepared.
+        with locks.account(owner) {
+            memories=[root -->][?:AgentMemory];
+            # Accounts that never opened the agent features have no memory yet; only deleted ones are skipped.
+            if not (memories and memories[0].deleted) {
+                if not wanted { saved=_saved_search();wanted=validate_filters(saved.get("query",""),saved.get("filters",{})); }
+                _prepare_job_feed(wanted);prepared+=1;
+            }
+            _agent_owner(system);del request;commit();
+        }
+    }
+    _agent_owner(system);
+    return {"catalog":_catalog_status(),"rebuilt":rebuilt,"prepared":prepared,"pending":len([root.shared --> [?:FeedRequest]])};
 }
 
 def:pub discovery_report(token: str) -> dict[str, any] {

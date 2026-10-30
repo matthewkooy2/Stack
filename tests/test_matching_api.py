@@ -8,7 +8,7 @@ import sys,time,uuid,unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 from discovery.normalize import normalize,digest
-from test_api import account,rpc
+from test_api import account,rpc,feed
 from test_catalog_api import worker
 
 BASE_PREFS={'stage':'Recent graduate','years':0,'education':"Bachelor's",'modes':[],'employment_types':['Full-time'],'salary_min':35,'salary_period':'hour','exclude_companies':[],'exclude_terms':[],'soft':[]}
@@ -39,7 +39,7 @@ class MatchingAPI(unittest.TestCase):
     result=rpc(self.a,'save_profile',name='Match Tester',role=f'{self.label} registered nurse',location=location,mode='Any',notifications=False,graduation_month='2026-05',available_from='',preferences={**BASE_PREFS,**prefs})
     self.assertNotIn('error',result);return result
  def search(self,query='',**filters):
-    result=rpc(self.a,'search_jobs',query=query,filters=filters)
+    result=feed(self.a,query=query,filters=filters)
     self.assertNotIn('error',result)
     return result,{k for k,v in self.ids.items() if v in [j['id'] for j in result['jobs']]},{j['id']:j for j in result['jobs']}
  def test_01_profile_inputs_drive_results_and_explanations(self):

@@ -67,12 +67,21 @@ class JobsFeedAPI(unittest.TestCase):
         self.assertNotIn('error', result)
         return result
 
-    def system(self, name, args):
+    def system(self, name, args, restore=None):
         self.client.clear_auth()
         try:
             return self.rpc(name, {'token': 'fictional-test-token', **args})
         finally:
-            self.client.set_auth_token(self.token)
+            self.client.set_auth_token(restore or self.token)
+
+    def search(self, args, token=None):
+        """Searches as the app does, then lets the collector's upkeep prepare the feed in the background."""
+        first = self.rpc('search_jobs', args)
+        if first['updating']:
+            self.assertGreaterEqual(self.system('discovery_maintain', {}, token)['prepared'], 1)
+        result = self.rpc('search_jobs', args)
+        self.assertFalse(result['updating'])
+        return result
 
     def test_scope_before_pagination_persistence_and_unknown_timing(self):
         self.rpc('save_timeline', {'graduation_month': '2027-05', 'available_from': '2027-06'})
@@ -82,7 +91,7 @@ class JobsFeedAPI(unittest.TestCase):
         self.assertEqual(restored['query'], saved['query'])
         self.assertEqual(restored['filters'], saved['filters'])
         args = {'query': restored['query'], 'filters': restored['filters']}
-        first = self.rpc('search_jobs', args)
+        first = self.search(args)
         self.assertEqual(first['total'], 24)
         self.assertEqual(len(first['jobs']), 24)
         self.assertFalse(first['next_cursor'])
@@ -93,7 +102,7 @@ class JobsFeedAPI(unittest.TestCase):
         # Remove one employer exclusion to exercise the full 25-row boundary, then all timelines
         # to obtain 26 matching rows and verify the second page has only one matching row.
         paged_args = {'query': 'Software engineer', 'filters': {**PRESET, 'sort': 'newest', 'timeline': 'all'}}
-        page = self.rpc('search_jobs', paged_args)
+        page = self.search(paged_args)
         self.assertEqual(page['total'], 26)
         self.assertEqual(len(page['jobs']), 25)
         self.assertTrue(page['next_cursor'])
@@ -105,18 +114,18 @@ class JobsFeedAPI(unittest.TestCase):
         self.assertEqual([j['posted_at'] for j in all_jobs], sorted((j['posted_at'] for j in all_jobs), reverse=True))
         response = self.client.post('/function/search_jobs', json={**paged_args, 'filters': {**PRESET, 'sort': 'relevance'}, 'cursor': page['next_cursor']})
         self.assertIn('error', response.data['result'])
-        confirmed = self.rpc('search_jobs', {'query': 'Software engineer', 'filters': {**PRESET, 'timeline': 'confirmed'}})
+        confirmed = self.search({'query': 'Software engineer', 'filters': {**PRESET, 'timeline': 'confirmed'}})
         self.assertEqual(len(confirmed['jobs']), 13)
         self.assertTrue(all(j['timeline']['status'] == 'match' for j in confirmed['jobs']))
-        interns = self.rpc('search_jobs', {'query': 'Software engineer', 'filters': {'levels': ['Internship'], 'employment_types': ['Internship'], 'confirmed_level': True}})
+        interns = self.search({'query': 'Software engineer', 'filters': {'levels': ['Internship'], 'employment_types': ['Internship'], 'confirmed_level': True}})
         self.assertEqual(len(interns['jobs']), 3)
         self.assertTrue(all(j['title'].endswith('Intern') for j in interns['jobs']))
-        global_jobs = self.rpc('search_jobs', {'filters': {'timeline': 'all'}})
+        global_jobs = self.search({'filters': {'timeline': 'all'}})
         self.assertEqual(global_jobs['total'], 72)
         other = self.client.register_user('jobs-fixture-b', 'Fixture-password-b-456').data['token']
         self.client.set_auth_token(other)
         self.assertEqual(self.rpc('bootstrap')['saved_search'], {})
-        self.assertEqual(self.rpc('search_jobs', {'filters': {'timeline': 'all'}})['total'], 72)
+        self.assertEqual(self.search({'filters': {'timeline': 'all'}}, other)['total'], 72)
         self.client.set_auth_token(self.token)
         self.assertEqual(self.rpc('bootstrap')['saved_search'], restored)
         # A profile location edit wins over its older search override, preserving role,
@@ -133,12 +142,12 @@ class JobsFeedAPI(unittest.TestCase):
         role_edited = self.rpc('bootstrap')['saved_search']
         self.assertNotIn('any_role', role_edited['filters'])
         self.assertEqual(role_edited['filters']['sort'], 'newest')
-        scoped = self.rpc('search_jobs', {'query': role_edited['query'], 'filters': role_edited['filters']})
+        scoped = self.search({'query': role_edited['query'], 'filters': role_edited['filters']})
         self.assertEqual(scoped['criteria']['roles'], 'Registered nurse')
         self.assertEqual(scoped['jobs'], [])
 
     def test_confirmed_timeline_requires_profile_date_and_filters_validate(self):
-        result = self.rpc('search_jobs', {'query': 'Software engineer', 'filters': {**PRESET, 'timeline': 'confirmed'}})
+        result = self.search({'query': 'Software engineer', 'filters': {**PRESET, 'timeline': 'confirmed'}})
         self.assertEqual(result['jobs'], [])
         self.assertEqual(result['total'], 0)
         self.assertTrue(any('Set your graduation date' in n for n in result['criteria']['notices']))

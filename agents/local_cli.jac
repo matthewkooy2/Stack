@@ -100,8 +100,11 @@ def run(
     }
 }
 def generate(
-    provider: str, model: str, system: str, prompt: str, schema: dict[str, any], observe: any = None, record_response: any = None
+    provider: str, model: str, system: str, prompt: str, schema: dict[str, any], observe: any = None, record_response: any = None,
+    lenient: bool = False
 ) -> dict[str, any] {
+    # lenient: send the schema but hand back the reply as text, so the caller can keep
+    # a prose reply (coaching, #112) instead of failing the step.
     executable = shutil.which('codex' if (provider == 'codex-cli') else 'claude');
     if not executable {
         raise ValueError(
@@ -188,7 +191,7 @@ def generate(
             }
             text = raw;
             if observe { observe("model_response", {"exit_code":status,"text":text,"reported_models":[]}); }
-            return json.loads(text as str) if schema else {'text': text};
+            return json.loads(text as str) if schema and not lenient else {'text': text};
         }
         (status, login) = run([executable, 'auth', 'status'], tmp, seconds=10);
         auth = json.loads(login) if not status else {};
@@ -238,8 +241,9 @@ def generate(
             );
         }
         result = json.loads(output);
-        if not schema {
+        if not schema or lenient {
             if result.get('is_error') { raise ValueError('Claude could not complete the request.'); }
+            if schema and isinstance(result.get('structured_output'), dict) { return {'text': json.dumps(result['structured_output'])}; }
             return {'text': result.get('result', '')};
         }
         if (result.get('is_error') or ('structured_output' not in result)) {

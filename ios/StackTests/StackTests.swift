@@ -139,6 +139,22 @@ final class CoachingTextTests: XCTestCase {
         XCTAssertEqual(note.improvement, "Add context on who was affected.")
     }
 
+    func testStructuredScoresFromTheCoachStep() {
+        let feedback: JSON = ["verdict": "Clear ownership; add the result.", "summary": "Clear ownership; add the result.",
+                              "text": "Clear ownership; add the result.\n\nScores:\nOwnership: 4/4 - Clear.",
+                              "scores": [["name": "ownership", "score": 4, "why": "Clear."],
+                                         ["name": "Reflection", "score": 1, "why": "No lesson. Say what changed."]],
+                              "work_on": "End with the measurable result.", "follow_ups": ["What changed?"], "format": "structured"]
+        let shown = CoachingPresentation.make(from: feedback)
+        XCTAssertEqual(shown.verdict, "Clear ownership; add the result.")
+        XCTAssertEqual(shown.criteria, [CoachCriterion(name: "Ownership", score: 4, why: "Clear."),
+                                        CoachCriterion(name: "Reflection", score: 1, why: "No lesson. Say what changed.")])
+        XCTAssertEqual(shown.focus, "End with the measurable result.")
+        var missingFocus = feedback
+        missingFocus["work_on"] = ""
+        XCTAssertEqual(CoachingPresentation.make(from: missingFocus).focus, "No lesson.")
+    }
+
     func testStructuredCoachingStillWorks() {
         let feedback: JSON = ["summary": "Specific ownership; add a tradeoff.",
                               "rubric": [["criterion": "ownership", "score": 4, "feedback": "Clear."]],

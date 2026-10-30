@@ -21,6 +21,7 @@ import from agents.google { authorization_url, exchange, refreshed, SCOPES }
 import from agents.tracing { capture_enabled, trace_data }
 import from agents.browser_control { BROWSER_ERROR_MESSAGE, sanitize_browser_diagnostic }
 import agents.interview as interview;
+import agents.coaching as coaching;
 import from jaclang.server.identity.app_tokens { token_create, token_peek, token_consume }
 
 node AgentMemory { has facts: list[dict[str, any]] = [], policy: dict[str, any] = {}, revision: int = 0, admitted: bool = False, deleted: bool = False, model_selection: str = ""; }
@@ -536,6 +537,9 @@ def _agent_complete(token: str, id: str, owner: str, lease: str, result: dict[st
                 if step=="coach" {
                     sessions=[p for p in [root -->][?:PrepSession] if jid(p)==r.target_id];
                     if not sessions or sessions[0].revision!=r.context.get("session_revision",0) { r.status="needs_input";r.message="Practice changed while coaching was running. Request coaching again for your saved answer.";commit();return _run_view(r,True); }
+                    # A worker result is untrusted: re-check structured coaching before storing it.
+                    try { artifact=coaching.stored(artifact); }
+                    except ValueError as exc { r.status="needs_input";r.message=str(exc);commit();return _run_view(r,True); }
                 }
                 r.artifacts[step]=artifact;
                 for a in intents { a.status="confirmed";a.receipt=artifact; }

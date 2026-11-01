@@ -8,6 +8,13 @@ LinkedIn profile review is available from Network: sign in through the browser h
 
 See [job-discovery setup, source coverage, and budget controls](docs/JOB_DISCOVERY.md). Provider credentials are optional for public feeds and required for Adzuna, TheirStack, and USAJOBS.
 
+## MVP scope and planning
+
+Read [MVP scope](docs/MVP_SCOPE.md) for agreed requirements and open decisions,
+and [MVP planning](docs/MVP_PLANNING.md) for the backend audit, gaps and
+verification needs. Teammates and their agents should read both before starting
+MVP work.
+
 ## Develop on Linux or Windows/WSL2
 
 From a clean public clone on Ubuntu 24.04 or Windows with Ubuntu 24.04 in WSL2:

@@ -35,6 +35,10 @@ export async function beginApple(request) {
    throw new Error(challenge?.error || 'Apple sign-in is unavailable. Try again.');
   }
   const redirectURI = appleRedirectURI(challenge.redirect_uri);
+  const origin = new URL(redirectURI).origin;
+  if (window.location.origin !== origin) {
+   throw new Error('Open ' + origin + ' to continue with Apple. Apple sign-in must start from the registered HTTPS Stack site.');
+  }
   const apple = await loadSDK();
   apple.auth.init({clientId: challenge.client_id, redirectURI, state: challenge.state, nonce: challenge.nonce, usePopup: true});
   const response = await apple.auth.signIn();

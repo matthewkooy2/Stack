@@ -6,7 +6,7 @@ async function main() {
  const challenge = {ok: true, state: 'fixture-state', nonce: 'fixture-nonce', client_id: 'com.fixture.stack.web', redirect_uri: 'https://stack.example.com/auth/apple'};
  let config, calls = [];
  const proof = {authorization: {state: challenge.state, id_token: 'fixture-apple-proof'}};
- global.window = {AppleID: {auth: {init: value => { config = value; }, signIn: async () => proof}}};
+ global.window = {location: {origin: 'https://stack.example.com'}, AppleID: {auth: {init: value => { config = value; }, signIn: async () => proof}}};
  const request = async (route, body, authenticated) => {
   calls.push({route, body, authenticated});
   return {result: route.endsWith('auth_apple_web_begin') ? challenge : {ok: true, token: 'fixture-stack-session', username: 'apple_fixture'}};
@@ -30,6 +30,11 @@ async function main() {
  await assert.rejects(() => beginApple(async () => ({result: {ok: false, error: 'Missing Apple configuration'}})), /Missing Apple configuration/);
  assert.equal(opened, false);
  for (const url of ['http://stack.example.com/auth/apple', 'https://127.0.0.1/auth/apple', 'https://localhost/auth/apple', 'https://evil.example/other', 'https://stack.example.com/auth/apple#token', 'https://u:p@stack.example.com/auth/apple']) assert.throws(() => appleRedirectURI(url));
+ // Local previews cannot receive Apple's response for the registered HTTPS origin.
+ calls = []; opened = false; window.location.origin = 'http://127.0.0.1:18080';
+ await assert.rejects(() => beginApple(request), /Open https:\/\/stack.example.com/);
+ assert.equal(calls.length, 1); assert.equal(opened, false);
+ window.location.origin = 'https://stack.example.com';
  // A pending popup cannot be replaced by a second concurrent request.
  let release; window.AppleID.auth.signIn = () => new Promise(resolve => { release = resolve; });
  const first = beginApple(request);

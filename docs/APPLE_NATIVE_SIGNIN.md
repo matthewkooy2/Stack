@@ -97,10 +97,13 @@ grant, or extra JavaScript package is added.
 
 The ordinary `make dev` contributor launcher intentionally clears deployment
 integration variables. Use the operator API/gateway launch path with the explicit
-configuration above to exercise real Apple sign-in. The popup uses the registered
-HTTPS return URL supplied by the server; a local browser preview still needs
-Apple's configured web service. Register and verify the intended hosted origin
-before treating live browser sign-in as accepted.
+configuration above to exercise real Apple sign-in. The popup is bound to the registered HTTPS origin. The login page's origin must
+match the configured return URL's origin, including its port. Localhost previews
+must use password/Google or a separately registered HTTPS development origin;
+a popup launched from localhost cannot complete for the production domain. The
+web helper detects this mismatch before opening Apple and shows the correct
+HTTPS address. Register and verify the intended hosted origin before treating
+live browser sign-in as accepted.
 
 ### Browser verification
 
@@ -118,12 +121,23 @@ before treating live browser sign-in as accepted.
 
 ### Setup status for the team hostname
 
-The Services ID `com.matthewkooy.stack.web` (Stack Web) has been registered in
-Apple Developer. The proposed primary app is the existing
-`com.matthewkooy.stack`, and the proposed team return URL is
-`https://stackmvp.top/auth/apple`. The hostname is not yet confirmed as the final
-Cloudflare app origin and had no live DNS routing during preparation. The domain
-association and live activation remain pending until the domain/HTTPS origin is
-confirmed. No existing iOS identifier, native capability or production service
-configuration was changed. A subdomain chosen by the hosting setup must replace
-the proposed root hostname in both Apple Developer and the API environment.
+Apple Developer now has the Services ID `com.matthewkooy.stack.web` (Stack Web),
+with Sign in with Apple enabled and grouped with the existing primary App ID
+`com.matthewkooy.stack`. The user confirmed control of `stackmvp.top` and the
+exact root app address. Its saved domain is `stackmvp.top`, and its saved return
+URL is `https://stackmvp.top/auth/apple`. These values were reopened and verified
+in Apple Developer after saving.
+
+The same public configuration is enabled on the isolated local preview API.
+Apple's real popup recognized this Services ID and reached device verification,
+but failed at Apple consent before an identity proof reached Stack. That attempt
+started from `http://127.0.0.1:18080` while its return origin was
+`https://stackmvp.top`. The helper now rejects this mismatch before opening Apple.
+Live authorization must be repeated from the registered HTTPS origin after the
+Cloudflare route and candidate build are available; reaching Apple's sign-in or
+consent screen alone does not establish a working authorization.
+The new domain had no live DNS routing during preparation. Cloudflare HTTPS
+routing, deployment/API environment activation on the team host, and real
+returning-user acceptance are still required. Existing iOS identifiers, native
+capabilities and production services were not changed. If hosting later chooses
+a subdomain, update Apple Developer and the API return URL together.

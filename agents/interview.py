@@ -83,11 +83,12 @@ def record_facts(records, resume_id):
             entry['value'] = (entry['value'] + '\n' + text).strip()[:1500]
     return facts[:12]
 
-def create(job, facts, application_id, resume_id, records=None) -> dict[str, Any]:
+def create(job, facts, application_id, resume_id, records=None, memory=None) -> dict[str, Any]:
     """Experience, project and behavioral questions from the saved job and the confirmed resume.
 
     Resume facts come from confirmed details; a resume confirmed only as reviewed records
-    supplies `records` instead. Without either, questions use the listing alone."""
+    supplies `records` instead. `memory` adds confirmed memory bank entries
+    (agents.memory_access.interview_facts) after them. Without any, questions use the listing alone."""
     description = str(job.get('description', '')).strip()
     if not description or len(description) > 12000:
         raise ValueError('Choose a saved role with a job description of up to 12,000 characters.')
@@ -95,6 +96,8 @@ def create(job, facts, application_id, resume_id, records=None) -> dict[str, Any
                  and (not resume_id or not f.get('resume_id') or f['resume_id'] == resume_id)]
     if not confirmed and records:
         confirmed = record_facts(records, resume_id)
+    known = {f['value'] for f in confirmed}
+    confirmed += [copy.deepcopy(f) for f in memory or [] if f.get('verified') and f['value'] not in known]
     # Compact exact listing excerpts keep selection inspectable and within local context.
     sentences = _sentences(description)
     # Teamwork sentences go to the behavioral question; skill sentences to the others.

@@ -93,13 +93,18 @@ retry, with no paid fallback; LinkedIn analysis retains its existing blocked sta
 and saved capture. Changing configuration after claim also pauses the task.
 
 Private configuration includes `local_model_timeout` (5�90 seconds, default 90)
-and `local_model_context_tokens` (1024�32768, default 8192).
+and `local_model_context_tokens` (1024 to 262,144, default 8192).
 `max_output_tokens` applies to local requests too. Load LM Studio's model with at
 least the configured context; Ollama receives it as `num_ctx`. Stack conservatively
 counts UTF-8 input bytes plus output tokens and chat overhead against that window
 and refuses oversized tasks instead of truncating source evidence. For larger
 resumes/listings, increase the loaded and configured context or lower the output
 limit. Bodies are capped at 256 KiB and generated proposals at 64 KiB.
+A server that rejects an over-length prompt (HTTP 400/413 naming the context) gets the
+same context-limit error instead of a generic failure. LM Studio-compatible servers
+that report `context_length` in `/v1/models` (NInfer does) are also read before memory
+tailoring, which plans within the smaller of that value and the configuration; see
+[MEMORY_TAILORING.md](MEMORY_TAILORING.md).
 
 The existing provider selector chooses one provider for the whole deployment.
 These local transports do not download models, change the service bind address,

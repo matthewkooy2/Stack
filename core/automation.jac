@@ -423,7 +423,7 @@ def:pub agent_claim(token: str) -> dict[str, any] {
             # A manual email page can include Gmail reads, an invite attachment and local inference.
             lease_seconds=300 if r.context.get("manual_scan") else 180;
             r.status="running";r.lease=secrets.token_urlsafe(32);r.lease_until=now+lease_seconds;r.attempts+=1;r.updated_at=now;r.message="Working on "+step;t.state="running";
-            r.trace_attempt=str(uuid4());r.requested_model=c["model"] or "provider default";r.stage_started_at=time.time();
+            r.trace_attempt=str(uuid4());r.requested_model=(c.get("coach_models",{}).get(c["provider"],"") if step=="coach" else "") or c["model"] or "provider default";r.stage_started_at=time.time();
             _trace(r,"stage_start",{"provider":c["provider"],"requested_model":r.requested_model,"attempt_number":r.attempts,"prompt_version":r.context.get("prompt_version"),"context":r.context if capture_enabled() else {"content_capture":False}});
             commit();return {"id":jid(r),"owner":t.owner,"lease":r.lease,"step":step,"context":r.context,"artifacts":r.artifacts,"reservation_cents":reservation,"provider_config_hash":digest(c),"model_selection":r.model_selection};
         }

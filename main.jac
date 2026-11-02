@@ -49,6 +49,9 @@ import from agents.stories { empty as empty_story }
 import os;
 import agents.interview as interview_flow;
 import agents.apple_auth as apple_auth;
+import agents.accounts as accounts;
+
+with entry { accounts.install(); }
 
 # Native Apple identity becomes an ordinary Stack session.
 def:pub auth_apple_begin() -> dict[str, any] {
@@ -1290,11 +1293,16 @@ def _export_resume(r: Resume) -> dict[str, any] {
 def:priv account_export() -> dict[str, any] {
     _agent_access();return {"account":bootstrap(),"agents":agent_export(),"stories":story_list()["stories"],"recordings":TranscriptionStore().list(jid(root)),"resumes":[_export_resume(r) for r in [root -->][?:Resume]],"tailored_resumes":[read_tailored_resume(jid(x)) for x in [root -->][?:TailoredResume]]};
 }
-def:priv account_delete(username: str, password: str) -> dict[str, any] {
+def:priv account_delete(username: str = "", password: str = "") -> dict[str, any] {
     manager=__import__("jaclang.server.identity.user_manager",fromlist=["UserManager"]).UserManager();
-    user=manager.authenticate(username,password);
-    if not user or manager.get_root_id(user["user_id"])!=jid(root) { return {"error":"Confirm this account's username and password."}; }
-    return _delete_verified_account(user["user_id"]);
+    if username or password {
+        user=manager.authenticate(username,password);
+        if not user or manager.get_root_id(user["user_id"])!=jid(root) { return {"error":"This sign-in belongs to another account."}; }
+        return _delete_verified_account(user["user_id"]);
+    }
+    user_id=accounts.user_for_root(jid(root));
+    if not user_id { return {"error":"Sign in before deleting your account."}; }
+    return _delete_verified_account(str(user_id));
 }
 
 def _delete_verified_account(user_id: str) -> dict[str, any] {
@@ -1307,10 +1315,17 @@ def _delete_verified_account(user_id: str) -> dict[str, any] {
         commit();
         for c in [root -->][?:AgentConnection] {
             if c.sealed {
-                try { __import__("agents.google",fromlist=["revoke"]).revoke(__import__("agents.security",fromlist=["unseal"]).unseal(c.sealed)); } except Exception { cleanup_failed=True; }
+                try { __import__("agents.google",fromlist=["revoke"]).revoke(__import__("agents.security",fromlist=["unseal"]).unseal(c.sealed)); }
+                except Exception { return {"error":"Could not disconnect Google. Please retry account deletion."}; }
             }
         }
-        try { importlib.import_module("agents.worker").browser_call("purge",{"owner":owner}); } except Exception { cleanup_failed=True; }
+        if os.environ.get("STACK_BROWSER_URL","") {
+            try {
+                cleared=importlib.import_module("agents.worker").browser_call("purge",{"owner":owner});
+                if not cleared.get("purged") { return {"error":"Could not clear browser data. Please retry account deletion."}; }
+            }
+            except Exception { return {"error":"Could not clear browser data. Please retry account deletion."}; }
+        }
         for r in [root -->][?:Resume] { _cancel_resume_work(r);if r.file_key { _file_path(r.file_key).unlink(missing_ok=True); }_remove_template_files(r); }
         for x in [root -->][?:TailoredResume] {
             _file_path(x.pdf_key).unlink(missing_ok=True);
@@ -1318,9 +1333,10 @@ def _delete_verified_account(user_id: str) -> dict[str, any] {
         }
         for n in [root -->] { if jid(n)!=jid(m) { del n; } }
         TranscriptionStore().delete_owner(owner);
+        accounts.purge_files(owner);
         commit();
-        result=manager.delete_user(user_id);
-        if result.get("error") { return {"error":"Account cleanup could not finish. Please try again."}; }
+        try { accounts.delete_identity(manager,user_id,owner); }
+        except Exception { return {"error":"Account cleanup could not finish. Please try again."}; }
         return {"deleted":True};
     }
 }

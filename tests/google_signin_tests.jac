@@ -11,6 +11,8 @@ import from jaclang.scale.sso.provider { SSOUserInfo }
 import from jaclang.scale.sso.oauth_session { challenge_of }
 import jaclang.scale.sso.sso_auth as auth;
 import jaclang.scale.server.sso_ext as ext;
+import agents.accounts as accounts;
+with entry { accounts.install(); }
 
 def rpc(client: any, name: str, args: dict[str, any] = {}) -> dict[str, any] {
     response=client.post('/function/'+name,json=args);
@@ -43,6 +45,8 @@ test "Google registration repeat login explicit linking denial and account isola
         info: any = AsyncMock(return_value=SSOUserInfo(email='one@example.test',external_id='google-one',display_name='One'));
         with patch.dict(os.environ,{'STACK_AGENT_CONFIG':str(agent_config)}), patch.object(auth,'get_scale_config',return_value=config), patch.object(ext,'get_scale_config',return_value=config), patch.object(GoogleSSOProvider,'_exchange_code',new=exchange), patch.object(GoogleSSOProvider,'fetch_user',new=info) {
             client=JacTestClient.from_file(str(Path('main.jac').resolve()),base_path=directory);
+            initialized=client.server;
+            GoogleSSOProvider.fetch_user=info;
             try {
                 pending=begin(client);
                 assert not finish(client,pending['state'],'wrong'*13)['ok'];exchange.assert_not_awaited();
@@ -68,11 +72,11 @@ test "Google registration repeat login explicit linking denial and account isola
                 client.set_auth_token(b);info.return_value=SSOUserInfo(email='one@example.test',external_id='google-one');
                 assert not finish(client,begin(client)['state'])['ok'];
                 client.set_auth_token(a);assert rpc(client,'bootstrap')['profile']['name']=='Google isolation marker';
-                # Email equality must not merge an unlinked Google identity into a password account.
-                client.clear_auth();info.return_value=SSOUserInfo(email='existing-stack@example.test',external_id='google-unlinked');
+                # Verified email reuses the same account, including normalized casing/whitespace.
+                client.clear_auth();info.return_value=SSOUserInfo(email=' TWO@example.test ',external_id='google-unlinked');
                 isolated=finish(client,begin(client)['state']);assert isolated['ok'];client.set_auth_token(isolated['token']);
-                assert rpc(client,'bootstrap')['user_id']!=original;
-                assert rpc(client,'bootstrap')['profile']['name']!='Existing preserved marker';
+                assert rpc(client,'bootstrap')['user_id']==original;
+                assert rpc(client,'bootstrap')['profile']['name']=='Existing preserved marker';
                 # Cancellation/failure cannot create or link an account, and consumes state.
                 client.clear_auth();cancelled=begin(client);exchange.side_effect=RuntimeError('fixture denial');
                 assert not finish(client,cancelled['state'],code='')['ok'];assert not finish(client,cancelled['state'])['ok'];

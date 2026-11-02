@@ -47,8 +47,16 @@ enum PrepCodec {
 
     static func decode(_ row: JSON) -> JSON {
         let stored = row["data"]["canvas"][marker]
-        guard stored["version"].int == 1, !stored["behavioral"].isNull else { return row }
         var result = row
+        if !row["feedback"].array.isEmpty {
+            result["feedback"] = .array(row["feedback"].array.map { entry in
+                guard !entry["session"].isNull else { return entry }
+                var pair = entry
+                pair["session"] = decode(["data": entry["session"]])["data"]
+                return pair
+            })
+        }
+        guard stored["version"].int == 1, !stored["behavioral"].isNull else { return result }
         var canvas = row["data"]["canvas"]
         canvas[marker] = .null
         result["data"]["canvas"] = canvas
@@ -70,6 +78,7 @@ enum PrepCodec {
         canvas[marker] = [
             "version": 1,
             "problem_id": .string(wanted),
+            "prompt": .string(bundled.first { $0.id == wanted }?.prompt ?? ""),
             "notes": .string(data["notes"].string),
             "behavioral": data["behavioral"],
         ]
@@ -130,6 +139,23 @@ final class PrepTransport {
         var made = try await api.call("prep_create", ["problem_id": .string(actual)])
         made["data"]["problem_id"] = .string(problemID)
         return made
+    }
+
+    func coach(id: String, data: JSON) async throws -> JSON {
+        let generation = api.sessionGeneration
+        let ids = try await available()
+        guard generation == api.sessionGeneration else { throw CancellationError() }
+        let encoded = try PrepCodec.encode(data, available: ids, bundled: bundled)
+        return PrepCodec.decode(try await api.call("prep_coach", ["id": .string(id), "data": encoded], timeout: 180))
+    }
+
+    func saveCoaching(_ submission: JSON) async throws -> JSON {
+        let generation = api.sessionGeneration
+        let ids = try await available()
+        guard generation == api.sessionGeneration else { throw CancellationError() }
+        var encoded = submission
+        encoded["data"] = try PrepCodec.encode(submission["data"], available: ids, bundled: bundled)
+        return PrepCodec.decode(try await api.call("prep_save_coaching", ["id": submission["session_id"], "submission": encoded]))
     }
 
     func save(id: String, revision: Int, data: JSON) async throws -> JSON {

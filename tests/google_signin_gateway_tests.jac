@@ -55,7 +55,8 @@ test "Google sign-in gateway permits only PKCE endpoints and retains admission c
                 }
                 with patch.object(gateway,'sso_callback_upstream',return_value=(200,b'Sign-in completed. Return to the app to continue.','')) {
                     (status,headers,body)=request(base,'/sso/google/callback?state='+state+'&code=fixture-code');
-                    assert status==200 and 'iPhone' in body and 'fixture-code' not in body and state not in body;
+                    assert status==200 and 'iPhone' in body and 'fixture-code' not in body;
+                    assert 'href="com.matthewkooy.stack://auth/google?state='+state+'"' in body;
                 }
                 provider='https://accounts.google.com/o/oauth2/v2/auth?'+urlencode({'scope':'openid email profile','state':state,'response_type':'code','code_challenge_method':'S256','redirect_uri':'https://stack.example/sso/google/callback'});
                 (status,headers,body)=request(base,'/auth/google/start?'+urlencode({'url':provider}));
@@ -67,7 +68,8 @@ test "Google sign-in gateway permits only PKCE endpoints and retains admission c
                         assert status==303 and headers['Location']=='com.matthewkooy.stack://auth/google?state='+state;
                         assert 'private-code' not in headers['Location'] and 'Max-Age=0' in headers['Set-Cookie'];
                         (status,headers,body)=request(base,'/sso/google/callback?state='+state+'&code=private-code',cookie='stack_native_signin=other');
-                        assert status==200 and 'private-code' not in body and state not in body;
+                        assert status==200 and 'private-code' not in body;
+                        assert 'href="com.matthewkooy.stack://auth/google?state='+state+'"' in body;
                     }
                 }
                 (status,headers,body)=request(base,'/.well-known/apple-app-site-association');

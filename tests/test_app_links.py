@@ -45,6 +45,14 @@ class AppLinksTests(unittest.TestCase):
         self.assertIn('://open/jobs', app_links.page(destination='jobs').decode())
         self.assertNotIn('attacker', app_links.page(destination='attacker').decode())
 
+    def test_signin_fallback_returns_the_attempt_without_requiring_a_browser_cookie(self):
+        for success in (True, False):
+            page = app_links.page(success=success, callback_state=self.state).decode()
+            self.assertIn('href="com.matthewkooy.stack://auth/google?state=' + self.state + '"', page)
+            self.assertNotIn('href="com.matthewkooy.stack://open"', page)
+        for invalid in ('', 'wrong', '\"' * 43, 's' * 44):
+            self.assertIn('href="com.matthewkooy.stack://open"', app_links.page(callback_state=invalid).decode())
+
     @patch.dict(os.environ, {'STACK_SSO_HOST': 'https://dev.stackmvp.top'})
     def test_banner_uses_verified_store_record_and_escapes_configuration(self):
         self.assertIn('app-id=6820196890', app_links.banner())

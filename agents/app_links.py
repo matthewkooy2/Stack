@@ -68,8 +68,8 @@ def banner() -> str:
     return f'<meta name="apple-itunes-app" content="app-id={app_id}, app-argument={escape(origin, quote=True)}/open">'
 
 
-def page(success: bool | None = None, destination: str = '', home: bool = False) -> bytes:
-    """Accessible fallback for ordinary browsers and old installed clients; no provider data echoed."""
+def page(success: bool | None = None, destination: str = '', home: bool = False, callback_state: str = '') -> bytes:
+    """Browser fallback; a sign-in return carries only its public attempt state, never credentials."""
     if destination not in DESTINATIONS:
         destination = ''
     title = 'Pick up in Stack.' if success is None else ('You’re signed in.' if success else 'Let’s try that again.')
@@ -80,6 +80,8 @@ def page(success: bool | None = None, destination: str = '', home: bool = False)
         title = 'Your next chapter.'
         detail = 'Find jobs, shape your resume and practice for interviews. Stack brings your career tools together on your iPhone and the web.'
     href = f'{SCHEME}://open' + (f'/{destination}' if destination else '')
+    if re.fullmatch(r'[A-Za-z0-9_-]{43}', callback_state):
+        href = f'{SCHEME}://auth/google?' + urlencode({'state': callback_state})
     page_title = 'Stack · Your next chapter' if home else 'Continue in Stack'
     return f'''<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">

@@ -517,13 +517,15 @@ def:pub discovery_manage(token: str, id: str, action: str) -> dict[str, any] {
     }
 }
 
-def:pub discovery_report(token: str) -> dict[str, any] {
+def:pub discovery_report(token: str, include_jobs: bool = True) -> dict[str, any] {
     if not _worker_allowed(token) { return {"error":"Worker authorization required."}; }
     jobs=[];
-    for j in [root.shared -->][?:CatalogJob] {
-        view=_job_view(j);
-        for field in ["description","qualifications","requirements","facts"] { view.pop(field,None); }
-        jobs.append(view);
+    if include_jobs {
+        for j in [root.shared -->][?:CatalogJob] {
+            view=_job_view(j);
+            for field in ["description","qualifications","requirements","facts"] { view.pop(field,None); }
+            jobs.append(view);
+        }
     }
     return {"generated_at":time.time(),"sources":_source_views(),"sweep":_last_sweep(),"jobs":jobs};
 }

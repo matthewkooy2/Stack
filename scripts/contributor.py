@@ -296,9 +296,8 @@ def development(root, smoke=False, host='127.0.0.1', expose=False, api_port=8000
         agent_token = env['STACK_AGENT_WORKER_TOKEN']
         rpc(api, '/function/agent_schedule', {'token': agent_token})
         discovery_token = (root / 'storage/discovery/worker-token').read_text().strip()
-        # A cold report walks the catalog; it must not tear down healthy services
-        # merely because the catalog outgrew the ordinary RPC timeout.
-        rpc(api, '/function/discovery_report', {'token': discovery_token}, timeout=120)
+        # Verify worker authorization without materializing the entire catalog.
+        rpc(api, '/function/discovery_report', {'token': discovery_token, 'include_jobs': False}, timeout=120)
         print(f'Stack browser UI: http://{host}:{web_port}/\nBackend and workers ready. Logs are private under .jac/logs. Ctrl-C stops services.', flush=True)
         if smoke:
             # Keep only synthetic smoke credentials in ignored, private storage so

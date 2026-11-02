@@ -83,7 +83,7 @@ class AppleSignIn(unittest.TestCase):
         usage, global_usage = uuid4().hex, uuid4().hex
         for ident, key in [(usage, "cost:fixture:" + owner), (global_usage, "cost:fixture")]:
             shared_store().rows("INSERT INTO anchors (id,kind,arch_type,props) VALUES (:id,'NodeAnchor','AgentUsage',CAST(:p AS jsonb))",
-                                {"id": ident, "p": json.dumps({"key": key, "cents": 1, "actions": 0})})
+                                {"id": ident, "p": json.dumps({"archetype": {"key": key, "cents": 1, "actions": 0}})})
         deleted = self.rpc("account_delete")
         self.assertTrue(deleted.get("deleted"), deleted)
         self.assertFalse(directory.exists())
@@ -92,7 +92,7 @@ class AppleSignIn(unittest.TestCase):
         self.assertIsNone(manager.get_user_by_sso("apple", "fixture-apple-user"))
         self.assertIsNone(manager.get_user_by_sso("google", "fixture-google-user"))
         self.assertFalse(self.client.post("/function/bootstrap", json={}).ok)
-        self.assertEqual(shared_store().rows("SELECT count(*) FROM anchors WHERE replace(CAST(root_id AS text),'-','')=:o OR replace(CAST(id AS text),'-','')=:o OR props->>'owner'=:o", {"o": owner.replace('-', '')})[0][0], 0)
+        self.assertEqual(shared_store().rows("SELECT count(*) FROM anchors WHERE replace(CAST(root_id AS text),'-','')=:o OR replace(CAST(id AS text),'-','')=:o OR COALESCE(props->'archetype'->>'owner',props->>'owner')=:o", {"o": owner.replace('-', '')})[0][0], 0)
         self.assertEqual(shared_store().rows("SELECT count(*) FROM anchors WHERE id=:id", {"id": usage})[0][0], 0)
         self.assertEqual(shared_store().rows("SELECT count(*) FROM anchors WHERE id=:id", {"id": global_usage})[0][0], 1)
         self.client.clear_auth()

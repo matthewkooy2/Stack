@@ -498,7 +498,11 @@ def _retire_account {
 def:pub discovery_manage(token: str, id: str, action: str) -> dict[str, any] {
     if not _worker_allowed(token) { return {"error":"Worker authorization required."}; }
     with locks.collector() {
-        _fresh(); s=_source(id);
+        _fresh();
+        if action=="rebuild_matches" {
+            _rebuild_title_index();commit();return {"saved":True};
+        }
+        s=_source(id);
         if s is None { return {"error":"Source not found."}; }
         if action=="enable" { s.status="pending";s.message=""; }
         elif action=="disable" or action=="purge" {

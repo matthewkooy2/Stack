@@ -119,6 +119,23 @@ final class JobDeckFeedTests: XCTestCase {
         return parse("{\"jobs\":[\(jobs)],\"next_cursor\":\"\(next)\"}")
     }
 
+    func testExhaustedDeckReloadsAfterReturningEvenAfterTodaysSweepStarted() {
+        let now = Date()
+        XCTAssertTrue(JobSweep.needsReload(computedAt: now.timeIntervalSince1970, hasReviewableJobs: false, now: now))
+        XCTAssertFalse(JobSweep.needsReload(computedAt: now.timeIntervalSince1970, hasReviewableJobs: true, now: now))
+        XCTAssertTrue(JobSweep.needsReload(computedAt: 0, hasReviewableJobs: true, now: now))
+    }
+
+    func testMalformedSuccessfulResponseIsAnErrorRatherThanAnEmptyDeck() async {
+        let load = start()
+        await desk.requested(1)
+        desk.answer(0, [:])
+        await load.value
+        XCTAssertFalse(feed.loadError.isEmpty)
+        XCTAssertTrue(feed.jobs.isEmpty)
+        XCTAssertEqual(screen.received, 0)
+    }
+
     private func makeSource() -> JobDeckSource {
         let feed = feed!, desk = desk!, screen = screen!
         return JobDeckSource(

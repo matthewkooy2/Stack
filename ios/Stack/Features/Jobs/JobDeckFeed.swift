@@ -17,6 +17,12 @@ enum JobSweep {
     static func isNewer(than computedAt: Double, now: Date = Date()) -> Bool {
         computedAt < latest(before: now).timeIntervalSince1970
     }
+
+    /// A sweep may finish after this visit's first request. Recheck an exhausted
+    /// deck when returning instead of waiting until tomorrow's sweep starts.
+    static func needsReload(computedAt: Double, hasReviewableJobs: Bool, now: Date = Date()) -> Bool {
+        !hasReviewableJobs || isNewer(than: computedAt, now: now)
+    }
 }
 
 /// Everything the feed needs from its screen, so paging can be tested without a view or a network.
@@ -204,6 +210,9 @@ final class JobDeckFeed {
             let result = try await withTaskCancellationHandler { try await request.value } onCancel: { request.cancel() }
             guard mine == token, source.isCurrent(), !Task.isCancelled else { return .stale }
             inFlight = nil
+            guard case .array = result["jobs"] else {
+                throw APIError(message: "Stack returned an invalid jobs feed. Please retry.")
+            }
             let incoming = Job.feedPage(result)
             source.animate {
                 if continuing {

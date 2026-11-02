@@ -87,8 +87,9 @@ struct JobsView: View {
         .onChange(of: store.phase) { _, phase in if phase != .ready { resetForSession() } }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { commitDecision() }
-            // Matches change once a day, so coming back only reloads after a newer sweep could have run.
-            else if JobSweep.isNewer(than: feed.computedAt) { Task { await load(refresh: false) } }
+            else if JobSweep.needsReload(computedAt: feed.computedAt, hasReviewableJobs: !deck.isEmpty) {
+                Task { await load(refresh: false) }
+            }
         }
         .onChange(of: accountContext) { _, context in
             guard started, context != displayedContext, store.phase == .ready else { return }
@@ -387,7 +388,9 @@ struct JobsView: View {
     /// Coming back after the view was torn down only reloads when nothing was ever shown.
     private func start() async {
         if started {
-            if !feed.loaded { await load(refresh: false) }
+            if !feed.loaded || JobSweep.needsReload(computedAt: feed.computedAt, hasReviewableJobs: !deck.isEmpty) {
+                await load(refresh: false)
+            }
             return
         }
         started = true

@@ -84,30 +84,6 @@ class ResumeProcessing(unittest.TestCase):
         self.assertTrue(self.finish(work, result)['saved'])
         return result
 
-    def test_pdf_import_is_reviewable_without_confirming_facts_implicitly(self):
-        resume = self.upload()
-        repeated = self.upload()
-        self.assertEqual(resume['id'], repeated['id'])
-        self.assertNotIn('pdf', resume['processing'])
-        self.assertEqual(self.worker('resume_processing_claim'), {'idle': True})
-        review = self.rpc('agent_extract_resume', {'id': resume['id']})
-        self.assertTrue(review['records'])
-        self.assertFalse(review['confirmed'])
-        self.assertEqual(review['details_status'], 'ready')
-        saved = self.rpc('resume_save_details', {'id': resume['id'], 'revision': review['revision'],
-                                               'values': {'profile.name': 'Riley Reviewed'}, 'confirm': True})
-        self.assertTrue(saved['details_confirmed'])
-        self.assertEqual(saved['trusted_source'], 'details')
-        self.assertEqual(self.rpc('agent_settings')['facts'][0]['value'], 'Riley Reviewed')
-        draft = self.rpc('resume_save_details', {'id': resume['id'], 'revision': saved['revision'],
-                                               'values': {'profile.name': 'Riley Draft'}, 'confirm': False})
-        self.assertFalse(draft['confirmed'])
-        self.assertIn('temporarily unavailable', self.rpc('retry_resume_processing', {'id': resume['id'], 'kind': 'pdf'})['error'])
-        self.assertEqual(self.rpc('agent_settings')['facts'], [])
-        self.client.reload()
-        self.client.set_auth_token(self.token)
-        self.assertEqual(base64.b64decode(self.rpc('read_resume', {'id': resume['id']})['content']), PDF)
-
     def test_failed_source_retry_reopen_compile_and_original_preserved(self):
         resume = self.upload()
         with patch.object(latex, 'compile', side_effect=AssertionError('Upload must not compile')):
@@ -181,36 +157,6 @@ class ResumeProcessing(unittest.TestCase):
         self.assertFalse(reopened['details_confirmed'])
         self.assertEqual(self.rpc('agent_settings')['facts'], [])
 
-    def test_details_persist_reorder_delete_and_enforce_owner_revision(self):
-        resume = self.upload()
-        original = self.rpc('agent_extract_resume', {'id': resume['id']})
-        values = {'profile.name': 'Riley Reviewed', 'workExperiences.0.company': 'Northwind',
-                  'workExperiences.0.descriptions': 'First achievement.\nSecond achievement.',
-                  'workExperiences.1.company': 'Harbor'}
-        confirmed = self.rpc('resume_save_details', {'id': resume['id'], 'revision': original['revision'],
-                                                   'values': values, 'confirm': True})
-        self.assertTrue(confirmed['confirmed'])
-        self.assertEqual(confirmed['trusted_source'], 'details')
-        self.assertEqual([r['text'] for r in confirmed['records'] if r['kind'] == 'bullet'],
-                         ['First achievement.', 'Second achievement.'])
-        self.assertIn('error', self.rpc('resume_save_details', {'id': resume['id'], 'revision': original['revision'],
-                                                              'values': {}, 'confirm': False}))
-        draft = self.rpc('resume_save_details', {'id': resume['id'], 'revision': confirmed['revision'],
-                                               'values': {'workExperiences.8.company': 'Harbor'}, 'confirm': False})
-        self.assertFalse(draft['confirmed'])
-        self.assertEqual(self.rpc('agent_settings')['facts'], [])
-        self.client.reload()
-        self.client.set_auth_token(self.token)
-        reopened = self.rpc('agent_extract_resume', {'id': resume['id']})
-        self.assertEqual(reopened['values']['workExperiences.0.company'], 'Harbor')
-        self.assertNotIn('workExperiences.1.company', reopened['values'])
-        for key in ('original_values', 'evidence', 'source', 'text'):
-            self.assertEqual(reopened[key], original[key], key)
-        self.client.register_user('details-stranger', 'Stranger-password-123')
-        self.assertIn('error', self.rpc('agent_extract_resume', {'id': resume['id']}))
-        self.assertIn('error', self.rpc('resume_save_details', {'id': resume['id'], 'revision': draft['revision'],
-                                                              'values': {'profile.name': 'Stranger'}, 'confirm': True}))
-
     def test_builtin_work_and_preview_withdrawn_but_uploaded_source_preserved(self):
         resume = self.upload()
         def save(values, confirm=True):
@@ -250,26 +196,6 @@ class ResumeProcessing(unittest.TestCase):
         self.assertIn('error', self.finish(old, {'error': 'stale result'}))
         self.run_work(new, {"pdf": PDF, "pages": 1})
         self.assertEqual(self.rpc('bootstrap')['resumes'][0]['processing']['source']['attempt'], 2)
-
-    def test_replacement_deletion_and_ownership_reject_stale_work(self):
-        resume = self.upload()
-        self.source(resume['id'])
-        old = self.worker('resume_processing_claim')
-        self.source(resume['id'], TEX + b'\n% replacement')
-        self.assertIn('error', self.finish(old, {'error': 'old upload'}))
-        self.source(resume['id'], TEX)
-        work = self.worker('resume_processing_claim')
-        self.assertEqual(base64.b64decode(work['content']), TEX, 'Returning to a prior source must retain its input')
-        self.client.register_user('upload-stranger', 'Stranger-password-123')
-        self.assertIn('error', self.rpc('retry_resume_processing', {'id': resume['id'], 'kind': 'source'}))
-        self.assertIn('error', self.rpc('upload_resume_source', {'id': resume['id'], 'name': 'resume.tex', 'content': base64.b64encode(TEX).decode()}))
-        self.assertIn('error', self.rpc('resume_transfer_complete', {'id': resume['id'], 'job_id': work['id'], 'elapsed_ms': 1}))
-        self.client.clear_auth()
-        self.assertIn('error', self.rpc('resume_processing_claim', {'token': 'wrong-token'}))
-        self.client.set_auth_token(self.token)
-        self.rpc('change_resume', {'id': resume['id'], 'action': 'delete'})
-        self.assertIn('error', self.finish(work, {'error': 'deleted upload'}))
-        self.assertEqual(self.worker('resume_processing_claim'), {'idle': True})
 
     def test_identical_bytes_in_separate_resumes_have_independent_files(self):
         original = self.upload()

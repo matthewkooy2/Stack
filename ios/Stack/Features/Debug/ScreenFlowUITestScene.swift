@@ -50,6 +50,9 @@ struct ScreenFlowUITestScene: View {
     @ViewBuilder
     private var screen: some View {
         switch Self.flow {
+        case "keyboard-dismiss": KeyboardDismissFixture()
+        case "browser-keyboard":
+            RemoteBrowserView(id: "keyboard-fixture", task: ["id": "keyboard-fixture", "status": "paused"], onChanged: {})
         case "settings": ProfileView()
         case "resume", "resume-upload": ResumeView(onProfile: {})
         case "resume-review": ResumeReviewFixtureHost()
@@ -60,6 +63,23 @@ struct ScreenFlowUITestScene: View {
         case "onboarding": AccessView()
         case "recovery": InvitationView()
         default: Text("Unknown screen flow").font(Typeface.title)
+        }
+    }
+}
+
+@MainActor
+private struct KeyboardDismissFixture: View {
+    @State private var answer = ""
+    @State private var number = ""
+    @State private var sheet = false
+
+    var body: some View {
+        VStack {
+            AnswerEditor(text: $answer, placeholder: "Answer", label: "Answer")
+            Button("Open form") { sheet = true }
+        }
+        .sheet(isPresented: $sheet) {
+            StackField(label: "Number", text: $number, keyboard: .numberPad).padding()
         }
     }
 }

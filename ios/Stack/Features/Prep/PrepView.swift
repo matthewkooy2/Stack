@@ -324,7 +324,8 @@ struct AnswerEditor: View {
 
     var body: some View {
         TextField(placeholder, text: $text, axis: .vertical)
-            .lineLimit(6...16)
+            .keyboardDismissControl()
+            .lineLimit(6...)
             .font(Typeface.body)
             .foregroundStyle(Brand.ink)
             .tint(Brand.accent)

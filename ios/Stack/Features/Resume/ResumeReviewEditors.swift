@@ -161,6 +161,7 @@ struct ResumeFieldRow: View {
                     TextField("Not found", text: Binding(get: { controller.document.value(at: address) },
                                                          set: { controller.set($0, at: address) }),
                               axis: multiline ? .vertical : .horizontal)
+                        .keyboardDismissControl()
                         .lineLimit(multiline ? 3...10 : 1...3)
                         .font(Typeface.body)
                         .foregroundStyle(Palette.text)
@@ -221,6 +222,7 @@ struct ResumeBulletEditor: View {
                     TextField("Item \(index + 1)", text: Binding(
                         get: { controller.bullets(at: address).indices.contains(index) ? controller.bullets(at: address)[index] : "" },
                         set: { controller.setBullet($0, at: index, of: address) }), axis: .vertical)
+                        .keyboardDismissControl()
                         .lineLimit(1...6)
                         .font(Typeface.body)
                         .foregroundStyle(Palette.text)
@@ -307,6 +309,7 @@ struct ResumeRecordsEditor: View {
                     TextField("Not found", text: Binding(get: { controller.record(index)["text"].string },
                                                          set: { controller.setRecord(index, key: "text", value: .string($0)) }),
                               axis: .vertical)
+                        .keyboardDismissControl()
                         .lineLimit(2...10)
                         .font(Typeface.body)
                         .disabled(!controller.canEditRecords)

@@ -444,7 +444,8 @@ struct ChangeRow: View {
     let rejected: Bool
     var onToggle: (() -> Void)?
 
-    private static let labels = ["rewrite": "Reworded", "omit": "Removed", "reorder": "Reordered"]
+    private static let labels = ["rewrite": "Reworded", "omit": "Removed", "reorder": "Reordered", "order": "Reordered",
+                                 "add": "Added from memory bank"]
 
     var body: some View {
         let kind = change["kind"].string
@@ -455,15 +456,15 @@ struct ChangeRow: View {
                 Spacer()
                 if let onToggle { Chip(label: rejected ? "Keep this" : "Reject", selected: rejected, action: onToggle) }
             }
-            if kind != "reorder", !change["before"].string.isEmpty {
+            if kind != "reorder", kind != "order", !change["before"].string.isEmpty {
                 Text(change["before"].string.replacingOccurrences(of: "**", with: ""))
                     .font(Typeface.caption).foregroundStyle(Palette.muted).strikethrough()
             }
-            if kind == "reorder", !change["before"].string.isEmpty {
+            if kind == "reorder" || kind == "order", !change["before"].string.isEmpty {
                 Text("Was: \(change["before"].string)").font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             if !change["after"].string.isEmpty {
-                Text((kind == "reorder" && !change["before"].string.isEmpty ? "Now: " : "") + change["after"].string.replacingOccurrences(of: "**", with: ""))
+                Text(((kind == "reorder" || kind == "order") && !change["before"].string.isEmpty ? "Now: " : "") + change["after"].string.replacingOccurrences(of: "**", with: ""))
                     .font(Typeface.body).foregroundStyle(Palette.text)
             }
             if !change["reason"].string.isEmpty {

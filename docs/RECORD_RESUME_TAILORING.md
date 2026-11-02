@@ -1,5 +1,11 @@
 # Reviewed PDF/DOCX tailoring (MAT-25)
 
+> **Superseded for new tasks.** The `tailor` step for reviewed records now composes a
+> job-specific resume from the whole confirmed memory bank, with cited and checked
+> rewording; see [MEMORY_TAILORING.md](MEMORY_TAILORING.md). Import, review, templates,
+> documents, approval binding and storage below are unchanged. Proposals created before
+> that change still finalize through the filler-only plan described in step 5.
+
 The backend accepts a text-based PDF or DOCX without requiring LaTeX. It retains
 the original bytes and imports each visible text line into editable records.
 Import does not infer employers, dates, achievements or credentials and does

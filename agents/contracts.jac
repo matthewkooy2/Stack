@@ -76,7 +76,7 @@ def config(selection: str = "") -> dict[(str, any)] {
         'model': str(raw.get('model', '')),
         'local_model_url': str(raw.get('local_model_url', '')),
         'local_model_timeout': min(90, max(5, int(raw.get('local_model_timeout', 90)))),
-        'local_model_context_tokens': min(32768, max(1024, int(raw.get('local_model_context_tokens', 8192)))),
+        'local_model_context_tokens': min(262144, max(1024, int(raw.get('local_model_context_tokens', 8192)))),
         'input_cents_per_million': int(raw.get('input_cents_per_million', 0)),
         'output_cents_per_million': int(raw.get('output_cents_per_million', 0)),
         'max_output_tokens': min(

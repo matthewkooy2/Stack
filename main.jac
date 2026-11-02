@@ -36,6 +36,7 @@ import from agents.record_resume { validate_upload, validate_records, check_docu
 import from agents.resume_details { view as details_view, save as details_save, facts_for as details_facts, is_resume_fact, attach_import, DetailsError }
 import from agents.bullet_bank { save_review as bank_save_review, compose as bank_compose, KIND as BANK_KIND }
 import from agents.memory_bank { definitions as bank_definitions, context_lines as bank_context }
+import from agents.memory_access { collect as memory_collect, interview_facts as memory_interview_facts }
 import from agents.linkedin { profile_url }
 import from agents.autofill { application_url }
 import from agents.voice { voice_settings }
@@ -80,8 +81,11 @@ def:priv interview_create(application_id: str, client_id: str) -> dict[str, any]
         a=apps[0];resume=_application_resume(a);resume_id=jid(resume) if resume is not None else "";
         # A resume confirmed as reviewed records has no facts; its records supply the resume questions.
         records=resume.review.get("records",[]) if resume is not None and resume.review_confirmed else [];
-        try { data=interview_flow.create(_application_job(a),_agent_memory().facts,application_id,resume_id,records); }
+        # Confirmed memory bank entries add grounded experience beyond this resume.
+        job=_application_job(a);memory=memory_interview_facts(_memory_snapshot(),job,6000,("resume:"+resume_id,));
+        try { data=interview_flow.create(job,_agent_memory().facts,application_id,resume_id,records,memory["facts"]); }
         except ValueError as e { return {"error":str(e)}; }
+        data["memory_coverage"]=memory["coverage"];
         data["client_id"]=client_id;
         p=root ++> PrepSession(data=data,created_at=time.time(),updated_at=time.time());commit();return interview_get(jid(p));
     }
@@ -767,6 +771,28 @@ def:priv read_resume_source(id: str) -> dict[str, any] {
     }
     return {"id":id,"name":name,"format":view,"preview":{"name":"Resume preview.pdf","content":base64.b64encode(data).decode()},"tex":source["files"][source["main"]].decode("utf-8")[:200000]};
 }
+"""The signed-in or leased account's confirmed memory: memory bank entries, confirmed imported
+resumes, verified facts and reviewed stories (agents/memory_access.py). Reads only this root's
+nodes; drafts are listed as excluded. Shared by tailoring, interviews and other agent steps."""
+def _memory_snapshot() -> dict[str, any] {
+    resumes=[{"id":jid(r),"name":r.name,"kind":r.review.get("kind",""),"confirmed":r.review_confirmed,"revision":r.review_revision,
+        "records":r.review.get("records",[]),"entry_type":r.review.get("entry_type","other"),"fields":r.review.get("fields",{}),
+        "source":r.review.get("source","")} for r in [root -->][?:Resume] if r.review.get("records") or r.review.get("kind")==BANK_KIND];
+    stories=[{"id":jid(s),"title":s.title,"content":s.content,"revision":s.revision} for s in [root -->][?:BehavioralStory]];
+    return memory_collect(jid(root),resumes,_agent_memory().facts,stories);
+}
+"""Worker read of the leased owner's memory, for steps that ground model output in it."""
+def:pub agent_worker_memory(token: str, id: str, owner: str, lease: str) -> dict[str, any] {
+    if not _agent_system(token) { return {"error":"Worker authorization required."}; }
+    with locks.account(owner) {
+        _agent_fresh();
+        try {
+            r=_agent_leased(id,owner,lease);
+            if _steps(r)[r.index] not in ["tailor","approve_resume","interview_turn","interview_coach","coach"] { return {"error":"This step cannot read the memory bank."}; }
+            return _memory_snapshot();
+        } except ValueError as e { return {"error":str(e)}; }
+    }
+}
 def:pub agent_worker_resume_source(token: str, id: str, owner: str, lease: str) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
     with locks.account(owner) {
@@ -1019,7 +1045,7 @@ def:priv story_sources() -> dict[str, any] {
     _agent_access();sources=[];
     for r in [root -->][?:Resume] {
         if r.review_confirmed and (r.review.get("records") or r.review.get("kind")==BANK_KIND) {
-            lines: list[str]=([r.name]+bank_context(r.review) if r.review.get("schema_version")==1 else [])+[record["text"] for record in r.review.get("records",[])];
+            lines: list[str]=([r.name]+bank_context(r.review) if r.review.get("schema_version")==1 and r.review.get("fields") else [])+[record["text"] for record in r.review.get("records",[])];
             sources.append({"key":"resume:"+jid(r),"kind":"reviewed_resume_records","revision":digest({"revision":r.review_revision,"records":r.review.get("records",[])}),
                 "text":"\n".join(lines),"resume_id":jid(r),"provenance":r.review.get("source","User-confirmed imported resume records"),"review_revision":r.review_revision});
         }

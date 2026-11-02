@@ -351,6 +351,9 @@ class Tailoring(unittest.TestCase):
         proposal = run(model)
         where = {i['name']: s['heading'] for s in proposal['sections'] for i in s['items']}
         self.assertEqual(where['Data Intern, City of Detroit'], 'Experience')
+        # Newest first: the current role leads the 2021 internship the model listed first.
+        experience = next(s for s in proposal['sections'] if s['heading'] == 'Experience')
+        self.assertEqual([i['handle'] for i in experience['items']][0], 'R.e0')
         self.assertEqual(where['Tableau Desktop Specialist'], 'Certifications')
         # Moved out of Skills, the certification may no longer cite another entry's skill.
         cert = next(i for s in proposal['sections'] for i in s['items'] if i['name'] == 'Tableau Desktop Specialist')

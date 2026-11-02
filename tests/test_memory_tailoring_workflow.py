@@ -133,7 +133,8 @@ class MemoryWorkflow(unittest.TestCase):
         final = outcome['final']['records']
         found = [r['text'] for r in final if any(re.search(p, r['text'].lower()) for p in forbidden)]
         # A confirmed line that states its own negation ("I have not earned a Green Belt") is truthful.
-        found = [t for t in found if not (re.search(r"\bnot\b|n't", t.lower()) and t in sources)]
+        # The line still has to pass the guards below, which require the source's negation.
+        found = [t for t in found if not re.search(r"\bnot\b|n't|\bnever\b", t.lower())]
         self.assertEqual(found, [], 'forbidden claims in final resume')
         plan = outcome['proposal']['plan']
         headers = {h['text'] for s in plan['sections'] for i in s['items'] for h in i['head']} | {s['heading'] for s in plan['sections']}

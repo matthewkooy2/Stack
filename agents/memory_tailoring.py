@@ -435,7 +435,33 @@ def build(base: dict[str, Any], memory: Memory, data: dict[str, Any]) -> tuple[l
                 continue
             used.add(handle)
             dest['items'].append(out)
+    _chronological(sections)
     return [s for s in sections if s['items']], notes
+
+
+MONTHS = {m: i + 1 for i, m in enumerate('jan feb mar apr may jun jul aug sep oct nov dec'.split())}
+DATE = re.compile(r'\b(?:(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+)?((?:19|20)\d\d)\b|\b(present|current|now)\b', re.I)
+
+
+def _when(item: dict[str, Any]) -> tuple[int, int] | None:
+    """(latest, earliest) month index from an entry's header dates; None when it has none."""
+    found = []
+    for month, year, ongoing in DATE.findall(' '.join(h['text'] for h in item['head'])):
+        found.append(999999 if ongoing else int(year) * 12 + MONTHS.get(month[:3].lower(), 6))
+    return (max(found), min(found)) if found else None
+
+
+def _chronological(sections: list[dict[str, Any]]) -> None:
+    """Experience reads newest first; entries without header dates keep their place."""
+    for s in sections:
+        if s['heading'].lower() not in SYNONYMS[0]:
+            continue
+        dated = [n for n, i in enumerate(s['items']) if _when(i)]
+        order = sorted(dated, key=lambda n: _when(s['items'][n]), reverse=True)
+        items = list(s['items'])
+        for slot, n in zip(dated, order):
+            items[slot] = s['items'][n]
+        s['items'] = items
 
 
 def _section(sections: list[dict[str, Any]], base: dict[str, Any], heading: str) -> dict[str, Any]:

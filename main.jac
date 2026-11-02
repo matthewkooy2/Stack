@@ -35,6 +35,7 @@ import from agents.resume_templates { TEMPLATES as LATEX_TEMPLATES, fill as fill
 import from agents.record_resume { validate_upload, validate_records, check_documents, prepare as record_outline }
 import from agents.resume_details { view as details_view, save as details_save, facts_for as details_facts, is_resume_fact, attach_import, DetailsError }
 import from agents.bullet_bank { save_review as bank_save_review, compose as bank_compose, KIND as BANK_KIND }
+import from agents.memory_bank { definitions as bank_definitions, context_lines as bank_context }
 import from agents.linkedin { profile_url }
 import from agents.autofill { application_url }
 import from agents.voice { voice_settings }
@@ -263,6 +264,8 @@ def _owned_resume(id: str) -> Resume | None {
 
 def _bank_view(r: Resume) -> dict[str, any] {
     return {"id":jid(r),"name":r.name,"records":r.review.get("records",[]),"revision":r.review_revision,
+        "schema_version":1,"entry_type":r.review.get("entry_type","other") if r.review.get("kind")==BANK_KIND else "imported_resume",
+        "fields":r.review.get("fields",{}),"attachment":r.review.get("attachment",{}),
         "confirmed":r.review_confirmed,"editable":r.review.get("kind")==BANK_KIND,
         "upload_digest":r.upload_digest,"confirmed_at":r.review.get("confirmed_at",0.0),
         "source":r.review.get("source","Imported resume: "+r.name),"history":r.review.get("history",r.review.get("record_history",[]))};
@@ -270,18 +273,20 @@ def _bank_view(r: Resume) -> dict[str, any] {
 
 def:priv resume_bank() -> dict[str, any] {
     _agent_access();
-    return {"sources":[_bank_view(r) for r in [root -->][?:Resume] if r.review.get("records")],
+    return {"schema_version":1,"entry_types":bank_definitions(),
+        "sources":[_bank_view(r) for r in [root -->][?:Resume] if r.review.get("records") or r.review.get("kind")==BANK_KIND],
         "resumes":[{"id":jid(r),"name":r.name,"revision":r.review_revision,"confirmed":r.review_confirmed,
             "selection":r.review.get("bank_selection",[])} for r in [root -->][?:Resume] if r.review.get("records") and r.review.get("kind")!=BANK_KIND and not r.template.get("kind")],
-        "limits":{"groups":100,"records_per_group":300,"records_per_resume":300}};
+        "limits":{"groups":100,"records_per_group":300,"records_per_resume":300,"attachment_bytes":10485760,"attachments_per_group":1,"attachment_extensions":[".pdf",".docx"]}};
 }
 
-def:priv resume_bank_save(name: str, source: str, records: list[dict[str, any]], confirm: bool = False, id: str = "", revision: int = 0) -> dict[str, any] {
+def:priv resume_bank_save(name: str, source: str, records: list[dict[str, any]], confirm: bool = False, id: str = "", revision: int = 0, entry_type: str = "", fields: dict[str, any] | None = None) -> dict[str, any] {
     _agent_access();
     # The pinned RPC adapter stringifies omitted defaults. Edits still require a revision.
     if id is None { id=""; }
     if not id and (revision is None or revision=="0") { revision=0; }
     if confirm is None or confirm=="False" { confirm=False; }
+    if entry_type is None { entry_type=""; }
     with locks.account() {
         _agent_fresh();items=[r for r in [root -->][?:Resume] if r.review.get("kind")==BANK_KIND];
         current=[r for r in items if jid(r)==id];
@@ -289,7 +294,7 @@ def:priv resume_bank_save(name: str, source: str, records: list[dict[str, any]],
         if not id and (revision!=0 or len(items)>=100) { return _error("Create up to 100 experience groups."); }
         r=current[0] if current else None;
         if r is not None and r.review_revision!=revision { return _error("Experience changed. Reload before saving."); }
-        try { review=bank_save_review(r.review if r is not None else {},name,source,records,confirm,revision,time.time()); }
+        try { review=bank_save_review(r.review if r is not None else {},name,source,records,confirm,revision,time.time(),entry_type,fields); }
         except ValueError as e { return _error(str(e)); }
         if r is None { r=root ++> Resume(name=name.strip(),file_key="",size=0,created_at=time.time()); }
         r.name=name.strip();r.review=dict(review);r.review_revision=revision+1;r.review_confirmed=confirm;
@@ -304,8 +309,46 @@ def:priv resume_bank_delete(id: str, revision: int) -> dict[str, any] {
         if not items { return _error("Experience not found."); }
         r=items[0];
         if r.review_revision!=revision { return _error("Experience changed. Reload before deleting."); }
-        del r;commit();return resume_bank();
+        key=r.file_key;del r;commit();
+        if key { _file_path(key).unlink(missing_ok=True); }
+        return resume_bank();
     }
+}
+
+def:priv resume_bank_attachment_save(id: str, revision: int, name: str, content: str) -> dict[str, any] {
+    _agent_access();
+    # An empty name and content removes the current supporting document.
+    if len(name)>160 or len(content)>13981016 { return _error("Use a filename under 160 characters and a file of 10 MB or less."); }
+    raw=b"";suffix="";
+    if name or content {
+        try { raw=base64.b64decode(content,validate=True);suffix=validate_upload(name,raw); }
+        except ValueError as e { return _error(str(e)); }
+    }
+    with locks.account() {
+        _agent_fresh();items=[r for r in [root -->][?:Resume] if jid(r)==id and r.review.get("kind")==BANK_KIND];
+        if not items { return _error("Memory bank entry not found."); }
+        r=items[0];
+        if r.review_revision!=revision { return _error("Entry changed. Reload before changing its file."); }
+        attachment={"name":Path(name).name,"size":len(raw),"digest":hashlib.sha256(raw).hexdigest()} if raw else {};
+        try { review=bank_save_review(r.review,r.name,r.review["source"],r.review["records"],False,revision,time.time(),attachment=attachment); }
+        except ValueError as e { return _error(str(e)); }
+        old_key=r.file_key;key="bank-"+str(uuid4())+suffix if raw else "";
+        if raw { _write_private(key,raw); }
+        r.file_key=key;r.size=len(raw);r.review=dict(review);r.review_revision+=1;r.review_confirmed=False;
+        commit();
+        if old_key { _file_path(old_key).unlink(missing_ok=True); }
+        return resume_bank();
+    }
+}
+
+def:priv resume_bank_attachment(id: str) -> dict[str, any] {
+    _agent_access();
+    for r in [root -->][?:Resume] {
+        if jid(r)==id and r.review.get("kind")==BANK_KIND and r.file_key {
+            return {**r.review["attachment"],"content":base64.b64encode(_file_path(r.file_key).read_bytes()).decode()};
+        }
+    }
+    return _error("Supporting document not found.");
 }
 
 def:priv resume_bank_select(id: str, revision: int, selection: list[dict[str, any]]) -> dict[str, any] {
@@ -315,7 +358,7 @@ def:priv resume_bank_select(id: str, revision: int, selection: list[dict[str, an
         if r is None { return _error("Resume not found."); }
         if revision!=r.review_revision { return _error("Resume changed. Reload before choosing experience."); }
         if not r.review_confirmed or not r.review.get("records") or r.template.get("kind") { return _error("Use a confirmed PDF/DOCX record resume for bullet bank selection."); }
-        try { bank_compose(r.review["records"],selection,[_bank_view(x) for x in [root -->][?:Resume] if jid(x)!=id and x.review.get("records")]); }
+        try { bank_compose(r.review["records"],selection,[_bank_view(x) for x in [root -->][?:Resume] if jid(x)!=id and (x.review.get("records") or x.review.get("kind")==BANK_KIND)]); }
         except ValueError as e { return _error(str(e)); }
         checked=[{"id":x["id"],"revision":x["revision"],"record_ids":x["record_ids"]} for x in selection];
         r.review={**r.review,"bank_selection":checked};r.review_revision+=1;commit();return resume_bank();
@@ -596,7 +639,7 @@ def:priv check_tailored_resume(id: str) -> dict[str, any] {
 Empty when the resume is unconfirmed. Uploaded LaTeX and unreviewed imports are never included."""
 def _confirmed_records(r: Resume) -> list[dict[str, any]] {
     if not r.review_confirmed or not r.review.get("records") { return []; }
-    return bank_compose(r.review["records"],r.review.get("bank_selection",[]),[_bank_view(x) for x in [root -->][?:Resume] if jid(x)!=jid(r) and x.review.get("records")])["records"];
+    return bank_compose(r.review["records"],r.review.get("bank_selection",[]),[_bank_view(x) for x in [root -->][?:Resume] if jid(x)!=jid(r) and (x.review.get("records") or x.review.get("kind")==BANK_KIND)])["records"];
 }
 """Job score for a saved job (docs/JOB_SCORE.md): only the job's resume's confirmed records, against the listing.
 `as_of` ("YYYY-MM") ends roles marked Present; it defaults to this month. `score` keeps the earlier summary for older clients."""
@@ -633,7 +676,7 @@ def _resume_source(r: Resume) -> dict[str, any] {
     }
     if r.template.get("kind")!="builtin" {
         if not r.review_confirmed or not r.review.get("records") { raise ValueError("Review and confirm the imported records for "+r.name+" before tailoring."); }
-        composed=bank_compose(r.review["records"],r.review.get("bank_selection",[]),[_bank_view(x) for x in [root -->][?:Resume] if jid(x)!=jid(r) and x.review.get("records")]);
+        composed=bank_compose(r.review["records"],r.review.get("bank_selection",[]),[_bank_view(x) for x in [root -->][?:Resume] if jid(x)!=jid(r) and (x.review.get("records") or x.review.get("kind")==BANK_KIND)]);
         return {"format":"records",**composed,"template":r.review.get("template","classic"),"revision":r.review_revision,"upload_digest":r.upload_digest};
     }
     if not r.review_confirmed or not r.review.get("details",{}).get("confirmed") or r.review.get("records_source")!="details" { raise ValueError("Confirm the details for "+r.name+" to fill its built-in template."); }
@@ -969,9 +1012,10 @@ def:priv resume_save_records(id: str, revision: int, records: list[dict[str, any
 def:priv story_sources() -> dict[str, any] {
     _agent_access();sources=[];
     for r in [root -->][?:Resume] {
-        if r.review_confirmed and r.review.get("records") {
-            sources.append({"key":"resume:"+jid(r),"kind":"reviewed_resume_records","revision":digest({"revision":r.review_revision,"records":r.review["records"]}),
-                "text":"\n".join(record["text"] for record in r.review["records"]),"resume_id":jid(r),"provenance":"User-confirmed imported resume records","review_revision":r.review_revision});
+        if r.review_confirmed and (r.review.get("records") or r.review.get("kind")==BANK_KIND) {
+            lines: list[str]=([r.name]+bank_context(r.review) if r.review.get("schema_version")==1 else [])+[record["text"] for record in r.review.get("records",[])];
+            sources.append({"key":"resume:"+jid(r),"kind":"reviewed_resume_records","revision":digest({"revision":r.review_revision,"records":r.review.get("records",[])}),
+                "text":"\n".join(lines),"resume_id":jid(r),"provenance":r.review.get("source","User-confirmed imported resume records"),"review_revision":r.review_revision});
         }
     }
     for f in _agent_memory().facts {
@@ -1405,7 +1449,7 @@ def _features() -> list[dict[str, any]] {
 def:priv agent_features() -> dict[str, any] { _agent_access();return {"features":_features()}; }
 
 def _export_resume(r: Resume) -> dict[str, any] {
-    if r.review.get("kind")==BANK_KIND { return {**_bank_view(r),"review":r.review,"created_at":r.created_at}; }
+    if r.review.get("kind")==BANK_KIND { return {**_bank_view(r),"review":r.review,"created_at":r.created_at,"supporting_document":resume_bank_attachment(jid(r)) if r.file_key else {}}; }
     out={"id":jid(r),**read_resume(jid(r)),"format":_resume_format(r)};
     if r.template {
         try { out["source"]=latex_encode(_resume_source(r)); }

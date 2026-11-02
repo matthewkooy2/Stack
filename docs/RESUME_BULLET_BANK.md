@@ -1,7 +1,7 @@
 # Resume bullet bank
 
 MAT-29 extends the existing private `Resume.review.records` store from MAT-25.
-User-created experience groups have `review.kind=experience_bank`, no uploaded
+User-created entries have `review.kind=experience_bank`, an optional supporting
 file, and remain outside the upload list, default selection and application
 fallback. MAT-24's generic confirmed Resume source reader can reuse their current
 records with its existing `resume:<jid>` identity and revision digest.
@@ -38,6 +38,56 @@ sources automatically.
 - `resume_bank_delete`: delete a manual group/history at the current revision.
 - `resume_bank_select`: bind exact source revisions and record IDs to a confirmed
   record resume, with a target revision check.
+- `resume_bank_attachment_save(id, revision, name, content)`: attach/replace one
+  PDF or DOCX supporting document (base64, at most 10 MB). Empty name and content
+  remove it. File changes increment the entry revision and return it to draft.
+- `resume_bank_attachment(id)`: retrieve the current supporting document's name,
+  size, SHA-256 digest and base64 content, within the signed-in account.
+
+### Typed inputs (backend contract v1)
+
+No client UI changes are included. `resume_bank` now returns `schema_version: 1`
+and `entry_types`: the supported type keys, labels and field definitions. Each
+field advertises an input hint, its text length limit and whether it is required
+for confirmation. Dates are user-supplied text with a `month` input hint; links
+are stored text with a `url` hint. The server does not fetch links or infer dates.
+
+Types: `work_experience`, `project`, `skill`, `education`, `coursework`,
+`certification`, `volunteering`, `leadership`, `award`, `publication`, `research`,
+`language`, `activity`, `military_service`, `other`.
+
+`resume_bank_save` additionally accepts `entry_type` and `fields` (a map of the
+selected type's field names to text). Fields are replaced as a whole when sent;
+omitting them preserves the saved fields. Omitting `entry_type` preserves the
+saved type, or uses `other` for a new entry. Changing type requires sending the
+new type's complete fields. Unknown types/fields are refused. Incomplete required
+fields can be saved as drafts; confirmation requires them. Work experience needs
+employer, job title and start date; projects have optional role, organization,
+dates, technologies, project and repository links. Other definitions are available
+directly in the response, rather than duplicated in a separate client schema.
+
+`records` still contains user-authored paragraphs/bullets. Send `records: []` for
+a field-only entry, such as a language with a proficiency. Drafts can start with
+only a name and source; confirmation requires at least one field or record.
+To select a field-only entry, use `record_ids: []`. All of an
+entry's structured context accompanies any selected records, preserving employer,
+date, credential and link attribution. Context consumes the existing composed
+document limits. Type, fields and current file metadata are included in original
+and revision snapshots and final composition provenance/digests. A supporting file
+is stored as evidence; its contents are never automatically parsed or confirmed.
+
+Storage adds versioned keys to the existing `Resume.review` JSON data; no table
+replacement or destructive backfill is needed. Existing generic entries read as
+`other` with empty fields, retain their IDs/history/confirmation and remain
+editable through the old API. Imported resume sources are labeled `imported_resume`
+and remain read-only in the bank. Older clients can continue sending their current
+requests; editing a typed entry without the new parameters retains its metadata.
+Confirmed structured context also appears in the existing story source reader.
+
+Supporting documents use the existing private, account-scoped file store. Export
+includes the current file content. Replacing/removing a file or deleting an entry
+removes its previous file; history retains metadata, not historical file content.
+Account deletion uses the existing Resume file cleanup.
 
 The ordinary private graph/account boundary applies to every route. There is no
 separate database. Account export includes manual records, original sources,

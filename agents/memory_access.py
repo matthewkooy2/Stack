@@ -43,9 +43,23 @@ def _clean(text: Any) -> str:
     return re.sub(r'\s+', ' ', str(text)).strip()
 
 
+# Types whose header leads with "<title>, <organization>" when both are supplied.
+TITLE_FIELDS = {'work_experience': ('job_title', 'employer'), 'volunteering': ('role', 'organization'),
+                'leadership': ('position', 'organization'), 'research': ('role', 'institution'),
+                'activity': ('role', 'organization'), 'military_service': ('rank', 'branch'),
+                'education': ('degree', 'field_of_study', 'institution')}
+
+
 def header(entry_type: str, name: str, fields: dict[str, str]) -> str:
-    """Name, attribution and supplied dates; a missing end date is never shown as Present."""
-    parts = [name] + [fields[k] for k in HEADER_FIELDS.get(entry_type, ()) if fields.get(k) and fields[k] != name]
+    """Title, attribution and supplied dates; a missing end date is never shown as Present."""
+    lead = TITLE_FIELDS.get(entry_type, ())
+    if lead and fields.get(lead[0]) and fields.get(lead[-1]):
+        parts, used = [', '.join(fields[k] for k in lead if fields.get(k))], set(lead)
+    else:
+        parts, used = [name], set()
+    for k in HEADER_FIELDS.get(entry_type, ()):
+        if k not in used and fields.get(k) and _clean(fields[k]).lower() not in ' '.join(parts).lower():
+            parts.append(fields[k])
     for start, end in DATE_FIELDS:
         if fields.get(start) and start in {f['key'] for f in TYPES.get(entry_type, ('', []))[1]}:
             parts.append(fields[start] + (' – ' + fields[end] if end and fields.get(end) else ''))

@@ -28,10 +28,7 @@ def prepared():
 
 def handles(text):
     """Entry name -> prompt handle, read from rendered memory."""
-    out = {}
-    for h, header in re.findall(r'^## (E\d+) · [^·]+ · (.+)$', text, re.M):
-        out[header.split(' · ')[0].split(' (part')[0]] = h
-    return out
+    return {name: h for h, name in re.findall(r'^(E\d+)\.name \| (.+)$', text, re.M)}
 
 
 class Model:
@@ -116,7 +113,7 @@ class Guards(unittest.TestCase):
     def test_header_never_invents_present(self):
         snap = snapshot()
         intern = next(e for e in snap['entries'] if e['name'] == 'Data Intern, City of Detroit')
-        self.assertEqual(intern['header'], 'Data Intern, City of Detroit · Data Intern · City of Detroit Office of Innovation · Detroit, MI · Jun 2021 – Aug 2021')
+        self.assertEqual(intern['header'], 'Data Intern, City of Detroit Office of Innovation · Detroit, MI · Jun 2021 – Aug 2021')
         volunteer = next(e for e in snap['entries'] if e['type'] == 'volunteering')
         self.assertTrue(volunteer['header'].endswith('Sep 2020'))
         self.assertNotIn('Present', volunteer['header'])
@@ -299,12 +296,46 @@ class Tailoring(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Increase the model context'):
             run(Model(), {**LOCAL, 'local_model_context_tokens': 4096})
 
+    def test_same_role_memory_merges_into_resume_entry(self):
+        from tests.memory_tailoring_cases import PRIYA_RESUME, PRIYA_BANK, PRIYA_JOB
+        views = [{'id': 'p' + str(n), 'name': b['name'], 'kind': 'experience_bank', 'confirmed': b['confirm'], 'revision': 1,
+                  'records': b['records'], 'entry_type': b['entry_type'], 'fields': b['fields'], 'source': b['source']}
+                 for n, b in enumerate(PRIYA_BANK)]
+        snap = memory_access.collect('owner', views, [], [])
+        p = record_resume.prepare({'records': PRIYA_RESUME, 'template': 'classic', 'upload_digest': 'u', 'revision': 1})
+
+        def model(step, ctx, c):
+            if step == 'tailor_verify':
+                return {'artifact': {'results': [{'id': x['id'], 'verdict': 'supported', 'problem': ''} for x in ctx['candidates']]}}
+            rca = re.search(r'^## (E\d+) · Work experience', ctx['memory'], re.M).group(1)
+            self.assertIn('(Same role as R.e1: cite these lines inside R.e1 instead of listing ' + rca, ctx['memory'])
+            return {'artifact': {'summary': '', 'left_out': [], 'sections': [
+                {'heading': 'Work Experience', 'items': [{'entry': 'R.e1', 'reason': 'Scrap reduction', 'lines': [
+                    {'text': 'After the dryer was recalibrated, Line 3 scrap fell from 6.1% to 4.2% over six weeks.', 'cites': [rca + '.r1']},
+                    {'text': 'Managed the mold changeover on Line 3.', 'cites': ['R.r6']},
+                    {'text': 'Logged scrap counts by shift in Excel and charted weekly trends.', 'cites': ['R.r7']}]}]},
+                {'heading': 'Education', 'items': [{'entry': 'R.e0', 'reason': '', 'lines': [{'text': PRIYA_RESUME[3]['text'], 'cites': ['R.r3']}]}]}]}}
+        artifact = mt.tailor(p, mt.run(p, snap, PRIYA_JOB, LOCAL, model))
+        texts = [r['text'] for r in artifact['records']]
+        self.assertIn('Experience', texts)
+        self.assertNotIn('Work Experience', texts)
+        at = texts.index('Manufacturing Engineering Co-op, Lakeview Plastics, Jan 2024 – Aug 2024')
+        self.assertEqual(texts[at + 1], 'After the dryer was recalibrated, Line 3 scrap fell from 6.1% to 4.2% over six weeks.')
+        # "Managed" was refused, so the confirmed "Assisted" line stays.
+        self.assertIn('Assisted the process engineer with a mold changeover on Line 3.', texts)
+        self.assertFalse(any(t.startswith('Managed') for t in texts))
+        added = [c for c in artifact['changes'] if c['kind'] == 'add']
+        self.assertEqual(len(added), 1)
+        without = [r['text'] for r in mt.apply(p, artifact['plan'], {added[0]['id']})]
+        self.assertNotIn('After the dryer was recalibrated, Line 3 scrap fell from 6.1% to 4.2% over six weeks.', without)
+
     def test_unverified_rewrites_revert(self):
         proposal = run(Model(verify='unsupported'))
         for s in proposal['sections']:
             for i in s['items']:
                 for line in i['lines']:
-                    self.assertEqual(line['status'], 'verbatim', line)
+                    # Skills lines are checked item by item against their sources instead.
+                    self.assertEqual(line['status'], 'rewrite' if i['kind'] == 'skills' else 'verbatim', line)
         model = Model()
         model.verify = lambda x: (_ for _ in ()).throw(ValueError('down'))
         proposal = run(model)

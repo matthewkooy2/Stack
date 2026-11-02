@@ -266,10 +266,23 @@ def check_line(text: str, cited: list[str], context: str, skills: bool = False) 
     return ''
 
 
+SYNONYMS = [{'experience', 'work experience', 'professional experience', 'relevant experience', 'employment', 'work history',
+             'additional experience'},
+            {'skills', 'technical skills', 'skills & tools'}, {'certifications', 'licenses & certifications', 'certifications & licenses'},
+            {'projects', 'selected projects', 'relevant projects', 'academic projects'}, {'education', 'education & credentials'}]
+
+
 def _section_heading(heading: str, base: dict[str, Any], items: list[dict[str, Any]], memory: Memory) -> str:
+    """The resume's own heading for this kind of section when it has one, else a standard heading."""
     known = {_clean(s['heading']).lower(): s['heading'] for s in base['sections']}
+    wanted = _clean(heading).lower()
+    for group in SYNONYMS:
+        if wanted in group:
+            own = next((h for k, h in known.items() if k in group), None)
+            if own:
+                return own
     known.update({h.lower(): h for h in STANDARD})
-    value = known.get(_clean(heading).lower())
+    value = known.get(wanted)
     if value:
         return value
     for item in items:
@@ -393,10 +406,13 @@ def verify(sections: list[dict[str, Any]], job: dict[str, Any], c: dict[str, Any
            calls: list[str]) -> list[str]:
     """Second-pass model check of every reworded line; unsupported or unchecked lines revert."""
     job_words = words(' '.join(str(job.get(k, '')) for k in ('title', 'description', 'qualifications')))
-    lines = [line for s in sections for item in s['items'] for line in item['lines'] if line['status'] == 'rewrite']
+    # Skills lines already passed an exact item-by-item source check; a model verdict adds nothing.
+    lines = [line for s in sections for item in s['items'] for line in item['lines']
+             if line['status'] == 'rewrite' and item['kind'] != 'skills' and 'skill' not in s['heading'].lower()]
     candidates = [{'id': line['uid'], 'sources': line['sources'], 'text': line['text'],
                    'listing_words': _listing_words(line['text'], line['sources'], job_words)} for line in lines]
     verdicts, notes, batch = {}, [], []
+    checked = {line['uid'] for line in lines}
 
     def flush():
         if not batch:
@@ -421,7 +437,7 @@ def verify(sections: list[dict[str, Any]], job: dict[str, Any], c: dict[str, Any
         for item in s['items']:
             kept = []
             for line in item['lines']:
-                if line['status'] == 'rewrite' and verdicts.get(line['uid'], ('',))[0] != 'supported':
+                if line['uid'] in checked and verdicts.get(line['uid'], ('',))[0] != 'supported':
                     problem = verdicts.get(line['uid'], ('', ''))[1]
                     notes.append('Verification found ' + ('"' + problem + '"' if problem else 'a reworded line') + ' for ' + item['name']
                                  + ' unsupported or unchecked.' + (' Kept your original wording.' if line['fallback'] else ' Left it out.'))

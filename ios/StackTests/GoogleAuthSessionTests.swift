@@ -18,6 +18,7 @@ final class GoogleAuthSessionTests: XCTestCase {
     func testCallbackMustMatchTheAttemptAndCannotCarryASessionOrProviderToken() throws {
         let callback = "com.matthewkooy.stack://auth/google?state=\(state)"
         XCTAssertNoThrow(try GoogleAuthSession.validateCallback(URL(string: callback)!, provider: provider))
+        XCTAssertNoThrow(try GoogleAuthSession.validateCallback(URL(string: callback + "#")!, provider: provider))
         for invalid in [callback + "&state=other", callback + "&token=secret", callback + "#fragment",
                         callback.replacingOccurrences(of: state, with: String(repeating: "x", count: 43)),
                         callback.replacingOccurrences(of: "://auth/", with: "://other/"),

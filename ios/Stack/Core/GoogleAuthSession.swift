@@ -28,7 +28,9 @@ final class GoogleAuthSession: NSObject, ASWebAuthenticationPresentationContextP
         let expected = URLComponents(url: provider, resolvingAgainstBaseURL: false)?.queryItems?.filter { $0.name == "state" }
         let query = url?.queryItems ?? []
         guard url?.scheme == scheme, url?.host == "auth", url?.path == "/google",
-              url?.user == nil, url?.password == nil, url?.port == nil, url?.fragment == nil,
+              url?.user == nil, url?.password == nil, url?.port == nil,
+              // Browsers can preserve an empty fragment marker during OAuth redirects.
+              url?.fragment?.isEmpty != false,
               expected?.count == 1, let state = expected?.first?.value, state.count == 43,
               query.count == 1, query[0].name == "state", query[0].value == state else {
             throw GoogleSignInError.invalidURL

@@ -163,6 +163,8 @@ final class ScreenFlowServer: @unchecked Sendable {
         "skills.descriptions": "SQL\nPython\nExperiment design", "additional.descriptions": "Volunteer data tutor",
     ]
     private var decisions: [JSON] = []
+    /// What `job_feed` ranks: the search last saved through `save_search`.
+    private var savedSearch: JSON = ["query": "", "filters": [:]]
 
     func reset(flow: String) {
         lock.lock(); defer { lock.unlock() }
@@ -257,7 +259,7 @@ final class ScreenFlowServer: @unchecked Sendable {
     func delay(for name: String, body: JSON) -> TimeInterval {
         lock.lock(); defer { lock.unlock() }
         if flow == "resume-upload", name == "upload_resume" { return 1.5 }
-        return flow == "deck-paging" && name == "search_jobs" && !body["cursor"].string.isEmpty ? 3 : 0
+        return flow == "deck-paging" && name == "job_feed" && !body["cursor"].string.isEmpty ? 3 : 0
     }
 
     /// `--listing-url-override=<http://127.0.0.1:port/path>` points the first deck job at a local fixture page so
@@ -421,12 +423,14 @@ final class ScreenFlowServer: @unchecked Sendable {
         case "get_job":
             let id = body["id"].string
             return ok((Self.deckJobs + Self.entryJobs).first { $0["id"].string == id } ?? Self.job)
-        case "search_jobs":
-            return ok(Self.deckPage(query: body["query"].string, filters: body["filters"],
+        case "job_feed":
+            return ok(Self.deckPage(query: savedSearch["query"].string, filters: savedSearch["filters"],
                                     cursor: body["cursor"].string, paging: flow == "deck-paging"))
         case "save_search":
+            savedSearch = ["query": body["query"], "filters": body["filters"]]
             return ok(["query": body["query"], "filters": body["filters"]])
         case "reset_search":
+            savedSearch = ["query": "", "filters": [:]]
             return ok([:])
         case "swipe":
             decisions.append(["job_id": body["job_id"], "action": body["action"]])

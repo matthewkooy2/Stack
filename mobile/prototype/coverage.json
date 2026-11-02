@@ -2,28 +2,6 @@
   "checkpoint": "f8f2159",
   "areas": [
     {
-      "source": "prototype/jobs.jsx",
-      "controller": "mobile/prototype/jobs-controller.js",
-      "views": "mobile/prototype/jobs.jac",
-      "components": [
-        "JobsPreview"
-      ],
-      "templates": 21,
-      "implementation": "ported",
-      "browser": "pass: checkpoint renders; see scenario IDs and interaction suites",
-      "nativeBundle": "pass: iOS Metro/Hermes + source graph",
-      "simulator": "not run",
-      "iPhone": "not run",
-      "scenarioIds": [
-        "Jobs/deck",
-        "Jobs/filters",
-        "Jobs/details",
-        "Jobs/menu",
-        "Jobs/exhausted",
-        "Jobs/Loading"
-      ]
-    },
-    {
       "source": "prototype/applications.jsx",
       "controller": "mobile/prototype/applications-controller.js",
       "views": "mobile/prototype/applications.jac",

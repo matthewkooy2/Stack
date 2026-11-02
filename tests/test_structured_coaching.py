@@ -78,6 +78,37 @@ class StructuredCoaching(unittest.TestCase):
             with patch.object(local_cli.shutil, 'which', return_value='/tools/cli'), patch.object(local_cli, 'run', side_effect=run):
                 self.check(provider.generate('coach', SESSION, c)['artifact'])
 
+    def test_interview_steps_use_the_same_schema_with_strengths_and_weaknesses(self):
+        """#133: per-answer and final interview coaching reuse this format and keep prose replies."""
+        schema = coaching.INTERVIEW_SCHEMA
+        self.assertEqual(set(schema['required']), set(schema['properties']))
+        self.assertEqual(set(schema['properties']) - set(coaching.SCHEMA['properties']), {'strengths', 'weaknesses'})
+        from agents.local_model import validate
+        reply = {**REPLY, 'strengths': ['Names the checklist.', 'Owns the change'], 'weaknesses': ['No result.']}
+        validate(reply, schema)
+        context = {'job': {'title': 'Release Engineer'}, 'interview': {'turns': [{'question': {'question': 'Q'}, 'answer': 'A'}], 'unanswered': 2}}
+        c = self.configure(provider='openai', model='gpt-test', monthly_cents=100, user_monthly_cents=100)
+        openai = {'id': 'resp', 'status': 'completed', 'output': [{'content': [{'type': 'output_text', 'text': json.dumps(reply)}]}]}
+        for step in ('interview_turn', 'interview_coach'):
+            with patch.object(provider, 'http', return_value=openai) as http:
+                artifact = provider.generate(step, context, c)['artifact']
+            sent = http.call_args[0][1]
+            self.assertEqual(sent['text']['format']['schema'], schema)
+            self.assertEqual(json.loads(sent['input'])['context']['interview']['unanswered'], 2)
+            self.assertEqual(artifact['format'], 'structured')
+            self.assertEqual(artifact['strengths'], reply['strengths'])
+            self.assertEqual(artifact['weaknesses'], ['No result.'])
+            # Older interview clients read the Strengths and Improvements paragraphs of text.
+            self.assertIn('\n\nStrengths: Names the checklist. Owns the change.\n\nWeaknesses: No result.\n\nImprovements: End with the measurable result.', artifact['text'])
+        self.assertIn('ended early', json.loads(sent['input'])['task'])
+        self.assertEqual(coaching.stored({**artifact, 'injected': 1})['strengths'], reply['strengths'])
+        # The prep coach step is unchanged: no interview fields, the same "Work on" text.
+        self.assertNotIn('strengths', coaching.artifact(REPLY))
+        prose = 'Strengths: clear.\n\nImprovements: add a result.'
+        c = self.configure(provider='codex-cli')
+        with patch.object(local_cli, 'generate', return_value={'text': prose}):
+            self.assertEqual(provider.generate('interview_turn', context, c)['artifact'], {'text': prose, 'summary': prose, 'format': 'text'})
+
     def test_a_reply_that_fails_validation_is_rejected(self):
         c = self.configure(provider='codex-cli')
         for bad in ({}, {'summary': 'Legacy shape only.'}, {'verdict': '  ', 'scores': [{'name': '', 'score': 3, 'why': ''}]},

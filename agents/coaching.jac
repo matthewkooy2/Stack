@@ -36,7 +36,15 @@ with entry {
         'work_on: the single most useful next practice step, in one sentence. follow_ups: up to two short follow-up questions. '
         'example: a short illustrative answer of at most 120 words only when it clearly helps, otherwise the empty string; '
         'never present invented experience as the candidate\'s own. Keep the whole reply under 250 words.';
-    LIMITS = {'verdict': 240, 'name': 40, 'why': 400, 'work_on': 300, 'follow_up': 240, 'example': 1600};
+    LIMITS = {'verdict': 240, 'name': 40, 'why': 400, 'work_on': 300, 'follow_up': 240, 'example': 1600, 'point': 300};
+    # Mock interview coaching (#133) adds what worked and what was weak to the same fields.
+    POINTS = {'type': 'array', 'maxItems': 3, 'items': TEXT};
+    INTERVIEW_SCHEMA = {
+        **SCHEMA,
+        'properties': {**SCHEMA['properties'], 'strengths': POINTS, 'weaknesses': POINTS},
+        'required': SCHEMA['required'] + ['strengths', 'weaknesses']
+    };
+    FIELDS = set(INTERVIEW_SCHEMA['properties']);
 }
 
 def clip(value: any, limit: int) -> str {
@@ -69,13 +77,25 @@ def clean(data: any) -> any {
     verdict = clip(data.get('verdict'), LIMITS['verdict']);
     if not verdict and not scores { return None; }
     asked = data.get('follow_ups') if isinstance(data.get('follow_ups'), `list) else [];
-    return {
+    out = {
         'verdict': verdict,
         'scores': scores,
         'work_on': clip(data.get('work_on'), LIMITS['work_on']),
         'follow_ups': [q for q in [clip(q, LIMITS['follow_up']) for q in asked] if q][:2],
         'example': clip(data.get('example'), LIMITS['example'])
     };
+    # Interview replies carry strengths and weaknesses; prep coach replies do not.
+    for key in ['strengths', 'weaknesses'] {
+        if key in data {
+            items = data[key] if isinstance(data[key], `list) else [];
+            out[key] = [p for p in [clip(p, LIMITS['point']) for p in items] if p][:3];
+        }
+    }
+    return out;
+}
+
+def sentences(items: list[str]) -> str {
+    return ' '.join((p if p[-1] in '.!?…' else p + '.') for p in items);
 }
 
 """Plain text with the same layout every time, for clients that read `text`."""
@@ -86,7 +106,10 @@ def render(data: dict[str, any]) -> str {
             (s['name'] + ': ' + str(s['score']) + '/4' + (' - ' + s['why'] if s['why'] else '')) for s in data['scores']
         ));
     }
-    if data['work_on'] { parts.append('Work on: ' + data['work_on']); }
+    # Interview text uses the Strengths and Improvements headings older interview clients read.
+    if data.get('strengths') { parts.append('Strengths: ' + sentences(data['strengths'])); }
+    if data.get('weaknesses') { parts.append('Weaknesses: ' + sentences(data['weaknesses'])); }
+    if data['work_on'] { parts.append(('Improvements: ' if 'strengths' in data else 'Work on: ') + data['work_on']); }
     if data['follow_ups'] {
         parts.append('Follow-up questions:\n' + '\n'.join(
             (str(i + 1) + '. ' + q) for (i, q) in enumerate(data['follow_ups'])
@@ -128,7 +151,7 @@ def artifact(reply: any) -> dict[str, any] {
 
 """Re-check a worker's coach artifact before it is stored; prose artifacts pass through."""
 def stored(value: any) -> dict[str, any] {
-    if isinstance(value, `dict) and ('scores' in value or 'verdict' in value) { return artifact({k: v for (k, v) in value.items() if k in SCHEMA['properties']}); }
+    if isinstance(value, `dict) and ('scores' in value or 'verdict' in value) { return artifact({k: v for (k, v) in value.items() if k in FIELDS}); }
     text = (value.get('text') or value.get('summary')) if isinstance(value, `dict) else '';
     if not isinstance(text, str) or not text.strip() { raise ValueError('The coaching reply was empty. Please retry.'); }
     return {**value, 'text': text[:30000], 'summary': str(value.get('summary') or text)[:30000]};

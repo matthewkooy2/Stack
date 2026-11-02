@@ -20,8 +20,13 @@ installed iPhone build or the live workspace bundle. Verify those release states
 separately. Backend automatic deployment currently excludes workspace assets.
 
 In the browser workspace, select **Interview**, choose a saved role and start.
-The first questions quote the saved listing and a confirmed resume fact when one
-is available. With no confirmed resume facts, questions explicitly ask for a real
+Each interview asks three questions (#133): an experience question that pairs a
+listing requirement with a confirmed work entry, a project question about a
+confirmed resume project, and a behavioral question built from the listing's
+teamwork or communication sentence. Resume facts come from the application's
+resume: confirmed details, or its confirmed reviewed records when details were
+never confirmed. Profile, contact and education facts never become questions.
+Without resume facts, the questions quote the listing alone and ask for a real
 example or an acknowledged learning gap. A snapshot preserves the role and facts
 used when the interview began. The server resolves ownership and linked resume;
 clients cannot supply another user's role or unreviewed facts as interview context.
@@ -41,11 +46,16 @@ agent worker generates a short strength, improvement and answer-dependent
 follow-up. **Ask answer follow-up** inserts that question into the conversation.
 The exact quoted answer detail and source evidence are shown. If inference fails,
 retry local Qwen or continue with the saved role question using typing. Stop after
-two to six reviewed answers, inspect/correct the saved transcript, then request
-final coaching. Corrections retain originals, invalidate analysis/coaching and
-cancel a pending worker lease. Unanswered generated follow-ups are removed after
-a correction; already answered questions remain in history. Final coaching requires
-evidence from at least two reviewed answers. Saved interviews reopen through the same authenticated practice
+one to six reviewed answers, inspect/correct the saved transcript, then request
+final coaching. Finishing early is allowed after one answer, and the final
+assessment receives only the answers given plus the number of questions left
+unanswered. An interview with no answers cannot be finished or assessed: finish
+and final coaching return an error and no assessment is stored. A correction
+(question retry) keeps earlier versions in the turn's `previous` list, clears
+only that answer's coaching and the final assessment, cancels a pending worker
+lease and, while the interview is active, queues coaching of the new version at
+once. Unanswered generated follow-ups are removed after a correction; already
+answered questions remain in history. Saved interviews reopen through the same authenticated practice
 store and export/delete lifecycle as existing sessions.
 
 The two coaching operations use the account's Codex CLI or Local model choice
@@ -55,7 +65,11 @@ No model download, deployment configuration change or provider fallback is made
 by these endpoints. Unavailable or stale output leaves reviewed answers saved
 and exposes retry or typed continuation. Admission still applies; model use has
 no separate Stack permission or request cap. Local inference has zero API spend.
-Nonempty coaching output remains raw plain text.
+Per-answer and final coaching use the structured format of the prep coach step
+([model providers](AGENT_PROVIDERS.md#practice-coaching-output)) with two more
+lists, `strengths` and `weaknesses`; `work_on` is the suggested improvement. The
+rendered `text` keeps `Strengths:` and `Improvements:` paragraphs for clients
+that read only text. A reply that is not JSON is kept as prose, as before.
 
 The interview schema uses only constraints supported by the shared local validator;
 explicit checks enforce nonempty text, length and list bounds at both model and

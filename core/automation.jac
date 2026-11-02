@@ -788,6 +788,9 @@ def:priv agent_google_finish(state: str, code: str) -> dict[str, any] {
     native=state.startswith("native.");state=state.removeprefix("native.");
     pending=token_peek("stack-google",state);
     if pending is None or pending["payload"]["owner"]!=jid(root) or pending["payload"].get("native",False)!=native { return {"error":"Google connection belongs to another account or has expired."}; }
+    # A read-tier retry must happen before consuming state or exchanging Google's one-time code.
+    session=JacRuntime.get_context().mem;
+    if isinstance(session,Session) { session.ensure_writable_txn(); }
     consumed=token_consume("stack-google",state);
     if consumed is None { return {"error":"This authorization was already used."}; }
     try { tokens=exchange(code,str(unseal(str(consumed["payload"]["sealed"]))["verifier"]));encrypted=seal(tokens); }

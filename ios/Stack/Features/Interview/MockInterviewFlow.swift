@@ -318,12 +318,17 @@ struct MockInterviewFlow: View {
     }
 
     private var finalScreen: some View {
-        let shown = CoachingPresentation.make(from: ["text": .string(model.finalText)])
-        return VStack(spacing: 0) {
+        VStack(spacing: 0) {
             ScrollView {
-                PrepSavedAnswerScreen(heading: "Interview coaching", prompt: model.role.map { "\($0.job.title) · \($0.job.company)" } ?? "",
-                                      answer: "", verdict: shown.verdict, criteria: shown.criteria, focus: shown.focus,
-                                      onBack: { dismiss() }) { EmptyView() }
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack { BrandBackButton(action: { dismiss() }); Spacer() }
+                    Text("Interview coaching").font(.system(size: 36, weight: .heavy)).tracking(-1.8).foregroundStyle(Brand.ink)
+                        .padding(.top, 18)
+                    if let role = model.role {
+                        Text("\(role.job.title) · \(role.job.company)").font(Typeface.caption).foregroundStyle(Brand.muted).padding(.top, 6)
+                    }
+                    InterviewCoachingView(coaching: model.coaching).padding(.top, 22)
+                }
             }
             .scrollIndicators(.hidden)
             PrimaryPill(title: "Done") { dismiss() }

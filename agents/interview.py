@@ -11,6 +11,13 @@ _FIELDS = ('verdict: one short sentence on how it went. scores: one entry per cr
     'strengths: up to three short points on what worked. weaknesses: up to three short points on what was weak or missing. '
     'work_on: the single most useful suggested improvement, in one sentence. follow_ups: up to two short follow-up questions. '
     'example: a short illustrative answer of at most 120 words only when it clearly helps, otherwise the empty string. ')
+# The final assessment is read on a phone after the interview, so it is shorter than per-answer coaching.
+_FINAL_FIELDS = ('verdict: one sentence of at most 20 words. scores: one entry per criterion that applies '
+    '(relevance to the role, specificity, ownership, structure, results and reflection), each 0-4 with why in one short sentence '
+    'of at most 15 words that names what was strong or missing. strengths: at most two points of at most 12 words each. '
+    'weaknesses: at most two points of at most 12 words each, each naming something specific that was missing. '
+    'work_on: the single most useful next step, in at most 20 words. follow_ups: at most two short practice questions. '
+    'example: always the empty string. Never restate or summarize the candidate\'s answer back to them. ')
 _GROUNDING = ('Use only the saved job in context.job, the confirmed resume facts in context.facts and the answers given. '
     'Never present invented experience, employers, metrics or results as the candidate\'s own. Keep the whole reply under 250 words.')
 INSTRUCTIONS = {
@@ -19,7 +26,7 @@ INSTRUCTIONS = {
     'interview_coach': 'Give an overall assessment of this job-specific mock interview for the saved role, using a 0-4 rubric. '
         'Assess only the answers in context.interview.turns. The session may have ended early: when context.interview.unanswered '
         'is above zero, say the assessment covers only the answered questions, and never score, invent or penalize answers that were not given. '
-        + _FIELDS + _GROUNDING}
+        + _FINAL_FIELDS + _GROUNDING.replace('under 250 words', 'under 150 words')}
 LIMIT = 6
 BEHAVIOR = ('collaborat', 'team', 'communicat', 'stakeholder', 'partner', 'cross-functional', 'mentor', 'feedback', 'customer')
 SKILL = ('require', 'experience', 'build', 'design', 'develop', 'implement', 'maintain', 'sql', 'python', 'test')

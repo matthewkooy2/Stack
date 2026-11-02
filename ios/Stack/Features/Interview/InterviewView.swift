@@ -138,8 +138,7 @@ struct InterviewView: View {
             if !coaching.object.isEmpty {
                 Card(tint: Palette.surfaceRaised, spacing: 8) {
                     Text("Final coaching").font(Typeface.option).foregroundStyle(Palette.icon)
-                    let text = coaching["text"].string
-                    Text(text.isEmpty ? coaching["summary"].string : text).font(Typeface.body).foregroundStyle(Palette.text)
+                    InterviewCoachingView(coaching: coaching)
                 }
             }
         }

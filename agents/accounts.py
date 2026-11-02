@@ -121,6 +121,7 @@ def purge_records(manager, user_id, owner):
     db.rows("""WITH doomed AS (
         SELECT id FROM anchors WHERE replace(CAST(root_id AS text), '-', '') = replace(:owner, '-', '')
         OR replace(CAST(id AS text), '-', '') = replace(:owner, '-', '') OR props->>'owner' = :owner
+        OR (arch_type = 'AgentUsage' AND right(props->>'key', length(:owner) + 1) = ':' || :owner)
     ) DELETE FROM anchors WHERE id IN (SELECT id FROM doomed)
         OR src IN (SELECT id FROM doomed) OR dst IN (SELECT id FROM doomed)""", {"owner": owner})
 

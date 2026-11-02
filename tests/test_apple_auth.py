@@ -78,6 +78,12 @@ class AppleSignIn(unittest.TestCase):
         directory = ROOT / "storage/resumes" / hashlib.sha256(owner.encode()).hexdigest()
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "orphaned-upload.pdf").write_bytes(b"fictional-upload")
+        from jaclang.server.shared_store import shared_store
+        from uuid import uuid4
+        usage, global_usage = uuid4().hex, uuid4().hex
+        for ident, key in [(usage, "cost:fixture:" + owner), (global_usage, "cost:fixture")]:
+            shared_store().rows("INSERT INTO anchors (id,kind,arch_type,props) VALUES (:id,'NodeAnchor','AgentUsage',CAST(:p AS jsonb))",
+                                {"id": ident, "p": json.dumps({"key": key, "cents": 1, "actions": 0})})
         deleted = self.rpc("account_delete")
         self.assertTrue(deleted.get("deleted"), deleted)
         self.assertFalse(directory.exists())
@@ -86,8 +92,9 @@ class AppleSignIn(unittest.TestCase):
         self.assertIsNone(manager.get_user_by_sso("apple", "fixture-apple-user"))
         self.assertIsNone(manager.get_user_by_sso("google", "fixture-google-user"))
         self.assertFalse(self.client.post("/function/bootstrap", json={}).ok)
-        from jaclang.server.shared_store import shared_store
         self.assertEqual(shared_store().rows("SELECT count(*) FROM anchors WHERE replace(CAST(root_id AS text),'-','')=:o OR replace(CAST(id AS text),'-','')=:o OR props->>'owner'=:o", {"o": owner.replace('-', '')})[0][0], 0)
+        self.assertEqual(shared_store().rows("SELECT count(*) FROM anchors WHERE id=:id", {"id": usage})[0][0], 0)
+        self.assertEqual(shared_store().rows("SELECT count(*) FROM anchors WHERE id=:id", {"id": global_usage})[0][0], 1)
         self.client.clear_auth()
         fresh = self.sign_in()
         self.assertTrue(fresh["ok"], fresh)

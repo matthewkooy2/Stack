@@ -155,14 +155,6 @@ def matches(job,query,filters,profile=None) -> bool:
     if 'facts' not in view:view['facts']=facts(view)
     return not evaluate(view,criteria(profile or {},query,filters))['excluded']
 
-def source_enabled(adapter) -> str:
-    import os
-    required={'adzuna':['ADZUNA_APP_ID','ADZUNA_APP_KEY'],'theirstack':['THEIRSTACK_API_KEY'],'usajobs':['USAJOBS_API_KEY','USAJOBS_EMAIL']}
-    missing=[k for k in required.get(adapter,[]) if not os.getenv(k)]
-    if adapter=='theirstack' and os.getenv('STACK_THEIRSTACK_TERMS_ACCEPTED')!='yes':missing.append('STACK_THEIRSTACK_TERMS_ACCEPTED')
-    if adapter=='adzuna' and os.getenv('STACK_ADZUNA_APPROVED')!='yes':missing.append('STACK_ADZUNA_APPROVED')
-    return ', '.join(missing)
-
 def dedupe_bucket(job) -> str:
     return digest('|'.join([re.sub(r'\W+','',job.get('company','').lower()),re.sub(r'\W+','',job.get('title','').lower()),','.join(sorted(x.lower().strip() for x in job.get('locations',[])))]))
 

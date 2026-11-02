@@ -85,6 +85,7 @@ class AppleSignIn(unittest.TestCase):
         self.assertIsNone(manager.find_user_by_identity("fixture@example.test"))
         self.assertIsNone(manager.get_user_by_sso("apple", "fixture-apple-user"))
         self.assertIsNone(manager.get_user_by_sso("google", "fixture-google-user"))
+        self.assertFalse(self.client.post("/function/bootstrap", json={}).ok)
         from jaclang.server.shared_store import shared_store
         self.assertEqual(shared_store().rows("SELECT count(*) FROM anchors WHERE replace(CAST(root_id AS text),'-','')=:o OR replace(CAST(id AS text),'-','')=:o OR props->>'owner'=:o", {"o": owner.replace('-', '')})[0][0], 0)
         self.client.clear_auth()

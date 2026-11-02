@@ -63,6 +63,8 @@ struct ScreenFlowUITestScene: View {
         case "applications", "applications-autofill-unavailable": ApplicationsView(onProfile: {}, onNavigate: { _ in })
         case "jobs": ScreenFlowJobHost(job: Job(ScreenFlowServer.job))
         case "deck", "deck-paging", "deck-reference": MainTabs()
+        case "job-onboarding-preview": JobOnboardingView(onDone: {})
+        case "job-filters-preview": JobFiltersSheet(search: JobSearch()) { _, _ in {} }
         case "onboarding": AccessView()
         case "recovery": InvitationView()
         default: Text("Unknown screen flow").font(Typeface.title)

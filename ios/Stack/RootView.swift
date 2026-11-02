@@ -25,6 +25,18 @@ struct RootView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(AppStore.self) private var store
     @Environment(\.scenePhase) private var scenePhase
+    @State private var activeOnboardingID = ""
+
+    /// Existing accounts with saved activity keep their current experience; onboarding is for fresh accounts.
+    private var needsJobOnboarding: Bool {
+        let account = store.account
+        let saved = account.savedSearch
+        if !account.userID.isEmpty && activeOnboardingID == account.userID { return true }
+        return !account.userID.isEmpty && !account.raw["profile"]["onboarded"].bool
+            && !UserDefaults.standard.bool(forKey: "job-onboarding." + account.userID)
+            && account.resumes.isEmpty && account.applications.isEmpty && account.decidedJobIDs.isEmpty
+            && account.role.isEmpty && saved["query"].string.isEmpty && saved["filters"].object.isEmpty
+    }
 
     var body: some View {
         LaunchSequence(isReady: store.phase != .starting) {
@@ -38,7 +50,12 @@ struct RootView: View {
                 case .admission:
                     InvitationView().replayable().transition(.opacity)
                 case .ready:
-                    MainTabs().transition(.opacity)
+                    if needsJobOnboarding {
+                        JobOnboardingGate(onStart: { activeOnboardingID = store.account.userID },
+                                          onFinish: { activeOnboardingID = "" }).transition(.opacity)
+                    } else {
+                        MainTabs().transition(.opacity)
+                    }
                 }
             }
             .animation(reduceMotion ? nil : Motion.fadeAnimation, value: store.phase)
@@ -63,6 +80,23 @@ struct RootView: View {
                 try? await Task.sleep(for: .seconds(15))
                 if scenePhase == .active { await store.refresh() }
             }
+        }
+    }
+}
+
+@MainActor
+private struct JobOnboardingGate: View {
+    @Environment(AppStore.self) private var store
+    @State private var done = false
+    let onStart: () -> Void
+    let onFinish: () -> Void
+    var body: some View {
+        if done { MainTabs() } else {
+            JobOnboardingView {
+                UserDefaults.standard.set(true, forKey: "job-onboarding." + store.account.userID)
+                done = true
+                onFinish()
+            }.id(store.account.userID).onAppear(perform: onStart)
         }
     }
 }

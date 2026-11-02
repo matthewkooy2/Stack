@@ -62,6 +62,7 @@ targets:
           - UIInterfaceOrientationPortrait
         ITSAppUsesNonExemptEncryption: false
         StackAPIBaseURL: $(STACK_API_URL)
+        StackSourceCommit: $(STACK_SOURCE_COMMIT)
         StackAppleSignInEnabled: $(STACK_APPLE_SIGN_IN_ENABLED)
         NSMicrophoneUsageDescription: Stack records your spoken interview answers so you can review them and get coaching.
         NSAppTransportSecurity:

@@ -76,6 +76,7 @@ if [[ "$MODE" == build ]]; then
       -allowProvisioningUpdates \
       DEVELOPMENT_TEAM="$TEAM" CODE_SIGN_STYLE=Automatic \
       "STACK_API_URL=$STACK_API_URL" "STACK_BUNDLE_ID=$BUNDLE" STACK_APPLE_SIGN_IN_ENABLED=YES \
+      "STACK_SOURCE_COMMIT=$(git rev-parse HEAD)" \
       STACK_APPLE_ENTITLEMENTS=Stack/StackApple.entitlements \
       "${BUILD_SETTINGS[@]}" \
       >"$WORK/build.log" 2>&1; then

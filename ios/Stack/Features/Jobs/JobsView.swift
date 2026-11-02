@@ -104,7 +104,7 @@ struct JobsView: View {
             ResumeTailorSheet(setupFor: $tailorSetup, scores: $tailorScores,
                               initialApplicationID: application.id).environment(store)
         }
-        .sheet(item: $sheet, onDismiss: {
+        .fullScreenCover(item: $sheet, onDismiss: {
             if showProfileAfterDismiss {
                 showProfileAfterDismiss = false
                 onProfile()
@@ -112,7 +112,7 @@ struct JobsView: View {
         }) { value in
             switch value {
             case .filters:
-                JobFiltersSheet(search: search, title: "Requirements", disabled: feed.busy, error: feed.loadError,
+                JobFiltersSheet(search: search, title: "Requirements", disabled: feed.gate.saving, error: feed.loadError,
                                 onQuickChange: { query, filters in
                                     let event = reserveChange()
                                     Task { await applySearch(event, query: query, filters: filters) }
@@ -187,14 +187,18 @@ struct JobsView: View {
                     HStack { Spacer(); requirementsButton }
                     feedback
                     EmptyNote(icon: "sparkles", title: emptyTitle, message: emptyMessage)
-                    if search.missingGraduation {
+                    if !feed.loadError.isEmpty {
+                        StackButton(label: "Retry", icon: "refresh", disabled: feed.busy) {
+                            Task { await load(refresh: false) }
+                        }
+                    } else if search.missingGraduation {
                         StackButton(label: "Set graduation", icon: "clock") { sheet = .timeline }
                     } else if !feed.nextCursor.isEmpty {
                         StackButton(label: "Load more roles", icon: "refresh", disabled: feed.busy) {
                             Task { await load(refresh: false, more: true) }
                         }
                     } else {
-                        StackButton(label: "Change requirements", disabled: feed.busy) { sheet = .filters }
+                        StackButton(label: "Change requirements", disabled: feed.gate.saving) { sheet = .filters }
                     }
                 }
                 .padding(20)
@@ -213,7 +217,7 @@ struct JobsView: View {
                 .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
         }
         .buttonStyle(.plain)
-        .disabled(!feed.loaded || leavingID != nil)
+        .disabled(leavingID != nil)
         .accessibilityLabel("Requirements and job tools")
         .accessibilityIdentifier("job-requirements")
     }

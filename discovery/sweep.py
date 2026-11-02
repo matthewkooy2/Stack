@@ -20,7 +20,7 @@ def call(name: str, args: dict[str, Any]) -> dict[str, Any]:
                       headers={'Content-Type': 'application/json'})
     for attempt in range(3):
         try:
-            with urlopen(request, timeout=120) as response:
+            with urlopen(request, timeout=900 if name == 'jobs_sweep_finish' else 120) as response:
                 result = json.load(response)['data']['result']
             break
         except HTTPError as exc:

@@ -16,6 +16,13 @@ BROKEN = {'id': 'ashby:broken', 'adapter': 'ashby'}
 
 
 class Runner(unittest.TestCase):
+    def test_finish_allows_time_for_initial_index_build(self):
+        success = json.dumps({'data': {'result': {'done': False}}}).encode()
+        with patch.object(runner, 'urlopen', side_effect=[io.BytesIO(success), io.BytesIO(success)]) as open_url:
+            runner.call('jobs_sweep_finish', {'run': 'r'})
+            runner.call('jobs_sweep_source', {'run': 'r'})
+        self.assertEqual([call.kwargs['timeout'] for call in open_url.call_args_list], [900, 120])
+
     def test_catalog_uniqueness_conflict_retries_only_the_failed_source_page(self):
         body = json.dumps({'error': {'message': 'duplicate key value violates unique constraint "stack_catalog_job_root_key_unique"'}}).encode()
         failure = HTTPError('http://localhost', 500, 'conflict', {}, io.BytesIO(body))

@@ -1,5 +1,4 @@
 import SwiftUI
-import AuthenticationServices
 
 enum StackTab: String, CaseIterable, Identifiable {
     case jobs = "Jobs"
@@ -28,34 +27,31 @@ struct RootView: View {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        ZStack {
-            Palette.page.ignoresSafeArea()
-            switch store.phase {
-            case .starting:
-                VStack(spacing: 18) {
-                    Text("stack").font(Typeface.display).tracking(-1.2).foregroundStyle(Palette.ink)
-                    ProgressView().tint(Palette.muted)
+        LaunchSequence(isReady: store.phase != .starting) {
+            ZStack {
+                Palette.page.ignoresSafeArea()
+                switch store.phase {
+                case .starting:
+                    Color.clear
+                case .signedOut:
+                    AccessView().replayable().transition(.opacity)
+                case .admission:
+                    InvitationView().replayable().transition(.opacity)
+                case .ready:
+                    MainTabs().transition(.opacity)
                 }
-                .transition(.opacity)
-            case .signedOut:
-                AccessView().transition(.opacity)
-            case .admission:
-                InvitationView().transition(.opacity)
-            case .ready:
-                MainTabs().transition(.opacity)
             }
+            .animation(reduceMotion ? nil : Motion.fadeAnimation, value: store.phase)
         }
-        .animation(reduceMotion ? nil : Motion.fadeAnimation, value: store.phase)
         .transaction { if reduceMotion { $0.animation = nil; $0.disablesAnimations = true } }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await store.refresh() } }
         }
-        .onReceive(NotificationCenter.default.publisher(for: ASAuthorizationAppleIDProvider.credentialRevokedNotification)) { _ in
-            Task { await store.refresh() }
-        }
-        .task(id: store.phase) {
-            guard store.phase == .ready else { return }
-            while !Task.isCancelled {
+        // No timed refresh: the account is re-read on foreground and after each change. The one exception is a
+        // running agent task, checked until it finishes (until live task updates replace this).
+        .task(id: AgentWatch(phase: store.phase, active: store.account.activeRunCount > 0)) {
+            guard store.phase == .ready, store.account.activeRunCount > 0 else { return }
+            while !Task.isCancelled, store.account.activeRunCount > 0 {
                 try? await Task.sleep(for: .seconds(15))
                 if scenePhase == .active { await store.refresh() }
             }
@@ -63,7 +59,7 @@ struct RootView: View {
     }
 }
 
-/// The five destinations, with a cream bar whose selection glides between items.
+/// The five destinations retain their order, with the blue look on Jobs, Network and Prep.
 @MainActor
 struct MainTabs: View {
     @Environment(AppStore.self) private var store
@@ -86,13 +82,13 @@ struct MainTabs: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            TabBar(selection: $selection, namespace: highlight)
+            TabBar(selection: $selection, namespace: highlight, resumeIsEmpty: store.account.resumes.isEmpty)
         }
         .onChange(of: selection) { _, tab in visited.insert(tab) }
         .sheet(isPresented: $showProfile) {
-            ProfileView().environment(store)
+            ProfileView().environment(store).replayable()
         }
-        .sheet(item: $agentTask) { target in AgentTaskSheet(taskID: target.id).environment(store) }
+        .sheet(item: $agentTask) { target in AgentTaskSheet(taskID: target.id).environment(store).replayable() }
         .onReceive(NotificationCenter.default.publisher(for: .stackNavigate)) { note in
             guard let destination = note.userInfo?["destination"] as? String else { return }
             go(to: destination)
@@ -115,6 +111,7 @@ struct MainTabs: View {
         guard let tab = map[destination] else { return }
         showProfile = false
         visited.insert(tab)
+        if tab == .network { store.pendingOpen["network_section"] = "network" }
         withAnimation(Motion.ease(0.32)) { selection = tab }
         if destination != "prep" { Task { await store.refresh() } }
     }
@@ -141,8 +138,12 @@ struct MainTabs: View {
         }
     }
 
-    @ViewBuilder
     private func screen(for tab: StackTab) -> some View {
+        tabScreen(for: tab).replayable()
+    }
+
+    @ViewBuilder
+    private func tabScreen(for tab: StackTab) -> some View {
         switch tab {
         case .jobs: JobsView(onProfile: { showProfile = true })
         case .applications: ApplicationsView(onProfile: { showProfile = true }, onNavigate: { selection = $0 })
@@ -157,6 +158,22 @@ private struct TabBar: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Binding var selection: StackTab
     let namespace: Namespace.ID
+    let resumeIsEmpty: Bool
+
+    private var resumeUpload: Bool { selection == .resume && resumeIsEmpty }
+    /// Screens in the blue look: the bar's icons and selection follow it. Prep keeps the page colour only.
+    private var branded: Bool { selection == .jobs || selection == .network || resumeUpload }
+    private var brandedPage: Bool { branded || selection == .prep }
+    private var pageColor: Color { brandedPage ? Brand.page : Palette.page }
+    private var highlight: Color {
+        if resumeUpload { return .clear }
+        return branded ? Brand.accent.opacity(0.10) : Palette.halo.opacity(0.7)
+    }
+
+    private func tint(for tab: StackTab) -> Color {
+        if branded { return selection == tab ? Brand.accent : Brand.muted }
+        return selection == tab ? Palette.icon : Palette.muted
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -165,16 +182,16 @@ private struct TabBar: View {
                     withAnimation(reduceMotion ? nil : Motion.ease(0.32)) { selection = tab }
                 } label: {
                     VStack(spacing: 4) {
-                        GlyphView(name: tab.icon, size: 21, color: selection == tab ? Palette.icon : Palette.muted)
+                        GlyphView(name: tab.icon, size: 21, color: tint(for: tab))
                         Text(tab.rawValue)
                             .font(.system(size: 11, weight: selection == tab ? .semibold : .regular))
-                            .foregroundStyle(selection == tab ? Palette.icon : Palette.muted)
+                            .foregroundStyle(tint(for: tab))
                     }
                     .frame(maxWidth: .infinity, minHeight: 52)
                     .background {
                         if selection == tab {
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(Palette.halo.opacity(0.7))
+                                .fill(highlight)
                                 .matchedGeometryEffect(id: "tab-highlight", in: namespace)
                         }
                     }
@@ -188,8 +205,14 @@ private struct TabBar: View {
         .padding(.horizontal, 10)
         .padding(.top, 8)
         .padding(.bottom, 4)
-        .background(Palette.page)
-        .overlay(alignment: .top) { Rectangle().fill(Palette.rule).frame(height: 1) }
+        .background(pageColor.ignoresSafeArea(edges: .bottom))
+        .overlay(alignment: .top) { Rectangle().fill(brandedPage ? Brand.rule : Palette.rule).frame(height: 1) }
         .sensoryFeedback(.selection, trigger: selection)
     }
+}
+
+/// Restarts the agent check when the session changes or a task starts or finishes.
+private struct AgentWatch: Equatable {
+    let phase: AppStore.Phase
+    let active: Bool
 }

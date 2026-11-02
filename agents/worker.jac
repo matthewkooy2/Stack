@@ -23,8 +23,10 @@ def call(name: str, args: dict[str, any], timeout: any = 110) -> dict[str, any] 
     return value;
 }
 def browser_call(step: str, work: dict[str, any], timeout: int = 100) -> dict[str, any] {
+    base = os.environ.get('STACK_BROWSER_URL', '');
+    if not base { raise ValueError('Browser automation is unavailable until the browser worker is configured.'); }
     if step=='linkedin_scan' or work.get('linkedin',False) {
-        request=urllib.request.Request((os.environ.get('STACK_BROWSER_URL') or 'http://127.0.0.1:8011').rstrip('/')+'/linkedin/'+step,
+        request=urllib.request.Request(base.rstrip('/')+'/linkedin/'+step,
             data=json.dumps(work).encode(),headers={'Content-Type':'application/json'});
         with urllib.request.urlopen(request) as response { return json.load(response); }
     }

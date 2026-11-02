@@ -136,7 +136,7 @@ struct LinkedInFlow: View {
 
     private func heading(_ title: String, _ subtitle: String = "") -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink)
+            Text(title).font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
                 .accessibilityAddTraits(.isHeader)
             if !subtitle.isEmpty { Text(subtitle).font(Typeface.body).foregroundStyle(Palette.text) }
         }.reveal(0)

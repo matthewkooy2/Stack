@@ -5,7 +5,7 @@ import UIKit
 /// Offline UI-test host for the real Settings, Resume, Network, Applications, Jobs-detail and sign-in
 /// screens. Excluded entirely from Release builds. It never signs in, adopts a token or reaches a live
 /// service: every request goes through `ScreenFlowURLProtocol`, which answers from a fictional account.
-/// Chosen with the launch argument `--screen-flow=<settings|resume|network|applications|jobs|onboarding|recovery>`.
+/// Chosen with the launch argument `--screen-flow=<settings|resume|resume-upload|network|applications|jobs|onboarding|recovery>`.
 @MainActor
 struct ScreenFlowUITestScene: View {
     @State private var store = ScreenFlowUITestScene.makeStore()
@@ -15,7 +15,9 @@ struct ScreenFlowUITestScene: View {
         return ProcessInfo.processInfo.arguments.first { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) } ?? ""
     }
 
-    private static func makeStore() -> AppStore {
+    private static func makeStore() -> AppStore { makeStore(flow: flow) }
+
+    static func makeStore(flow: String) -> AppStore {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ScreenFlowURLProtocol.self]
         let api = APIClient(origin: URL(string: "https://stack.invalid")!, session: URLSession(configuration: configuration))
@@ -51,7 +53,7 @@ struct ScreenFlowUITestScene: View {
         case "browser-keyboard":
             RemoteBrowserView(id: "keyboard-fixture", task: ["id": "keyboard-fixture", "status": "paused"], onChanged: {})
         case "settings": ProfileView()
-        case "resume": ResumeView(onProfile: {})
+        case "resume", "resume-upload": ResumeView(onProfile: {})
         case "resume-review": ResumeReviewFixtureHost()
         case "network": NetworkView(onProfile: {})
         case "applications", "applications-autofill-unavailable": ApplicationsView(onProfile: {}, onNavigate: { _ in })
@@ -94,11 +96,10 @@ private struct ScreenFlowJobHost: View {
 
     var body: some View {
         VStack(spacing: Spacing.stack) {
-            JobCard(job: job)
+            JobCard(job: job, onOpen: {
+                if listing == nil { listing = JobListing(job: job) }
+            }, accessibilityID: "job-card")
                 .frame(height: 440)
-                .onTapGesture { if listing == nil { listing = JobListing(job: job) } }
-                .accessibilityAddTraits(.isButton)
-                .accessibilityIdentifier("job-card")
             StackButton(label: "Open job details") { detail = job }
         }
         .padding(.horizontal, Spacing.page)
@@ -137,6 +138,9 @@ final class ScreenFlowServer: @unchecked Sendable {
     private var reviewOriginalValues: [String: String] = [:]
     private var reviewProcessing: JSON = .null
     private var reviewImportPolls = 0
+    /// The `resume-upload` flow: the name of the PDF the person uploaded, and how many times its import has been polled.
+    private var uploadedName = ""
+    private var uploadPolls = 0
     private var reviewAccountProcessing: JSON?
     // Separate synthetic server storage, never the account's live backend or draft files.
     private let reviewPersistence = UserDefaults(suiteName: "StackOfflineResumeReviewServer")!
@@ -161,6 +165,8 @@ final class ScreenFlowServer: @unchecked Sendable {
         "skills.descriptions": "SQL\nPython\nExperiment design", "additional.descriptions": "Volunteer data tutor",
     ]
     private var decisions: [JSON] = []
+    /// What `job_feed` ranks: the search last saved through `save_search`.
+    private var savedSearch: JSON = ["query": "", "filters": [:]]
 
     func reset(flow: String) {
         lock.lock(); defer { lock.unlock() }
@@ -213,6 +219,8 @@ final class ScreenFlowServer: @unchecked Sendable {
             JSON.object(["kind": "import", "status": .string($0)])
         } ?? .null
         reviewImportPolls = 0
+        uploadedName = ""
+        uploadPolls = 0
         reviewAccountProcessing = argument("resume-review-account-processing").map {
             JSON.object(["kind": "import", "status": .string($0)])
         }
@@ -252,7 +260,8 @@ final class ScreenFlowServer: @unchecked Sendable {
     /// How long a request is held before it is answered, so a test can open the browser while a page is pending.
     func delay(for name: String, body: JSON) -> TimeInterval {
         lock.lock(); defer { lock.unlock() }
-        return flow == "deck-paging" && name == "search_jobs" && !body["cursor"].string.isEmpty ? 3 : 0
+        if flow == "resume-upload", name == "upload_resume" { return 1.5 }
+        return flow == "deck-paging" && name == "job_feed" && !body["cursor"].string.isEmpty ? 3 : 0
     }
 
     /// `--listing-url-override=<http://127.0.0.1:port/path>` points the first deck job at a local fixture page so
@@ -303,6 +312,11 @@ final class ScreenFlowServer: @unchecked Sendable {
             ["id": "resume-2", "name": "Backup resume.pdf", "size": 90_000, "created_at": 1_690_000_000,
              "details_status": "Confirmed", "format": format],
         ]
+        let uploaded: [JSON] = uploadedName.isEmpty ? [] : [
+            ["id": "resume-uploaded", "name": .string(uploadedName), "size": 150_000, "created_at": 1_700_000_000,
+             "details_status": "Needs review", "format": format,
+             "processing": ["import": ["kind": "import", "status": .string(uploadPolls > 2 ? "completed" : "parsing")]]],
+        ]
         let history: [JSON] = [["status": "Saved", "at": 1_700_000_000, "source": "You"]]
         let applications: [JSON] = [[
             "id": "application-1", "status": "Saved", "notes": .string(notes), "resume_id": "", "demo": false,
@@ -331,7 +345,9 @@ final class ScreenFlowServer: @unchecked Sendable {
                         "fix": "Configure the browser worker for autofill.", "action": ""]],
         ]]
         return [
-            "user_id": .string(reviewUser), "profile": profile, "resumes": .array(resumes), "selected_resume": "resume-1",
+            "user_id": .string(reviewUser), "profile": profile,
+            "resumes": flow == "resume-upload" ? .array(uploaded) : .array(resumes),
+            "selected_resume": flow == "resume-upload" && !uploadedName.isEmpty ? "resume-uploaded" : "resume-1",
             "applications": .array(applications), "people": .array(people), "contacts": .array(contacts),
             "agents": ["features": .array(features), "runs": .array(autofillStarted ? [Self.autofillRun] : []), "active": 0, "attention": 0,
                        "model_provider": ["provider": "", "message": ""]],
@@ -355,10 +371,16 @@ final class ScreenFlowServer: @unchecked Sendable {
         func fail(_ message: String) -> (Int, JSON) { (500, ["ok": false, "error": ["message": .string(message)]]) }
         switch name {
         case "bootstrap":
+            if !uploadedName.isEmpty { uploadPolls += 1 }
             if flow == "resume-review", ["queued", "parsing"].contains(reviewProcessing["status"].string) {
                 reviewImportPolls += 1
                 reviewProcessing["status"] = reviewImportPolls > 1 ? "completed" : "parsing"
             }
+            return ok(buildSnapshot())
+        case "upload_resume":
+            guard flow == "resume-upload" else { return ok(buildSnapshot()) }
+            uploadedName = body["name"].string
+            uploadPolls = 0
             return ok(buildSnapshot())
         case "retry_resume_processing":
             guard flow == "resume-review", body["id"].string == "resume-1", body["kind"].string == "import" else {
@@ -403,12 +425,14 @@ final class ScreenFlowServer: @unchecked Sendable {
         case "get_job":
             let id = body["id"].string
             return ok((Self.deckJobs + Self.entryJobs).first { $0["id"].string == id } ?? Self.job)
-        case "search_jobs":
-            return ok(Self.deckPage(query: body["query"].string, filters: body["filters"],
+        case "job_feed":
+            return ok(Self.deckPage(query: savedSearch["query"].string, filters: savedSearch["filters"],
                                     cursor: body["cursor"].string, paging: flow == "deck-paging"))
         case "save_search":
+            savedSearch = ["query": body["query"], "filters": body["filters"]]
             return ok(["query": body["query"], "filters": body["filters"]])
         case "reset_search":
+            savedSearch = ["query": "", "filters": [:]]
             return ok([:])
         case "swipe":
             decisions.append(["job_id": body["job_id"], "action": body["action"]])

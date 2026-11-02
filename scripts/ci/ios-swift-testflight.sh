@@ -21,16 +21,31 @@ mkdir -p "$CI_DIR"
 # Fail closed before tests/archive; the workflow restores approved assets first.
 python3 scripts/ci/ios-signing.py export-options "$CI_DIR/ExportOptions.plist"
 SIGNING=(DEVELOPMENT_TEAM="$APPLE_TEAM_ID" CODE_SIGN_STYLE=Manual
-  CODE_SIGN_IDENTITY="$IOS_SIGNING_IDENTITY" PROVISIONING_PROFILE_SPECIFIER="$IOS_PROFILE_UUID"
-  "OTHER_CODE_SIGN_FLAGS=--keychain $IOS_SIGNING_KEYCHAIN")
+  CODE_SIGN_IDENTITY="$IOS_SIGNING_IDENTITY" STACK_APP_PROFILE="$IOS_PROFILE_UUID"
+  STACK_ACTIVITY_PROFILE="${IOS_ACTIVITY_PROFILE_UUID:-}" "OTHER_CODE_SIGN_FLAGS=--keychain $IOS_SIGNING_KEYCHAIN")
 # Revalidate GitHub-owned evidence for direct invocations as well as the workflow.
 python3 scripts/ci/ios-native-proof.py release-upload
 python3 scripts/ci/resume-review/prepare.py
-(cd ios && xcodegen generate --spec project.yml --project .)
+# Each target is signed with its own profile (project.yml reads STACK_APP_PROFILE and STACK_ACTIVITY_PROFILE). Without a
+# profile for the Dynamic Island widget the candidate is built without the widget instead of failing to sign it.
+SPEC=project.yml
+if [[ -z "${IOS_ACTIVITY_PROFILE_UUID:-}" ]]; then
+  echo 'No widget provisioning profile configured; building without the Dynamic Island widget.'
+  SPEC=project.release.yml
+  python3 - ios/project.yml "ios/$SPEC" <<'PY'
+import sys
+text = open(sys.argv[1]).read()
+needle = '    dependencies:\n      - target: StackActivity\n'
+if needle not in text:
+    raise SystemExit('project.yml no longer matches the widget dependency this script removes.')
+open(sys.argv[2], 'w').write(text.replace(needle, '', 1))
+PY
+fi
+(cd ios && xcodegen generate --spec "$SPEC" --project . && rm -f project.release.yml)
 xcodebuild archive -project ios/Stack.xcodeproj -scheme Stack -configuration Release \
   -destination 'generic/platform=iOS' -archivePath "$ARCHIVE" \
   -derivedDataPath "$CI_DIR/DerivedData" "${SIGNING[@]}" \
-  PRODUCT_BUNDLE_IDENTIFIER=com.matthewkooy.stack MARKETING_VERSION=0.2.0 \
+  STACK_BUNDLE_ID=com.matthewkooy.stack MARKETING_VERSION=0.2.0 \
   STACK_APPLE_SIGN_IN_ENABLED=YES STACK_APPLE_ENTITLEMENTS=Stack/StackApple.entitlements \
   "CURRENT_PROJECT_VERSION=$BUILD_NUMBER" "STACK_API_URL=$STACK_API_URL"
 python3 - "$APP/Info.plist" "$BUILD_NUMBER" "$STACK_API_URL" <<'PY'

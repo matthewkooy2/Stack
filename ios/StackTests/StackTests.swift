@@ -76,8 +76,8 @@ final class PrepCodecTests: XCTestCase {
 }
 
 final class PrepFlowTests: XCTestCase {
-    func testPageDepthsOrderTheSetupToCoachingPath() {
-        let path: [PrepPage] = [.home, .type, .focus, .length, .question, .answer, .review, .processing, .coaching, .complete]
+    func testPageDepthsOrderTheQuestionToCoachingPath() {
+        let path: [PrepPage] = [.home, .question, .answer, .review, .processing, .coaching, .complete]
         XCTAssertEqual(path.map(\.depth), path.map(\.depth).sorted())
     }
 
@@ -92,5 +92,59 @@ final class RecordingStoreTests: XCTestCase {
         let id = RecordingStore.newClientID()
         XCTAssertNotNil(id.range(of: "^[a-zA-Z0-9_-]{12,80}$", options: .regularExpression))
         XCTAssertThrowsError(try RecordingStore.url(owner: "owner", clientID: "short"))
+    }
+}
+
+final class CoachingTextTests: XCTestCase {
+    func testOverallStyleReply() {
+        let shown = CoachingPresentation.make(from: ["text": .string(CoachingSamples.overallStyle)])
+        XCTAssertEqual(shown.verdict, "0/4 — no assessable interview answer was captured.")
+        XCTAssertEqual(shown.criteria.map(\.name), ["Specificity", "Ownership", "Structure", "Reflection"])
+        XCTAssertEqual(shown.criteria.map(\.score), [0, 0, 0, 0])
+        XCTAssertEqual(shown.criteria.first?.why, "No relevant situation, actions, or measurable result.")
+        XCTAssertEqual(shown.focus, "Retry with a 90-second STAR answer.")
+    }
+
+    func testAssessmentStyleReplyUsesTheBehavioralListAndAShortHeadline() {
+        let shown = CoachingPresentation.make(from: ["text": .string(CoachingSamples.assessmentStyle)])
+        XCTAssertEqual(shown.criteria.map(\.name), ["Specificity", "Ownership", "Structure", "Reflection"])
+        XCTAssertEqual(shown.criteria.map(\.score), [0, 0, 0, 0])
+        XCTAssertLessThanOrEqual(shown.verdict.count, 95)
+        XCTAssertEqual(shown.verdict, "The response is incomplete and largely unintelligible.")
+        XCTAssertTrue(shown.focus.hasPrefix("Record a 90-second answer using five explicit beats ("), shown.focus)
+        XCTAssertTrue(shown.focus.contains("situation"))
+        XCTAssertEqual(CoachingText.parse(CoachingSamples.assessmentStyle).followUps.count, 2)
+    }
+
+    func testReadsScoresWithAndWithoutOutOfFour() {
+        let parsed = CoachingText.parse("Overall: 3/4 — solid.\n\nBehavioral rubric:\nOwnership: 4/4 — clear use of I.\nStructure: 2.5 — result came last.")
+        XCTAssertEqual(parsed.verdict, "3/4 — solid.")
+        XCTAssertEqual(parsed.criteria.map(\.score), [4, 3])
+    }
+
+    func testProseWithNoScoresStillGivesAShortVerdict() {
+        let shown = CoachingPresentation.make(from: ["text": "You answered clearly and kept it short. Next time add the result."])
+        XCTAssertEqual(shown.verdict, "You answered clearly and kept it short.")
+        XCTAssertTrue(shown.criteria.isEmpty)
+    }
+
+    func testAScoreOnItsOwnLineGetsTheNextSentenceAsItsHeadline() {
+        let parsed = CoachingText.parse("Overall: 0/4\n\nThe transcript is unrelated to the question. Retry before treating this as evidence.\n\nBehavioral rubric:\nOwnership: 0/4 — not described.")
+        XCTAssertEqual(parsed.verdict, "0/4 — The transcript is unrelated to the question.")
+    }
+
+    func testInterviewNoteReadsStrengthsAndImprovements() {
+        let note = InterviewNote.parse("Strengths: Your answer is concise. The numbers make it credible.\n\nImprovements: Add context on who was affected. Also explain the risk.")
+        XCTAssertEqual(note.strength, "Your answer is concise.")
+        XCTAssertEqual(note.improvement, "Add context on who was affected.")
+    }
+
+    func testStructuredCoachingStillWorks() {
+        let feedback: JSON = ["summary": "Specific ownership; add a tradeoff.",
+                              "rubric": [["criterion": "ownership", "score": 4, "feedback": "Clear."]],
+                              "next_exercises": ["Practice a tradeoff."]]
+        let shown = CoachingPresentation.make(from: feedback)
+        XCTAssertEqual(shown.criteria, [CoachCriterion(name: "Ownership", score: 4, why: "Clear.")])
+        XCTAssertEqual(shown.focus, "Practice a tradeoff.")
     }
 }

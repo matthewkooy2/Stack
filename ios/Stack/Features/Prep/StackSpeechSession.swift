@@ -117,9 +117,6 @@ import UIKit
         guard notification.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt == AVAudioSession.InterruptionType.began.rawValue else { return }
         Task { @MainActor [weak self] in _ = await self?.stop(cancelled: false, reason: "Microphone interrupted. The partial answer was kept.") }
       },
-      NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
-        Task { @MainActor [weak self] in _ = await self?.stop(cancelled: false, reason: "Recording stopped when Stack entered the background. Audio was kept.") }
-      },
       NotificationCenter.default.addObserver(forName: AVAudioSession.mediaServicesWereResetNotification, object: nil, queue: .main) { [weak self] _ in
         Task { @MainActor [weak self] in _ = await self?.stop(cancelled: false, reason: "Audio service reset. The partial answer was kept.") }
       },

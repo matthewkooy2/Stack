@@ -20,7 +20,7 @@ struct SheetPage<Content: View>: View {
                     Spacer()
                 }
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(title).font(Typeface.display).tracking(-1).foregroundStyle(Palette.ink)
+                    Text(title).font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
                     if !subtitle.isEmpty { Text(subtitle).font(Typeface.caption).foregroundStyle(Palette.muted) }
                 }
                 .reveal(0)
@@ -48,10 +48,9 @@ struct SectionLabel: View {
     let text: String
 
     var body: some View {
-        Text(text.uppercased())
-            .font(.system(size: 12, weight: .semibold))
-            .tracking(1.2)
-            .foregroundStyle(Palette.muted)
+        Text(text)
+            .font(.system(.subheadline).weight(.semibold))
+            .foregroundStyle(Brand.accent)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityAddTraits(.isHeader)
     }
@@ -89,8 +88,8 @@ struct StatusPill: View {
 
     private var foreground: Color {
         switch tone {
-        case .attention: return Color(hex: 0x8A4B08)
-        case .active: return Palette.dark
+        case .attention: return Palette.danger
+        case .active: return Brand.accent
         case .done: return Palette.success
         case .quiet: return Palette.muted
         }
@@ -98,10 +97,10 @@ struct StatusPill: View {
 
     private var background: Color {
         switch tone {
-        case .attention: return Color(hex: 0xFFE7C2)
+        case .attention: return Palette.danger.opacity(0.10)
         case .active: return Palette.halo
-        case .done: return Color(hex: 0xE4EBCB)
-        case .quiet: return Palette.oat
+        case .done: return Palette.success.opacity(0.12)
+        case .quiet: return Color.white
         }
     }
 }
@@ -190,6 +189,14 @@ func readPickedFile(_ url: URL, limit: Int, tooLarge: String) throws -> (name: S
     let data = try Data(contentsOf: url)
     guard data.count <= limit else { throw APIError(message: tooLarge) }
     return (url.lastPathComponent, data.base64EncodedString())
+}
+
+/// `readPickedFile` on a background thread. Reading a large or not-yet-downloaded file and encoding it takes long
+/// enough to freeze the screen, so callers show their progress first and await this.
+func readPickedFileInBackground(_ url: URL, limit: Int, tooLarge: String) async throws -> (name: String, content: String) {
+    try await Task.detached(priority: .userInitiated) {
+        try readPickedFile(url, limit: limit, tooLarge: tooLarge)
+    }.value
 }
 
 extension String {

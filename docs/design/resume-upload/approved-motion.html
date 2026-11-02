@@ -1,0 +1,127 @@
+<div id="resume-stack-motion" class="viz-dotted-background">
+  <div class="viz-controls">
+    <button type="button" class="btn" data-replay>Replay animation</button>
+    <label class="form-check"><input type="checkbox" class="form-check-input" data-reduce><span class="form-check-label">Reduce motion</span></label>
+  </div>
+  <div class="rs-phone" aria-label="Stack Resume animation concept">
+    <div class="rs-status" aria-hidden="true"><span>9:41</span><span class="rs-signal">▮▮▮ &nbsp; ▰</span></div>
+    <div class="rs-top"><span>Resume</span><i data-lucide="user-round" aria-hidden="true"></i></div>
+    <div class="rs-main">
+      <h2>Upload your<br>resume</h2>
+      <button class="rs-upload cursor-interaction" type="button" aria-label="Replay the stacking resume icon">
+        <svg class="rs-art" viewBox="0 0 280 340" aria-hidden="true">
+          <defs>
+            <path id="rs-page" d="M82 78H174L214 118V248Q214 264 198 264H82Q66 264 66 248V94Q66 78 82 78Z"/>
+            <linearGradient id="rs-paper" x1="0" y1="0" x2=".85" y2="1"><stop stop-color="#ffffff"/><stop offset="1" stop-color="#f8faff"/></linearGradient>
+            <linearGradient id="rs-fold" x1="0" y1="1" x2="1" y2="0"><stop stop-color="#c9d9ff"/><stop offset="1" stop-color="#edf3ff"/></linearGradient>
+            <filter id="rs-shadow" x="-35%" y="-35%" width="180%" height="190%"><feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#162d59" flood-opacity=".15"/></filter>
+            <filter id="rs-front-shadow" x="-35%" y="-35%" width="180%" height="190%"><feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#162d59" flood-opacity=".14"/></filter>
+          </defs>
+          <g data-sheet="0"><g transform="translate(16 22)" filter="url(#rs-shadow)"><use href="#rs-page" fill="#2563ff" stroke="#1e4fd6" stroke-width="1.5"/></g></g>
+          <g data-sheet="1"><g transform="translate(12 16.5)" filter="url(#rs-shadow)"><use href="#rs-page" fill="#a9c2ff" stroke="#789fff" stroke-width="1"/></g></g>
+          <g data-sheet="2"><g transform="translate(8 11)" filter="url(#rs-shadow)"><use href="#rs-page" fill="#d8e5ff" stroke="#acc7ff" stroke-width="1"/></g></g>
+          <g data-sheet="3"><g transform="translate(4 5.5)" filter="url(#rs-shadow)"><use href="#rs-page" fill="#f2f6ff" stroke="#cedeff" stroke-width="1"/></g></g>
+          <g data-sheet="4">
+            <g filter="url(#rs-front-shadow)">
+              <use href="#rs-page" fill="url(#rs-paper)" stroke="#2563ff" stroke-width="2.4" stroke-linejoin="round"/>
+              <path d="M174 79V107Q174 118 185 118H213" fill="url(#rs-fold)" stroke="#2563ff" stroke-width="2.4" stroke-linejoin="round"/>
+              <path d="M88 117H143M88 137H125" stroke="#cadcff" stroke-width="6" stroke-linecap="round"/>
+              <path d="M140 224V173M122 191L140 173L158 191M111 225V238H169V225" fill="none" stroke="#2563ff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+            </g>
+          </g>
+        </svg>
+      </button>
+      <p class="rs-hint">PDF · Up to 10 MB</p>
+    </div>
+    <div class="rs-tabs" aria-label="App navigation preview">
+      <span><i data-lucide="briefcase-business"></i>Jobs</span>
+      <span><i data-lucide="file-text"></i>Applications</span>
+      <span><i data-lucide="users-round"></i>Network</span>
+      <span class="rs-selected"><i data-lucide="file-text"></i>Resume</span>
+      <span><i data-lucide="book-open"></i>Prep</span>
+    </div>
+    <div class="rs-home" aria-hidden="true"></div>
+  </div>
+  <span class="sr-only" role="status" aria-live="polite" data-status>Resume icon preview ready.</span>
+</div>
+<style>
+  #resume-stack-motion { padding:16px 0; }
+  #resume-stack-motion .viz-controls { justify-content:center; margin-bottom:18px; }
+  #resume-stack-motion .rs-phone { width:min(100%,370px); margin:auto; background:#f5f3f0; color:#111111; font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",sans-serif; overflow:hidden; border-radius:22px; }
+  #resume-stack-motion .rs-status { display:flex; justify-content:space-between; align-items:center; padding:16px 25px 0; font-size:14px; font-weight:600; line-height:20px; }
+  #resume-stack-motion .rs-signal { letter-spacing:1px; font-size:12px; }
+  #resume-stack-motion .rs-top { padding:23px 25px 0; display:flex; align-items:center; justify-content:space-between; font-size:18px; line-height:24px; font-weight:650; }
+  #resume-stack-motion .rs-top svg { width:23px; height:23px; color:#777570; }
+  #resume-stack-motion .rs-main { min-height:472px; text-align:center; padding:57px 20px 38px; box-sizing:border-box; }
+  #resume-stack-motion h2 { font-size:36px; line-height:1.02; font-weight:800; letter-spacing:-1.5px; color:#111111; margin:0; }
+  #resume-stack-motion .rs-upload { display:block; width:246px; max-width:100%; height:264px; background:none; border:0; padding:0; margin:0 auto; -webkit-tap-highlight-color:transparent; touch-action:manipulation; transition:scale .28s cubic-bezier(.22,1,.36,1); }
+  #resume-stack-motion .rs-upload:active { scale:.97; }
+  #resume-stack-motion .rs-art { display:block; width:100%; height:100%; overflow:hidden; }
+  #resume-stack-motion .rs-hint { font-size:13px; line-height:20px; color:#5e5c58; margin:0; }
+  #resume-stack-motion .rs-tabs { display:flex; justify-content:space-around; gap:2px; padding:12px 12px 0; border-top:1px solid #dad7d2; }
+  #resume-stack-motion .rs-tabs span { display:flex; align-items:center; flex-direction:column; gap:4px; font-size:10px; line-height:16px; color:#777570; }
+  #resume-stack-motion .rs-tabs svg { width:21px; height:21px; stroke-width:1.7; }
+  #resume-stack-motion .rs-tabs .rs-selected { color:#2563ff; }
+  #resume-stack-motion .rs-home { margin:20px auto 10px; width:115px; height:4px; border-radius:9px; background:#111111; }
+  @media (prefers-reduced-motion:reduce) { #resume-stack-motion .rs-upload { transition:none; } #resume-stack-motion .rs-upload:active { scale:1; } }
+</style>
+<script>
+(() => {
+  const root = document.getElementById('resume-stack-motion');
+  const sheets = [...root.querySelectorAll('[data-sheet]')];
+  const checkbox = root.querySelector('[data-reduce]');
+  const status = root.querySelector('[data-status]');
+  const systemMotion = matchMedia('(prefers-reduced-motion: reduce)');
+  let frame = 0;
+  let ticket = 0;
+  // Match StackMark.drop: .spring(response: 0.5, dampingFraction: 0.72), 50 ms between layers.
+  // A sampled damped oscillator approximates the native SwiftUI spring in this browser preview.
+  function spring(t) {
+    if (t <= 0) return 0;
+    const omega = 2 * Math.PI / 0.5;
+    const damping = 0.72;
+    const damped = omega * Math.sqrt(1 - damping * damping);
+    return 1 - Math.exp(-damping * omega * t) * (Math.cos(damped * t) + damping * omega / damped * Math.sin(damped * t));
+  }
+  function settle() {
+    cancelAnimationFrame(frame);
+    ++ticket;
+    sheets.forEach(sheet => { sheet.removeAttribute('transform'); sheet.style.opacity = '1'; });
+  }
+  function replay() {
+    settle();
+    if (systemMotion.matches || checkbox.checked) {
+      status.textContent = 'Reduce Motion: the completed resume stack is shown without movement.';
+      return;
+    }
+    const active = ticket;
+    const start = performance.now();
+    sheets.forEach(sheet => { sheet.setAttribute('transform','translate(0 -140)'); sheet.style.opacity = '0'; });
+    status.textContent = 'Building the resume stack.';
+    function animate(now) {
+      if (active !== ticket) return;
+      const elapsed = (now - start) / 1000;
+      sheets.forEach((sheet, index) => {
+        const t = elapsed - 0.1 - index * 0.05;
+        const p = spring(t);
+        sheet.setAttribute('transform', `translate(0 ${(-140 * (1 - p)).toFixed(3)})`);
+        sheet.style.opacity = String(Math.max(0, Math.min(1, p)));
+      });
+      if (elapsed < 1.35) frame = requestAnimationFrame(animate);
+      else { settle(); status.textContent = 'Resume stack complete. Tap the icon or Replay animation to watch again.'; }
+    }
+    frame = requestAnimationFrame(animate);
+  }
+  root.querySelector('[data-replay]').addEventListener('click', replay);
+  root.querySelector('.rs-upload').addEventListener('click', replay);
+  checkbox.addEventListener('change', replay);
+  systemMotion.addEventListener('change', replay);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) settle(); });
+  settle();
+  // Play once when visible; stay still afterward. No perpetual empty-state animation.
+  const observer = new IntersectionObserver(entries => {
+    if (entries.some(entry => entry.isIntersecting)) { observer.disconnect(); replay(); }
+  }, {threshold:0.35});
+  observer.observe(root.querySelector('.rs-upload'));
+})();
+</script>

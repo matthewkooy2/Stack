@@ -1,4 +1,4 @@
-# Blocking native selection: 30 unit cases and 3 UI journeys. Safari remains available in the manual full suite; see docs/CI.md.
+# Blocking native selection: 30 unit cases. The UI journeys (welcome/login validation, resume save/confirmation, recording pause/stop/retry) and Safari run in the manual full suite; see docs/CI.md.
 StackTests/AppStoreSessionTests/testSignInLoadsTheAccountAndSignOutClearsIt
 StackTests/AppStoreSessionTests/testAccountWithoutAnInvitationWaitsAtTheGate
 StackTests/AppStoreSessionTests/testGoogleHandoffAdoptsSessionAndLoadsTheSameAccountThroughAdmission
@@ -29,6 +29,3 @@ StackTests/JobDeckFeedTests/testSessionResetCancelsTheForegroundRequestAndClears
 StackTests/JobDeckFeedTests/testDelayedEventFromAPreviousAccountNeverWritesAndDoesNotBlockTheQueue
 StackTests/JobListingLinkTests/testOtherSchemesAndMalformedLinksAreRefused
 StackTests/JobListingLinkTests/testLinksWithEmbeddedCredentialsAreRefused
-StackUITests/AccessFlowTests/testWelcomeNavigationAndLocalValidation
-StackUITests/ResumeReviewFlowUITests/testSaveThenConfirmClearsTheDraft
-StackUITests/MicrophoneSurfaceUITests/testLiveVisibilityPauseStopAndRetryRetainAnswer

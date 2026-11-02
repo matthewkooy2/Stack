@@ -172,6 +172,22 @@ class SigningConfiguration(unittest.TestCase):
             self.assertEqual(options['provisioningProfiles'], {'com.matthewkooy.stack': UUID})
             self.assertIs(options['manageAppVersionAndBuildNumber'], False)
 
+    def test_widget_profile_must_match_the_activity_bundle(self):
+        widget = profile(); widget['Entitlements']['application-identifier'] = 'OLDPREFIX1.com.matthewkooy.stack.activity'
+        self.assertEqual(signing.validate_profile(widget, TEAM, [IDENTITY], bundle=signing.ACTIVITY_BUNDLE), (UUID, IDENTITY))
+        with self.assertRaisesRegex(ValueError, 'exact Stack bundle ID'):
+            signing.validate_profile(widget, TEAM, [IDENTITY])
+        with self.assertRaisesRegex(ValueError, 'exact Stack bundle ID'):
+            signing.validate_profile(profile(), TEAM, [IDENTITY], bundle=signing.ACTIVITY_BUNDLE)
+
+    def test_export_options_name_the_widget_profile_when_present(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {
+                'APPLE_TEAM_ID': TEAM, 'IOS_SIGNING_IDENTITY': IDENTITY, 'IOS_PROFILE_UUID': UUID,
+                'IOS_ACTIVITY_PROFILE_UUID': 'widget-uuid', 'IOS_SIGNING_KEYCHAIN': '/fixture/keychain'}, clear=True):
+            out = Path(temp) / 'options.plist'; signing.export_options(out)
+            self.assertEqual(plistlib.loads(out.read_bytes())['provisioningProfiles'],
+                             {'com.matthewkooy.stack': UUID, 'com.matthewkooy.stack.activity': 'widget-uuid'})
+
     def test_keychain_delete_failure_still_removes_decoded_assets_and_profile(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {'RUNNER_TEMP': temp}, clear=True):
             directory = signing.state_dir(); directory.mkdir()

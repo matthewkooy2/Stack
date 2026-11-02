@@ -13,6 +13,7 @@ import subprocess
 import sys
 
 BUNDLE = 'com.matthewkooy.stack'
+ACTIVITY_BUNDLE = BUNDLE + '.activity'  # the Dynamic Island widget extension, signed with its own profile
 
 
 class SigningError(ValueError):
@@ -20,7 +21,7 @@ class SigningError(ValueError):
     pass
 
 
-def validate_profile(profile, team, identities, now=None):
+def validate_profile(profile, team, identities, now=None, bundle=BUNDLE):
     now = now or dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
     ent = profile.get('Entitlements', {})
     uuid = profile.get('UUID', '')
@@ -31,7 +32,7 @@ def validate_profile(profile, team, identities, now=None):
     if profile.get('TeamIdentifier') != [team] or ent.get('com.apple.developer.team-identifier') != team:
         raise SigningError('Provisioning profile team mismatch')
     prefixes = profile.get('ApplicationIdentifierPrefix', [])
-    if not any(ent.get('application-identifier') == f'{prefix}.{BUNDLE}' for prefix in prefixes):
+    if not any(ent.get('application-identifier') == f'{prefix}.{bundle}' for prefix in prefixes):
         raise SigningError('Provisioning profile must match the exact Stack bundle ID')
     if ent.get('get-task-allow') is not False or profile.get('ProvisionedDevices') is not None or profile.get('ProvisionsAllDevices'):
         raise SigningError('An App Store distribution profile is required')
@@ -64,17 +65,18 @@ def cleanup():
             run('security', 'delete-keychain', str(keychain))
         except Exception:
             failed = True
-    installed = directory / 'installed-profile'
-    if installed.exists():
-        try:
-            profile = Path(installed.read_text())
-            profile.unlink(missing_ok=True)
-            installed.unlink()
-        except Exception:
-            failed = True
+    for marker in ('installed-profile', 'installed-activity-profile'):
+        installed = directory / marker
+        if installed.exists():
+            try:
+                profile = Path(installed.read_text())
+                profile.unlink(missing_ok=True)
+                installed.unlink()
+            except Exception:
+                failed = True
     # A failed keychain deletion must not retain decoded secrets or skip profile
     # cleanup. Keep only failed-resource state for a precise owner retry.
-    for name in ('distribution.p12', 'app.mobileprovision'):
+    for name in ('distribution.p12', 'app.mobileprovision', 'activity.mobileprovision'):
         try:
             (directory / name).unlink(missing_ok=True)
         except Exception:
@@ -100,7 +102,11 @@ def prepare():
     p12 = directory / 'distribution.p12'
     profile_path = directory / 'app.mobileprovision'
     os.umask(0o077)
-    for name, path in [('IOS_DISTRIBUTION_P12_BASE64', p12), ('IOS_APP_STORE_PROFILE_BASE64', profile_path)]:
+    activity_path = directory / 'activity.mobileprovision'
+    assets = [('IOS_DISTRIBUTION_P12_BASE64', p12), ('IOS_APP_STORE_PROFILE_BASE64', profile_path)]
+    if os.environ.get('IOS_ACTIVITY_PROFILE_BASE64'):
+        assets.append(('IOS_ACTIVITY_PROFILE_BASE64', activity_path))
+    for name, path in assets:
         try:
             path.write_bytes(base64.b64decode(''.join(os.environ[name].split()), validate=True))
         except Exception:
@@ -129,8 +135,22 @@ def prepare():
     shutil.copyfile(profile_path, destination)
     p12.unlink()
     profile_path.unlink()
+    activity_uuid = ''
+    if activity_path.exists():
+        activity = plistlib.loads(run('security', 'cms', '-D', '-i', str(activity_path)))
+        activity_uuid, activity_identity = validate_profile(activity, team, identities, bundle=ACTIVITY_BUNDLE)
+        if activity_identity != identity:
+            raise SigningError('The widget profile must use the same distribution identity as the app')
+        activity_destination = profiles / f'{activity_uuid}.mobileprovision'
+        if activity_destination.exists():
+            raise SigningError('Refusing to overwrite an existing provisioning profile')
+        (directory / 'installed-activity-profile').write_text(str(activity_destination))
+        shutil.copyfile(activity_path, activity_destination)
+        activity_path.unlink()
     with open(os.environ['GITHUB_ENV'], 'a') as env:
         env.write(f'IOS_SIGNING_KEYCHAIN={keychain}\nIOS_SIGNING_IDENTITY={identity}\nIOS_PROFILE_UUID={uuid}\n')
+        if activity_uuid:
+            env.write(f'IOS_ACTIVITY_PROFILE_UUID={activity_uuid}\n')
     print('Approved distribution identity and matching App Store profile restored locally.')
 
 
@@ -138,10 +158,13 @@ def export_options(path):
     for name in ('APPLE_TEAM_ID', 'IOS_SIGNING_IDENTITY', 'IOS_PROFILE_UUID', 'IOS_SIGNING_KEYCHAIN'):
         if not os.environ.get(name):
             raise SigningError('Reusable signing assets must be restored before archive/export: ' + name)
+    profiles = {BUNDLE: os.environ['IOS_PROFILE_UUID']}
+    if os.environ.get('IOS_ACTIVITY_PROFILE_UUID'):
+        profiles[ACTIVITY_BUNDLE] = os.environ['IOS_ACTIVITY_PROFILE_UUID']
     with open(path, 'wb') as out:
         plistlib.dump({'method': 'app-store-connect', 'signingStyle': 'manual',
                       'teamID': os.environ['APPLE_TEAM_ID'], 'signingCertificate': os.environ['IOS_SIGNING_IDENTITY'],
-                      'provisioningProfiles': {BUNDLE: os.environ['IOS_PROFILE_UUID']},
+                      'provisioningProfiles': profiles,
                       'uploadSymbols': True, 'manageAppVersionAndBuildNumber': False}, out)
 
 

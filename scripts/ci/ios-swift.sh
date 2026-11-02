@@ -9,6 +9,8 @@
 #
 # Environment:
 #   STACK_API_URL              API origin baked into the build (default http://127.0.0.1:8000)
+#   STACK_APPLE_SIGN_IN_ENABLED  YES shows the Apple sign-in control (default NO; unsigned builds can't complete it)
+#   STACK_IOS_SIGN_LOCALLY     1 signs ad hoc so a simulator login survives rebuilds (default 0, unsigned)
 #   STACK_IOS_DESTINATION      xcodebuild destination (default: an available iPhone simulator)
 #   STACK_IOS_DERIVED_DATA     derived data directory (default .jac/ci-ios-swift/DerivedData)
 set -euo pipefail
@@ -70,7 +72,11 @@ run_xcodebuild() {
   result=$STACK_ROOT/.jac/ci-ios-swift/${STACK_IOS_RESULT_NAME:-$action}.xcresult
   rm -rf "$result"
   mkdir -p "$(dirname "$result")"
-  # Signing is disabled: this route proves the source compiles and its tests pass, nothing more.
+  # Signing is disabled by default: this route proves the source compiles and its tests pass, nothing
+  # more. STACK_IOS_SIGN_LOCALLY=1 signs ad hoc (no team) so the simulator keychain, and with it the
+  # saved login, survives rebuilds.
+  local signing=(CODE_SIGNING_ALLOWED=NO)
+  [[ "${STACK_IOS_SIGN_LOCALLY:-0}" == 1 ]] && signing=(CODE_SIGN_IDENTITY=- CODE_SIGNING_ALLOWED=YES)
   xcodebuild "$action" \
     -project ios/Stack.xcodeproj \
     -scheme Stack \
@@ -83,7 +89,8 @@ run_xcodebuild() {
     "STACK_LISTING_REQUIRE_ACCEPTANCE=${STACK_LISTING_REQUIRE_ACCEPTANCE:-0}" \
     "STACK_LISTING_ERROR_TEXT=${STACK_LISTING_ERROR_TEXT:-}" \
     "STACK_API_URL=${STACK_API_URL:-http://127.0.0.1:8000}" \
-    CODE_SIGNING_ALLOWED=NO \
+    "STACK_APPLE_SIGN_IN_ENABLED=${STACK_APPLE_SIGN_IN_ENABLED:-NO}" \
+    "${signing[@]}" \
     CODE_SIGNING_REQUIRED=NO "$@"
 }
 

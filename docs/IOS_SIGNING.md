@@ -16,6 +16,7 @@ the authorized owner must enter these three secrets directly:
 | `IOS_DISTRIBUTION_P12_BASE64` | Base64 of a password-protected `.p12` containing an approved Apple Distribution certificate **and its matching private key** |
 | `IOS_DISTRIBUTION_P12_PASSWORD` | The export password for that `.p12` |
 | `IOS_APP_STORE_PROFILE_BASE64` | Base64 of the approved iOS App Store distribution `.mobileprovision` for `com.matthewkooy.stack`, including that certificate |
+| `IOS_ACTIVITY_PROFILE_BASE64` | Optional. Base64 of the App Store `.mobileprovision` for `com.matthewkooy.stack.activity` (the Dynamic Island widget), including the same certificate. Without it the native TestFlight candidate is built without the widget. |
 
 Do not paste keys, passwords or encoded assets into chat, commits, logs, artifacts
 or agent tools. The owner performs export, encoding and secret entry on a trusted

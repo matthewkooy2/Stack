@@ -105,7 +105,7 @@ struct ResumeFormatView: View {
         working = true
         defer { working = false }
         do {
-            let file = try readPickedFile(url, limit: 2 * 1024 * 1024, tooLarge: "LaTeX source must be 2 MB or smaller.")
+            let file = try await readPickedFileInBackground(url, limit: 2 * 1024 * 1024, tooLarge: "LaTeX source must be 2 MB or smaller.")
             try await store.callAccount("upload_resume_source",
                                         ["id": .string(resume.id), "name": .string(file.name), "content": .string(file.content)],
                                         timeout: 90)

@@ -13,6 +13,7 @@ final class AppStore {
     let api: APIClient
     let prep: PrepTransport
     let google: GoogleSignIn
+    let googleConnection: GoogleConnection
     let apple: AppleSignIn
     let jobFeedCache: JobFeedCache
 
@@ -45,6 +46,7 @@ final class AppStore {
         self.jobFeedCache = jobFeedCache
         self.prep = PrepTransport(api: api)
         self.google = GoogleSignIn(api: api)
+        self.googleConnection = GoogleConnection(api: api)
         self.apple = AppleSignIn(api: api)
     }
 
@@ -153,6 +155,7 @@ final class AppStore {
         pendingSwipes = 0
         busy = false
         google.cancel()
+        googleConnection.cancel()
         apple.cancel()
         googlePending = false
         googleInfo = [:]

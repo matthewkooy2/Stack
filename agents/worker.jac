@@ -183,6 +183,11 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
     if (step in ('send', 'sync', 'calendar')) {
         import from agents { google }
         connection = call('agent_worker_connection', auth);
+        if step=='sync' and context.get('manual_scan') {
+            import from agents.mail_scan { scan_page }
+            c=config('local');model_access(c,work['owner']);
+            return {'artifact':scan_page(connection['tokens'],context,c)};
+        }
         if (step == 'calendar') {
             call(
                 'agent_authorize', {** auth, 'payload_hash': digest(context['event'])}
@@ -214,7 +219,8 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
             connection.get('checkpoint', {}),
             context.get('applications', []),
             context.get('contacts', []),
-            context.get('interviews', [])
+            context.get('interviews', []),
+            context.get('threads', {})
         );
         return {'artifact': result};
     }

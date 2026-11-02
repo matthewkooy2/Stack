@@ -10,6 +10,7 @@ struct ApplicationsView: View {
     @State var selected: Application?
     @State var showCalendar = false
     @State var showReminders = false
+    @State private var showTracking = false
 
     private var filters: [String] {
         ["All"] + Array(Set(store.account.applications.map(\.status))).filter { !$0.isEmpty }.sorted()
@@ -28,6 +29,7 @@ struct ApplicationsView: View {
                 Chip(label: "Follow-ups") { showReminders = true }
             }
             .reveal(1)
+            GmailTrackingSection(onManage: { showTracking = true }).reveal(2)
             if filters.count > 2 {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -59,6 +61,7 @@ struct ApplicationsView: View {
         }
         .sheet(isPresented: $showCalendar) { ApplicationCalendarView().environment(store) }
         .sheet(isPresented: $showReminders) { RemindersView().environment(store) }
+        .sheet(isPresented: $showTracking) { AgentHubView(initialPage: .email).environment(store) }
         .sheet(item: $selected) { app in
             ApplicationDetailView(applicationID: app.id).environment(store)
         }
@@ -93,7 +96,7 @@ struct ApplicationDetailView: View {
                     }
                     .reveal(0)
 
-                    if !app.isDemo, app.status != "Submitted" {
+                    if !app.isDemo, ["Saved", "Ready to apply"].contains(app.status) {
                         VStack(spacing: Spacing.option) {
                             if let url = URL(string: app.job.url), !app.job.url.isEmpty {
                                 StackButton(label: "Apply on the employer site", icon: "link") { openURL(url) }

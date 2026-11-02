@@ -43,7 +43,7 @@ final class GoogleConnection: NSObject, ASWebAuthenticationPresentationContextPr
     nonisolated static func code(_ url: URL, state: String) throws -> String {
         guard let parts = URLComponents(url: url, resolvingAgainstBaseURL: false),
               parts.scheme == "stack", parts.host == "oauth", parts.path == "/google",
-              parts.user == nil, parts.password == nil, parts.port == nil, parts.fragment == nil else {
+              parts.user == nil, parts.password == nil, parts.port == nil, parts.fragment?.isEmpty != false else {
             throw APIError(message: "Google connection returned an invalid callback.")
         }
         var form = parts

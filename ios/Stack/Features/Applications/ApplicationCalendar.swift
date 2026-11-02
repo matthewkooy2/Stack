@@ -109,7 +109,7 @@ struct ApplicationCalendarView: View {
             if !connected {
                 Card(tint: Palette.oat, spacing: 8) {
                     Text("Interviews from your email").font(Typeface.option).foregroundStyle(Palette.icon)
-                    Text("Connect Google Calendar so Stack can find interview invitations and, only after you approve, add events.")
+                    Text("Connect Google Calendar to add interview events after you approve them.")
                         .font(Typeface.caption).foregroundStyle(Palette.text)
                     StackButton(label: "Connect Google Calendar", icon: "link", kind: .secondary) { Task { await connect() } }
                 }

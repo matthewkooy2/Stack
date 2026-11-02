@@ -10,6 +10,7 @@ Target: `https://dev.stackmvp.top`. Feature PRs and main remain unchanged.
 | Claude whole-memory tailoring PR #161 | `e7f299cf941b4318be4c675afe1d1602cf94d033` | Memory reader, chunk screening, factual checks, review actions, interview grounding, context handling |
 | Combined integration | `661176c11da014db1c481930e81825b6898721b3` | Resolved import conflict; legacy free-text story sources retain their exact body when no typed fields were supplied |
 | Jobs recovery correction | `826ade5ff9d99b48d34277cfd3962b745dec95c3` | Recheck an exhausted deck when returning, even after today's sweep started; malformed jobs payloads raise an error |
+| Catalog startup and upgrade preparation | `ad31b67fd5f7fe32f13b70de40a3cb671ad6dde4` | Summary-only collector readiness; private derived matching-index preparation after upgrades |
 
 The prior build `2026.11.2` was reported installed/launched from `8eaf13b`. It does
 not contain Claude tailoring or the Jobs correction. A new signed build is required.
@@ -29,7 +30,7 @@ longer silently become an empty deck.
 ## Backend pairing
 
 Use the exact final commit recorded in `integration-checkpoint.json`. Deploy all
-179 runtime files from that source together; never reuse the older `8eaf13b` package.
+180 runtime files from that source together, including the contributor supervisor; never reuse the older `8eaf13b` package.
 The integration task prepares source/private-config hashes, idle checks, backup and
 source-only rollback. Preserve data, uploads, auth and secrets. Change only the two
 ordinary context values to 65,536: `local_model_context_tokens` and
@@ -38,6 +39,13 @@ serves the existing `qwen3.8-27b-ninfer`; no weights, provider or network change
 Check fresh agent/resume work, daily sweep and NInfer running/waiting counters
 immediately before the brief shared-service restart. Read deployment and verification
 results from the task checkpoint; this source document is not proof of deployment.
+The first live rollout exposed a supervisor timeout while it requested every job.
+Startup now requests a summary with unchanged authorization. The full report remains
+the default for operators. The old database had facts version 5 and no compact
+projection; the private `discovery_manage` action `rebuild_matches` runs the existing
+derived-index routine once, without collecting/deleting jobs or changing user choices.
+The focused regression verifies full reports, summary reports and identical feed
+results before/after preparation. It passed against a disposable 72-job fixture.
 
 ## Verification and Mac action
 

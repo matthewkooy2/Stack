@@ -31,3 +31,7 @@ Answer each with **MVP / Later / Drop**, plus any quick clarification:
 16. **Saved feedback:** Must users revisit feedback from previous answers or sessions?
 
 **Release focus:** fast loads, polished UI, bounded scope and verification of all scoped flows on iPhone.
+
+## Answer coaching flow
+
+Recording transcription becomes editable local text. Get coaching sends the exact visible text snapshot and question to local Qwen. Show feedback, then store that submitted answer and feedback together. A separate draft/session save or expected revision must not block inference. Keep local edits and unsaved feedback available for recovery.

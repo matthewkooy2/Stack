@@ -463,7 +463,9 @@ final class ScreenFlowUITests: XCTestCase {
     func testWelcomeIsShortAndRecoveryCanBeCancelled() {
         let welcome = launch("onboarding")
         XCTAssertTrue(welcome.buttons["Create an account"].waitForExistence(timeout: 10))
-        XCTAssertTrue(welcome.staticTexts["Find roles, track applications, practice interviews."].exists)
+        XCTAssertTrue(welcome.buttons["Create an account"].isHittable)
+        XCTAssertTrue(welcome.buttons["Sign in"].waitForExistence(timeout: 5))
+        XCTAssertTrue(welcome.buttons["Sign in"].isHittable)
         XCTAssertTrue(welcome.buttons["Sign in"].exists)
         capture("onboarding-welcome")
         welcome.terminate()

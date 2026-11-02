@@ -13,7 +13,14 @@ struct ResumeFormatView: View {
     @State private var showTex = false
     @State private var preview: PDFPreview?
 
-    private let templates = [("jake", "Jake's Resume"), ("classic", "Classic")]
+    private let templates = [
+        ("jake", "Jake's Resume"),
+        ("awesome-cv", "Awesome-CV"),
+        ("bill-ryan", "Bill Ryan's Elegant Resume"),
+        ("sb2nov", "Sourabh Bajaj's Resume"),
+        ("deedy", "Deedy Resume"),
+        ("jan-kuster", "Jan Kuster's Classic CV")
+    ]
 
     private var format: JSON { store.account.format(of: resume.id) }
     private var kind: String { format["kind"].string }
@@ -26,7 +33,7 @@ struct ResumeFormatView: View {
                 let label = format["label"].string.isEmpty ? "Not set" : format["label"].string
                 Text(label + (format["file"].string.isEmpty ? "" : " · \(format["file"].string)"))
                     .font(Typeface.option).foregroundStyle(Palette.icon)
-                if !kind.isEmpty {
+                if !kind.isEmpty && kind != "records" {
                     let pages = format["pages"].int
                     let summary = format["summary"]
                     Text("\(pages) \(pages == 1 ? "page" : "pages") · \(summary["sections"].int) sections · \(summary["entries"].int) entries · \(summary["bullets"].int) bullets")
@@ -36,7 +43,7 @@ struct ResumeFormatView: View {
                     Text("Not used from your .zip: \(format["skipped"].strings.prefix(5).joined(separator: ", "))")
                         .font(Typeface.caption).foregroundStyle(Palette.muted)
                 }
-                Text(kind != "builtin"
+                Text(!["builtin", "records"].contains(kind)
                      ? "Stack edits only the content of your LaTeX (bullets, their order, skill lists) and keeps your layout. In Overleaf: Menu → Download → Source."
                      : "Built from your confirmed resume details. Upload your own LaTeX to keep your exact layout.")
                     .font(Typeface.caption).foregroundStyle(Palette.text)
@@ -46,12 +53,12 @@ struct ResumeFormatView: View {
             SectionLabel(text: "Built-in templates")
             FlowLayout(spacing: 8) {
                 ForEach(templates, id: \.0) { key, label in
-                    Chip(label: label, selected: kind == "builtin" && format["template"].string == key) {
+                    Chip(label: label, selected: ["builtin", "records"].contains(kind) && format["template"].string == key) {
                         change("use_resume_template", ["id": .string(resume.id), "template": .string(key)],
-                               done: "Template saved. Compilation continues if you close Stack.")
+                               done: "Template saved.")
                     }
                 }
-                if !kind.isEmpty {
+                if !kind.isEmpty && kind != "records" {
                     Chip(label: "Remove format") {
                         change("use_resume_template", ["id": .string(resume.id), "template": ""],
                                done: "Removed. Upload LaTeX or choose a template to tailor this resume again.")
@@ -61,8 +68,10 @@ struct ResumeFormatView: View {
             if !kind.isEmpty || resume.detailsStatus == "Confirmed" {
                 HStack(spacing: 8) {
                     Chip(label: "Preview format") { Task { await open(showSource: false) } }
-                    Chip(label: showTex ? "Hide LaTeX" : "Show LaTeX", selected: showTex) {
-                        if showTex { showTex = false } else { Task { await open(showSource: true) } }
+                    if kind != "records" {
+                        Chip(label: showTex ? "Hide LaTeX" : "Show LaTeX", selected: showTex) {
+                            if showTex { showTex = false } else { Task { await open(showSource: true) } }
+                        }
                     }
                 }
             }

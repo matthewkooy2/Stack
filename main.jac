@@ -32,7 +32,7 @@ import from agents.scoring { quality as resume_quality }
 import from agents.job_score { score as job_score, legacy_summary as job_score_summary }
 import from agents.pdf_safety { inspect_pdf, inspect_file }
 import from agents.resume_templates { TEMPLATES as LATEX_TEMPLATES, fill as fill_template }
-import from agents.record_resume { validate_upload, validate_records, check_documents, prepare as record_outline }
+import from agents.record_resume { validate_upload, validate_records, check_documents, prepare as record_outline, documents as record_documents }
 import from agents.resume_details { view as details_view, save as details_save, facts_for as details_facts, is_resume_fact, attach_import, DetailsError }
 import from agents.bullet_bank { save_review as bank_save_review, compose as bank_compose, KIND as BANK_KIND }
 import from agents.memory_bank { definitions as bank_definitions, context_lines as bank_context }
@@ -551,7 +551,7 @@ def _resume_format(r: Resume) -> dict[str, any] {
         return {"kind":"builtin","template":t["builtin"],"label":LATEX_TEMPLATES[t["builtin"]],"pages":t.get("pages",0),"summary":t.get("summary",{}),"skipped":[]};
     }
     if r.review.get("records") {
-        return {"kind":"records","template":r.review.get("template","classic"),"label":"Stack reviewed records","pages":0,"summary":{},"skipped":[]};
+        return {"kind":"records","template":r.review.get("template","classic"),"label":LATEX_TEMPLATES.get(r.review.get("template","classic"),"Stack reviewed records"),"pages":0,"summary":{},"skipped":[]};
     }
     return {"kind":"","template":"","label":"Review imported content","pages":0,"summary":{},"skipped":[]};
 }
@@ -745,7 +745,11 @@ def:priv read_resume_source(id: str) -> dict[str, any] {
     if r is None { return _error("Resume not found."); }
     name=r.name;view=_resume_format(r);key=str(r.template.get("preview_key",""));
     try { source=_resume_source(r); } except ValueError as e { return _error(str(e)); }
-    if source["format"]=="records" { return {"id":id,"name":name,"format":view,"source":source}; }
+    if source["format"]=="records" {
+        try { output=record_documents(source["records"],source["template"]); }
+        except ValueError as e { return _error(str(e)); }
+        return {"id":id,"name":name,"format":view,"source":source,"preview":output["pdf"]};
+    }
     data: bytes = b"";
     if key and _file_path(key).exists() { data=_file_path(key).read_bytes(); }
     else {
@@ -986,7 +990,7 @@ def:priv agent_extract_resume(id: str) -> dict[str, any] {
 """Save edited imported records with optimistic revision checks and explicit confirmation."""
 def:priv resume_save_records(id: str, revision: int, records: list[dict[str, any]], confirm: bool = False, template: str = "classic") -> dict[str, any] {
     _agent_access();
-    if template not in ["classic","jake"] { return _error("Choose the Classic or Jake template."); }
+    if template not in LATEX_TEMPLATES { return _error("Choose one of the built-in templates."); }
     try { checked=validate_records(records); } except ValueError as e { return _error(str(e)); }
     with locks.account() {
         _agent_fresh();r=_owned_resume(id);

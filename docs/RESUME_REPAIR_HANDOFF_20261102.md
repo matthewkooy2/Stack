@@ -1,7 +1,13 @@
 # Resume repair handoff
 
-The review branch includes the combined Mac UI, whole-memory tailoring and onboarding patch
-`59b27f3cabe823d70d3c920e31a387b63c66bb81`, followed by this repair. Do not substitute main.
+This standalone repair candidate is based on combined source/onboarding patch
+`59b27f3cabe823d70d3c920e31a387b63c66bb81`. It is NOT the newest authoritative UI and has NOT been
+published to the review branch. Do not build it as the complete current app or replace Mac Swift files.
+
+The user identified `/Volumes/DevSSD/Projects/Developer/Stack/worktrees/review-onboarding-filters-20261102`
+and its `2026.11.4` phone build as the authoritative UI. Its exact HEAD and uncommitted diff have not
+been provided here. No matching published onboarding/filter branch was found. Preserve that worktree
+and apply only the needed focused repair after comparing its code and recording its exact source.
 
 PDF/DOCX upload retains the paper control, responds when Files opens, shows reading/upload progress,
 guards repeated taps, retains the file for explicit retry and binds it to the account that picked it.
@@ -43,16 +49,16 @@ not establish that behavior. Existing template assets remain unchanged. Preserve
 worker/provider configuration and user decisions. Check a disposable confirmed resume with an edit,
 select a design, preview, tailor and review; measure complete latency separately from tokens/second.
 
-## Authorized Mac-local build
+## Required Mac-local integration before a build
 
-Preserve existing Mac edits. Fetch the published review branch and create an isolated worktree at the
-exact repair SHA supplied with this handoff. Verify `git rev-parse HEAD` before building. The endpoint is
-`https://dev.stackmvp.top`.
+The Mac owner must first record the authoritative worktree's HEAD, branch, status and complete diff.
+Create a separate candidate preserving those changes; apply the resume repair by behavior/context,
+not by replacing Swift files with this older baseline. Compare upload/setup/formatting and tailoring
+views against the authoritative UI. Keep its onboarding/filter behavior. Publish the resulting exact
+combined source SHA only after current-source checks. The endpoint is `https://dev.stackmvp.top`.
 
 ```sh
-git fetch origin codex/consolidated-review-20261102
-git worktree add ../Stack-resume-review <EXACT_REPAIR_SHA>
-cd ../Stack-resume-review
+# Run from the correctly integrated candidate, not this older standalone source.
 STACK_API_URL=https://dev.stackmvp.top bash scripts/ci/ios-swift.sh build
 ```
 
@@ -63,7 +69,7 @@ preserve its session. Never switch the endpoint to localhost for the demo.
 For the existing paired phone installation route, after native checks:
 
 ```sh
-STACK_API_URL=https://dev.stackmvp.top STACK_BUILD_NUMBER=2026.11.4 scripts/ios-phone.sh
+STACK_API_URL=https://dev.stackmvp.top STACK_BUILD_NUMBER=<UNUSED_BUILD_NUMBER> scripts/ios-phone.sh
 ```
 
 Use another unused build number if necessary. Record source SHA, endpoint, bundle version, build and

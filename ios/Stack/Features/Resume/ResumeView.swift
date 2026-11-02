@@ -143,9 +143,10 @@ private struct Entrance: ViewModifier {
 
 /// Scoring and tailoring live on their own screen so the resume list stays short.
 @MainActor
-private struct ResumeTailorSheet: View {
+struct ResumeTailorSheet: View {
     @Binding var setupFor: String
     @Binding var scores: [String: JSON]
+    var initialApplicationID = ""
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var task: TaskTarget?
@@ -153,7 +154,8 @@ private struct ResumeTailorSheet: View {
     @State private var showBank = false
 
     var body: some View {
-        ResumeAgentsSection(setupFor: $setupFor, scores: $scores, onOpenTask: { task = TaskTarget(id: $0) }, onNavigate: navigate)
+        ResumeAgentsSection(setupFor: $setupFor, scores: $scores, onOpenTask: { task = TaskTarget(id: $0) },
+                            onNavigate: navigate, initialApplicationID: initialApplicationID)
         .sheet(item: $task) { target in AgentTaskSheet(taskID: target.id).environment(store) }
         .fullScreenCover(item: $details) { resume in ResumeDetailsView(resume: resume).environment(store) }
         .fullScreenCover(isPresented: $showBank) { MemoryBankView().environment(store) }

@@ -1,5 +1,6 @@
 import SwiftUI
 import PDFKit
+import UniformTypeIdentifiers
 
 @MainActor
 struct ResumeAgentsSection: View {
@@ -7,6 +8,7 @@ struct ResumeAgentsSection: View {
     @Binding var scores: [String: JSON]
     let onOpenTask: (String) -> Void
     let onNavigate: (String) -> Void
+    var initialApplicationID = ""
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @Environment(\.stackReduceMotion) private var reduceMotion
@@ -21,6 +23,8 @@ struct ResumeAgentsSection: View {
     @State private var error = ""
     @State private var pdf: PDFDocument?
     @State private var startedTask = ""
+    @State private var importing = false
+    @State private var uploading = false
 
     private var applications: [Application] { store.account.applications.filter { !$0.isDemo } }
     private var job: Application? { applications.first { $0.id == jobID } }
@@ -53,7 +57,11 @@ struct ResumeAgentsSection: View {
                         Image(systemName: "doc.text").font(.system(size: 56, weight: .light)).foregroundStyle(Brand.muted)
                             .frame(maxWidth: .infinity).frame(height: 210).accessibilityHidden(true)
                     }
-                    row(label: resume?.name ?? "Choose a resume", action: { showResumes = true })
+                    if store.account.resumes.isEmpty {
+                        StackButton(label: uploading ? "Uploading…" : "Upload a resume", disabled: uploading) { importing = true }
+                    } else {
+                        row(label: resume?.name ?? "Choose a resume", action: { showResumes = true })
+                    }
                     row(label: job.map { "\($0.job.title) · \($0.job.company)" } ?? "Choose a saved job", action: { showJobs = true })
                     if let job {
                         if let score = scores[job.id] { JobScoreCardView(result: score["job_score"]) }
@@ -72,12 +80,16 @@ struct ResumeAgentsSection: View {
         }
         .replayable()
         .onAppear {
-            if jobID.isEmpty { jobID = applications.first?.id ?? "" }
+            if jobID.isEmpty { jobID = initialApplicationID.isEmpty ? applications.first?.id ?? "" : initialApplicationID }
             if resumeID.isEmpty {
                 let suggested = job?.tailorResumeID ?? ""
-                resumeID = !suggested.isEmpty ? suggested : store.account.selectedResumeID
+                resumeID = store.account.resume(store.account.selectedResumeID)?.id ?? store.account.resume(suggested)?.id ?? ""
                 if resumeID.isEmpty { resumeID = store.account.resumes.first?.id ?? "" }
             }
+        }
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf]) { result in
+            guard case .success(let url) = result else { return }
+            Task { await upload(url) }
         }
         .onChange(of: resumeID) { _, _ in scores.removeAll() }
         .task(id: resumeID) { await loadPDF() }
@@ -165,6 +177,15 @@ struct ResumeAgentsSection: View {
             let result = try await store.call("read_resume", ["id": .string(id)])
             if id == resumeID, let data = Data(base64Encoded: result["content"].string) { pdf = PDFDocument(data: data) }
         } catch { }
+    }
+    private func upload(_ url: URL) async {
+        uploading = true; error = ""; defer { uploading = false }
+        let previous = Set(store.account.resumes.map(\.id))
+        do {
+            let file = try await readPickedFileInBackground(url, limit: 10 * 1024 * 1024, tooLarge: "PDF must be 10 MB or smaller.")
+            try await store.callAccount("upload_resume", ["name": .string(file.name), "content": .string(file.content)], timeout: 90)
+            resumeID = store.account.resumes.first { !previous.contains($0.id) }?.id ?? store.account.selectedResumeID
+        } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
     }
     private func selectResume(for job: Application) async throws {
         if resumeID != job.tailorResumeID {

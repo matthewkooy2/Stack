@@ -27,6 +27,11 @@ struct JobsView: View {
     @GestureState private var dragging = false
     @State private var cardWidth: CGFloat = 390
     @State private var swipeReady = false
+    @State private var savedForTailoring: Application?
+    @State private var latestSavedJobID = ""
+    @State private var tailoring: Application?
+    @State private var tailorSetup = ""
+    @State private var tailorScores: [String: JSON] = [:]
 
     private var settle: Animation { .spring(response: 0.38, dampingFraction: 0.90) }
     private var swipeProgress: CGFloat { min(abs(drag.width) / max(cardWidth * 0.65, 1), 1) }
@@ -63,12 +68,17 @@ struct JobsView: View {
         .onDisappear {
             // A full-screen cover reports the screen underneath as disappeared. It is still the same visit:
             // keep the pending Undo and the paging in flight until the browser or sheet closes.
-            guard !JobsLifecycle.isCovered(listing: listing, detail: detail, sheet: sheet) else { return }
+            guard tailoring == nil, !JobsLifecycle.isCovered(listing: listing, detail: detail, sheet: sheet) else { return }
             commitDecision()
             feed.cancel()
         }
         .onChange(of: listing) { old, new in
             // Paging that stopped short while the browser was open picks up again.
+            guard old != nil, new == nil, feed.loaded, !feed.nextCursor.isEmpty, !feed.busy,
+                  deck.count < JobDeckFeed.targetDeck else { return }
+            Task { await load(refresh: false, more: true) }
+        }
+        .onChange(of: tailoring) { old, new in
             guard old != nil, new == nil, feed.loaded, !feed.nextCursor.isEmpty, !feed.busy,
                   deck.count < JobDeckFeed.targetDeck else { return }
             Task { await load(refresh: false, more: true) }
@@ -89,6 +99,10 @@ struct JobsView: View {
         }
         .sheet(item: $detail) { job in JobDetailView(job: job).environment(store) }
         .jobListingBrowser(item: $listing)
+        .fullScreenCover(item: $tailoring) { application in
+            ResumeTailorSheet(setupFor: $tailorSetup, scores: $tailorScores,
+                              initialApplicationID: application.id).environment(store)
+        }
         .sheet(item: $sheet, onDismiss: {
             if showProfileAfterDismiss {
                 showProfileAfterDismiss = false
@@ -206,7 +220,7 @@ struct JobsView: View {
     /// Exceptional state stays inside the card, never as a permanent header above it.
     @ViewBuilder
     private var feedback: some View {
-        if pendingDecision != nil || !feed.loadError.isEmpty || !banner.isEmpty || !search.notices.isEmpty {
+        if pendingDecision != nil || savedForTailoring != nil || !feed.loadError.isEmpty || !banner.isEmpty || !search.notices.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
                 if let pending = pendingDecision {
                     HStack {
@@ -216,6 +230,16 @@ struct JobsView: View {
                         Button("Undo") { undoDecision() }
                             .font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
                             .frame(minWidth: 44, minHeight: 44)
+                    }
+                }
+                if let saved = savedForTailoring {
+                    HStack(spacing: 12) {
+                        Text("Saved · \(saved.job.company)")
+                            .font(Typeface.caption).foregroundStyle(Brand.muted).lineLimit(1)
+                        Spacer(minLength: 0)
+                        Button("Tailor resume") { tailoring = saved }
+                            .font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
+                            .frame(minHeight: 44)
                     }
                 }
                 if !feed.loadError.isEmpty, !deck.isEmpty {
@@ -314,6 +338,8 @@ struct JobsView: View {
             leavingID = nil
         }
         guard current else { return }
+        savedForTailoring = nil
+        latestSavedJobID = save ? job.id : ""
         pendingDecision = (job, save, generation)
         if scenePhase != .active { commitDecision(); return }
         undoTimer = Task {
@@ -351,6 +377,8 @@ struct JobsView: View {
             if !saved {
                 withAnimation(reduceMotion ? nil : Motion.release) { _ = hidden.remove(pending.job.id) }
                 feed.loadError = store.error.isEmpty ? "This decision was not saved. Please try again." : store.error
+            } else if pending.save, latestSavedJobID == pending.job.id {
+                savedForTailoring = store.account.applications.first { $0.job.id == pending.job.id && !$0.isDemo }
             }
         }
     }
@@ -393,6 +421,11 @@ struct JobsView: View {
         listing = nil
         detail = nil
         sheet = nil
+        savedForTailoring = nil
+        latestSavedJobID = ""
+        tailoring = nil
+        tailorSetup = ""
+        tailorScores = [:]
         showProfileAfterDismiss = false
     }
 

@@ -12,6 +12,7 @@
 #   STACK_IOS_TEAM   Apple developer team ID used for signing (default 38BZ2B7677)
 #   STACK_API_URL    API origin baked into the build (default: shared Cloudflare development)
 #   STACK_BUNDLE_ID  bundle ID (default com.matthewkooy.stack, replacing the Expo app on the phone)
+#   STACK_BUILD_NUMBER  optional CFBundleVersion for an identifiable review build
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -65,6 +66,10 @@ if [[ "$MODE" == build ]]; then
   say "Building (the first build takes a few minutes, later ones are quick)..."
   python3 scripts/ci/resume-review/prepare.py >/dev/null
   (cd ios && xcodegen generate --spec project.yml --project . >/dev/null)
+  BUILD_SETTINGS=()
+  if [[ -n "${STACK_BUILD_NUMBER:-}" ]]; then
+    BUILD_SETTINGS+=("CURRENT_PROJECT_VERSION=$STACK_BUILD_NUMBER")
+  fi
   if ! xcodebuild build \
       -project ios/Stack.xcodeproj -scheme Stack -configuration Debug \
       -destination "id=$UDID" -derivedDataPath "$DERIVED" \
@@ -72,6 +77,7 @@ if [[ "$MODE" == build ]]; then
       DEVELOPMENT_TEAM="$TEAM" CODE_SIGN_STYLE=Automatic \
       "STACK_API_URL=$STACK_API_URL" "STACK_BUNDLE_ID=$BUNDLE" STACK_APPLE_SIGN_IN_ENABLED=YES \
       STACK_APPLE_ENTITLEMENTS=Stack/StackApple.entitlements \
+      "${BUILD_SETTINGS[@]}" \
       >"$WORK/build.log" 2>&1; then
     grep -E "error:" "$WORK/build.log" | sort -u | head -15 || true
     die "Build failed. Full log: $WORK/build.log"

@@ -194,9 +194,9 @@ test "an uploaded LaTeX source is checked, compiled, and tailored without confir
                 # The job now uses the default resume, but it is only a PDF: tailoring is refused and readiness says why.
                 assert "Review and confirm the imported records for Candidate.pdf" in rpc(client,"agent_start",{"kind":"resume","target_id":application["id"]}).get("error","");
                 assert rpc(client,"agent_activity")["runs"]==[];
-                # PDF-only scoring is paused while LaTeX scoring remains available.
+                # The job score reads only confirmed details; an unreviewed import is not evidence.
                 pdf_score=rpc(client,"score_resume",{"application_id":application["id"]});
-                assert "PDF-only scoring is temporarily unavailable" in pdf_score.get("error",""), pdf_score;
+                assert "Confirm your details for Candidate.pdf" in pdf_score.get("error",""), pdf_score;
                 readiness=[c for f in rpc(client,"agent_features")["features"] if f["key"]=="tailoring" for c in f["checks"] if c["key"]=="facts"][0];
                 assert not readiness["ok"] and "Candidate.pdf" in readiness["fix"], readiness;
                 # Built-in templates need confirmed details; unsafe or broken sources are refused.
@@ -214,8 +214,9 @@ test "an uploaded LaTeX source is checked, compiled, and tailored without confir
                 exported=rpc(client,"account_export")["resumes"][0];
                 assert exported["id"]==resume_id and exported["source"]["files"],exported;
                 assert [c for f in rpc(client,"agent_features")["features"] if f["key"]=="tailoring" for c in f["checks"] if c["key"]=="facts"][0]["ok"];
+                # Uploaded LaTeX can be tailored, but it is not confirmed information, so it is not scored.
                 latex_score=rpc(client,"score_resume",{"application_id":application["id"]});
-                assert latex_score["source"]=="latex" and latex_score["score"]["match"] is not None and latex_score["score"]["match_components"], latex_score;
+                assert "Confirm your details for Candidate.pdf" in latex_score.get("error",""), latex_score;
                 # The user's own LaTeX needs no parsed-details confirmation.
                 run=rpc(client,"agent_start",{"kind":"resume","target_id":application["id"]});
                 assert [a for a in rpc(client,"bootstrap")["applications"] if a["id"]==application["id"]][0]["resume_id"]==resume_id;

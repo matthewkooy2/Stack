@@ -7,7 +7,7 @@ below that mention the retired parser document earlier behavior. See
 
 # Resume Scoring
 
-Stack scores a resume for a saved job with two separate numbers from 0 to 100. It uses no model:
+Stack scores a resume document for a saved job while tailoring, with two separate numbers from 0 to 100. It uses no model:
 the scores are deterministic, instant and reproducible (`agents/scoring.jac`).
 
 - **Job match:** how well this resume covers this listing.
@@ -15,11 +15,12 @@ the scores are deterministic, instant and reproducible (`agents/scoring.jac`).
 
 The scores guide tailoring and show what it changed. They are **not a prediction of hiring**.
 
+These are document scores: they read whatever the document says, including uploaded LaTeX. **Score my
+resume** on a saved job shows the [job score](JOB_SCORE.md) instead, which reads only details you confirmed.
+The job score reuses this page's listing parser (`job_requirements`) and skills vocabulary.
+
 ## Where scores appear
 
-- **Resume → a saved job → Score my resume:**
-  - scores the job's resume without a model, and nothing is stored;
-  - uses the resume's LaTeX; PDF-only scoring is temporarily unavailable.
 - **Tailoring review:** the score before tailoring, and with every proposed change applied.
 - **The final result and Resume → Tailored resumes:** before, and the final score after your choices.
 
@@ -117,7 +118,8 @@ The weights and targets above are Stack's defaults. Apart from the
 [Ladders eye-tracking study](https://www.hrdive.com/news/eye-tracking-study-shows-recruiters-look-at-resumes-for-7-seconds/541582/),
 published figures (for example "80% of bullets should be quantified") come from vendors. So treat
 these numbers as tunable. They are constants at the top of `agents/scoring.jac` and covered by
-`tests/test_scoring.py`.
+`tests/test_scoring.py`. A change to the listing parser or vocabulary can also move the job score;
+`tests/test_job_score.py` pins it, and such a change needs a new job score version.
 
 ## Skills vocabulary
 

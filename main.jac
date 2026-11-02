@@ -27,11 +27,11 @@ import from core.automation {
 }
 import from agents.contracts { authorize, config, digest, model_status, model_access, validate_facts, STEPS }
 import from agents.latex { load as latex_load, pack as latex_pack, unpack as latex_unpack, encode as latex_encode, compile as latex_compile, parse as latex_parse, summary as latex_summary, outline as latex_outline }
-import from agents.scoring { score as resume_score, summary as score_summary }
-import from agents.tailoring { resume_text }
+import from agents.scoring { quality as resume_quality }
+import from agents.job_score { score as job_score, legacy_summary as job_score_summary }
 import from agents.pdf_safety { inspect_pdf, inspect_file }
 import from agents.resume_templates { TEMPLATES as LATEX_TEMPLATES, fill as fill_template }
-import from agents.record_resume { validate_upload, validate_records, check_documents }
+import from agents.record_resume { validate_upload, validate_records, check_documents, prepare as record_outline }
 import from agents.resume_details { view as details_view, save as details_save, facts_for as details_facts, is_resume_fact, attach_import, DetailsError }
 import from agents.bullet_bank { save_review as bank_save_review, compose as bank_compose, KIND as BANK_KIND }
 import from agents.linkedin { profile_url }
@@ -591,27 +591,27 @@ def:priv check_tailored_resume(id: str) -> dict[str, any] {
     if _owned_tailored(id) is None { return _error("Tailored resume not found."); }
     _check_tailored(id);return bootstrap();
 }
-"""Score an owned LaTeX resume for a saved job. PDF-only scoring is temporarily unavailable."""
-def:priv score_resume(application_id: str) -> dict[str, any] {
+"""The records the user confirmed for this resume, with any confirmed bullet-bank experience they chose.
+Empty when the resume is unconfirmed. Uploaded LaTeX and unreviewed imports are never included."""
+def _confirmed_records(r: Resume) -> list[dict[str, any]] {
+    if not r.review_confirmed or not r.review.get("records") { return []; }
+    return bank_compose(r.review["records"],r.review.get("bank_selection",[]),[_bank_view(x) for x in [root -->][?:Resume] if jid(x)!=jid(r) and x.review.get("records")])["records"];
+}
+"""Job score for a saved job (docs/JOB_SCORE.md): only the job's resume's confirmed records, against the listing.
+`as_of` ("YYYY-MM") ends roles marked Present; it defaults to this month. `score` keeps the earlier summary for older clients."""
+def:priv score_resume(application_id: str, as_of: str = "") -> dict[str, any] {
     apps=[a for a in [root -->][?:Application] if jid(a)==application_id and not a.demo];
     if not apps { return _error("Saved job not found."); }
     found=_application_resume(apps[0]);
     if found is None { return _error("Upload your resume on the Resume tab first."); }
     r: Resume = found;
-    if not _tailor_source(r) { return _error("PDF-only scoring is temporarily unavailable. Upload your LaTeX source to score this resume."); }
     try {
-        source=_resume_source(r);
-        facts=[f for f in _agent_memory().facts if f.get("verified")];
-        if source["format"]=="records" {
-            import agents.record_resume as record_resume;
-            prepared=record_resume.prepare(source);
-            result=score_summary(resume_score(prepared["outline"],_application_job(apps[0]),facts,text="\n".join(record["text"] for record in prepared["records"])));
-        } else {
-            structure=latex_parse(source);
-            result=score_summary(resume_score(latex_outline(structure),_application_job(apps[0]),facts,text=resume_text(structure["tex"])));
-        }
+        records=_confirmed_records(r);
+        if not records { return _error("Confirm your details for "+r.name+" on the Resume tab. The job score uses only information you confirmed."); }
+        result=job_score(records,_application_job(apps[0]),None if as_of in [None,"","None"] else as_of);
+        quality=resume_quality(record_outline({"records":records,"template":"classic","upload_digest":"","revision":0})["outline"]);
     } except ValueError as e { return _error(str(e)); }
-    return {"application_id":application_id,"resume_name":r.name,"source":source["format"],"score":result};
+    return {"application_id":application_id,"resume_id":jid(r),"resume_name":r.name,"source":"confirmed_records","job_score":result,"score":job_score_summary(result,quality)};
 }
 
 def:priv delete_tailored_resume(id: str) -> dict[str, any] {

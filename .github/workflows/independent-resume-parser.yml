@@ -1,0 +1,38 @@
+name: Independent resume parser
+on:
+  pull_request:
+    paths:
+      - 'integrations/independent-resume-parser/**'
+      - '.github/workflows/independent-resume-parser.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'integrations/independent-resume-parser/**'
+      - '.github/workflows/independent-resume-parser.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: ['22', '24']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: integrations/independent-resume-parser
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: integrations/independent-resume-parser/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci --ignore-scripts
+      - run: python -m unittest discover -s tests -v
+      - run: npm audit --omit=dev --audit-level=high

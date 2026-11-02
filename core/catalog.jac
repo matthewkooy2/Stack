@@ -5,7 +5,7 @@ import os;
 import secrets;
 import from pathlib { Path }
 import from uuid { UUID, uuid4 }
-import from threading { RLock }
+import core.locks as locks;
 import from urllib.parse { urlsplit, urlunsplit, parse_qsl, urlencode }
 import from jaclang.runtime.runtime { JacRuntime }
 import from discovery.normalize { digest, canonical, matches, validate_filters, source_enabled, taxonomy, classify, dedupe_bucket, same_opening, plain }
@@ -17,7 +17,6 @@ import from core.timeline { _timeline_preferences }
 import from discovery.timeline { analyze, assess, timeline_includes, VERSION }
 import from discovery.sources { identify }
 import from discovery.transport { public_url }
-glob _catalog_lock = RLock();
 glob _catalog_cache: dict[str, any] = {"root":"","at":0.0,"rows":{}};
 
 node CatalogJob {
@@ -85,13 +84,13 @@ def _job_view(j: CatalogJob) -> dict[str, any] {
 }
 def _cache_clear() -> None { _catalog_cache["at"]=0.0; }
 def _cache_put(data: dict[str, any]) -> None {
-    with _catalog_lock { if _catalog_cache["at"] { _catalog_cache["rows"][data["id"]]=data; } }
+    with locks.cache() { if _catalog_cache["at"] { _catalog_cache["rows"][data["id"]]=data; } }
 }
 def _cache_after_commit(j: CatalogJob) -> None {
     view=_job_view(j);JacRuntime.get_context().on_commit(lambda { _cache_put(view); });
 }
 def _catalog_records() -> list[dict[str, any]] {
-    with _catalog_lock {
+    with locks.cache() {
         if _catalog_cache["root"]!=jid(root.shared) or _catalog_cache["at"]<time.time()-300 {
             rows={};
             for j in [root.shared -->][?:CatalogJob] { rows[j.key]=_job_view(j); }
@@ -148,12 +147,12 @@ def:priv search_jobs(query: str = "", filters: dict[str, any] | None = None, cur
     fingerprint=digest(json.dumps([search,_match_preferences()],sort_keys=True));
     try { after=decode_cursor(cursor,fingerprint); } except Exception as e { return {"error":str(e)}; }
     if refresh {
-        with _catalog_lock { _fresh(); _enqueue_roles(c,search); commit(); }
+        with locks.account() { _fresh(); _enqueue_roles(c,search); commit(); }
     }
     feeds=[root -->][?:PreparedJobFeed];
     cached=feeds[0] if feeds and feeds[0].key==fingerprint else None;
     if cached is None {
-        with _catalog_lock {
+        with locks.account() {
             _fresh(); result=_prepare_job_feed(search);
         }
     } else { result=cached.result; }
@@ -205,7 +204,7 @@ def:priv save_search(query: str, filters: dict[str, any]) -> dict[str, any] {
     # Store only real overrides, so later profile edits still apply to everything else.
     stored={k:v for (k,v) in config["filters"].items() if not (k in PROFILE_KEYS and _same(v,profile.get(k)))};
     stored_query="" if _same(config["query"],profile.get("roles","")) else config["query"];
-    with _catalog_lock {
+    with locks.account() {
         _fresh(); items=[root -->][?:SavedSearch];
         s=items[0] if items else root ++> SavedSearch(); s.query=stored_query; s.filters=stored;
         _enqueue_roles(c,config); commit(); return {"saved":True,"query":s.query,"filters":s.filters};
@@ -218,7 +217,7 @@ def _same(a: any, b: any) -> bool {
     return a==b;
 }
 def:priv reset_search() -> dict[str, any] {
-    with _catalog_lock {
+    with locks.account() {
         _fresh(); for s in [root -->][?:SavedSearch] { s.query="";s.filters={}; } commit();
     }
     return {"saved":True};
@@ -233,7 +232,7 @@ def _drop_overrides(keys: list[str]) -> None {
 def:priv import_job_url(url: str) -> dict[str, any] {
     try { public_url(url); } except Exception as e { return {"error":str(e)}; }
     if len(url)>2048 { return {"error":"URL is too long."}; }
-    with _catalog_lock { _fresh(); r=_enqueue("url",{"url":url}); commit(); return {"id":jid(r),"status":r.status}; }
+    with locks.account() { _fresh(); r=_enqueue("url",{"url":url}); commit(); return {"id":jid(r),"status":r.status}; }
 }
 def:priv get_import_status(id: str) -> dict[str, any] {
     for r in [root -->][?:DiscoveryRequest] {
@@ -282,7 +281,7 @@ def _reserve(adapter: str) -> int {
 }
 def:pub discovery_claim(token: str, preferred_id: str = "") -> dict[str, any] {
     if not _worker_allowed(token) { return {"error":"Worker authorization required."}; }
-    with _catalog_lock {
+    with locks.collector() {
         _fresh();
         for filename in ["discovery/sources.json","discovery/employers.json"] {
             for config in json.loads(Path(filename).read_text()) { _register(config); }
@@ -368,7 +367,7 @@ def _upsert(data: dict[str, any], source: JobSource) -> bool {
 }
 def:pub discovery_complete(token: str, id: str, lease: str, result: dict[str, any] = {}, error: str = "") -> dict[str, any] {
     if not _worker_allowed(token) { return {"error":"Worker authorization required."}; }
-    with _catalog_lock {
+    with locks.collector() {
         _fresh();s=_leased_source(id,lease);
         if s is None or s.lease!=lease or not lease { return {"error":"Lease expired or already completed."}; }
         s.lease="";s.lease_until=0;now=time.time();
@@ -412,7 +411,7 @@ def:pub discovery_complete(token: str, id: str, lease: str, result: dict[str, an
 
 def:pub discovery_manage(token: str, id: str, action: str) -> dict[str, any] {
     if not _worker_allowed(token) { return {"error":"Worker authorization required."}; }
-    with _catalog_lock {
+    with locks.collector() {
         _fresh(); s=_source(id);
         if s is None { return {"error":"Source not found."}; }
         if action=="configure" {
@@ -442,7 +441,7 @@ def:pub discovery_manage(token: str, id: str, action: str) -> dict[str, any] {
 
 def:pub discovery_analyze(token: str) -> dict[str, any] {
     if not _worker_allowed(token) { return {"error":"Worker authorization required."}; }
-    with _catalog_lock {
+    with locks.collector() {
         _fresh();items=[root.shared -->][?:TimelineMigration];
         migration=items[0] if items else root.shared ++> TimelineMigration();
         # Timeline analysis and matching facts share one resumable migration.

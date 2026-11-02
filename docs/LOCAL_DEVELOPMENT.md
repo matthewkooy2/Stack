@@ -54,7 +54,7 @@ Mac/iOS launcher below is a separate path with explicit device-network access.
 
 Choose **Create an account**, enter a new local username and password, and select
 **Continue**. A fresh contributor installation does not require an invitation.
-Open **Practice**, start a session, enter a synthetic answer, and **Save**. Saving
+Open **Prep → Practice**, start a session, enter a synthetic answer, and **Save**. Saving
 and reloading a session works without a model. **Get coaching** requires the
 provider login below.
 
@@ -114,7 +114,7 @@ content continues to apply. There is no automatic paid API fallback after a CLI 
 
 To authorize one real subscription request, start a behavioral practice session,
 enter a synthetic answer, **Save**, then select **Get coaching**. Inspect the task
-in **Activity**, retrieve the coaching result, and reload the session to confirm
+in **Agents → Tasks & activity**, retrieve the coaching result, and reload the session to confirm
 persistence. This consumes your subscription capacity. Repeat separately after
 selecting the other provider to verify both; authentication or a configured badge
 alone does not establish live model success. Provider acceptance evidence and

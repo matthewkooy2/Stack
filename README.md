@@ -27,7 +27,7 @@ make dev
 make test
 ```
 
-Open **http://127.0.0.1:8080** and create a local account. The core backend/browser
+Open **http://127.0.0.1:8080** and create a local account. The browser uses the native iOS tab order: **Jobs, Applications, Network, Resume, Prep**. Profile preferences and agent settings are in the header. See [browser workflows and verification](docs/WEB_WORKSPACE.md). The core backend/browser
 workspace requires no Xcode, CocoaPods, Docker,
 model subscription, or maintainer secrets. Setup provisions pinned local tools
 and initializes private configuration without replacing existing data.
@@ -99,6 +99,7 @@ distribution limits. Use a trusted Wi-Fi network for development traffic.
 - `core/fixtures.jac`: legacy fictional jobs and sample networking contacts.
 - `core/agents.jac`: deterministic demo progress based on persisted timestamps.
 - `mobile/`: Jac screens, shared controls, and styles.
+- `web/`: browser workspace using the same authenticated backend, with desktop navigation and a bottom tab bar on narrow screens.
 - `native/device.js`: SecureStore, authenticated transport, Files/PDF, gestures, notification reconciliation.
 - `scripts/compile-mobile.jac`: stages Jac's native target and two runtime modules omitted by the beta scaffold. It uses compiler internals pinned to Jac 0.37.21.
 

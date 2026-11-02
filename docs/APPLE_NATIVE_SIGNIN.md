@@ -51,3 +51,93 @@ optional Google-status lookup initially blocked the app after session issuance;
 that lookup is now nonblocking. The corrected device build reused the Apple
 session and successfully loaded authenticated admission and account endpoints.
 This evidence covers the local development build, not a TestFlight rollout.
+
+## Browser Apple sign-in
+
+The web login includes **Continue with Apple**. It uses Apple's official JavaScript
+popup SDK without requesting email or name scopes. `auth_apple_web_begin` creates
+a five-minute challenge for the configured web Services ID; `auth_apple_finish`
+selects the expected audience from that stored challenge, verifies Apple's
+signature/issuer/expiry/nonce, and consumes the state once. Native challenges
+continue to use the iOS bundle ID. Both modes resolve the same Apple subject into
+an ordinary Stack account/session. No Apple private key, client secret, refresh
+grant, or extra JavaScript package is added.
+
+### Apple Developer setup
+
+1. Sign in to [Certificates, Identifiers & Profiles](https://developer.apple.com/account/resources/identifiers/list).
+   Accept any pending program agreement as the account holder before continuing.
+2. Create a **Services ID** for the website, for example `com.matthewkooy.stack.web`.
+3. Enable **Sign in with Apple** on that Services ID and configure its **Primary
+   App ID** as the existing Stack iOS App ID (`com.matthewkooy.stack`). This grouping
+   is required for the website and iPhone to receive the same Apple subject. Do
+   not match accounts by email or create a separate ungrouped primary app.
+4. Register the website's exact domain and HTTPS return URL, ending in
+   `/auth/apple`, then save. Apple does not accept localhost or an IP address as
+   the return host. See [Apple's web configuration guide](https://developer.apple.com/help/account/capabilities/configure-sign-in-with-apple-for-the-web/).
+5. Set these values on the **API server**, preserving its existing native ID:
+
+   ```sh
+   STACK_APPLE_ENABLED=1
+   STACK_APPLE_CLIENT_ID=com.matthewkooy.stack
+   STACK_APPLE_WEB_CLIENT_ID=com.matthewkooy.stack.web
+   STACK_APPLE_WEB_REDIRECT_URI=https://YOUR-REGISTERED-HOST/auth/apple
+   ```
+
+   These identifiers/URLs are public configuration, not credentials. Keep completed
+   deployment files ignored. Restart the API and gateway with the new build. The
+   gateway serves `/auth/apple`, allows only Apple's SDK/CDN origins in its CSP,
+   and applies the existing sign-in rate limit to the new public begin endpoint.
+   Private worker endpoints remain inaccessible through the gateway.
+6. Open the web login, allow its Apple popup, and sign in. Verify that a returning
+   iPhone user sees the same saved profile and applications, then sign out and
+   sign in again. Password and Google sign-in remain available when web Apple
+   configuration is absent; Apple reports a setup error instead of issuing a
+   session. A popup-blocked message means the browser needs to allow the popup.
+
+The ordinary `make dev` contributor launcher intentionally clears deployment
+integration variables. Use the operator API/gateway launch path with the explicit
+configuration above to exercise real Apple sign-in. The popup is bound to the registered HTTPS origin. The login page's origin must
+match the configured return URL's origin, including its port. Localhost previews
+must use password/Google or a separately registered HTTPS development origin;
+a popup launched from localhost cannot complete for the production domain. The
+web helper detects this mismatch before opening Apple and shows the correct
+HTTPS address. Register and verify the intended hosted origin before treating
+live browser sign-in as accepted.
+
+### Browser verification
+
+- `node tests/apple_web_clients.cjs`: actual helper with mocked Apple SDK and HTTP
+  boundaries; checks state, nonce, popup configuration, cancellation, invalid
+  return URLs, missing server setup and overlapping attempts.
+- `scripts/jac run --no-serve tests/test_apple_auth.py`: three existing security
+  checks now cover native/web audience separation, replay and bad nonce/proof
+  rejection, ordinary Stack sessions and native-to-web account/data continuity.
+- `scripts/jac run --no-serve tests/test_gateway.py`: existing HTTP boundary checks
+  include unauthenticated Apple begin/finish access without weakening admission
+  on personal endpoints or exposing worker endpoints.
+- A real Apple popup and returning-account check remain separate from fixture
+  evidence; locally signed identity proofs do not certify Apple portal setup.
+
+### Setup status for the team hostname
+
+Apple Developer now has the Services ID `com.matthewkooy.stack.web` (Stack Web),
+with Sign in with Apple enabled and grouped with the existing primary App ID
+`com.matthewkooy.stack`. The user confirmed control of `stackmvp.top` and the
+exact root app address. Its saved domain is `stackmvp.top`, and its saved return
+URL is `https://stackmvp.top/auth/apple`. These values were reopened and verified
+in Apple Developer after saving.
+
+The same public configuration is enabled on the isolated local preview API.
+Apple's real popup recognized this Services ID and reached device verification,
+but failed at Apple consent before an identity proof reached Stack. That attempt
+started from `http://127.0.0.1:18080` while its return origin was
+`https://stackmvp.top`. The helper now rejects this mismatch before opening Apple.
+Live authorization must be repeated from the registered HTTPS origin after the
+Cloudflare route and candidate build are available; reaching Apple's sign-in or
+consent screen alone does not establish a working authorization.
+The new domain had no live DNS routing during preparation. Cloudflare HTTPS
+routing, deployment/API environment activation on the team host, and real
+returning-user acceptance are still required. Existing iOS identifiers, native
+capabilities and production services were not changed. If hosting later chooses
+a subdomain, update Apple Developer and the API return URL together.

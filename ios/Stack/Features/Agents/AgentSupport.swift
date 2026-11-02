@@ -14,9 +14,9 @@ enum AgentLabels {
 
     static func statusLabel(_ status: String) -> String { Self.status[status] ?? status }
 
-    /// A task paused for its resume's LaTeX is not waiting for answers; say what it needs.
+    /// A task paused until its resume is ready (confirmed details) is not waiting for answers; say what it needs.
     static func runLabel(_ run: JSON) -> String {
-        if run["needs_resume_review"].bool { return "Needs your LaTeX" }
+        if run["needs_resume_review"].bool { return "Needs your resume" }
         if run["status"].string == "needs_input", run["has_requests"].isNull == false, !run["has_requests"].bool {
             return "Stopped · try again"
         }

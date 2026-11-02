@@ -254,8 +254,34 @@ final class AccountStateTests: XCTestCase {
         XCTAssertEqual(account.activeRunCount, 1)
         XCTAssertEqual(account.attentionRunCount, 2)
         XCTAssertEqual(account.feature(forKind: "resume")?.missingRequired.first?.action, "resume")
-        XCTAssertTrue(account.hasLatex("r1"))
+        XCTAssertTrue(account.canTailor("r1"))
         XCTAssertEqual(account.tailored.first?.jobTitle, "Engineer")
+    }
+
+    /// Mirrors the server's `_tailor_source`: a PDF or DOCX is ready once its details are confirmed, in any
+    /// built-in design; an older uploaded source file stays ready; nothing else is.
+    func testTailorReadinessFollowsConfirmedDetailsNotUploadedSource() {
+        let account = AccountState(raw: parse("""
+        {"resumes": [
+          {"id": "pdf", "name": "Resume.pdf", "details_status": "Review", "format": {"kind": "records", "template": "classic"}},
+          {"id": "docx", "name": "Resume.docx", "details_status": "Confirmed", "format": {"kind": "records", "template": "deedy"}},
+          {"id": "built", "name": "Built.pdf", "details_status": "Confirmed", "format": {"kind": "builtin", "template": "jake"}},
+          {"id": "source", "name": "Old.pdf", "details_status": "Review", "format": {"kind": "upload"}},
+          {"id": "new", "name": "New.pdf", "details_status": "Processing", "format": {"kind": ""}}
+        ]}
+        """))
+        XCTAssertFalse(account.canTailor("pdf"))
+        XCTAssertTrue(account.canTailor("docx"))
+        XCTAssertTrue(account.canTailor("built"))
+        XCTAssertTrue(account.canTailor("source"))
+        XCTAssertFalse(account.canTailor("new"))
+        XCTAssertFalse(account.canTailor("missing"))
+    }
+
+    /// The picker keeps Jake and offers the five requested designs, with the server's template keys.
+    func testDesignPickerOffersTheSixBuiltInTemplates() {
+        XCTAssertEqual(ResumeTemplate.all.map(\.key), ["jake", "awesome-cv", "bill-ryan", "sb2nov", "deedy", "jan-kuster"])
+        XCTAssertFalse(ResumeTemplate.all.contains { $0.label.localizedCaseInsensitiveContains("latex") })
     }
 
     func testPreferenceFormRoundTripsForTheServer() {
@@ -282,7 +308,7 @@ final class AgentLabelTests: XCTestCase {
     func testStoppedTaskWithNothingToAnswerSaysTryAgain() {
         XCTAssertEqual(AgentLabels.runLabel(["status": "needs_input", "has_requests": false]), "Stopped · try again")
         XCTAssertEqual(AgentLabels.runLabel(["status": "needs_input", "has_requests": true]), "Needs your answers")
-        XCTAssertEqual(AgentLabels.runLabel(["status": "blocked", "needs_resume_review": true]), "Needs your LaTeX")
+        XCTAssertEqual(AgentLabels.runLabel(["status": "blocked", "needs_resume_review": true]), "Needs your resume")
     }
 }
 

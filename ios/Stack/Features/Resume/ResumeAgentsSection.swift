@@ -24,7 +24,8 @@ struct ResumeAgentsSection: View {
     @State private var pdf: PDFDocument?
     @State private var startedTask = ""
     @State private var importing = false
-    @State private var uploading = false
+    @State private var uploader = ResumeUploader()
+    @State private var uploadGeneration = -1
 
     private var applications: [Application] { store.account.applications.filter { !$0.isDemo } }
     private var job: Application? { applications.first { $0.id == jobID } }
@@ -58,7 +59,18 @@ struct ResumeAgentsSection: View {
                             .frame(maxWidth: .infinity).frame(height: 210).accessibilityHidden(true)
                     }
                     if store.account.resumes.isEmpty {
-                        StackButton(label: uploading ? "Uploading…" : "Upload a resume", disabled: uploading) { importing = true }
+                        StackButton(label: uploader.isBusy ? uploader.progress : "Upload a resume", disabled: uploader.isBusy) {
+                            if uploader.begin() { uploadGeneration = store.sessionGeneration; importing = true }
+                        }
+                        .accessibilityIdentifier("tailor-upload")
+                        if uploader.phase == .failed {
+                            MessageLine(text: uploader.message)
+                            if uploader.canRetry {
+                                QuietLinks(links: [ScreenLink("Try again · \(uploader.fileName)") {
+                                    if uploader.retry() { Task { await upload() } }
+                                }])
+                            }
+                        }
                     } else {
                         row(label: resume?.name ?? "Choose a resume", action: { showResumes = true })
                     }
@@ -87,10 +99,12 @@ struct ResumeAgentsSection: View {
                 if resumeID.isEmpty { resumeID = store.account.resumes.first?.id ?? "" }
             }
         }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf]) { result in
-            guard case .success(let url) = result else { return }
-            Task { await upload(url) }
+        .fileImporter(isPresented: $importing, allowedContentTypes: ResumeFiles.allowedTypes) { result in
+            guard uploadGeneration == store.sessionGeneration, store.phase == .ready, uploader.picked(result) else { return }
+            Task { await upload() }
         }
+        .onChange(of: importing) { _, open in if !open { uploader.pickerClosed() } }
+        .onChange(of: store.sessionGeneration) { _, _ in importing = false; uploader.reset() }
         .onChange(of: resumeID) { _, _ in scores.removeAll() }
         .task(id: resumeID) { await loadPDF() }
         .sheet(isPresented: $showJobs) {
@@ -130,8 +144,8 @@ struct ResumeAgentsSection: View {
         .sheet(isPresented: $showSetup) {
             if let resume {
                 SheetPage(title: "Prepare your resume") {
-                    LatexSetupView(resume: resume, others: store.account.resumes.filter { store.account.hasLatex($0.id) && $0.id != resume.id }) { chosen in
-                        resumeID = chosen; showSetup = false; await start()
+                    TailorResumeSetup(resume: resume, others: store.account.resumes.filter { store.account.canTailor($0.id) && $0.id != resume.id }) { chosen in
+                        resumeID = chosen; showSetup = false; await start(prepared: true)
                     }
                 }
             }
@@ -178,29 +192,36 @@ struct ResumeAgentsSection: View {
             if id == resumeID, let data = Data(base64Encoded: result["content"].string) { pdf = PDFDocument(data: data) }
         } catch { }
     }
-    private func upload(_ url: URL) async {
-        uploading = true; error = ""; defer { uploading = false }
+    /// One request per attempt; a failure keeps the file for Try again (see `ResumeUploader`).
+    private func upload() async {
+        let generation = uploadGeneration
+        error = ""
         let previous = Set(store.account.resumes.map(\.id))
-        do {
-            let file = try await readPickedFileInBackground(url, limit: 10 * 1024 * 1024, tooLarge: "PDF must be 10 MB or smaller.")
-            try await store.callAccount("upload_resume", ["name": .string(file.name), "content": .string(file.content)], timeout: 90)
-            resumeID = store.account.resumes.first { !previous.contains($0.id) }?.id ?? store.account.selectedResumeID
-        } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
+        let uploaded = await uploader.run { file in
+            guard generation == store.sessionGeneration, store.phase == .ready else { throw CancellationError() }
+            _ = try await store.callAccount("upload_resume", ["name": .string(file.name), "content": .string(file.content)], timeout: 90)
+        }
+        if uploaded { resumeID = store.account.resumes.first { !previous.contains($0.id) }?.id ?? store.account.selectedResumeID }
     }
     private func selectResume(for job: Application) async throws {
         if resumeID != job.tailorResumeID {
             try await store.callAccount("select_application_resume", ["id": .string(job.id), "resume_id": .string(resumeID)])
         }
     }
-    private func start() async {
+    private func start(prepared: Bool = false) async {
         guard let job, resume != nil, !working else { return }
         working = true; error = ""; defer { working = false }
         do {
             try await selectResume(for: job)
-            if !(store.account.applications.first { $0.id == job.id }?.tailorReady ?? false) { showSetup = true; return }
+            // Details confirmed in another screen may not be in this snapshot yet; re-read once before asking.
+            if !tailorReady(job.id) { await store.refresh() }
+            if !prepared || !tailorReady(job.id) { showSetup = true; return }
             let result = try await store.call("agent_start", ["kind": "resume", "target_id": .string(job.id)])
             withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { startedTask = result["id"].string }
         } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
+    }
+    private func tailorReady(_ applicationID: String) -> Bool {
+        store.account.applications.first { $0.id == applicationID }?.tailorReady ?? false
     }
     private func score(_ job: Application) async {
         guard !working else { return }; working = true; error = ""; defer { working = false }

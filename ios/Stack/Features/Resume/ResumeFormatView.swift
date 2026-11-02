@@ -1,6 +1,8 @@
 import SwiftUI
 
-/// How tailored versions of one resume are formatted: the person's own LaTeX, or a built-in template.
+/// How tailored versions of one resume are laid out: one of the built-in designs, filled from confirmed details.
+/// A resume that already uses an uploaded source file keeps it, and can replace or remove it here; nobody is asked
+/// for one.
 @MainActor
 struct ResumeFormatView: View {
     let resume: ResumeItem
@@ -9,26 +11,12 @@ struct ResumeFormatView: View {
     @State private var working = false
     @State private var error = ""
     @State private var notice = ""
-    @State private var tex = ""
-    @State private var showTex = false
-    @State private var preview: PDFPreview?
-
-    private let templates = [
-        ("jake", "Jake's Resume"),
-        ("awesome-cv", "Awesome-CV"),
-        ("bill-ryan", "Bill Ryan's Elegant Resume"),
-        ("sb2nov", "Sourabh Bajaj's Resume"),
-        ("deedy", "Deedy Resume"),
-        ("jan-kuster", "Jan Kuster's Classic CV")
-    ]
 
     private var format: JSON { store.account.format(of: resume.id) }
     private var kind: String { format["kind"].string }
-    private var source: JSON { store.account.processing(of: resume.id)["source"] }
 
     var body: some View {
         SheetPage(title: "Tailoring format", subtitle: resume.name) {
-            ProcessingStatusView(resumeID: resume.id, kind: "source", processing: source)
             Card(spacing: 10) {
                 let label = format["label"].string.isEmpty ? "Not set" : format["label"].string
                 Text(label + (format["file"].string.isEmpty ? "" : " · \(format["file"].string)"))
@@ -39,52 +27,35 @@ struct ResumeFormatView: View {
                     Text("\(pages) \(pages == 1 ? "page" : "pages") · \(summary["sections"].int) sections · \(summary["entries"].int) entries · \(summary["bullets"].int) bullets")
                         .font(Typeface.caption).foregroundStyle(Palette.muted)
                 }
-                if !format["skipped"].strings.isEmpty {
-                    Text("Not used from your .zip: \(format["skipped"].strings.prefix(5).joined(separator: ", "))")
+                if kind == "upload", !format["skipped"].strings.isEmpty {
+                    Text("Not used from your file: \(format["skipped"].strings.prefix(5).joined(separator: ", "))")
                         .font(Typeface.caption).foregroundStyle(Palette.muted)
                 }
-                Text(!["builtin", "records"].contains(kind)
-                     ? "Stack edits only the content of your LaTeX (bullets, their order, skill lists) and keeps your layout. In Overleaf: Menu → Download → Source."
-                     : "Built from your confirmed resume details. Upload your own LaTeX to keep your exact layout.")
+                Text(kind == "upload"
+                     ? "Stack edits only the content of your uploaded file and keeps its layout."
+                     : resume.detailsStatus == "Confirmed"
+                        ? "Built from your confirmed resume details."
+                        : "Confirm your resume details first, then choose a design.")
                     .font(Typeface.caption).foregroundStyle(Palette.text)
             }
-            StackButton(label: kind == "upload" ? "Replace LaTeX source" : "Upload LaTeX (.tex or Overleaf .zip)", icon: "upload",
-                        kind: kind == "upload" ? .secondary : .primary, disabled: working) { importing = true }
-            SectionLabel(text: "Built-in templates")
-            FlowLayout(spacing: 8) {
-                ForEach(templates, id: \.0) { key, label in
-                    Chip(label: label, selected: ["builtin", "records"].contains(kind) && format["template"].string == key) {
-                        change("use_resume_template", ["id": .string(resume.id), "template": .string(key)],
-                               done: "Template saved.")
-                    }
-                }
-                if !kind.isEmpty && kind != "records" {
-                    Chip(label: "Remove format") {
-                        change("use_resume_template", ["id": .string(resume.id), "template": ""],
-                               done: "Removed. Upload LaTeX or choose a template to tailor this resume again.")
-                    }
+            SectionLabel(text: "Designs")
+            ResumeTemplatePicker(resume: resume)
+            if kind == "upload" {
+                StackButton(label: working ? "Uploading…" : "Replace uploaded file", icon: "upload", kind: .secondary,
+                            disabled: working) { importing = true }
+            }
+            if kind == "upload" || kind == "builtin" {
+                Chip(label: "Remove format") {
+                    change("use_resume_template", ["id": .string(resume.id), "template": ""], done: "Format removed.")
                 }
             }
-            if !kind.isEmpty || resume.detailsStatus == "Confirmed" {
-                HStack(spacing: 8) {
-                    Chip(label: "Preview format") { Task { await open(showSource: false) } }
-                    if kind != "records" {
-                        Chip(label: showTex ? "Hide LaTeX" : "Show LaTeX", selected: showTex) {
-                            if showTex { showTex = false } else { Task { await open(showSource: true) } }
-                        }
-                    }
-                }
-            }
-            if working { Text("Working… The first LaTeX compile can take a minute.").font(Typeface.caption).foregroundStyle(Palette.muted) }
+            if working { Text("Working… The first build can take a minute.").font(Typeface.caption).foregroundStyle(Palette.muted) }
             MessageLine(text: notice, isError: false).fadeSwitch(!notice.isEmpty)
             MessageLine(text: error).fadeSwitch(!error.isEmpty)
-            if showTex, !tex.isEmpty { CodeBlock(text: tex) }
         }
         .fileImporter(isPresented: $importing, allowedContentTypes: DocumentKinds.latexTypes) { result in
             Task { await upload(result) }
         }
-        .sheet(item: $preview) { PDFSheet(preview: $0) }
-        .pollsWhileProcessing(["queued", "parsing", "compiling"].contains(source["status"].string))
     }
 
     private func change(_ endpoint: String, _ args: JSON, done: String) {
@@ -92,8 +63,6 @@ struct ResumeFormatView: View {
         working = true
         error = ""
         notice = ""
-        tex = ""
-        showTex = false
         Task {
             do {
                 try await store.callAccount(endpoint, args, timeout: 60)
@@ -103,35 +72,23 @@ struct ResumeFormatView: View {
         }
     }
 
+    /// Replaces an existing uploaded source file (kept for resumes that already use one).
     private func upload(_ result: Result<URL, Error>) async {
-        guard case .success(let url) = result else { return }
+        guard case .success(let url) = result, !working else { return }
         error = ""
         notice = ""
         guard DocumentKinds.isLatexSource(url) else {
-            error = "Choose a .tex file, or the source .zip from Overleaf (Menu → Download → Source)."
+            error = "Choose the same kind of file you uploaded before (.tex or .zip)."
             return
         }
         working = true
         defer { working = false }
         do {
-            let file = try await readPickedFileInBackground(url, limit: 2 * 1024 * 1024, tooLarge: "LaTeX source must be 2 MB or smaller.")
+            let file = try await readPickedFileInBackground(url, limit: 2 * 1024 * 1024, tooLarge: "This file must be 2 MB or smaller.")
             try await store.callAccount("upload_resume_source",
                                         ["id": .string(resume.id), "name": .string(file.name), "content": .string(file.content)],
                                         timeout: 90)
-            notice = "Source saved. Compilation continues if you close Stack."
-        } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
-    }
-
-    private func open(showSource: Bool) async {
-        guard !working else { return }
-        working = true
-        error = ""
-        defer { working = false }
-        do {
-            let result = try await store.call("read_resume_source", ["id": .string(resume.id)], timeout: 60)
-            tex = result["tex"].string
-            if showSource { showTex = true }
-            else { preview = try PDFPreview.make(name: result["preview"]["name"].string, base64: result["preview"]["content"].string) }
+            notice = "File saved. Stack keeps preparing it if you close the app."
         } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
     }
 }

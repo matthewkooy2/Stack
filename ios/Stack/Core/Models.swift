@@ -65,7 +65,7 @@ struct Application: Identifiable, Hashable {
     let isDemo: Bool
     let createdAt: Double
     let history: [StatusEvent]
-    /// The resume tailoring would start from, and whether its LaTeX is ready.
+    /// The resume tailoring would start from, and whether it is ready to tailor.
     let tailorResumeID: String
     let tailorResumeName: String
     let tailorReady: Bool
@@ -303,5 +303,11 @@ extension AccountState {
     func resume(_ id: String) -> ResumeItem? { resumes.first { $0.id == id } }
     func format(of resume: String) -> JSON { raw["resumes"].array.first { $0["id"].string == resume }?["format"] ?? [:] }
     func processing(of resume: String) -> JSON { raw["resumes"].array.first { $0["id"].string == resume }?["processing"] ?? [:] }
-    func hasLatex(_ resume: String) -> Bool { ["upload", "builtin"].contains(format(of: resume)["kind"].string) }
+    /// Whether tailoring can start from this resume, as the server decides it (`_tailor_source`): confirmed
+    /// details in a built-in design, or an older uploaded source file. An unconfirmed PDF or DOCX is not ready.
+    func canTailor(_ id: String) -> Bool {
+        guard let item = resume(id) else { return false }
+        let kind = format(of: id)["kind"].string
+        return kind == "upload" || (item.detailsStatus == "Confirmed" && ["builtin", "records"].contains(kind))
+    }
 }

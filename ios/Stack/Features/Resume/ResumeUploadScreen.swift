@@ -7,8 +7,12 @@ struct ResumeUploadScreen: View {
     var disabled = false
     var error = ""
     var attentionCount = 0
+    /// What is happening right now ("Opening files…", "Reading …", "Uploading …"); shown with a spinner.
+    var progress = ""
     let onUpload: () -> Void
     var onProfile: (() -> Void)?
+    /// Sends the kept file again after a failure; nil when there is nothing to retry.
+    var onRetry: (() -> Void)?
 
     @ScaledMetric(relativeTo: .largeTitle) private var headingSize = 36
 
@@ -54,23 +58,29 @@ struct ResumeUploadScreen: View {
                     .buttonStyle(.tap(scale: 0.97))
                     .disabled(uploading || disabled)
                     .accessibilityLabel(uploading ? "Uploading resume" : "Upload resume")
-                    .accessibilityHint("Choose a PDF, up to 10 megabytes.")
+                    .accessibilityHint("Choose a PDF or DOCX, up to 10 megabytes.")
                     .accessibilityIdentifier("resume-upload")
 
                     HStack(spacing: 8) {
                         if uploading { ProgressView().tint(Brand.accent) }
-                        Text(uploading ? (fileName.isEmpty ? "Uploading…" : "Uploading \(fileName)") : "PDF · Up to 10 MB")
+                        Text(caption)
                             .font(Typeface.caption).foregroundStyle(Brand.muted)
                             .lineLimit(1).truncationMode(.middle)
                     }
                     .frame(minHeight: 24)
                     .accessibilityElement(children: .combine)
                     .accessibilityAddTraits(.updatesFrequently)
+                    .accessibilityIdentifier("resume-upload-status")
 
                     if !error.isEmpty {
                         Text(error).font(Typeface.caption).foregroundStyle(Palette.danger)
                             .multilineTextAlignment(.center).padding(.top, 12)
                             .accessibilityAddTraits(.updatesFrequently)
+                            .accessibilityIdentifier("resume-upload-error")
+                    }
+                    if let onRetry, !uploading {
+                        QuietLinks(links: [ScreenLink("Try again", action: onRetry)])
+                            .accessibilityIdentifier("resume-upload-retry")
                     }
                     Spacer(minLength: 48)
                 }
@@ -82,6 +92,12 @@ struct ResumeUploadScreen: View {
             .scrollIndicators(.hidden)
         }
         .background(Brand.page.ignoresSafeArea())
+    }
+
+    private var caption: String {
+        if uploading { return progress.isEmpty ? (fileName.isEmpty ? "Uploading…" : "Uploading \(fileName)") : progress }
+        if onRetry != nil, !fileName.isEmpty { return fileName }
+        return "PDF or DOCX · Up to 10 MB"
     }
 }
 

@@ -672,7 +672,8 @@ struct TailoredResultView: View {
     }
 }
 
-/// A task paused before tailoring because its resume has no LaTeX. The fix happens here, then it continues.
+/// A task paused before tailoring because its resume is not ready (details not confirmed). The fix happens here:
+/// confirm the details, choose a design, then it continues.
 @MainActor
 struct TailorBlocker: View {
     let run: JSON
@@ -687,9 +688,6 @@ struct TailorBlocker: View {
     var body: some View {
         let resumes = store.account.resumes
         let current = resumes.first { $0.id == run["resume_id"].string }
-        // Started before any resume existed, or its resume was deleted: continuing attaches the default resume.
-        let stale = current == nil && !resumes.isEmpty
-        let fixed = stale || (current.map { store.account.hasLatex($0.id) } ?? false)
         Card(tint: Palette.surfaceRaised, spacing: 12) {
             SectionLabel(text: "One step before tailoring")
             if resumes.isEmpty {
@@ -697,16 +695,9 @@ struct TailorBlocker: View {
                 Text("Stack tailors a resume you have uploaded, and you have none yet. Nothing has been generated.")
                     .font(Typeface.body).foregroundStyle(Palette.text)
                 StackButton(label: "Go to the Resume tab", icon: "resume", disabled: busy) { onNavigate("resume") }
-            } else if fixed {
-                Text(stale ? "Your resume is uploaded" : "\(current?.name ?? "Your resume") has its LaTeX")
-                    .font(Typeface.title).foregroundStyle(Palette.ink)
-                Text(stale ? "This task started before you uploaded it. Continue, and Stack uses your default resume."
-                           : "Continue to generate your tailored resume.")
-                    .font(Typeface.body).foregroundStyle(Palette.text)
-                StackButton(label: "Continue tailoring", icon: "check", disabled: busy) { Task { await continueWith("") } }
-            } else if let current {
+            } else if let current = current ?? store.account.resume(store.account.selectedResumeID) ?? resumes.first {
                 Text("Nothing has been generated yet.").font(Typeface.body).foregroundStyle(Palette.text)
-                LatexSetupView(resume: current, others: resumes.filter { store.account.hasLatex($0.id) && $0.id != current.id }) { id in
+                TailorResumeSetup(resume: current, others: resumes.filter { store.account.canTailor($0.id) && $0.id != current.id }) { id in
                     await continueWith(id)
                 }
             }
@@ -716,6 +707,7 @@ struct TailorBlocker: View {
     }
 
     private func continueWith(_ resumeID: String) async {
+        guard !busy else { return }
         busy = true
         error = ""
         working = "Starting tailoring…"

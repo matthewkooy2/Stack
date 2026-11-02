@@ -1,4 +1,4 @@
-"""Provider adapters: bounded page I/O only; Jac owns scheduling and writes."""
+"""Public job-board adapters: bounded page I/O only; Jac owns writes."""
 from typing import Any
 import json
 import os
@@ -9,7 +9,6 @@ from xml.etree import ElementTree
 from discovery.transport import fetch, json_fetch, page_fetch, public_url
 from discovery.normalize import normalize, plain, digest
 from discovery.html_extract import extract
-from discovery.render import render_page
 
 US_REGIONS = set('Alabama Alaska Arizona Arkansas California Colorado Connecticut Delaware Florida Hawaii Idaho Illinois Indiana Iowa Kansas Kentucky Louisiana Maine Maryland Massachusetts Michigan Minnesota Mississippi Missouri Montana Nebraska Nevada Ohio Oklahoma Oregon Pennsylvania Tennessee Texas Utah Vermont Virginia Washington Wisconsin Wyoming'.lower().split())
 US_CODES=set('AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX UT VT VA WA WV WI WY DC'.split())
@@ -156,62 +155,6 @@ def smartrecruiters(source, checkpoint):
     after=({'ids':ids,'detail_offset':offset+len(payload['content'])} if snapshot else {'offset':offset+len(payload['content'])}) if not done else {}
     return jobs,after,done,[]
 
-def adzuna(source, checkpoint):
-    cfg=source.get('search',{});f=cfg.get('filters',{});page=checkpoint.get('page',1)
-    args={'app_id':os.environ['ADZUNA_APP_ID'],'app_key':os.environ['ADZUNA_APP_KEY'],'results_per_page':50,'what':cfg.get('query',''),'where':f.get('location',''),'sort_by':'date'}
-    if f.get('posted_days'):args['max_days_old']=f['posted_days']
-    payload=json_fetch(f'https://api.adzuna.com/v1/api/jobs/us/search/{page}?'+urlencode(args))
-    if not isinstance(payload.get('results'),list):raise ValueError('Adzuna response shape changed.')
-    jobs=[]
-    for j in payload['results']:
-        estimated=str(j.get('salary_is_predicted','0'))=='1'
-        # Do not display provider estimates without their additional required branding.
-        salary={} if estimated else {'min':j.get('salary_min'),'max':j.get('salary_max'),'unit':'year','currency':'USD','estimated':False}
-        jobs.append({'title':j['title'],'company':j.get('company',{}).get('display_name','Employer not listed'),'url':j['redirect_url'],'source_job_id':str(j['id']),
-          'location':j.get('location',{}).get('display_name',''),'country':'US','description':j.get('description',''),'snippet':True,'posted_at':j.get('created'),
-          'employment_type':{'full_time':'Full-time','part_time':'Part-time'}.get(j.get('contract_time'),j.get('contract_type')),
-          'compensation':salary,'attribution':{'label':'Jobs by Adzuna','url':'https://www.adzuna.com','logo':'https://developer.adzuna.com/images/adzuna_logo.png'}})
-    # Bounded query window; never used to infer closure.
-    done=len(payload['results'])<50 or page>=3
-    return jobs,{} if done else {'page':page+1},done,[]
-
-def theirstack(source, checkpoint):
-    cfg=source.get('search',{});f=cfg.get('filters',{})
-    body={'page':0,'limit':source.get('allowance',25),'job_country_code_or':['US'],'posted_at_max_age_days':int(f.get('posted_days') or 30),'order_by':[{'field':'discovered_at','desc':True}]}
-    if cfg.get('query'):body['job_title_pattern_or']=[re.escape(cfg['query'])]
-    if checkpoint.get('after'):body['discovered_at_gte']=checkpoint['after']
-    if source.get('excluded_ids'):body['job_id_not']=source['excluded_ids']
-    if f.get('location') and f['location'].lower() not in ('us','united states'):body['job_location_pattern_or']=[re.escape(f['location'])]
-    payload=json_fetch('https://api.theirstack.com/v1/jobs/search',headers={'Authorization':'Bearer '+os.environ['THEIRSTACK_API_KEY']},body=body)
-    if not isinstance(payload.get('data'),list):raise ValueError('TheirStack response shape changed.')
-    jobs=[]
-    for j in payload['data']:
-        c=j.get('company_object') or {}
-        jobs.append({'title':j['job_title'],'company':j.get('company') or c.get('name',''),'employer_domain':c.get('domain') or '',
-          'source_job_id':str(j['id']),'url':j.get('final_url') or j['url'],'description':j.get('description',''),'location':j.get('location',''),
-          'country':'US','posted_at':j.get('date_posted'),'mode':'Remote' if j.get('remote') else ('Hybrid' if j.get('hybrid') else 'Unknown'),
-          'compensation':{'min':j.get('min_annual_salary'),'max':j.get('max_annual_salary'),'currency':j.get('salary_currency'),'unit':'year'},
-          'employment_type':j.get('employment_status'),'seniority':j.get('seniority')})
-    return jobs,{},True,[]
-
-def usajobs(source, checkpoint):
-    cfg=source.get('search',{});f=cfg.get('filters',{});page=checkpoint.get('page',1)
-    params={'Keyword':cfg.get('query',''),'LocationName':f.get('location',''),'ResultsPerPage':50,'Page':page}
-    payload=json_fetch('https://data.usajobs.gov/api/search?'+urlencode(params),headers={'Authorization-Key':os.environ['USAJOBS_API_KEY'],'User-Agent':os.environ['USAJOBS_EMAIL'],'Host':'data.usajobs.gov'})
-    result=payload.get('SearchResult',{});items=result.get('SearchResultItems')
-    if not isinstance(items,list):raise ValueError('USAJOBS response shape changed.')
-    jobs=[]
-    for item in items:
-        j=item['MatchedObjectDescriptor'];details=(j.get('UserArea') or {}).get('Details') or {};pay=(j.get('PositionRemuneration') or [{}])[0]
-        jobs.append({'title':j['PositionTitle'],'company':j['OrganizationName'],'url':j['PositionURI'],'requisition':j.get('PositionID',''),'employer_domain':'usajobs.gov',
-          'source_job_id':item.get('MatchedObjectId'),'locations':[x['LocationName'] for x in j.get('PositionLocation',[])],'country':'US',
-          'description':details.get('JobSummary',''),'qualifications':j.get('QualificationSummary',''),'eligibility':details.get('WhoMayApply',{}).get('Name','')+'\n'+str(details.get('KeyRequirements','')),
-          'posted_at':j.get('PublicationStartDate'),'expires_at':j.get('ApplicationCloseDate'),'employment_type':(j.get('PositionSchedule') or [{}])[0].get('Name'),
-          'mode':'Remote' if details.get('RemoteIndicator') else 'Unknown',
-          'compensation':{'min':float(pay['MinimumRange']) if pay.get('MinimumRange') else None,'max':float(pay['MaximumRange']) if pay.get('MaximumRange') else None,'unit':pay.get('RateIntervalCode'),'currency':'USD'}})
-    done=len(items)<50 or page>=3
-    return jobs,{} if done else {'page':page+1},done,[]
-
 class Page(HTMLParser):
     def __init__(self):super().__init__();self.links=[];self.scripts=[];self.recording=False;self.buf=[]
     def handle_starttag(self,tag,attrs):
@@ -267,7 +210,7 @@ def identify(url,name='',sector='Uncategorized') -> dict[str, Any]:
     return {'id':'career:'+digest(url),'adapter':'career','name':name or host,'url':url,'domain':host,'sector':sector,'approved':False}
 
 def career(source,checkpoint):
-    url=checkpoint.get('url') or source['url']; response=render_page(url,source.get('browser_hosts',[])) if source.get('renderer')=='playwright' else page_fetch(url);p=Page();p.feed(response['text']);jobs=[]
+    url=checkpoint.get('url') or source['url']; response=page_fetch(url);p=Page();p.feed(response['text']);jobs=[]
     for script in p.scripts:
         try:objects=list(posting_objects(json.loads(script)))
         except ValueError:continue
@@ -320,7 +263,7 @@ def github_search(source,checkpoint):
     done=index==len(terms)-1
     return [],{} if done else {'index':index+1},done,candidates
 
-ADAPTERS={'greenhouse':greenhouse,'ashby':ashby,'lever':lever,'smartrecruiters':smartrecruiters,'adzuna':adzuna,'theirstack':theirstack,'usajobs':usajobs,'career':career,'github':github,'github_search':github_search}
+ADAPTERS={'greenhouse':greenhouse,'ashby':ashby,'lever':lever,'smartrecruiters':smartrecruiters,'career':career,'github':github,'github_search':github_search}
 
 def collect(source,checkpoint) -> dict[str, Any]:
     raw,after,complete,candidates=ADAPTERS[source['adapter']](source,checkpoint)

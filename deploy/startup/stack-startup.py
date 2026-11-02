@@ -105,9 +105,10 @@ class Startup:
         self.wait(lambda: (self.http("http://127.0.0.1:8000/function/health", b"{}") or {}).get("data", {}).get("result", {}).get("status") == "ok")
         self.stage = "services"
         units = ["stack-gateway.service", "stack-browser.service", "stack-worker.service"]
-        if self.discovery:
-            units.append("stack-discovery.service")
         self.start(units)
+        if self.discovery:
+            # A timer has no process of its own; it starts the daily sweep at 10:00 New York time.
+            self.start(["stack-jobs-sweep.timer"])
         self.stage = "gateway"
         self.wait(lambda: self.http("http://127.0.0.1:8080/") is True)
         self.stage = "browser"
@@ -143,7 +144,7 @@ def browser_token(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--timeout", type=int, default=180)
-    parser.add_argument("--discovery", action="store_true", help="Require discovery only if installed and approved")
+    parser.add_argument("--discovery", action="store_true", help="Require the daily jobs sweep timer only if installed and approved")
     parser.add_argument("--check-api-only", action="store_true", help="Unprivileged systemd ExecStartPre gate")
     args = parser.parse_args()
     if not 1 <= args.timeout <= 900:

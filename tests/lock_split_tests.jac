@@ -39,6 +39,9 @@ test "account saves never wait for job collection or background sweeps" {
                 reminder=app.save_reminder("","contact",contact["id"],"Follow up",2000000000.0);
                 assert any(r["title"]=="Follow up" for r in reminder["reminders"]);
                 assert not catalog.save_search("Data analyst",{}).get("error");
+                session=a.prep_create("project");
+                saved_answer=a.prep_save(session["id"],session["revision"],{**session["data"],"answer":"I tested the class project and explained the result."});
+                assert saved_answer["data"]["answer"]=="I tested the class project and explained the result.";
                 assert not a.agent_save_policy({"enabled":True,"actions":["model"],"expires_at":time.time()+3600}).get("error");
             }
         } finally { ctx.close();if previous is not None { JacRuntime.set_context(previous); } }
@@ -67,10 +70,10 @@ test "one account holding its write turn does not block another account" {
 
 test "job collection never takes an account or sweep write turn" {
     sid="greenhouse:lock-split-fixture";
-    source=root.shared ++> catalog.JobSource(key=sid,config={"adapter":"greenhouse","name":"Lock split fixture"},lease="claimed",status="collecting");
     with patch.object(catalog,"_worker_allowed",return_value=True),patch.object(catalog,"_fresh",return_value=None),patch.object(catalog,"commit",return_value=None),
          patch.object(locks,"account",busy_account), patch.object(locks,"sweep",busy_sweep) {
-        assert catalog.discovery_complete("fixture",sid,"claimed",{"complete":True}).get("saved") is True;
-        assert source.status=="ready" and source.lease=="";
+        result=catalog.jobs_sweep_begin("fixture",[{"id":sid,"adapter":"greenhouse","name":"Lock split fixture","approved":True}]);
+        assert not result.get("error");
+        assert any(s["config"]["id"]==sid for s in result["sources"]);
     }
 }

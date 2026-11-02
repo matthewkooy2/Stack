@@ -47,9 +47,11 @@ struct RootView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await store.refresh() } }
         }
-        .task(id: store.phase) {
-            guard store.phase == .ready else { return }
-            while !Task.isCancelled {
+        // No timed refresh: the account is re-read on foreground and after each change. The one exception is a
+        // running agent task, checked until it finishes (until live task updates replace this).
+        .task(id: AgentWatch(phase: store.phase, active: store.account.activeRunCount > 0)) {
+            guard store.phase == .ready, store.account.activeRunCount > 0 else { return }
+            while !Task.isCancelled, store.account.activeRunCount > 0 {
                 try? await Task.sleep(for: .seconds(15))
                 if scenePhase == .active { await store.refresh() }
             }
@@ -207,4 +209,10 @@ private struct TabBar: View {
         .overlay(alignment: .top) { Rectangle().fill(brandedPage ? Brand.rule : Palette.rule).frame(height: 1) }
         .sensoryFeedback(.selection, trigger: selection)
     }
+}
+
+/// Restarts the agent check when the session changes or a task starts or finishes.
+private struct AgentWatch: Equatable {
+    let phase: AppStore.Phase
+    let active: Bool
 }

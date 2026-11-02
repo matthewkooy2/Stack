@@ -14,6 +14,12 @@ async function worker(name,args={}){
  const response=await fetch((process.env.STACK_API_URL||'http://127.0.0.1:8000')+'/function/'+name,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:fs.readFileSync(path.join(root,'storage/discovery/worker-token'),'utf8').trim(),...args})});
  const r=await response.json();if(r.data?.result?.error||!r.ok)throw new Error(JSON.stringify(r));return r.data.result;
 }
+// Publishes synthetic listings through the token-gated daily-sweep endpoints.
+async function publish(jobs){
+ const source={id:fixtureSource,adapter:'career',name:'Synthetic',url:fixtureURL,domain:'example.com',sector:'Technology',approved:true};
+ const {run}=await worker('jobs_sweep_begin',{only:[source]});
+ await worker('jobs_sweep_source',{run,id:fixtureSource,jobs,complete:true});
+}
 async function agentWorker(name,args={}){
  const token=process.env.STACK_AGENT_WORKER_TOKEN||fs.readFileSync(path.join(root,'storage/agents/worker-token'),'utf8').trim();
  const response=await fetch((process.env.STACK_API_URL||'http://127.0.0.1:8000')+'/function/'+name,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,...args})});
@@ -232,36 +238,12 @@ async function screenTests(){
  assert.match(text(),/A little about you/);
  await field('Your name','UI Tester');await field('Target role',marker);await field('Expected graduation (YYYY-MM)','2027-05');await field('Available full-time from (YYYY-MM)','2027-06');
  await press('Experienced');await field('Years of experience in this field','3');await press('Full-time');await press('Part-time');await press('Pay');
- const imported=await device.rpc('import_job_url',{url:fixtureURL});
- const work=await worker('discovery_claim',{preferred_id:fixtureSource});
- assert.equal(work.id,fixtureSource);
  const fixtureJobs=Array.from({length:4},(_,i)=>({id:'job_'+crypto.createHash('sha256').update(fixtureURL+'/'+i).digest('hex').slice(0,32),identity:fixtureURL+'/'+i,canonical_url:fixtureURL+'/'+i,url:'https://jobs.smartrecruiters.com/StackLinkTest/'+marker+i+'?oga=true&trid=keep',title:marker+' Nurse '+i,company:'UI Test Employer',description:'Must be graduating between December 2026 and June 2027.',country:'US',location:'Detroit, MI',locations:['Detroit, MI'],mode:'Remote',employment_type:'Full-time',seniority:'Entry-level',occupation:'Healthcare practitioners',compensation:{min:30,max:40,unit:'hour',currency:'USD',estimated:false},salary:'USD 30–40 / hour',salary_note:'Employer-provided pay',source:'smartrecruiters',source_id:fixtureSource,source_name:'UI test',source_job_id:String(i),attribution:{},posted:'Today',posted_at:Date.now()/1000,checked_at:Date.now()/1000,discovered_at:Date.now()/1000,expires_at:0,snippet:false,requirements:[],qualifications:'',eligibility:'',remote_eligibility:'',initial:'U',color:'#EDF2FF',tags:['Full-time'],reason:'Matches your search filters.',demo:false}));
- await worker('discovery_complete',{id:fixtureSource,lease:work.lease,result:{jobs:fixtureJobs,complete:true}});
- await press('Find my next chapter');assert.match(text(),/Jobs/);
+ await publish(fixtureJobs);
+ await press('Find my next chapter');assert.match(text(),/Applications/);
  const savedPrefs=(await device.rpc('bootstrap',{})).profile.preferences;assert.equal(savedPrefs.stage,'Experienced');assert.equal(savedPrefs.years,3);assert.deepEqual(savedPrefs.employment_types,['Full-time','Part-time']);assert.deepEqual(savedPrefs.soft,['salary']);for(let i=0;i<200&&!ui.root.findAll(n=>n.props.testID==='job-swipe-card').length;i++)await act(async()=>{await new Promise(r=>setTimeout(r,100));});assert.match(text(),/Graduation window matches/);assert.match(text(),/Meets your requirements/);assert.match(text(),/✓ Title contains/);await press('Open job');assert.match(openedLinks.at(-1),/^https:\/\/jobs.smartrecruiters.com\/StackLinkTest\//);assert.ok(!openedLinks.at(-1).includes('oga='));assert.ok(openedLinks.at(-1).includes('trid=keep'));const listingLink=openedLinks.at(-1);await press('Full details');await press('Open job');assert.equal(openedLinks.at(-1),listingLink);await press('Open application page');assert.ok(openedLinks.at(-1).includes('oga=true'));assert.match(text(),/Must be graduating between December 2026 and June 2027/);assert.match(text(),/HOW THIS MATCHES YOU/);assert.match(text(),/✓ Graduation timeline: Graduation window matches/);await press('Close job panel');
- await press('Filter jobs');await press('Remote');await press('Confirmed timeline matches only');await press('Has posting date');await press('Best match');await press('Show opportunities');assert.match(text(),/UI Test Employer/);assert.match(text(),/Posted within 24 hours/);const savedFilters=(await device.rpc('bootstrap',{})).saved_search.filters;assert.equal(savedFilters.has_posting_date,true);assert.equal(savedFilters.sort,'relevance');assert.equal(savedFilters.timeline,'confirmed');
- // Search-level changes are labeled as overrides of the profile and can be reset.
- assert.deepEqual(savedFilters.modes,['Remote']);assert.match(text(),/This search changes your profile’s work arrangement/);assert.match(text(),/✓ Remote/);
- await press('Use profile settings');assert.doesNotMatch(text(),/This search changes your profile/);assert.deepEqual((await device.rpc('bootstrap',{})).saved_search.filters,{});
- await press('Filter jobs');await press('Any');await press('Confirmed timeline matches only');await press('Include unknown dates');await press('Newest first');await press('Show opportunities');
- // A slow/failed save must advance immediately, keep gestures usable, then restore the card.
- const currentCard=()=>ui.root.findAll(n=>n.type===device.SwipeSurface)[0]?.props.cardId;
- const originalCard=currentCard(), originalFetch=globalThis.fetch;let rejectSwipe,pendingSwipe;
- globalThis.fetch=(url,...args)=>String(url).includes('/function/swipe')?new Promise((resolve,reject)=>{rejectSwipe=reject;}):originalFetch(url,...args);
- try{
-  await act(async()=>{pendingSwipe=button('Pass').props.onPress();await pause();});
-  assert.notEqual(currentCard(),originalCard,'Deck must advance before the server replies');assert.equal(button('Pass').props.disabled,false);
-  await act(async()=>{rejectSwipe(new Error('Network request failed'));await pendingSwipe;await pause();});
-  assert.equal(currentCard(),originalCard,'Failed swipe must restore its card');assert.match(text(),/Not saved/);
- }finally{globalThis.fetch=originalFetch;}
- const apply=button('Save job');await act(async()=>{await Promise.all([apply.props.onPress(),apply.props.onPress()]);});for(let i=0;i<100&&!(await device.rpc('bootstrap',{})).applications.length;i++)await pause();
- // A save is confirmed on screen, starts nothing, and offers optional agent help.
- for(let i=0;i<50&&!/Saved to Applications/.test(text());i++)await act(async()=>{await pause();});
- assert.match(text(),/Saved to Applications/);assert.match(text(),/Nothing was sent to the employer/);
- assert.equal((await device.rpc('bootstrap',{})).agents.runs.length,0);
- assert.ok(labelled(/^Explain my fit/).length&&labelled(/^Prepare & apply/).length&&button('Build interview plan'));
- assert.equal(labelled(/^Agents: 0 active, 0 need you$/).length,1);
- await press('Build interview plan');await until(/practice sessions to Prep/);
+ // Jobs live only in the Swift app; save one through the API so Applications has a real record.
+ await device.rpc('swipe',{job_id:fixtureJobs[0].id,action:'apply'});
  await press('Applications');assert.match(text(),/UI Test Employer/);
  const card=ui.root.findAll(n=>n.type==='Pressable'&&n.props.accessibilityRole==='button'&&!n.props.accessibilityLabel&&JSON.stringify(n.toJSON?.()||n.findAllByType('Text').map(t=>t.props.children)).includes('UI Test Employer'))[0];
  assert.ok(card,'Application card');await act(async()=>{card.props.onPress();});
@@ -274,8 +256,7 @@ async function screenTests(){
  await press('Resume');assert.match(text(),/Add your resume/);await press('Upload PDF resume');assert.doesNotMatch(text(),/Your resume is saved privately/);
  pickerResult={canceled:false,assets:[{uri:'cache/test.pdf',name:'test.pdf',size:400}]};await press('Upload PDF resume');assert.match(text(),/Your resume is saved privately/);await press('Preview resume');assert.match(text(),/PDF preview/);await press('Close details');
  await press('Explore a sample');assert.match(text(),/Tailoring preview/);await press('Close details');
- await press('Jobs');for(let i=0;i<100&&!ui.root.findAll(n=>n.props.testID==='job-swipe-card').length;i++)await act(async()=>{await new Promise(r=>setTimeout(r,100));});await act(async()=>{ui.root.findAll(n=>n.props.testID==='job-swipe-card')[0].props.onPanResponderRelease(null,{dx:140,dy:0,vx:1});await pause();});await press('Pass');await press('Pass');assert.match(text(),/No confirmed timeline matches/);
- assert.deepEqual(ui.root.findAll(n=>n.type==='Pressable'&&n.props.accessibilityRole==='tab').map(n=>n.props.accessibilityLabel),['Network','Applications','Jobs','Resume','Prep']);
+ assert.deepEqual(ui.root.findAll(n=>n.type==='Pressable'&&n.props.accessibilityRole==='tab').map(n=>n.props.accessibilityLabel),['Network','Applications','Resume','Prep']);
  await press('Prep');assert.match(text(),/Find a pair/);await press('Show practice guide');assert.match(text(),/previously seen values/);await press('Next question');assert.match(text(),/Balanced brackets/);assert.doesNotMatch(text(),/Push opening brackets/);
  await press('Behavioral');assert.match(text(),/Tell your project story/);await press('Show practice guide');assert.match(text(),/your work from the team's work/);await press('Next question');assert.match(text(),/Work through disagreement/);
  if(process.env.STACK_TEST_AGENT_CONFIG) await agentScreenTests({ui,text,button,press,field,input,tick,labelled,until});
@@ -484,14 +465,13 @@ async function tailoringEndToEnd(){
  const owner=(await device.rpc('bootstrap',{})).user_id;
  fs.writeFileSync(configPath,JSON.stringify({provider:process.env.STACK_E2E_PROVIDER||'codex-cli',local_cli_owner:owner,local_cli_daily_limit:50}));
  await device.rpc('agent_save_policy',{policy:{enabled:true,expires_at:Date.now()/1000+3600,actions:['model'],domains:[],daily_limits:{},followup_limit:0,followup_days:7,analyze_top_matches:false}});
- await device.rpc('import_job_url',{url:fixtureURL});const work=await worker('discovery_claim',{preferred_id:fixtureSource});
  const now=Date.now()/1000,jobIds=[0,1].map(i=>'job_'+crypto.createHash('sha256').update(fixtureURL+'/'+i).digest('hex').slice(0,32));
  const descriptions=['Build REST APIs in Python and Flask, work with PostgreSQL, and write React front ends. Experience with data pipelines is a plus.','Own data pipelines and analytics in Python and SQL, and present findings to stakeholders.'];
- await worker('discovery_complete',{id:fixtureSource,lease:work.lease,result:{complete:true,jobs:[0,1].map(i=>({id:jobIds[i],identity:fixtureURL+'/'+i,canonical_url:fixtureURL+'/'+i,url:'https://jobs.lever.co/stacke2e/'+marker+i,title:marker+[' Software Engineer',' Data Engineer'][i],company:'E2E Employer',
-  description:descriptions[i],country:'US',location:'Detroit, MI',locations:['Detroit, MI'],mode:'Remote',employment_type:'Full-time',seniority:'Entry-level',occupation:'Software',compensation:{},salary:'Pay not listed',salary_note:'',source:'smartrecruiters',source_id:fixtureSource,source_name:'E2E',source_job_id:String(i),attribution:{},posted:'Today',posted_at:now,checked_at:now,discovered_at:now,expires_at:0,snippet:false,requirements:[],qualifications:'',eligibility:'',remote_eligibility:'',initial:'E',color:'#EDF2FF',tags:['Full-time'],reason:'E2E',demo:false}))}});
+ await publish([0,1].map(i=>({id:jobIds[i],identity:fixtureURL+'/'+i,canonical_url:fixtureURL+'/'+i,url:'https://jobs.lever.co/stacke2e/'+marker+i,title:marker+[' Software Engineer',' Data Engineer'][i],company:'E2E Employer',
+  description:descriptions[i],country:'US',location:'Detroit, MI',locations:['Detroit, MI'],mode:'Remote',employment_type:'Full-time',seniority:'Entry-level',occupation:'Software',compensation:{},salary:'Pay not listed',salary_note:'',source:'smartrecruiters',source_id:fixtureSource,source_name:'E2E',source_job_id:String(i),attribution:{},posted:'Today',posted_at:now,checked_at:now,discovered_at:now,expires_at:0,snippet:false,requirements:[],qualifications:'',eligibility:'',remote_eligibility:'',initial:'E',color:'#EDF2FF',tags:['Full-time'],reason:'E2E',demo:false})));
  await press('Find my next chapter');
- for(let i=0;i<200&&!ui.root.findAll(n=>n.props.testID==='job-swipe-card').length;i++)await act(async()=>{await new Promise(r=>setTimeout(r,100));});
- await press('Save job');await until(/Saved to Applications/,20,'Job saved');step('job saved before any resume exists');
+ // Jobs live only in the Swift app; save through the API as a right swipe would.
+ await device.rpc('swipe',{job_id:jobIds[0],action:'apply'});step('job saved before any resume exists');
  const firstTitle=(await device.rpc('bootstrap',{})).applications.find(a=>!a.demo).job.title;
 
  await press('Resume');

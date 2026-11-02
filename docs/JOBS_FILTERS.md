@@ -1,8 +1,10 @@
 # Jobs search contract
 
-`save_search(query, filters)` persists per-account overrides and returns the stored
-query and filters. Restore these from `bootstrap.saved_search`. Pass them to
-`search_jobs` for every page; changing a filter or sort requires a new cursor.
+`save_search(query, filters)` persists per-account overrides, ranks the account's
+matches for them, and returns the stored query and filters plus the first page as
+`feed`. Restore them from `bootstrap.saved_search`. `job_feed(cursor)` pages through
+the stored matches for the saved search; changing a filter or sort requires a new cursor.
+`search_jobs` remains for released builds and ranks an explicit query and filters the same way.
 Preserve unrelated filter keys when editing a single control or applying a preset.
 Profile edits supersede older overrides only for the values the user changed.
 

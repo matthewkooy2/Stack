@@ -23,6 +23,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 from pypdf import PdfReader
 from reportlab.pdfgen.canvas import Canvas
 from agents import record_resume as rr
+from tests.catalog_fixture import career, publish
 if importlib.util.find_spec('jaclang') is not None:
     from agents import provider, resume_processing, worker
     from agents.worker import dispatch as worker_dispatch
@@ -207,7 +208,7 @@ class RecordWorkflow(unittest.TestCase):
     def worker(self, name, values=None):
         self.client.clear_auth()
         try:
-            return self.rpc(name, {'token': self.discovery_token if name.startswith('discovery_') else TOKEN, **(values or {})})
+            return self.rpc(name, {'token': self.discovery_token if name.startswith(('discovery_', 'jobs_sweep_')) else TOKEN, **(values or {})})
         finally:
             self.client.set_auth_token(self.owner_token)
 
@@ -238,9 +239,6 @@ class RecordWorkflow(unittest.TestCase):
         marker = 'MAT25' + secrets.token_hex(4)
         url = 'https://example.com/' + marker
         source = 'career:' + hashlib.sha256(url.encode()).hexdigest()[:32]
-        self.rpc('import_job_url', {'url': url})
-        claim = self.worker('discovery_claim', {'preferred_id': source})
-        self.assertEqual(claim['id'], source, claim)
         now = time.time()
         jid = 'job_' + hashlib.sha256((url + '/0').encode()).hexdigest()[:32]
         job = {'id': jid, 'identity': url + '/0', 'canonical_url': url + '/0', 'url': 'https://jobs.lever.co/stacktest/' + marker,
@@ -251,7 +249,7 @@ class RecordWorkflow(unittest.TestCase):
             'posted': 'Today', 'posted_at': now, 'checked_at': now, 'discovered_at': now, 'expires_at': 0, 'snippet': False,
             'requirements': [], 'qualifications': '', 'eligibility': '', 'remote_eligibility': '', 'initial': 'F', 'color': '#EDF2FF',
             'tags': [], 'reason': 'Synthetic verification', 'demo': False}
-        done = self.worker('discovery_complete', {'id': source, 'lease': claim['lease'], 'result': {'jobs': [job], 'complete': True}})
+        done = publish(lambda name, args: self.worker(name, args), career(url), [job])
         self.assertNotIn('error', done, done)
         return self.rpc('swipe', {'job_id': jid, 'action': 'apply'})['applications'][-1]
 

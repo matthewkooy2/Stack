@@ -1290,7 +1290,7 @@ def _project_mail_scan(r: AgentRun) -> None {
     r.context.update(_mail_context());r.projected=artifact["done"];
     if not artifact["done"] { r.index=0;r.status="queued";r.attempts=0;r.next_at=0; }
     r.message="Scan complete" if artifact["done"] else "Scanning email";
-    for t in [root.shared -->][?:AgentTicket] { if t.run_id==jid(r) { t.state=r.status;t.due_at=0; } }
+    for t in [root.shared -->][?:AgentTicket] { if t.run_id==jid(r) { t.state=r.status;t.due_at=time.time() if r.status=="queued" else 0; } }
 }
 def _apply_confirmed_mail(event: dict[str, any]) -> None {
     if not event.get("ambiguous") {
@@ -1352,8 +1352,7 @@ def:pub agent_schedule(token: str, wake_key: str = "") -> dict[str, any] {
                 _project_agent(r);_notify_agent(r);
             }
             # Connecting Gmail enables read-only tracking independently of outbound rules.
-            scanning=any(r.kind=="sync" and r.context.get("manual_scan") and r.status in ["queued","running"] for r in [root -->][?:AgentRun]);
-            if not scanning and any(c.tracks_mail(m.policy) for c in [root -->][?:AgentConnection]) {
+            if any(c.tracks_mail(m.policy) for c in [root -->][?:AgentConnection]) {
                 context=_mail_context();
                 _agent_start("sync","google",context,"push:"+wake_key if wake_key else str(int(time.time()/300)));count+=1;
             }

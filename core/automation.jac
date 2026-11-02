@@ -367,7 +367,7 @@ def:pub agent_claim(token: str) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
     with locks.sweep() {
         _agent_fresh();now=time.time();
-        tickets=[t for t in [root.shared -->][?:AgentTicket] if t.state in ["queued","running"] and t.due_at<=now];
+        tickets=sorted([t for t in [root.shared -->][?:AgentTicket] if t.state in ["queued","running"] and t.due_at<=now],key=lambda (t: AgentTicket) { t.due_at; });
         for t in tickets {
             commit();_agent_owner(t.owner);r=_owned_run(t.run_id);
             if r is None { t.state="cancelled";continue; }

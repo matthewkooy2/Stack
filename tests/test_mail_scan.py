@@ -160,6 +160,12 @@ class ImportJourney(unittest.TestCase):
                              'end': {'dateTime': '2026-12-01T17:00:00+00:00'}, 'location': 'Video', 'status': 'confirmed'}
         self.assertEqual(self.finish(auth, [first], 'page-two')['status'], 'queued')
         self.assertEqual(self.rpc('gmail_scan_status')['scan']['scan']['imported'], 1)
+        # A long historical scan yields to normal tracking instead of monopolizing the worker.
+        self.assertEqual(self.system('agent_schedule')['scheduled'], 1)
+        tracking = self.system('agent_claim')
+        self.assertFalse(tracking['context'].get('manual_scan', False))
+        self.system('agent_finish', {**{k: tracking[k] for k in ('id', 'owner', 'lease')},
+                    'result': {'artifact': {'events': [], 'checkpoint': {'history_id': 'automatic-cursor'}}}})
         second = self.event('older-confirmation', days=180)
         self.finish(self.claim(), [second])
         app = self.applications()[0]

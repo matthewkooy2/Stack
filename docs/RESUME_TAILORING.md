@@ -66,7 +66,8 @@ tailored text, and the tailored `.tex` to copy back into Overleaf.
 ## Scores
 
 Tailoring is scored for the job before and after: job match and resume quality. It is guided by the
-original resume's gaps. See [RESUME_SCORING.md](RESUME_SCORING.md).
+original resume's gaps. See [RESUME_SCORING.md](RESUME_SCORING.md). These document scores differ from the
+[job score](JOB_SCORE.md), which reads only confirmed details and which tailoring cannot change.
 
 ## Where tailored resumes go
 

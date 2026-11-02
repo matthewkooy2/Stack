@@ -56,7 +56,7 @@ struct ResumeAgentsSection: View {
                     row(label: resume?.name ?? "Choose a resume", action: { showResumes = true })
                     row(label: job.map { "\($0.job.title) · \($0.job.company)" } ?? "Choose a saved job", action: { showJobs = true })
                     if let job {
-                        if let score = scores[job.id] { ScoreCardView(after: score["score"], title: "Job fit") }
+                        if let score = scores[job.id] { JobScoreCardView(result: score["job_score"]) }
                         Button("Check job fit") { Task { await score(job) } }
                             .font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
                             .frame(minHeight: 44).disabled(working || resume == nil)

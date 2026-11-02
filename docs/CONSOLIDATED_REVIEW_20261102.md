@@ -1,5 +1,7 @@
 # Consolidated review snapshot, November 2
 
+This historical PC snapshot is superseded by [the combined tailoring review](CONSOLIDATED_TAILORING_REVIEW_20261102.md), which includes the verified Mac source and Claude PR #161.
+
 Owner: Consolidate Stack review build (PC task `01a19c86-bf28-71fb-93f8-208413d060fe`).
 PC base: `codex/consolidated-review-20261102` at `1080080715fa1e422b9cb799600668c4ce5aa6f0`.
 Final Mac branch: `codex/consolidated-review-mac-20261102`. Backend target: `https://dev.stackmvp.top`.

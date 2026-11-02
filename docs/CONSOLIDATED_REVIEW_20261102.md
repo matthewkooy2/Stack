@@ -21,8 +21,12 @@ Original feature branches and PRs are preserved. No feature PR is merged by this
 
 Existing Swift static checks passed for 116 files. `jac check main.jac` passed with warnings.
 Existing scoring tests passed 10/10. Further integrated API and backend deployment results are recorded by the integration task.
+The integrated `tests/test_simple_coaching.py` API regression passed (1 case, 112.456 seconds, disposable database and mocked provider). It covers exact submitted-answer/feedback pairing, stale revisions, replay, inference failures and account isolation.
 The first plain-Python resume check used the wrong interpreter and lacked dependencies; a second runtime check passed 33 cases but could not import Jac for two workflow cases. These are not successful full API runs.
 
 The existing signed TestFlight workflow explicitly requires `refs/heads/main`. It cannot release this branch. No workflow, gate, signing asset or security setting is changed.
 After enabling Mac access, preserve its uncommitted work as an exact snapshot, reconcile its native files into this branch, run native tests/build, then use the existing `scripts/ios-phone.sh` route with `STACK_API_URL=https://dev.stackmvp.top`.
 Build, installed-app and phone-flow verification remain pending. Do not present this source snapshot as an installable app or complete Mac consolidation.
+
+Backend source preflight passed for 177 candidate runtime files against the unchanged live service (PID 378863, base `bc49ae04`). Deployment is held until the pending Mac snapshot can be paired. No source installation, restart, migration or database write has been performed by this task.
+Publishing the integration branch to GitHub was denied by automatic approval review: it considered publishing a new branch an external repository commitment beyond the user's build-only request. The denied command did not execute. No push or PR was created. User-message evidence was checked; no later publication approval was available. Explicit approval is required before retrying that push.

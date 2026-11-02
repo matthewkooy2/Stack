@@ -36,4 +36,14 @@ final class GoogleAuthSessionTests: XCTestCase {
             XCTAssertNil(StackAppLink.destination(URL(string: invalid)!))
         }
     }
+
+    func testInstalledBundleRetainsIdentityAndMailboxCallbackSchemes() throws {
+        let types = Bundle.main.object(forInfoDictionaryKey: "CFBundleURLTypes") as? [[String: Any]] ?? []
+        let schemes = Set(types.flatMap { $0["CFBundleURLSchemes"] as? [String] ?? [] })
+        XCTAssertTrue(schemes.contains("com.matthewkooy.stack"))
+        XCTAssertTrue(schemes.contains("stack"))
+        let consent = URL(string: "stack://oauth/google?state=native.fixture&code=fixture-code")!
+        XCTAssertEqual(try GoogleConnection.code(consent, state: "native.fixture"), "fixture-code")
+        XCTAssertThrowsError(try GoogleAuthSession.validateCallback(consent, provider: provider))
+    }
 }

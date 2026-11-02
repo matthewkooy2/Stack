@@ -79,6 +79,7 @@ struct ResumeAgentsSection: View {
                 if resumeID.isEmpty { resumeID = store.account.resumes.first?.id ?? "" }
             }
         }
+        .onChange(of: resumeID) { _, _ in scores.removeAll() }
         .task(id: resumeID) { await loadPDF() }
         .sheet(isPresented: $showJobs) {
             SheetPage(title: "Choose a job") {
@@ -182,7 +183,12 @@ struct ResumeAgentsSection: View {
     }
     private func score(_ job: Application) async {
         guard !working else { return }; working = true; error = ""; defer { working = false }
-        do { try await selectResume(for: job); scores[job.id] = try await store.call("score_resume", ["application_id": .string(job.id)]) }
+        let scoredResumeID = resumeID
+        do {
+            try await selectResume(for: job)
+            let result = try await store.call("score_resume", ["application_id": .string(job.id)])
+            if resumeID == scoredResumeID { scores[job.id] = result }
+        }
         catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
     }
 }

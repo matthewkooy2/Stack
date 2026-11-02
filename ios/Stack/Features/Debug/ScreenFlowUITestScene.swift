@@ -162,6 +162,9 @@ final class ScreenFlowServer: @unchecked Sendable {
     private var uploadedName = ""
     private var uploadPolls = 0
     private var reviewAccountProcessing: JSON?
+    private var memorySelections: [String: [JSON]] = [:]
+    private var memoryRevisions = ["resume-1": 1, "resume-2": 1]
+    private var memorySaveFailed = false
     // Separate synthetic server storage, never the account's live backend or draft files.
     private let reviewPersistence = UserDefaults(suiteName: "StackOfflineResumeReviewServer")!
     private var reviewPersistenceKey: String { "resume-1:" + reviewUser }
@@ -196,6 +199,9 @@ final class ScreenFlowServer: @unchecked Sendable {
         notesSaves = 0
         modelFailed = false
         autofillStarted = false
+        memorySelections = [:]
+        memoryRevisions = ["resume-1": 1, "resume-2": 1]
+        memorySaveFailed = false
         let arguments = ProcessInfo.processInfo.arguments
         func argument(_ name: String) -> String? {
             arguments.first { $0.hasPrefix("--\(name)=") }.map { String($0.dropFirst(name.count + 3)) }
@@ -384,6 +390,20 @@ final class ScreenFlowServer: @unchecked Sendable {
                         "fields": [["label": "Email", "status": "filled", "required": true]]]]]
     }
 
+    private func memorySnapshot() -> JSON {
+        ["sources": [
+            ["id": "memory-1", "name": "Product Designer · Northstar", "source": "2022–Present", "confirmed": true, "editable": true, "revision": 1,
+             "records": [["id": "r0", "text": "Designed mobile experiences."], ["id": "r1", "text": "Partnered with engineers."]]],
+            ["id": "memory-2", "name": "Skills", "source": "My notes", "confirmed": true, "editable": true, "revision": 1,
+             "records": [["id": "r0", "text": "Figma and Swift"]]],
+            ["id": "memory-3", "name": "Portfolio project", "source": "Project notes", "confirmed": false, "editable": true, "revision": 1,
+             "records": [["id": "r0", "text": "Built a personal portfolio."]]],
+        ], "resumes": .array(["resume-1", "resume-2"].map { id in
+            ["id": .string(id), "name": .string(id == "resume-1" ? "Main resume.pdf" : "Backup resume.pdf"), "confirmed": true,
+             "revision": .number(Double(memoryRevisions[id] ?? 1)), "selection": .array(memorySelections[id] ?? [])]
+        })]
+    }
+
     /// The `(status, body)` a request for `name` receives.
     func respond(_ name: String, body: JSON) -> (Int, JSON) {
         lock.lock(); defer { lock.unlock() }
@@ -391,7 +411,23 @@ final class ScreenFlowServer: @unchecked Sendable {
         func fail(_ message: String) -> (Int, JSON) { (500, ["ok": false, "error": ["message": .string(message)]]) }
         switch name {
         case "resume_bank":
-            return ok(["sources": [["id": "memory-1", "name": "Product Designer · Northstar", "source": "2022–Present", "confirmed": true, "editable": true, "revision": 1, "records": [["id": "r0", "text": "Designed mobile experiences."], ["id": "r1", "text": "Partnered with engineers."]]], ["id": "memory-2", "name": "Skills", "source": "My notes", "confirmed": true, "editable": true, "revision": 1, "records": [["id": "r0", "text": "Figma and Swift"]]], ["id": "memory-3", "name": "Portfolio project", "source": "Project notes", "confirmed": true, "editable": true, "revision": 1, "records": [["id": "r0", "text": "Built a personal portfolio."]]]]])
+            return ok(memorySnapshot())
+        case "resume_bank_select":
+            let id = body["id"].string
+            guard let revision = memoryRevisions[id], body["revision"].int == revision else { return fail("Resume changed. Reload before choosing facts.") }
+            for group in body["selection"].array {
+                guard ["memory-1", "memory-2"].contains(group["id"].string), group["revision"].int == 1,
+                      !group["record_ids"].strings.isEmpty, group["record_ids"].strings.allSatisfy({ ["r0", "r1"].contains($0) }) else {
+                    return fail("Choose confirmed facts from the current memory.")
+                }
+            }
+            if ProcessInfo.processInfo.arguments.contains("--memory-save-fails-once"), !memorySaveFailed {
+                memorySaveFailed = true
+                return fail("Memory choices could not be saved. Try again.")
+            }
+            memorySelections[id] = body["selection"].array
+            memoryRevisions[id] = revision + 1
+            return ok(memorySnapshot())
         case "bootstrap":
             if !uploadedName.isEmpty { uploadPolls += 1 }
             if flow == "resume-review", ["queued", "parsing"].contains(reviewProcessing["status"].string) {

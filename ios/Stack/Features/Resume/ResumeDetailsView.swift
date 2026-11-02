@@ -232,6 +232,7 @@ private struct ResumeReviewScreen: View {
                                 }
                             }.font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
                                 .frame(minWidth: 44, minHeight: 44)
+                                .accessibilityIdentifier("resume-review-edit-\(summary.id)")
                         }
                         if editing == summary.id {
                             ResumeSectionEditor(controller: controller, sectionKey: summary.id, inline: true) {

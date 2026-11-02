@@ -23,8 +23,12 @@ struct MemoryBankView: View {
     @State private var facts: [Fact] = [Fact()]
     @FocusState private var focusedFact: UUID?
     @State private var deleting: JSON?
+    @State private var choosing = false
+    @State private var target = ""
+    @State private var selection: [JSON] = []
 
     private var sources: [JSON] { data["sources"].array }
+    private var confirmedResumes: [JSON] { data["resumes"].array.filter { $0["confirmed"].bool } }
 
     var body: some View {
         ZStack {
@@ -32,23 +36,27 @@ struct MemoryBankView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack {
-                        BackButton(label: editing ? "Back to memory bank" : "Close") {
+                        BackButton(label: editing || choosing ? "Back to memory bank" : "Close") {
                             if editing { withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { editing = false } }
+                            else if choosing { choosing = false; notice = "" }
                             else { dismiss() }
-                        }
+                        }.disabled(working)
                         Spacer()
                     }.padding(.bottom, 32)
-                    Text(editing ? (editingID.isEmpty ? "Add to memory" : "Edit memory") : "Your memory bank")
+                    Text(editing ? (editingID.isEmpty ? "Add to memory" : "Edit memory") : choosing ? "Choose facts" : "Your memory bank")
                         .font(Typeface.display).tracking(-1.8).foregroundStyle(Brand.ink).reveal(0)
                     if !editing {
-                        Text("Keep your skills, projects and experience in one place.")
+                        Text(choosing ? "Choose facts for a resume, then save your choices." : "Keep your skills, projects and experience in one place.")
                             .font(Typeface.caption).foregroundStyle(Brand.muted).padding(.top, 10)
                     }
                     VStack(alignment: .leading, spacing: 16) {
                         if !loaded { ProgressView().tint(Brand.muted) }
                         MessageLine(text: error).fadeSwitch(!error.isEmpty)
                         MessageLine(text: notice, isError: false).fadeSwitch(!notice.isEmpty)
-                        if editing { editor } else { library }
+                        if editing { editor } else {
+                            if choosing { resumePicker }
+                            library
+                        }
                     }.padding(.top, 28).reveal(1)
                 }
                 .padding(.horizontal, Spacing.page).padding(.top, 12).padding(.bottom, 24)
@@ -63,8 +71,20 @@ struct MemoryBankView: View {
                             .font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
                             .frame(maxWidth: .infinity, minHeight: 44)
                             .disabled(working || name.isBlank || source.isBlank || facts.allSatisfy { $0.text.isBlank })
+                    } else if choosing {
+                        StackButton(label: working ? "Saving…" : "Save choices", disabled: working || target.isEmpty) {
+                            Task { await apply() }
+                        }.accessibilityIdentifier("memory-save-choices")
+                        Button("Clear choices") { selection = []; notice = "Save to use only the resume's own facts." }
+                            .font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
+                            .frame(maxWidth: .infinity, minHeight: 44).disabled(working || target.isEmpty)
                     } else {
                         StackButton(label: "Add to memory") { clear(); withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { editing = true } }
+                        Button("Choose facts for tailoring") {
+                            choosing = true; error = ""; notice = ""
+                            choose(confirmedResumes.first { $0["id"].string == store.account.selectedResumeID } ?? confirmedResumes.first ?? .null)
+                        }.font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
+                            .frame(maxWidth: .infinity, minHeight: 44).disabled(!loaded || working)
                     }
                 }.padding(.horizontal, Spacing.page).padding(.top, 12).padding(.bottom, 8).background(Brand.page)
             }
@@ -88,7 +108,7 @@ struct MemoryBankView: View {
                     HStack(alignment: .firstTextBaseline) {
                         Text(item["name"].string).font(.system(size: 21, weight: .semibold)).tracking(-0.5).foregroundStyle(Brand.ink)
                         Spacer()
-                        if item["editable"].bool {
+                        if item["editable"].bool && !choosing {
                             Button("Edit") { edit(item) }
                                 .font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
                                 .frame(minWidth: 44, minHeight: 44)
@@ -103,9 +123,19 @@ struct MemoryBankView: View {
                         .font(Typeface.caption).foregroundStyle(Brand.muted)
                     ForEach(Array(item["records"].array.enumerated()), id: \.offset) { _, record in
                         HStack(alignment: .top, spacing: 8) {
-                            Text("•").accessibilityHidden(true)
+                            if choosing, !target.isEmpty, item["id"].string != target, item["confirmed"].bool {
+                                Button { toggle(item, record["id"].string) } label: {
+                                    Image(systemName: isSelected(item, record["id"].string) ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(Brand.accent).frame(width: 44, height: 44)
+                                }.accessibilityLabel("Use fact: \(record["text"].string)")
+                                    .accessibilityValue(isSelected(item, record["id"].string) ? "Selected" : "Not selected")
+                                    .accessibilityIdentifier("memory-fact-\(item["id"].string)-\(record["id"].string)")
+                            } else { Text("•").accessibilityHidden(true) }
                             Text(record["text"].string).fixedSize(horizontal: false, vertical: true)
                         }.font(Typeface.body).foregroundStyle(Brand.ink)
+                    }
+                    if choosing, selection.contains(where: { $0["id"] == item["id"] && $0["revision"] != item["revision"] }) {
+                        Text("This memory changed. Choose its facts again.").font(Typeface.caption).foregroundStyle(Brand.muted)
                     }
                     if !item["editable"].bool {
                         Text("Edit imported facts in resume details.").font(Typeface.caption).foregroundStyle(Brand.muted)
@@ -120,7 +150,69 @@ struct MemoryBankView: View {
                 }.padding(.vertical, 16).frame(maxWidth: .infinity, alignment: .leading)
                     .overlay(alignment: .bottom) { Rectangle().fill(Brand.rule).frame(height: 1) }
             }
+        }.disabled(working)
+    }
+
+    private var resumePicker: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if confirmedResumes.isEmpty {
+                Text("Confirm a resume's details first to choose extra facts for it.").foregroundStyle(Brand.muted)
+            }
+            ForEach(confirmedResumes, id: \.self) { resume in
+                Button { choose(resume) } label: {
+                    HStack {
+                        Text(resume["name"].string).multilineTextAlignment(.leading)
+                        Spacer()
+                        if target == resume["id"].string { Image(systemName: "checkmark") }
+                    }.foregroundStyle(Brand.ink).frame(minHeight: 44).contentShape(Rectangle())
+                }.buttonStyle(.plain).disabled(working)
+                    .accessibilityLabel("Choose resume: \(resume["name"].string)")
+                    .accessibilityValue(target == resume["id"].string ? "Selected" : "Not selected")
+            }
+            ForEach(Array(selection.enumerated()), id: \.offset) { _, choice in
+                HStack {
+                    Text(sources.first { $0["id"] == choice["id"] }?["name"].string ?? "Unavailable memory")
+                        .font(Typeface.caption).foregroundStyle(Brand.muted)
+                    Spacer()
+                    Button("Remove") { selection.removeAll { $0["id"] == choice["id"] }; notice = "" }
+                        .font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
+                        .frame(minWidth: 44, minHeight: 44).disabled(working)
+                        .accessibilityLabel("Remove chosen memory: \(choice["id"].string)")
+                }
+            }
+            Text("Only chosen, confirmed facts are added when tailoring this resume. Drafts stay out.")
+                .font(Typeface.caption).foregroundStyle(Brand.muted)
         }
+    }
+
+    private func choose(_ resume: JSON) {
+        target = resume["id"].string
+        selection = resume["selection"].array
+        notice = ""
+    }
+
+    private func isSelected(_ item: JSON, _ recordID: String) -> Bool {
+        selection.contains { $0["id"] == item["id"] && $0["revision"] == item["revision"] && $0["record_ids"].strings.contains(recordID) }
+    }
+
+    private func toggle(_ item: JSON, _ recordID: String) {
+        let previous = selection.first { $0["id"] == item["id"] }
+        var ids = previous?["revision"] == item["revision"] ? previous?["record_ids"].strings ?? [] : []
+        ids = ids.toggled(recordID)
+        selection.removeAll { $0["id"] == item["id"] }
+        if !ids.isEmpty { selection.append(["id": item["id"], "revision": item["revision"], "record_ids": .array(ids.map { .string($0) })]) }
+        notice = ""
+    }
+
+    private func apply() async {
+        guard !working, let resume = confirmedResumes.first(where: { $0["id"].string == target }) else { return }
+        working = true; error = ""; notice = ""; defer { working = false }
+        do {
+            data = try await store.call("resume_bank_select", ["id": .string(target), "revision": resume["revision"], "selection": .array(selection)])
+            choose(data["resumes"].array.first { $0["id"].string == target } ?? .null)
+            try await store.callAccount("bootstrap")
+            notice = "Choices saved for this resume."
+        } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
     }
 
     private var editor: some View {

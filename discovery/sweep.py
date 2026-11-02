@@ -5,6 +5,7 @@ import json
 import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 from discovery.sources import collect
 
@@ -17,8 +18,20 @@ def call(name: str, args: dict[str, Any]) -> dict[str, Any]:
     request = Request(os.environ.get('STACK_WORKER_API', 'http://127.0.0.1:8000')+
                       '/function/'+name, data=json.dumps(args).encode(),
                       headers={'Content-Type': 'application/json'})
-    with urlopen(request, timeout=120) as response:
-        result = json.load(response)['data']['result']
+    for attempt in range(3):
+        try:
+            with urlopen(request, timeout=120) as response:
+                result = json.load(response)['data']['result']
+            break
+        except HTTPError as exc:
+            if name != 'jobs_sweep_source' or exc.code != 500 or attempt == 2:
+                raise
+            try:
+                message = json.load(exc).get('error', {}).get('message', '')
+            except (ValueError, TypeError):
+                raise exc
+            if 'duplicate key value violates unique constraint' not in message or 'stack_catalog_job_root_key_unique' not in message:
+                raise
     if result.get('error'):
         raise ValueError(result['error'])
     return result

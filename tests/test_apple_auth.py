@@ -52,6 +52,7 @@ class AppleSignIn(unittest.TestCase):
         challenge = self.rpc("auth_apple_begin")
         self.assertTrue(challenge["ok"], challenge)
         claims = dict(iss="https://appleid.apple.com", aud="com.fixture.stack", sub="fixture-apple-user",
+                      email="fixture@example.test", email_verified="true",
                       nonce=challenge["nonce"], iat=int(time.time()), exp=int(time.time()) + 300)
         claims.update(changes or {})
         token = jwt.encode(signer or self.signer, claims).decode()
@@ -65,7 +66,40 @@ class AppleSignIn(unittest.TestCase):
         self.assertTrue(uid)
         self.assertEqual(manager.get_user_by_sso("apple", "fixture-apple-user")["user_id"], uid)
         self.client.set_auth_token(result["token"])
-        self.assertEqual(self.rpc("bootstrap")["user_id"], manager.get_root_id(uid))
+        owner = self.rpc("bootstrap")["user_id"]
+        self.assertEqual(owner, manager.get_root_id(uid))
+        self.assertEqual(manager.find_user_by_identity(" FIXTURE@example.test ")["user_id"], uid)
+        from jaclang.scale.sso.provider import SSOUserInfo
+        linked = self.client.server.module.accounts.complete_identity(
+            manager, SSOUserInfo(email="FIXTURE@example.test", external_id="fixture-google-user"), "google")
+        self.assertTrue(linked.ok)
+        self.assertEqual(manager.validate_jwt_token(linked.token), uid)
+        import hashlib
+        directory = ROOT / "storage/resumes" / hashlib.sha256(owner.encode()).hexdigest()
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "orphaned-upload.pdf").write_bytes(b"fictional-upload")
+        from jaclang.server.shared_store import shared_store
+        from uuid import uuid4
+        usage, global_usage = uuid4().hex, uuid4().hex
+        for ident, key in [(usage, "cost:fixture:" + owner), (global_usage, "cost:fixture")]:
+            shared_store().rows("INSERT INTO anchors (id,kind,arch_type,props) VALUES (:id,'NodeAnchor','AgentUsage',CAST(:p AS jsonb))",
+                                {"id": ident, "p": json.dumps({"archetype": {"key": key, "cents": 1, "actions": 0}})})
+        deleted = self.rpc("account_delete")
+        self.assertTrue(deleted.get("deleted"), deleted)
+        self.assertFalse(directory.exists())
+        self.assertIsNone(manager.get_user(uid))
+        self.assertIsNone(manager.find_user_by_identity("fixture@example.test"))
+        self.assertIsNone(manager.get_user_by_sso("apple", "fixture-apple-user"))
+        self.assertIsNone(manager.get_user_by_sso("google", "fixture-google-user"))
+        self.assertFalse(self.client.post("/function/bootstrap", json={}).ok)
+        self.assertEqual(shared_store().rows("SELECT count(*) FROM anchors WHERE replace(CAST(root_id AS text),'-','')=:o OR replace(CAST(id AS text),'-','')=:o OR COALESCE(props->'archetype'->>'owner',props->>'owner')=:o", {"o": owner.replace('-', '')})[0][0], 0)
+        self.assertEqual(shared_store().rows("SELECT count(*) FROM anchors WHERE id=:id", {"id": usage})[0][0], 0)
+        self.assertEqual(shared_store().rows("SELECT count(*) FROM anchors WHERE id=:id", {"id": global_usage})[0][0], 1)
+        self.client.clear_auth()
+        fresh = self.sign_in()
+        self.assertTrue(fresh["ok"], fresh)
+        self.client.set_auth_token(fresh["token"])
+        self.assertNotEqual(self.rpc("bootstrap")["user_id"], owner)
 
     def test_returning_signin_preserves_account_and_data(self):
         first = self.sign_in()

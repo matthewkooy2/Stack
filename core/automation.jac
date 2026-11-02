@@ -532,6 +532,8 @@ def _agent_complete(token: str, id: str, owner: str, lease: str, result: dict[st
                     sessions=[p for p in [root -->][?:PrepSession] if jid(p)==r.target_id and p.data.get("mode")=="interview"];
                     try {
                         if not sessions { raise ValueError("Interview session not found."); }
+                        # A worker result is untrusted: re-check structured coaching before storing it.
+                        artifact=coaching.stored(artifact);
                         p=sessions[0];p.data=interview.apply(p.data,p.revision,step,artifact,r.context);p.updated_at=time.time();
                     } except ValueError as exc { r.status="needs_input";r.message=str(exc);commit();return _run_view(r,True); }
                 }

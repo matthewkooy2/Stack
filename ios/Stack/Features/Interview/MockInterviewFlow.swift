@@ -49,7 +49,8 @@ final class MockInterviewModel {
     var analysis: JSON { data["analysis"][String(turns.count)] }
     var coaching: JSON { data["coaching"] }
     var run: JSON { session["run"] }
-    var canFinish: Bool { turns.count >= 2 }
+    /// One reviewed answer is enough for a shortened interview; the backend refuses to assess an empty one.
+    var canFinish: Bool { turns.count >= 1 }
     var runStalled: Bool { ["needs_input", "blocked", "failed", "cancelled"].contains(run["status"].string) }
 
     /// The answer's coaching, read into one line of what worked and one thing to work on.

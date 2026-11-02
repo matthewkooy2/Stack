@@ -40,6 +40,11 @@ that ignored the format, is kept as prose (`format: "text"`), as before. Clients
 should read the structured fields when `format` is `structured` and fall back to
 `text` otherwise.
 
+The mock interview steps (`interview_turn`, `interview_coach`) use the same
+schema plus `strengths` and `weaknesses` (up to three each), so their text adds
+`Strengths:`, `Weaknesses:` and `Improvements:` paragraphs. See
+[job interviews](JOB_INTERVIEWS.md).
+
 ## Installed local models
 
 The general worker can use installed local instruction models for job fit,

@@ -128,7 +128,7 @@ struct InterviewView: View {
                 }
             }
             if active {
-                StackButton(label: "Finish interview", disabled: busy || turns.count < 2) { Task { await action("finish") } }
+                StackButton(label: "Finish interview", disabled: busy || turns.isEmpty) { Task { await action("finish") } }
             }
             if !turns.isEmpty, data["pending"].string.isEmpty, data["status"].string == "finished" || analysis.object.isEmpty {
                 StackButton(label: data["status"].string == "finished" ? "Get final coaching" : "Analyze reviewed answer", disabled: busy) {

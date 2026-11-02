@@ -723,7 +723,6 @@ def:priv prep_save_coaching(id: str, submission: dict[str, any]) -> dict[str, an
                         return prep_get(id);
                     }
                 }
-                snapshot["application_id"]=p.data.get("application_id","");
                 if p.revision==submission.get("revision") { p.data=snapshot;p.revision+=1; }
                 p.feedback=p.feedback+[{"at":time.time(),"revision":p.revision,"submission_id":key,"session":snapshot,"answer":snapshot["answer"],"data":feedback}];p.updated_at=time.time();commit();return prep_get(id);
             }

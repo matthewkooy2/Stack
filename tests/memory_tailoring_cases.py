@@ -102,10 +102,9 @@ def standin(rewrites=None, omit=(), include=(), verdict='supported'):
 
     def generate(step, context, *args, **kwargs):
         if step == 'tailor_screen':
-            entries = re.findall(r'^## (E\d+) ', context['memory'], re.M)
-            return {'artifact': {'entries': [{'entry': h, 'relevance': 70, 'lines': [], 'reason': 'Fixture'} for h in dict.fromkeys(entries)]}, 'cost_cents': 0}
+            return {'artifact': {'ratings': {h: {'relevance': 70, 'lines': [], 'reason': 'Fixture'} for h in context['handles']}}, 'cost_cents': 0}
         if step == 'tailor_verify':
-            return {'artifact': {'results': [{'id': c['id'], 'verdict': verdict, 'problem': ''} for c in context['candidates']]}, 'cost_cents': 0}
+            return {'artifact': {'results': {c['id']: {'verdict': verdict, 'problem': ''} for c in context['candidates']}}, 'cost_cents': 0}
         if step != 'tailor_compose':
             return {'artifact': {'summary': '', 'ranking': [], 'entry_order': [], 'evidence': [], 'omit': [], 'rewrites': []}, 'cost_cents': 0}
         sections, item = [], None

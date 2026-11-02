@@ -43,11 +43,12 @@ class Model:
             raise ValueError(self.fail_first)
         if step == 'tailor_screen':
             h = handles(context['memory'])
-            return {'artifact': {'entries': self.screen(h) if self.screen else
-                                 [{'entry': x, 'relevance': 80, 'lines': [], 'reason': 'fits'} for x in h.values()]}}
+            rated = self.screen(h) if self.screen else [{'entry': x, 'relevance': 80, 'lines': [], 'reason': 'fits'} for x in h.values()]
+            return {'artifact': {'ratings': {r['entry']: {k: r[k] for k in ('relevance', 'lines', 'reason')}
+                                             for r in rated if r['entry'] in context['handles']}}}
         if step == 'tailor_verify':
-            return {'artifact': {'results': [{'id': x['id'], 'verdict': self.verify(x) if callable(self.verify) else self.verify,
-                                              'problem': ''} for x in context['candidates']]}}
+            return {'artifact': {'results': {x['id']: {'verdict': self.verify(x) if callable(self.verify) else self.verify, 'problem': ''}
+                                             for x in context['candidates']}}}
         h = handles(context['memory'])
         project, intern = h.get('Transit delay dashboard'), h.get('Data Intern, City of Detroit')
         sections = [{'heading': 'Experience', 'items': [
@@ -107,6 +108,14 @@ class Guards(unittest.TestCase):
         self.assertIn('skills', mt.check_line('SQL, Python, machine learning', ['Excel, SQL, customer service', 'Python'], '', True))
         self.assertIn('skills', mt.check_line('Python (daily use)', ['Python', 'Proficiency: Intermediate'], '', True))
         self.assertEqual(mt.check_line('Python (Intermediate), SQL', ['Python', 'Proficiency: Intermediate', 'Excel, SQL'], '', True), '')
+        # Number words are numbers; "printed three prototypes" is fine for "printed 3", "five" is not.
+        prototypes = ['Designed the sensor bracket in AutoCAD and printed 3 prototypes.']
+        self.assertEqual(mt.check_line('Designed a sensor bracket in AutoCAD and printed three prototypes.', prototypes, ''), '')
+        self.assertIn('numbers', mt.check_line('Designed a sensor bracket in AutoCAD and printed five prototypes.', prototypes, ''))
+        # Team credit stays with the team.
+        team = ['Our team cut false jam alerts from 14 to 3 per test run after tuning thresholds.']
+        self.assertIn('team', mt.check_line('Cut false jam alerts from 14 to 3 per test run by tuning thresholds.', team, ''))
+        self.assertEqual(mt.check_line('With my team, cut false jam alerts from 14 to 3 per test run.', team, ''), '')
         # A one-letter tool must match as a word, not as a letter inside another word.
         self.assertIn('named something', mt.check_line('Built reports in R.', ['Built weekly reports.'], ''))
 
@@ -164,10 +173,10 @@ class Tailoring(unittest.TestCase):
         for bad in ('Power BI', 'Led a team', 'Deployed', 'stakeholders'):
             self.assertNotIn(bad, joined)
         # A rejected rewrite of a resume line already covered adds no duplicate; an unsupported
-        # memory line is left out with a note instead of being printed unreviewed.
+        # memory rewording reverts to the confirmed bullet, inside the reviewable addition.
         self.assertEqual(sum('carrier on-time rates' in t for t in text), 1)
-        self.assertFalse(any('analytics lead' in t for t in text))
-        self.assertTrue(any('Verification found' in n and 'Data Intern' in n for n in proposal['notes']))
+        self.assertIn("Presented the neighborhood findings to the department's analytics lead.", text)
+        self.assertTrue(any('Verification found' in n and 'Data Intern' in n and 'Kept your original wording' in n for n in proposal['notes']))
         self.assertIn('Published a Tableau dashboard of hourly route delays that drew 300 views in its first month.', text)
         # A cross-entry citation is refused, so project facts stay with the project.
         intern = next(i for s in proposal['sections'] for i in s['items'] if i['name'] == 'Data Intern, City of Detroit')
@@ -306,7 +315,7 @@ class Tailoring(unittest.TestCase):
 
         def model(step, ctx, c):
             if step == 'tailor_verify':
-                return {'artifact': {'results': [{'id': x['id'], 'verdict': 'supported', 'problem': ''} for x in ctx['candidates']]}}
+                return {'artifact': {'results': {x['id']: {'verdict': 'supported', 'problem': ''} for x in ctx['candidates']}}}
             rca = re.search(r'^## (E\d+) · Work experience', ctx['memory'], re.M).group(1)
             self.assertIn('(Same role as R.e1: cite these lines inside R.e1 instead of listing ' + rca, ctx['memory'])
             return {'artifact': {'summary': '', 'left_out': [], 'sections': [
@@ -328,6 +337,25 @@ class Tailoring(unittest.TestCase):
         self.assertEqual(len(added), 1)
         without = [r['text'] for r in mt.apply(p, artifact['plan'], {added[0]['id']})]
         self.assertNotIn('After the dryer was recalibrated, Line 3 scrap fell from 6.1% to 4.2% over six weeks.', without)
+
+    def test_jobs_are_never_filed_as_projects(self):
+        def model(step, ctx, c):
+            if step == 'tailor_verify':
+                return {'artifact': {'results': {}}}
+            h = handles(ctx['memory'])
+            intern, cert = h['Data Intern, City of Detroit'], h['Tableau Desktop Specialist']
+            return {'artifact': {'summary': '', 'left_out': [], 'sections': [
+                {'heading': 'Projects', 'items': [{'entry': intern, 'reason': '', 'lines': [{'text': 'x', 'cites': []}]}]},
+                {'heading': 'Skills', 'items': [{'entry': cert, 'reason': '', 'lines': [{'text': 'Python', 'cites': [h['Python'] + '.name']}]}]},
+                {'heading': 'Experience', 'items': [{'entry': 'R.e0', 'reason': '', 'lines': [{'text': RESUME[5]['text'], 'cites': ['R.r5']}]}]}]}}
+        proposal = run(model)
+        where = {i['name']: s['heading'] for s in proposal['sections'] for i in s['items']}
+        self.assertEqual(where['Data Intern, City of Detroit'], 'Experience')
+        self.assertEqual(where['Tableau Desktop Specialist'], 'Certifications')
+        # Moved out of Skills, the certification may no longer cite another entry's skill.
+        cert = next(i for s in proposal['sections'] for i in s['items'] if i['name'] == 'Tableau Desktop Specialist')
+        self.assertEqual(cert['lines'], [])
+        self.assertTrue(any('Placed Data Intern' in n for n in proposal['notes']))
 
     def test_unverified_rewrites_revert(self):
         proposal = run(Model(verify='unsupported'))

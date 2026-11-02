@@ -64,11 +64,14 @@ SCHEMAS = {
         'summary': TEXT,
         'sections': {'type': 'array', 'maxItems': 14, 'items': SECTION},
         'left_out': {'type': 'array', 'maxItems': 400, 'items': _obj({'entry': TEXT, 'reason': TEXT})}}),
-    'tailor_screen': _obj({'entries': {'type': 'array', 'maxItems': 400, 'items': _obj({
-        'entry': TEXT, 'relevance': {'type': 'integer', 'minimum': 0, 'maximum': 100}, 'lines': STRINGS, 'reason': TEXT})}}),
-    'tailor_verify': _obj({'results': {'type': 'array', 'maxItems': 400, 'items': _obj({
-        'id': TEXT, 'verdict': {'type': 'string', 'enum': ['supported', 'unsupported']}, 'problem': TEXT})}}),
 }
+# Screening and verification require one answer per entry or line: an open array let the
+# model return none at all, so their schemas are built per request with every key required.
+RATING = _obj({'relevance': {'type': 'integer', 'minimum': 0, 'maximum': 100}, 'lines': STRINGS, 'reason': TEXT})
+VERDICT = _obj({'verdict': {'type': 'string', 'enum': ['supported', 'unsupported']}, 'problem': TEXT})
+# Each answer costs output tokens; these bound one request's answers within its output limit.
+SCREEN_ENTRIES = 30
+VERIFY_LINES = 30
 INSTRUCTIONS = {
     'tailor_compose': (
         'Write the strongest truthful resume for context.job from context.base_resume and context.memory. '
@@ -89,22 +92,30 @@ INSTRUCTIONS = {
         'Give each item a short reason it fits this job. In left_out list every entry handle you did not use, once, with a short reason. '
         'summary: two sentences on how this version targets the job.'),
     'tailor_screen': (
-        'Rate how useful each memory entry in context.memory is for a resume targeting context.job. Rate every entry handle exactly once, '
-        '0 (unrelated) to 100 (direct evidence of a key requirement). In lines, list the line IDs worth using for this job. '
-        'reason: one short phrase. Rate only what the entry states; never assume missing facts.'),
+        'Rate how useful each memory entry in context.memory is for a resume targeting context.job. ratings has one key for every '
+        'handle in context.handles: relevance from 0 (unrelated) to 100 (direct evidence of a key requirement), lines with the line IDs '
+        'worth using for this job (such as E4.r1), and reason as one short phrase. Rate only what the entry states; never assume missing facts.'),
     'tailor_verify': (
         'For each item in context.candidates, decide whether every factual claim in text is directly supported by its sources. '
         'Rewording, synonyms, shortening and leaving out detail are fine. It is unsupported if it adds or strengthens a tool, skill, metric, '
         'scope, seniority, responsibility, outcome, employer, credential or date, changes who did the work, drops a negation, or takes a '
         'claim from the job listing. listing_words names words that came from the listing rather than the sources: check them closely. '
-        'Return one result per id; problem is the unsupported phrase, or the empty string.'),
+        'results has one key per candidate id; problem is the unsupported phrase, or the empty string.'),
 }
 OUTPUT_TOKENS = {'tailor_compose': 6144, 'tailor_screen': 2048, 'tailor_verify': 2048}
 
 
+def schema(step: str, context: dict[str, Any]) -> dict[str, Any]:
+    if step == 'tailor_screen':
+        return _obj({'ratings': _obj({h: RATING for h in context['handles']})})
+    if step == 'tailor_verify':
+        return _obj({'results': _obj({x['id']: VERDICT for x in context['candidates']})})
+    return SCHEMAS[step]
+
+
 def request(step: str, context: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
     """The exact (system, input, schema) a provider sends; also used to size requests."""
-    return SYSTEM, json.dumps({'task': INSTRUCTIONS[step], 'context': context}, ensure_ascii=False), SCHEMAS[step]
+    return SYSTEM, json.dumps({'task': INSTRUCTIONS[step], 'context': context}, ensure_ascii=False), schema(step, context)
 
 
 def output_tokens(step: str, c: dict[str, Any]) -> int:
@@ -132,8 +143,22 @@ def _clean(text: Any) -> str:
     return re.sub(r'\s+', ' ', str(text).replace('**', ' ')).strip()
 
 
+NUMBER_WORDS = {w: str(n) for n, w in enumerate(
+    'zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen '
+    'seventeen eighteen nineteen twenty'.split())}
+NUMBER_WORDS.update({'thirty': '30', 'forty': '40', 'fifty': '50', 'sixty': '60', 'seventy': '70', 'eighty': '80',
+                     'ninety': '90', 'hundred': '100', 'dozen': '12', 'half': '0.5', 'double': '2', 'twice': '2', 'triple': '3'})
+# Ordinary words that may open a bullet without naming anything.
+STARTERS = set('with for as in on at by from to after before during while using through across over under within '
+               'and the a an our my we each every all both'.split())
+FIRST_PERSON = re.compile(r"\s*(?:I|I'm|I've|I'd|My|Me)\b")
+TEAM = re.compile(r"\b(?:we|our|us|team|teammates|together|group|co-?\w+ed with|with (?:the|my) \w+)\b", re.I)
+
+
 def _numbers(text: str) -> set[str]:
-    return {n.replace(',', '') for n in NUMBER.findall(text)}
+    # "3" and "three" are the same claim; compare them as one.
+    words_ = {NUMBER_WORDS[w] for w in re.findall(r'[a-z]+', text.lower()) if w in NUMBER_WORDS}
+    return {n.replace(',', '') for n in NUMBER.findall(text)} | words_
 
 
 def _terms(text: str) -> set[str]:
@@ -145,7 +170,7 @@ def _terms(text: str) -> set[str]:
         before = text[:match.start()].rstrip()
         start = not before or before.endswith(('.', ':', ';', '!', '?', '|', '•'))
         signal = any(ch.isupper() for ch in token[1:]) or any(ch.isdigit() or ch in '+#' for ch in token)
-        verb = token.lower() in VERBS or token.lower().endswith(('ed', 'ing'))
+        verb = token.lower() in VERBS or token.lower() in STARTERS or token.lower().endswith(('ed', 'ing'))
         if signal or (token[0].isupper() and not (start and verb)):
             out.add(token.lower())
     return out
@@ -254,6 +279,8 @@ def check_line(text: str, cited: list[str], context: str, skills: bool = False) 
         return 'it added scope or seniority not in your sources (' + ', '.join(scope[:3]) + ')'
     if any(NEGATION.search(s) for s in sources) and not NEGATION.search(clean):
         return 'it dropped a negation from your sources'
+    if any(re.match(r"\s*(?:we|our|the team|my team)\b", s, re.I) for s in sources) and not TEAM.search(clean):
+        return 'it dropped who did the work (your sources credit a team)'
     if skills:
         # A parenthetical such as a proficiency is a claim too.
         body = re.sub(r'^[^:]{1,40}:\s*', '', clean)
@@ -270,6 +297,10 @@ SYNONYMS = [{'experience', 'work experience', 'professional experience', 'releva
              'additional experience'},
             {'skills', 'technical skills', 'skills & tools'}, {'certifications', 'licenses & certifications', 'certifications & licenses'},
             {'projects', 'selected projects', 'relevant projects', 'academic projects'}, {'education', 'education & credentials'}]
+
+
+CANONICAL = {'work_experience': (SYNONYMS[0], 'Experience'), 'education': (SYNONYMS[4], 'Education'),
+             'certification': (SYNONYMS[2], 'Certifications')}
 
 
 def _section_heading(heading: str, base: dict[str, Any], items: list[dict[str, Any]], memory: Memory) -> str:
@@ -328,12 +359,9 @@ def build(base: dict[str, Any], memory: Memory, data: dict[str, Any]) -> tuple[l
         if not isinstance(raw, dict) or not isinstance(raw.get('items'), list):
             continue
         heading = _section_heading(str(raw.get('heading', '')), base, raw['items'], memory)
-        skills = 'skill' in heading.lower()
-        section = next((s for s in sections if s['heading'] == heading), None)
-        if section is None:
-            section = {'heading': heading, 'base': next((s['index'] for s in base['sections'] if s['heading'] == heading), None), 'items': []}
-            sections.append(section)
+        section = _section(sections, base, heading)
         for item in raw['items']:
+            skills = 'skill' in section['heading'].lower()
             handle = str(item.get('entry', '')) if isinstance(item, dict) else ''
             if handle in used and handle != 'SKILLS':
                 notes.append('Ignored a repeated entry ' + handle + '.')
@@ -351,6 +379,18 @@ def build(base: dict[str, Any], memory: Memory, data: dict[str, Any]) -> tuple[l
             else:
                 notes.append('Ignored an unknown entry ' + (handle[:20] or '(blank)') + '.')
                 continue
+            if out['kind'] == 'memory' and memory.entries[handle]['type'] in CANONICAL:
+                # A job, degree or credential is printed under its own kind of section, never as a project.
+                group, default = CANONICAL[memory.entries[handle]['type']]
+                if section['heading'].lower() not in group:
+                    own = next((b['heading'] for b in base['sections'] if b['heading'].lower() in group), default)
+                    notes.append('Placed ' + out['name'] + ' under ' + own + '.')
+                    dest = _section(sections, base, own)
+                else:
+                    dest = section
+            else:
+                dest = section
+            skills = 'skill' in dest['heading'].lower()
             context = item_context(out, memory.entries.get(handle))
             out['reason'] = _clean(item.get('reason', ''))[:300]
             out['lines'] = []
@@ -367,11 +407,11 @@ def build(base: dict[str, Any], memory: Memory, data: dict[str, Any]) -> tuple[l
                     notes.append('Left out a line for ' + where + ': it cited no line of that entry.')
                     continue
                 reason = check_line(text, [c['text'] for c in cites], context, skills)
-                # Reverting means printing the cited content lines themselves, never a bare field or header.
-                # Reverting prints the cited base resume lines themselves: the user's own wording, already
-                # on their resume. Memory lines that fail are left out; nothing is added unreviewed.
+                # Reverting prints the cited lines exactly as confirmed: resume content, or memory bullets
+                # (still inside a reviewable addition). Fields, headers and first-person notes are never printed alone.
                 fallback = [{'uid': c['uid'], 'text': _clean(c['text']), 'index': c['index']} for c in cites
-                            if c['role'] == 'content' and c['entry'] == handle]
+                            if c['entry'] in allowed and (c['role'] == 'content' or (
+                                c['role'] in ('bullet', 'paragraph') and not FIRST_PERSON.match(c['text'])))]
                 if reason:
                     kept = ' Kept your original wording.' if fallback and not skills else ' Left it out.'
                     notes.append('A proposed line for ' + where + ' ' + reason + '.' + kept)
@@ -394,8 +434,16 @@ def build(base: dict[str, Any], memory: Memory, data: dict[str, Any]) -> tuple[l
             if out['kind'] == 'skills' and not out['lines']:
                 continue
             used.add(handle)
-            section['items'].append(out)
+            dest['items'].append(out)
     return [s for s in sections if s['items']], notes
+
+
+def _section(sections: list[dict[str, Any]], base: dict[str, Any], heading: str) -> dict[str, Any]:
+    section = next((s for s in sections if s['heading'] == heading), None)
+    if section is None:
+        section = {'heading': heading, 'base': next((s['index'] for s in base['sections'] if s['heading'] == heading), None), 'items': []}
+        sections.append(section)
+    return section
 
 
 def _listing_words(text: str, sources: list[str], job_words: set[str]) -> list[str]:
@@ -421,29 +469,34 @@ def verify(sections: list[dict[str, Any]], job: dict[str, Any], c: dict[str, Any
         try:
             data = generate('tailor_verify', {'candidates': list(batch)}, c)['artifact']
         except ValueError:
-            data = {'results': []}
+            data = {'results': {}}
             notes.append('Stack could not verify some reworded lines and kept your original wording for them.')
-        for r in data.get('results', []) if isinstance(data, dict) else []:
-            if isinstance(r, dict) and r.get('id') in {b['id'] for b in batch}:
-                verdicts[r['id']] = (r.get('verdict'), _clean(r.get('problem', ''))[:200])
+        results = data.get('results', {}) if isinstance(data, dict) else {}
+        for b in batch:
+            r = results.get(b['id']) if isinstance(results, dict) else None
+            if isinstance(r, dict):
+                verdicts[b['id']] = (r.get('verdict'), _clean(r.get('problem', ''))[:200])
         batch.clear()
 
     for candidate in candidates:
-        if batch and request_size('tailor_verify', {'candidates': batch + [candidate]}, c) > limit:
+        if batch and (len(batch) >= VERIFY_LINES or request_size('tailor_verify', {'candidates': batch + [candidate]}, c) > limit):
             flush()
         batch.append(candidate)
     flush()
     for s in sections:
         for item in s['items']:
+            refused = {line['uid'] for line in item['lines'] if line['uid'] in checked and verdicts.get(line['uid'], ('',))[0] != 'supported'}
+            # A source already printed by a line that stays needs no verbatim copy.
+            covered = {u for line in item['lines'] if line['uid'] not in refused for u in line['cites']}
             kept = []
             for line in item['lines']:
-                if line['uid'] in checked and verdicts.get(line['uid'], ('',))[0] != 'supported':
+                if line['uid'] in refused:
+                    copies = [x for x in _verbatim(line) if x['cites'][0] not in covered and not any(x['text'] == k['text'] for k in kept)]
                     problem = verdicts.get(line['uid'], ('', ''))[1]
                     notes.append('Verification found ' + ('"' + problem + '"' if problem else 'a reworded line') + ' for ' + item['name']
-                                 + ' unsupported or unchecked.' + (' Kept your original wording.' if line['fallback'] else ' Left it out.'))
-                    if item['kind'] == 'skills':
-                        continue
-                    kept += [x for x in _verbatim(line) if not any(x['text'] == k['text'] or x['cites'][0] in k['cites'] for k in kept + item['lines'])]
+                                 + ' unsupported or unchecked.' + (' Kept your original wording.' if copies else ' Left it out.'))
+                    covered |= {x['cites'][0] for x in copies}
+                    kept += copies
                     continue
                 kept.append(line)
             item['lines'] = kept
@@ -478,49 +531,55 @@ def _render_memory(memory: Memory, handles: list[str], lines: dict[str, set[str]
 def _screen(memory: Memory, job: dict[str, Any], c: dict[str, Any], generate: Callable, limit: int,
             calls: list[str]) -> dict[str, dict[str, Any]]:
     """Rate every entry in context-sized chunks; entries larger than a chunk are split into parts."""
-    base_ctx = {'job': _job(job), 'memory': ''}
+    base_ctx = {'job': _job(job), 'handles': [], 'memory': ''}
     room = limit - request_size('tailor_screen', base_ctx, c)
+    # Each rated handle also adds its required key to the schema and its name to context.handles.
+    per_handle = len(json.dumps({'E999': RATING})) + 8
     if room < 1500:
         raise TooLarge(CONTEXT_ERROR + ' The job listing leaves no room to read your memory bank. Increase the model context.')
     blocks = []
     for h, e in memory.entries.items():
         text = render(e, h)
-        if _size(text) + 2 <= room:
+        if _size(text) + 2 + per_handle <= room:
             blocks.append((h, text))
             continue
         fixed = [x for x in e['lines'] if x['role'] in ('name', 'header')]
         part, parts = [], []
         for x in [x for x in e['lines'] if x not in fixed]:
-            if part and _size(render(e, h, fixed + part + [x], 'part 99 of 99')) + 2 > room:
+            if part and _size(render(e, h, fixed + part + [x], 'part 99 of 99')) + 2 + per_handle > room:
                 parts.append(part)
                 part = []
             part.append(x)
         parts.append(part)
         for i, p in enumerate(parts):
             piece = render(e, h, fixed + p, 'part ' + str(i + 1) + ' of ' + str(len(parts)))
-            if _size(piece) + 2 > room:
+            if _size(piece) + 2 + per_handle > room:
                 raise TooLarge(CONTEXT_ERROR + ' One memory bank line is too long for the model context.')
             blocks.append((h, piece))
     def pack(items: list[tuple[str, str]]) -> list[list[tuple[str, str]]]:
         chunks, current, size = [], [], 0
         for h, text in items:
-            if current and size + _size(text) + 2 > room:
+            handles = {x for x, _ in current}
+            cost = _size(text) + 2 + (0 if h in handles else per_handle)
+            if current and (size + cost > room or (h not in handles and len(handles) >= SCREEN_ENTRIES)):
                 chunks.append(current)
-                current, size = [], 0
+                current, size, cost = [], 0, _size(text) + 2 + per_handle
             current.append((h, text))
-            size += _size(text) + 2
+            size += cost
         return chunks + ([current] if current else [])
 
     ratings: dict[str, dict[str, Any]] = {}
 
     def ask(chunk: list[tuple[str, str]], label: str) -> None:
         calls.append(label)
-        data = generate('tailor_screen', {'job': _job(job), 'memory': '\n'.join(t for _, t in chunk)}, c)['artifact']
-        wanted = {h for h, _ in chunk}
-        for r in data.get('entries', []) if isinstance(data, dict) else []:
-            h = r.get('entry') if isinstance(r, dict) else None
-            if h not in wanted or not isinstance(r.get('relevance'), int):
+        handles = list(dict.fromkeys(h for h, _ in chunk))
+        data = generate('tailor_screen', {'job': _job(job), 'handles': handles, 'memory': '\n'.join(t for _, t in chunk)}, c)['artifact']
+        given = data.get('ratings', {}) if isinstance(data, dict) else {}
+        for h, r in (given.items() if isinstance(given, dict) else []):
+            if h not in handles or not isinstance(r, dict) or not isinstance(r.get('relevance'), int) or isinstance(r.get('relevance'), bool):
                 continue
+            if not isinstance(r.get('lines'), list):
+                r = {**r, 'lines': []}
             prior = ratings.get(h, {'relevance': 0, 'lines': set(), 'reason': '', 'reviewed': []})
             valid = {x['id'] for x in memory.entries[h]['lines']}
             ids = {x.split('.', 1)[1] for x in r.get('lines', []) if isinstance(x, str) and x.startswith(h + '.') and x.split('.', 1)[1] in valid}
@@ -613,7 +672,7 @@ def _run(base, memory, job, c, generate, limit, calls, prepared):
     coverage = []
     for h, e in memory.entries.items():
         if h in used or e['key'] in used:
-            state, why = 'used', next((i['reason'] for s in sections for i in s['items'] if i['handle'] == h), '') or 'Cited in a skills line.'
+            state, why = 'used', next((i['reason'] for s in sections for i in s['items'] if i['handle'] == h), '') or 'Cited in the tailored resume.'
         elif h in status:
             state, why = status[h]
         else:

@@ -458,6 +458,10 @@ final class ScreenFlowServer: @unchecked Sendable {
         case "agent_run":
             guard autofillStarted, body["id"].string == "autofill-fixture" else { return fail("Unknown synthetic task.") }
             return ok(Self.autofillRun)
+        case "gmail_scan_status":
+            return ok(["scan": [:], "reviews": []])
+        case "gmail_scan_start":
+            return fail("Gmail isn't connected in this offline preview.")
         case "agent_settings":
             if flow == "settings", !modelFailed {
                 modelFailed = true

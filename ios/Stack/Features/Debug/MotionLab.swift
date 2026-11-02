@@ -71,7 +71,7 @@ private struct MotionLabPreview: View {
                 GmailTrackingSection().padding(Spacing.page)
             }
         case .gmailScan:
-            GmailScanView()
+            LabFlow(flow: "gmail-scan") { GmailScanView() }
         case .prepQuestion:
             ZStack {
                 Brand.page.ignoresSafeArea()

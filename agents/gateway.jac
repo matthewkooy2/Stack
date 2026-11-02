@@ -190,7 +190,7 @@ class Handler(SimpleHTTPRequestHandler) {
                 self.send_header('Set-Cookie',app_links.COOKIE+'=; Max-Age=0; Path=/sso/google/callback; Secure; HttpOnly; SameSite=Lax');
                 self.end_headers();return;
             }
-            self.app_page(app_links.page(success=status==200 and b'Sign-in completed.' in raw));
+            self.app_page(app_links.page(success=status==200 and b'Sign-in completed.' in raw,callback_state=state));
         } except Exception { self.send_error(400,'Google sign-in could not finish'); }
     }
     def do_POST(self: Handler) -> any {

@@ -1,6 +1,7 @@
 // The signed-in functions the public gateway publishes (agents/gateway.jac PERSONAL). tests/live-contract.cjs
 // keeps this list identical to the gateway, so the app can neither miss nor invent an endpoint.
 export const FEATURE_RPCS=new Set(`
+  practice_options practice_profile practice_slots practice_attempts practice_attempt_get practice_attempt_create practice_attempt_delete
   interview_create interview_get interview_answer interview_correct interview_continue interview_sessions resume_save_records agent_notification_status resume_bank resume_bank_save resume_bank_delete resume_bank_select
 
   bootstrap save_profile save_timeline swipe save_application mark_application_submitted

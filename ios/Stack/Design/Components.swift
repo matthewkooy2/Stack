@@ -41,6 +41,10 @@ enum Glyph {
         case "star": return "star"
         case "trash": return "trash"
         case "details": return "info.circle"
+        case "video": return "video.fill"
+        case "industry": return "building.2"
+        case "library": return "rectangle.stack.badge.play"
+        case "speaker": return "speaker.wave.2"
         default: return "circle"
         }
     }

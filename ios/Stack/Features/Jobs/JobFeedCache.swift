@@ -75,4 +75,8 @@ final class JobFeedCache {
     }
 
     func remove() { try? FileManager.default.removeItem(at: file) }
+
+    func removeForAccountDeletion() throws {
+        if FileManager.default.fileExists(atPath: file.path) { try FileManager.default.removeItem(at: file) }
+    }
 }

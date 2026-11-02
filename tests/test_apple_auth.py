@@ -52,6 +52,7 @@ class AppleSignIn(unittest.TestCase):
         challenge = self.rpc("auth_apple_begin")
         self.assertTrue(challenge["ok"], challenge)
         claims = dict(iss="https://appleid.apple.com", aud="com.fixture.stack", sub="fixture-apple-user",
+                      email="fixture@example.test", email_verified="true",
                       nonce=challenge["nonce"], iat=int(time.time()), exp=int(time.time()) + 300)
         claims.update(changes or {})
         token = jwt.encode(signer or self.signer, claims).decode()
@@ -65,7 +66,32 @@ class AppleSignIn(unittest.TestCase):
         self.assertTrue(uid)
         self.assertEqual(manager.get_user_by_sso("apple", "fixture-apple-user")["user_id"], uid)
         self.client.set_auth_token(result["token"])
-        self.assertEqual(self.rpc("bootstrap")["user_id"], manager.get_root_id(uid))
+        owner = self.rpc("bootstrap")["user_id"]
+        self.assertEqual(owner, manager.get_root_id(uid))
+        self.assertEqual(manager.find_user_by_identity(" FIXTURE@example.test ")["user_id"], uid)
+        from jaclang.scale.sso.provider import SSOUserInfo
+        linked = self.client.server.module.accounts.complete_identity(
+            manager, SSOUserInfo(email="FIXTURE@example.test", external_id="fixture-google-user"), "google")
+        self.assertTrue(linked.ok)
+        self.assertEqual(manager.validate_jwt_token(linked.token), uid)
+        import hashlib
+        directory = ROOT / "storage/resumes" / hashlib.sha256(owner.encode()).hexdigest()
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "orphaned-upload.pdf").write_bytes(b"fictional-upload")
+        deleted = self.rpc("account_delete")
+        self.assertTrue(deleted.get("deleted"), deleted)
+        self.assertFalse(directory.exists())
+        self.assertIsNone(manager.get_user(uid))
+        self.assertIsNone(manager.find_user_by_identity("fixture@example.test"))
+        self.assertIsNone(manager.get_user_by_sso("apple", "fixture-apple-user"))
+        self.assertIsNone(manager.get_user_by_sso("google", "fixture-google-user"))
+        from jaclang.server.shared_store import shared_store
+        self.assertEqual(shared_store().rows("SELECT count(*) FROM anchors WHERE replace(CAST(root_id AS text),'-','')=:o OR replace(CAST(id AS text),'-','')=:o OR props->>'owner'=:o", {"o": owner.replace('-', '')})[0][0], 0)
+        self.client.clear_auth()
+        fresh = self.sign_in()
+        self.assertTrue(fresh["ok"], fresh)
+        self.client.set_auth_token(fresh["token"])
+        self.assertNotEqual(self.rpc("bootstrap")["user_id"], owner)
 
     def test_returning_signin_preserves_account_and_data(self):
         first = self.sign_in()

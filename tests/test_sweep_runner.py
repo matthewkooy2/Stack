@@ -1,8 +1,11 @@
 """The daily sweep runner, offline: order, boards found by lists, isolated failures and the matching step."""
 import sys
+import io
+import json
 from pathlib import Path
 import unittest
 from unittest.mock import patch
+from urllib.error import HTTPError
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from discovery import sweep as runner
 
@@ -13,6 +16,29 @@ BROKEN = {'id': 'ashby:broken', 'adapter': 'ashby'}
 
 
 class Runner(unittest.TestCase):
+    def test_finish_allows_time_for_initial_index_build(self):
+        success = json.dumps({'data': {'result': {'done': False}}}).encode()
+        with patch.object(runner, 'urlopen', side_effect=[io.BytesIO(success), io.BytesIO(success)]) as open_url:
+            runner.call('jobs_sweep_finish', {'run': 'r'})
+            runner.call('jobs_sweep_source', {'run': 'r'})
+        self.assertEqual([call.kwargs['timeout'] for call in open_url.call_args_list], [900, 120])
+
+    def test_catalog_uniqueness_conflict_retries_only_the_failed_source_page(self):
+        body = json.dumps({'error': {'message': 'duplicate key value violates unique constraint "stack_catalog_job_root_key_unique"'}}).encode()
+        failure = HTTPError('http://localhost', 500, 'conflict', {}, io.BytesIO(body))
+        success = io.BytesIO(json.dumps({'data': {'result': {'saved': True}}}).encode())
+        with patch.object(runner, 'urlopen', side_effect=[failure, success]) as open_url:
+            self.assertEqual(runner.call('jobs_sweep_source', {'jobs': []}), {'saved': True})
+        self.assertEqual(open_url.call_count, 2)
+
+    def test_unrelated_server_error_is_not_retried(self):
+        body = json.dumps({'error': {'message': 'unrelated server error'}}).encode()
+        failure = HTTPError('http://localhost', 500, 'error', {}, io.BytesIO(body))
+        with patch.object(runner, 'urlopen', side_effect=failure) as open_url:
+            with self.assertRaises(HTTPError):
+                runner.call('jobs_sweep_source', {'jobs': []})
+        self.assertEqual(open_url.call_count, 1)
+
     def run_sweep(self, pages):
         calls = []
 

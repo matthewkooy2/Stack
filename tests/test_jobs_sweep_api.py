@@ -4,13 +4,14 @@ from pathlib import Path
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 if os.environ.get('JAC_DB_URL'):
     raise RuntimeError('Sweep verification requires disposable embedded data; unset JAC_DB_URL.')
 os.environ['JAC_DB_SCRATCH'] = '1'
 from jaclang.testing.testing import JacTestClient
 from discovery.normalize import normalize
-from tests.catalog_fixture import BOARD, open_worker_gate, sweep
+from tests.catalog_fixture import BOARD, open_worker_gate, sweep, catalog_modules
 
 ROOT = Path(__file__).resolve().parents[1]
 OTHER = {**BOARD, 'id': 'lever:fixture', 'adapter': 'lever', 'name': 'Other Board'}
@@ -106,6 +107,53 @@ class JobsSweepAPI(unittest.TestCase):
         self.assertEqual(len(self.rpc('job_feed')['jobs']), 1)
         self.assertIn('ashby:found', {s['id'] for s in self.rpc('source_status')['sources']})
         self.assertNotIn('career:abc', {s['id'] for s in self.rpc('source_status')['sources']})
+
+    def test_old_catalog_fallback_and_title_change_before_sweep_finishes(self):
+        old = listing(BOARD, 0, 'Fry Cook')
+        run = sweep(self.system, {BOARD['id']: [old]}, finish=False)
+        # Before the first projection is built, a new user's request remains correct.
+        before = self.rpc('search_jobs', {'query': 'Fry cook'})
+        self.assertEqual(before['total'], 1)
+        while not self.system('jobs_sweep_finish', {'run': run})['done']:
+            pass
+        changed = listing(BOARD, 0, 'Junior Software Engineer')
+        new_run = self.system('jobs_sweep_begin', {'only': [BOARD]})['run']
+        self.system('jobs_sweep_source', {'run': new_run, 'id': BOARD['id'], 'jobs': [changed], 'complete': True})
+        token = self.client.register_user('after-title-change', 'Fixture-password-b-456').data['token']
+        self.client.set_auth_token(token)
+        self.rpc('bootstrap')
+        # The index must adopt the new title within the source transaction, even
+        # while collection is still in progress and before nightly matching.
+        updated = self.rpc('search_jobs', {'query': 'Software engineer'})
+        self.assertEqual(updated['total'], 1)
+        self.assertEqual(updated['jobs'][0]['title'], changed['title'])
+        self.assertEqual(self.rpc('search_jobs', {'query': 'Fry cook'})['total'], 0)
+
+    def test_many_title_updates_publish_matching_projection_once_per_page(self):
+        sweep(self.system, {BOARD['id']: [listing(BOARD, 0)]})
+        batch = [listing(BOARD, n + 1, f'Junior Software Engineer Team {n}') for n in range(100)]
+        run = self.system('jobs_sweep_begin', {'only': [BOARD]})['run']
+        module = catalog_modules()[0]
+        with patch.object(module, '_update_projection', wraps=module._update_projection) as publish:
+            self.system('jobs_sweep_source', {'run': run, 'id': BOARD['id'], 'jobs': batch, 'complete': True})
+            self.assertEqual(publish.call_count, 1)
+            self.assertEqual(len(publish.call_args.args[0]), 100)
+        token = self.client.register_user('after-many-titles', 'Fixture-password-d-789').data['token']
+        self.client.set_auth_token(token)
+        self.rpc('bootstrap')
+        result = self.rpc('search_jobs', {'query': 'Software engineer'})
+        self.assertEqual(result['total'], 101)
+        self.assertEqual(len(result['jobs']), 25)
+
+    def test_source_purge_removes_public_matching_facts_for_new_accounts(self):
+        sweep(self.system, {BOARD['id']: [listing(BOARD, 0)]})
+        self.system('discovery_manage', {'id': BOARD['id'], 'action': 'purge'})
+        token = self.client.register_user('after-source-purge', 'Fixture-password-c-789').data['token']
+        self.client.set_auth_token(token)
+        self.rpc('bootstrap')
+        result = self.rpc('search_jobs', {'query': 'Software engineer'})
+        self.assertEqual(result['jobs'], [])
+        self.assertEqual(result['total'], 0)
 
     def test_import_is_deferred(self):
         self.assertIn('error', self.rpc('import_job_url', {'url': 'https://example.com/job'}, ok=False))

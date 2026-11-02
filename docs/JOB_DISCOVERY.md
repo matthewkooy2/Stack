@@ -14,6 +14,10 @@ Then it exits. Nothing collects between sweeps, and no request from the app ever
 
 **In the app**, opening Jobs shows the phone's cached cards immediately and reads the stored matches (`job_feed`), 25 at a time. Coming back to the app reloads only if a newer sweep could have run. Changing filters or a profile input saves the search and ranks that one account again from the existing catalog (`save_search` returns the first page). The account refresh (`bootstrap`) no longer carries jobs, and the app has no timed refresh; it rechecks the account only while an agent task is running.
 
+A new account can rank the existing shared catalog immediately; it never waits for the next sweep. Role searches first apply the exact title/related-occupation matcher to a shared title list, then rank compact shared listing facts grouped by occupation. Full records are loaded only for the displayed page; description-text exclusions use the indexed `match_title` path so their original-text checks stay exact. Other preferences, ranking, totals, and pagination retain the same rules. The sweep builds this projection before account matching and maintains new titles during collection. Existing databases use the full-catalog path until their first sweep rebuilds the projection.
+
+For an isolated Mac browser workflow and measured production sizing, see [the jobs lab](JOBS_LAB.md).
+
 Importing a job link is not available yet. `import_job_url` answers with that message.
 
 ## Running a sweep

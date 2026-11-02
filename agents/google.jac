@@ -92,13 +92,19 @@ def refreshed(tokens: dict[(str, any)]) -> dict[(str, any)] {
     };
 }
 def revoke(tokens: dict[(str, any)]) {
-    http(
-        'https://oauth2.googleapis.com/revoke',
-        urlencode(
-            {'token': tokens.get('refresh_token', tokens.get('access_token', ''))}
-        ).encode(),
-        {'Content-Type': 'application/x-www-form-urlencoded'}
-    );
+    import urllib.request;
+    import urllib.error;
+    import from agents.security { NoRedirect }
+    request=urllib.request.Request('https://oauth2.googleapis.com/revoke',
+        data=urlencode({'token':tokens.get('refresh_token',tokens.get('access_token',''))}).encode(),
+        headers={'Content-Type':'application/x-www-form-urlencoded'});
+    try {
+        with urllib.request.build_opener(NoRedirect).open(request,timeout=15) as response { response.read(); }
+    } except urllib.error.HTTPError as error {
+        # A previous deletion attempt may already have revoked this connection.
+        if error.code==400 and json.loads(error.read()).get('error')=='invalid_token' { return; }
+        raise ValueError('Google could not disconnect. Please retry account deletion.') from None;
+    }
 }
 def request(tokens: dict[str, any], path: str, body: dict[str, any] | None = None, method: str | None = None) -> dict[str, any] {
     return http(

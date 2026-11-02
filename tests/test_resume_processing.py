@@ -9,12 +9,17 @@ import time
 import unittest
 from unittest.mock import patch
 from jaclang.testing.testing import JacTestClient
-from agents import resume_processing, latex
+from agents import resume_processing, latex, local_model
 
 ROOT = Path(__file__).resolve().parents[1]
 PDF = (ROOT / 'tests/fixtures/synthetic-resume.pdf').read_bytes()
 TEX = (ROOT / 'tests/fixtures/jake-resume.tex').read_bytes()
 TOKEN = 'resume-worker-test'
+MODEL_DRAFT = {
+    'profile': {'name': 'Riley Example', 'email': '', 'phone': '', 'location': '', 'link': '', 'summary': ''},
+    'skills': {'descriptions': ['Python']}, 'education': [], 'workExperience': [],
+    'projects': [], 'unclassified': [],
+}
 
 class ResumeProcessing(unittest.TestCase):
     def setUp(self):
@@ -74,7 +79,9 @@ class ResumeProcessing(unittest.TestCase):
             if result.get('error'):
                 raise ValueError(result['error'])
             return result
-        with patch.object(resume_processing, 'call', side_effect=callback):
+        with patch.object(resume_processing, 'call', side_effect=callback), patch.object(
+            local_model, 'complete', return_value={'text': json.dumps(MODEL_DRAFT), 'model': 'test-model'}
+        ):
             if compile_result is None:
                 result = resume_processing.process(work, TOKEN)
             else:
@@ -83,6 +90,15 @@ class ResumeProcessing(unittest.TestCase):
         self.assertNotIn('error', result)
         self.assertTrue(self.finish(work, result)['saved'])
         return result
+
+    def test_import_creates_unconfirmed_model_draft_and_preserves_original(self):
+        resume = self.upload()
+        review = self.rpc('agent_extract_resume', {'id': resume['id']})
+        self.assertEqual(review['values']['profile.name'], 'Riley Example')
+        self.assertEqual(review['values']['skills.descriptions'], 'Python')
+        self.assertFalse(review['details_confirmed'])
+        self.assertEqual(self.rpc('agent_settings')['facts'], [])
+        self.assertEqual(base64.b64decode(self.rpc('read_resume', {'id': resume['id']})['content']), PDF)
 
     def test_failed_source_retry_reopen_compile_and_original_preserved(self):
         resume = self.upload()

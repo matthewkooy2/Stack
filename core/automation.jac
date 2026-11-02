@@ -774,7 +774,7 @@ def:priv agent_accept_invite(invite: str) -> dict[str, any] {
         _agent_memory().admitted=True;commit();return {"admitted":True};
     }
 }
-def:priv agent_google_start(capabilities: list[str], native: bool = False) -> dict[str, any] {
+def _google_start(capabilities: list[str], native: bool) -> dict[str, any] {
     _agent_access();verifier=secrets.token_urlsafe(48);
     try {
         encrypted=seal({"verifier":verifier});
@@ -783,20 +783,29 @@ def:priv agent_google_start(capabilities: list[str], native: bool = False) -> di
         return {"url":authorization_url(state,verifier,capabilities)};
     } except ValueError as e { return {"error":str(e)}; }
 }
+
+def:priv agent_google_start(capabilities: list[str]) -> dict[str, any] {
+    return _google_start(capabilities,False);
+}
+
+def:priv agent_google_start_native(capabilities: list[str]) -> dict[str, any] {
+    return _google_start(capabilities,True);
+}
 def:priv agent_google_finish(state: str, code: str) -> dict[str, any] {
     _agent_access();
     native=state.startswith("native.");state=state.removeprefix("native.");
     pending=token_peek("stack-google",state);
     if pending is None or pending["payload"]["owner"]!=jid(root) or pending["payload"].get("native",False)!=native { return {"error":"Google connection belongs to another account or has expired."}; }
-    # A read-tier retry must happen before consuming state or exchanging Google's one-time code.
-    session=JacRuntime.get_context().mem;
-    if isinstance(session,Session) { session.ensure_writable_txn(); }
-    consumed=token_consume("stack-google",state);
-    if consumed is None { return {"error":"This authorization was already used."}; }
-    try { tokens=exchange(code,str(unseal(str(consumed["payload"]["sealed"]))["verifier"]));encrypted=seal(tokens); }
-    except Exception { return {"error":"Google authorization failed. Start a new connection."}; }
     with locks.account() {
-        _agent_fresh();items=[root -->][?:AgentConnection];
+        _agent_fresh();_agent_access();items=[root -->][?:AgentConnection];
+        # Refresh first: aborting after this boundary would reopen the read-only tier.
+        # Any retry must happen before consuming state or exchanging Google's one-time code.
+        session=JacRuntime.get_context().mem;
+        if isinstance(session,Session) { session.ensure_writable_txn(); }
+        consumed=token_consume("stack-google",state);
+        if consumed is None { return {"error":"This authorization was already used."}; }
+        try { tokens=exchange(code,str(unseal(str(consumed["payload"]["sealed"]))["verifier"]));encrypted=seal(tokens); }
+        except Exception { return {"error":"Google authorization failed. Start a new connection."}; }
         for old in items { if old.provider=="google" { old.sealed=encrypted;old.scopes=str(tokens.get("scope","")).split();old.state="connected";commit();return agent_settings(); } }
         root ++> AgentConnection(provider="google",sealed=encrypted,scopes=str(tokens.get("scope","")).split(),updated_at=time.time());commit();
     }

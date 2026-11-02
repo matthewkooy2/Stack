@@ -21,7 +21,7 @@ select_application_resume save_contact upload_resume read_resume change_resume s
 job_feed search_jobs get_job save_search reset_search import_job_url get_import_status source_status
 agent_settings agent_save_model agent_save_facts agent_save_policy agent_activity agent_run agent_cancel agent_respond agent_traces agent_feedback
 agent_reconcile agent_contacts agent_save_contact agent_stop_contact agent_import_contacts agent_events agent_resolve_event
-agent_google_start agent_google_finish agent_disconnect agent_export agent_start agent_extract_resume resume_save_details
+agent_google_start agent_google_start_native agent_google_finish agent_disconnect agent_export agent_start agent_extract_resume resume_save_details
 agent_browser agent_browser_control agent_browser_subscribe prep_live prep_progress prep_for_application prep_catalog prep_sessions prep_create prep_get prep_save prep_coach prep_save_coaching account_export account_delete
 interview_create interview_get interview_answer interview_correct interview_continue interview_sessions
 agent_model_logs agent_linkedin_profile agent_linkedin_start agent_features agent_approve agent_retry agent_dismiss
@@ -136,6 +136,17 @@ class Handler(SimpleHTTPRequestHandler) {
             return;
         }
         if (path == '/oauth/google') {
+            # The app finishes under its existing Stack session. Only Google's code and
+            # opaque state cross this fixed redirect; PKCE and tokens stay in the API.
+            try {
+                if len(self.path)>8192 { self.send_error(414);return; }
+                values=parse_qs(urlsplit(self.path).query,keep_blank_values=True,max_num_fields=20);
+                if any(len(values.get(k,[]))>1 for k in ['code','state','error']) { self.send_error(400);return; }
+                if values.get('state',[''])[0].startswith('native.') {
+                    query={k:values[k][0] for k in ['code','state','error'] if k in values};
+                    self.send_response(303);self.send_header('Location','stack://oauth/google?'+urlencode(query));self.send_header('Content-Length','0');self.end_headers();return;
+                }
+            } except ValueError { self.send_error(400);return; }
             self.path = '/index.html';
         }
         if path == '/sso/google/callback' { self.sso_callback();return; }
@@ -246,6 +257,11 @@ class Handler(SimpleHTTPRequestHandler) {
                 }
             }
             if path == '/browser/stream' { relay(self,body,authorization,upstream,linkedin=linkedin);return; }
+            if function=='agent_google_start' {
+                args=json.loads(body);
+                if args.pop('native',False) is True { path='/function/agent_google_start_native'; }
+                body=json.dumps(args).encode();
+            }
             (status, raw) = upstream(path, body, authorization, timeout=None if linkedin else 110);
             self.send_response(status);
             self.send_header('Content-Type', 'application/json');

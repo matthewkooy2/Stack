@@ -42,6 +42,7 @@ targets:
           - CFBundleURLName: com.matthewkooy.stack
             CFBundleURLSchemes:
               - com.matthewkooy.stack
+              - stack
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen:

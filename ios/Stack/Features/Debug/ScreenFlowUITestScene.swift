@@ -56,6 +56,8 @@ struct ScreenFlowUITestScene: View {
         case "settings": ProfileView()
         case "resume", "resume-upload": ResumeView(onProfile: {})
         case "resume-review": ResumeReviewFixtureHost()
+        case "memory-preview": MemoryBankView()
+        case "tailor-preview": ResumeAgentsSection(setupFor: .constant(""), scores: .constant([:]), onOpenTask: { _ in }, onNavigate: { _ in })
         case "network": NetworkView(onProfile: {})
         case "applications", "applications-autofill-unavailable": ApplicationsView(onProfile: {}, onNavigate: { _ in })
         case "jobs": ScreenFlowJobHost(job: Job(ScreenFlowServer.job))
@@ -96,7 +98,7 @@ private struct ResumeReviewFixtureHost: View {
             StackButton(label: "Open resume review") { open = true }
         }
         .padding(.horizontal, Spacing.page)
-        .sheet(isPresented: $open) {
+        .fullScreenCover(isPresented: $open) {
             ResumeDetailsView(resume: ResumeItem(["id": "resume-1", "name": "Ada Example resume.pdf", "size": 1000,
                                                   "created_at": 1_700_000_000, "details_status": "Needs review"]))
                 .environment(store)
@@ -388,6 +390,8 @@ final class ScreenFlowServer: @unchecked Sendable {
         func ok(_ result: JSON) -> (Int, JSON) { (200, ["ok": true, "data": ["result": result]]) }
         func fail(_ message: String) -> (Int, JSON) { (500, ["ok": false, "error": ["message": .string(message)]]) }
         switch name {
+        case "resume_bank":
+            return ok(["sources": [["id": "memory-1", "name": "Product Designer · Northstar", "source": "2022–Present", "confirmed": true, "editable": true, "revision": 1, "records": [["id": "r0", "text": "Designed mobile experiences."], ["id": "r1", "text": "Partnered with engineers."]]], ["id": "memory-2", "name": "Skills", "source": "My notes", "confirmed": true, "editable": true, "revision": 1, "records": [["id": "r0", "text": "Figma and Swift"]]], ["id": "memory-3", "name": "Portfolio project", "source": "Project notes", "confirmed": true, "editable": true, "revision": 1, "records": [["id": "r0", "text": "Built a personal portfolio."]]]]])
         case "bootstrap":
             if !uploadedName.isEmpty { uploadPolls += 1 }
             if flow == "resume-review", ["queued", "parsing"].contains(reviewProcessing["status"].string) {

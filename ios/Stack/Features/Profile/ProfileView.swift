@@ -61,7 +61,7 @@ struct ProfileView: View {
         .task { await loadModel() }
         .sheet(isPresented: $showAgents) { AgentHubView().environment(store) }
         .sheet(isPresented: $showReminders) { RemindersView().environment(store) }
-        .sheet(isPresented: $showBank) { ExperienceBankView().environment(store) }
+        .fullScreenCover(isPresented: $showBank) { MemoryBankView().environment(store) }
         .alert("Delete your account?", isPresented: $confirmDelete) {
             Button("Cancel", role: .cancel) {}
             Button("Delete account", role: .destructive) {
@@ -96,7 +96,7 @@ struct ProfileView: View {
                 ListRow(label: "Job matching", icon: "jobs", detail: "Level, pay, work style, exclusions") { go(.matching) }.reveal(2)
                 ListRow(label: "Agents", icon: "sparkles", detail: agentSummary) { showAgents = true }.reveal(3)
                 ListRow(label: "Follow-up reminders", icon: "bell", detail: reminderSummary) { showReminders = true }.reveal(4)
-                ListRow(label: "Experience bank", icon: "resume", detail: "Confirmed facts for tailoring") { showBank = true }.reveal(5)
+                ListRow(label: "Memory bank", icon: "resume", detail: "Skills, projects and experience") { showBank = true }.reveal(5)
                 ListRow(label: "Account", icon: "shield", detail: "Sign-in, model, notifications") { go(.account) }.reveal(6)
             }
 

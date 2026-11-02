@@ -126,6 +126,33 @@ STACK_TEST_REAL_MODEL=1 STACK_TEST_MODEL=qwen3.8-27b-ninfer STACK_TEST_MODEL_URL
   JAC_DB_SCRATCH=1 JAC_TEST_JOBS=0 jac run --no-serve tests/test_memory_tailoring_workflow.py
 ```
 
+### Observed with Qwen (2026-11-02, final run)
+
+Real API, graph, worker, files and two accounts; NInfer at 65,536 tokens. Only resume
+detail drafting at import was stubbed, since it is a separate feature.
+
+| Scenario | Requests | Worker time | Job match before/after | Quality before/after | Pages |
+| --- | --- | --- | --- | --- | --- |
+| Data analyst, 7-entry bank | compose | 5.7 s | 40 / 68 | 77 / 85 | 1 |
+| Manufacturing, same-role entry | compose, verify | 6.0 s | 0 / 0 | 69 / 77 | 1 |
+| 87-entry bank (86 confirmed) | 3 screens, compose | 25.0 s | 40 / 68 | 77 / 85 | 1 |
+
+Every final line was confirmed text or passed the checks against its cited lines.
+No listing-only claim (Power BI, healthcare claims, leading, mentoring, Green Belt,
+SolidWorks, DOE, SPC) and nothing from the draft or the other account appeared in
+any prompt or file. Verification refused "Reduced Line 3 scrap" (the source says
+scrap fell after a recalibration), the attribution check kept "Our team cut...",
+and the negated Green Belt line kept its negation. In the large bank, 5 entries
+were used and 81 screened out with reasons; none went unread or unrated. The job
+scorer rates the manufacturing listing 0 before and after: it finds no scorable
+requirement there, which is a scoring limitation, not a tailoring result.
+Evidence is kept in `output/memory-tailoring-20261102/` on the operator PC.
+
+Earlier runs found and fixed: open-array screening that Qwen answered with no
+ratings; skills lines refused by verification although every item was sourced;
+jobs filed under Projects; the 2021 internship listed above a current role; and
+lost memory bullets when only a rewording was unsupported.
+
 The fixtures in `tests/memory_tailoring_cases.py` are fictional and were fixed before
 any model run. They include traps: listing-only requirements (Power BI, healthcare
 claims, leading projects, a Green Belt, SolidWorks), negated facts ("did not deploy",

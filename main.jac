@@ -290,7 +290,7 @@ def:priv resume_bank_save(name: str, source: str, records: list[dict[str, any]],
     if id is None { id=""; }
     if not id and (revision is None or revision=="0") { revision=0; }
     if confirm is None or confirm=="False" { confirm=False; }
-    if entry_type is None or entry_type=="None" { entry_type=""; }
+    if entry_type is None { entry_type=""; }
     if fields=="None" { fields=None; }
     with locks.account() {
         _agent_fresh();items=[r for r in [root -->][?:Resume] if r.review.get("kind")==BANK_KIND];
@@ -337,7 +337,8 @@ def:priv resume_bank_attachment_save(id: str, revision: int, name: str, content:
         attachment={"name":Path(name).name,"size":len(raw),"digest":hashlib.sha256(raw).hexdigest()} if raw else {};
         try { review=bank_save_review(r.review,r.name,r.review["source"],r.review["records"],False,revision,time.time(),attachment=attachment); }
         except ValueError as e { return _error(str(e)); }
-        old_key=r.file_key;key="bank-"+str(uuid4())+suffix if raw else "";
+        # Jac can replay a first write after a read-only snapshot; reuse its file key.
+        old_key=r.file_key;key="bank-"+hashlib.sha256((id+":"+str(revision)).encode()+raw).hexdigest()+suffix if raw else "";
         if raw { _write_private(key,raw); }
         r.file_key=key;r.size=len(raw);r.review=dict(review);r.review_revision+=1;r.review_confirmed=False;
         commit();

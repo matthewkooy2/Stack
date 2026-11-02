@@ -47,10 +47,11 @@ Reuse:
    configured output limit.
 2. **One call when it fits.** The compose request carries the listing, the resume
    (masthead, sections, entries, line IDs) and every memory entry in full.
-3. **Screen when it does not.** Entries are packed into context-sized chunks and the
-   model rates every entry (0 to 100) and marks useful lines. An entry larger than a
-   chunk is split into parts with its header repeated. Entries the model skips are
-   asked once more. Then the compose request carries the highest-rated entries, in full
+3. **Screen when it does not.** Entries are packed into context-sized chunks of at most
+   30 entries. The model rates every entry (0 to 100) and marks useful lines. The
+   schema of each request requires one rating per entry handle in that chunk; with an
+   open array, Qwen returned no ratings at all. An entry larger than a chunk is split
+   into parts with its header repeated. Entries the model skips are asked once more. Then the compose request carries the highest-rated entries, in full
    or with only their marked lines when space is short. Coverage records which
    requests read each entry.
 4. **Compose.** The model returns sections of items (`R.e<n>` resume entries,
@@ -59,14 +60,21 @@ Reuse:
 5. **Check every line.** A line must cite lines of its own entry. Two exceptions: a
    memory entry with the same organization and title as a resume entry's header may be
    cited inside that entry, and Skills lines may cite skills anywhere. A line is refused
-   if it adds a number, a name, tool or acronym, a scope or seniority word (led,
-   managed, owned, team of, senior, certified, ...), or drops a negation. It is also
-   refused if it is much longer than its sources or, in Skills, lists an item not in
-   its sources. Refused resume lines keep the user's wording; refused memory lines are
-   left out. Each refusal is a note.
+   if it adds a number (digits or number words), a name, tool or acronym, or a scope or
+   seniority word (led, managed, owned, team of, senior, certified, ...). It is also
+   refused if it drops a negation or drops team credit ("Our team cut..." cannot
+   become "Cut..."), if it is much longer than its sources, or, in Skills, if it lists
+   an item or proficiency not in its sources. A refused line is replaced by its cited
+   lines exactly as confirmed: resume content, or memory bullets inside the reviewable
+   addition. Fields, headers and first-person notes ("I did not deploy it") are never
+   printed alone, so those refusals are left out. Each refusal is a note. Typed jobs,
+   degrees and credentials are placed under their own kind of section (the resume's
+   heading when it has one), never under Projects or Skills.
 6. **Verify.** Every reworded non-skills line goes to a second model request with its
-   sources and any words borrowed from the listing. Unsupported or unchecked lines
-   revert the same way, so a verification outage cannot let a rewording through.
+   sources and any words borrowed from the listing. The schema requires a verdict for
+   every line. Unsupported or unchecked lines revert the same way, so a verification
+   outage cannot let a rewording through. Skills lines skip this request: their exact
+   item check is stricter, and Qwen rejected correct skills lines.
 7. **Review.** Changes are individually rejectable:
    `add:<entry>` (a memory entry), `add:<line>` (a same-role memory line),
    `rewrite:<line>`, `omit:R.e<n>` / `omit:R.r<n>`, and `order:sections`,

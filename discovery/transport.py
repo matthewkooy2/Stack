@@ -29,13 +29,15 @@ def addresses(host, port):
     return ips
 
 
-def fetch(url, headers=None, body=None, method=None, body_limit=MAX_BODY, allowed_hosts=None):
+def fetch(url, headers=None, body=None, method=None, body_limit=MAX_BODY, allowed_hosts=None, robots=None):
     """DNS is checked AND the connection pinned; redirects are checked individually."""
     initial = public_url(url).hostname
     for _ in range(5):
         p = public_url(url)
         if allowed_hosts is not None and p.hostname not in allowed_hosts:
             raise ValueError('Redirect is outside the selected source.')
+        if robots is not None and not robots.can_fetch('StackJobDiscovery', url):
+            raise ValueError('This site disallows automated collection.')
         port = p.port or (443 if p.scheme == 'https' else 80)
         ip = addresses(p.hostname, port)[0]
         conn = http.client.HTTPConnection(p.hostname, port, timeout=20)
@@ -82,4 +84,7 @@ def page_fetch(url, allowed_hosts=None):
         robots=''
     rp=RobotFileParser(); rp.parse(robots.splitlines())
     if not rp.can_fetch('StackJobDiscovery',url): raise ValueError('This site disallows automated collection.')
+    # A single-host crawl can enforce the same robots policy on every redirect.
+    if allowed_hosts == {p.hostname}:
+        return fetch(url, allowed_hosts=allowed_hosts, robots=rp)
     return fetch(url, allowed_hosts=allowed_hosts)

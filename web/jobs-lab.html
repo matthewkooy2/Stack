@@ -27,8 +27,23 @@ async function request(path,body={},authenticated=true){
 async function rpc(name,args={}){const r=await request('/function/'+name,args);if(r.data.result?.error)throw Error(r.data.result.error);return {...r,result:r.data.result};}
 function text(tag,value,cls=''){const el=document.createElement(tag);el.textContent=value;if(cls)el.className=cls;return el;}
 function render(feed,append=false){
- cursor=feed.next_cursor||'';cards=append?[...cards,...feed.jobs]:feed.jobs;$('jobs').replaceChildren();
- for(const job of cards){const article=document.createElement('article');article.append(text('h3',job.title),text('p',job.company||'Company'),text('p',[job.location,job.posted].filter(Boolean).join(' · '),'muted'));for(const tag of (job.tags||[]))article.append(text('span',tag,'pill'));for(const line of [...(job.highlights?.responsibilities||[]),...(job.highlights?.requirements||[])])article.append(text('p',line));if(job.match?.summary)article.append(text('p',job.match.summary));const details=document.createElement('details');details.append(text('summary','Match details'),text('pre',JSON.stringify({match:job.match,timeline:job.timeline},null,2)));article.append(details);$('jobs').append(article);}
+ cursor=feed.next_cursor||'';cards=append?[...cards,...feed.jobs]:feed.jobs;
+ if(!append)$('jobs').replaceChildren();
+ for(const job of feed.jobs){
+  const article=document.createElement('article');
+  const logo=feed.employer_logos?.[job.employer_brand];
+  if(logo){const img=document.createElement('img');img.src='data:image/png;base64,'+logo;img.alt='';img.width=40;img.height=40;img.style.borderRadius='9px';article.append(img);}
+  article.append(text('h3',job.title),text('p',job.company||'Company'),text('p',[job.location,job.mode==='Unknown'?job.highlights?.work_arrangement:job.mode,job.posted].filter(Boolean).join(' · '),'muted'));
+  const pay=job.salary && job.salary!=='Pay not listed' ? [job.salary,job.highlights?.pay_context] : [job.highlights?.pay_excerpt || job.salary];
+  for(const line of pay.filter(Boolean))article.append(text('p',line));
+  for(const tag of (job.tags||[]))article.append(text('span',tag,'pill'));
+  for(const line of [...(job.highlights?.responsibilities||[]),...(job.highlights?.requirements||[])])article.append(text('p',line));
+  if(job.match?.summary)article.append(text('p',job.match.summary));
+  const details=document.createElement('details');
+  details.append(text('summary','Match details'),text('pre',JSON.stringify({match:job.match,timeline:job.timeline},null,2)));
+  article.append(details);
+  $('jobs').append(article);
+ }
  if(!cards.length)$('jobs').append(text('p','No jobs match these preferences. Try a broader role or location.'));
  $('match-count').textContent=feed.total?.toLocaleString()??'—';$('shown').textContent=`${cards.length} shown`;$('more').hidden=!cursor;$('results').hidden=false;
 }

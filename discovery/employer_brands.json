@@ -1,0 +1,554 @@
+[
+  {
+    "domain": "accor.com",
+    "name": "Accor",
+    "domains": [
+      "accor.com"
+    ],
+    "boards": [
+      "smartrecruiters:AccorHotel"
+    ],
+    "artwork_source": "https://group.accor.com/icon1.png?icon1.0_x5_qddxau5x.png"
+  },
+  {
+    "domain": "aecom.com",
+    "name": "AECOM",
+    "domains": [
+      "aecom.com"
+    ],
+    "boards": [
+      "smartrecruiters:AECOM2"
+    ],
+    "artwork_source": "https://aecom.com/code/wp-content/plugins/aecom-components/images/aecom-logo-light.svg"
+  },
+  {
+    "domain": "affirm.com",
+    "name": "Affirm",
+    "domains": [
+      "affirm.com"
+    ],
+    "boards": [
+      "greenhouse:affirm"
+    ],
+    "artwork_source": "https://www.affirm.com/"
+  },
+  {
+    "domain": "useagave.com",
+    "name": "Agave",
+    "domains": [
+      "useagave.com",
+      "agaveapi.com"
+    ],
+    "boards": [
+      "ashby:agave"
+    ],
+    "artwork_source": "https://cdn.prod.website-files.com/686bbe4117d329bcecd33a03/68b0f7bf62539de3828ead95_256x256.png"
+  },
+  {
+    "domain": "agiledefense.com",
+    "name": "Agile Defense",
+    "domains": [
+      "agiledefense.com",
+      "agile-defense.com"
+    ],
+    "boards": [
+      "lever:agile-defense"
+    ],
+    "artwork_source": "https://agiledefense.com/wp-content/uploads/2024/04/AGILE_DEFENSE_LOGO_SYMBOL.svg"
+  },
+  {
+    "domain": "anduril.com",
+    "name": "Anduril Industries",
+    "domains": [
+      "anduril.com"
+    ],
+    "boards": [
+      "greenhouse:andurilindustries"
+    ],
+    "artwork_source": "https://www.anduril.com/assets/favicon/favicon-512.xxjGh-Lg5Y.png"
+  },
+  {
+    "domain": "asana.com",
+    "name": "Asana",
+    "domains": [
+      "asana.com"
+    ],
+    "boards": [
+      "greenhouse:asana"
+    ],
+    "artwork_source": "https://asana.com/assets/img/brand/asana-logo-favicon.ico"
+  },
+  {
+    "domain": "ashbyhq.com",
+    "name": "Ashby",
+    "domains": [
+      "ashbyhq.com"
+    ],
+    "boards": [
+      "ashby:ashby"
+    ],
+    "artwork_source": "https://www.ashbyhq.com/icon.png"
+  },
+  {
+    "domain": "aurelian.com",
+    "name": "Aurelian",
+    "domains": [
+      "aurelian.com"
+    ],
+    "boards": [
+      "ashby:aurelian"
+    ],
+    "artwork_source": "https://www.aurelian.com/favicon_dark.png"
+  },
+  {
+    "domain": "authenticinsurance.com",
+    "name": "Authentic",
+    "domains": [
+      "authenticinsurance.com"
+    ],
+    "boards": [
+      "greenhouse:authenticinsurance"
+    ],
+    "artwork_source": "https://framerusercontent.com/images/O0SzYd48cvKCzQj7m4vNATZpfc.png"
+  },
+  {
+    "domain": "axon.com",
+    "name": "Axon",
+    "domains": [
+      "axon.com"
+    ],
+    "boards": [
+      "greenhouse:axon"
+    ],
+    "artwork_source": "https://s3-recruiting.cdn.greenhouse.io/job_board_renderer/job_board_configurations/banners/400/223/000/original/Axon_Brand_Logo_2024_Primary_White_Digital_JPEG.jpg?1742829216"
+  },
+  {
+    "domain": "bloomandwild.com",
+    "name": "Bloom & Wild Group",
+    "domains": [
+      "bloomandwild.com"
+    ],
+    "boards": [
+      "lever:bloomon"
+    ],
+    "artwork_source": "https://lever-client-logos.s3.us-west-2.amazonaws.com/ba2cf997-0819-423b-aef5-a0f482e08832-1706614961327.png"
+  },
+  {
+    "domain": "bosch.com",
+    "name": "Bosch",
+    "domains": [
+      "bosch.com"
+    ],
+    "boards": [
+      "smartrecruiters:BoschGroup"
+    ],
+    "artwork_source": "https://www.bosch.com/media/tech/tech_images/android-chrome-192x192.png"
+  },
+  {
+    "domain": "brain.co",
+    "name": "Brain Co.",
+    "domains": [
+      "brain.co"
+    ],
+    "boards": [
+      "ashby:brainco"
+    ],
+    "artwork_source": "https://brain.co/apple-icon?d2c3b303bc55e682"
+  },
+  {
+    "domain": "chalk.ai",
+    "name": "Chalk",
+    "domains": [
+      "chalk.ai"
+    ],
+    "boards": [
+      "ashby:chalk"
+    ],
+    "artwork_source": "https://chalk.ai/"
+  },
+  {
+    "domain": "clearme.com",
+    "name": "CLEAR",
+    "domains": [
+      "clearme.com"
+    ],
+    "boards": [
+      "greenhouse:clear"
+    ],
+    "artwork_source": "https://cdn.prod.website-files.com/646a6ec3f634076bc7bf77f2/647f9540c645b02c286d5fa1_clear_webclip.png"
+  },
+  {
+    "domain": "cloudflare.com",
+    "name": "Cloudflare",
+    "domains": [
+      "cloudflare.com"
+    ],
+    "boards": [
+      "greenhouse:cloudflare"
+    ],
+    "artwork_source": "https://www.cloudflare.com/favicon.ico"
+  },
+  {
+    "domain": "crosscountry-consulting.com",
+    "name": "CrossCountry Consulting",
+    "domains": [
+      "crosscountry-consulting.com"
+    ],
+    "boards": [
+      "lever:crosscountry-consulting"
+    ],
+    "artwork_source": "https://www.crosscountry-consulting.com/wp-content/uploads/2024/08/cropped-cropped-CCC-Icon-192x192.png"
+  },
+  {
+    "domain": "datadoghq.com",
+    "name": "Datadog",
+    "domains": [
+      "datadoghq.com"
+    ],
+    "boards": [
+      "greenhouse:datadog"
+    ],
+    "artwork_source": "https://corp.dd-static.net/img/favicons/apple-touch-icon.png"
+  },
+  {
+    "domain": "discord.com",
+    "name": "Discord",
+    "domains": [
+      "discord.com"
+    ],
+    "boards": [
+      "greenhouse:discord"
+    ],
+    "artwork_source": "https://cdn.prod.website-files.com/6257adef93867e50d84d30e2/6266bc493fb42d4e27bb8393_847541504914fd33810e70a0ea73177e.ico"
+  },
+  {
+    "domain": "doctorswithoutborders.org",
+    "name": "Doctors Without Borders USA",
+    "domains": [
+      "doctorswithoutborders.org"
+    ],
+    "boards": [
+      "greenhouse:msfcareers"
+    ],
+    "artwork_source": "https://www.doctorswithoutborders.org/themes/custom/msf/favicon.ico"
+  },
+  {
+    "domain": "duolingo.com",
+    "name": "Duolingo",
+    "domains": [
+      "duolingo.com"
+    ],
+    "boards": [
+      "greenhouse:duolingo"
+    ],
+    "artwork_source": "https://d35aaqx5ub95lt.cloudfront.net/images/pwa-icon-circle-192.png"
+  },
+  {
+    "domain": "figma.com",
+    "name": "Figma",
+    "domains": [
+      "figma.com"
+    ],
+    "boards": [
+      "greenhouse:figma"
+    ],
+    "artwork_source": "https://static.figma.com/app/icon/2/icon-192.png"
+  },
+  {
+    "domain": "goftsg.com",
+    "name": "Freedom Technology Solutions Group",
+    "domains": [
+      "goftsg.com"
+    ],
+    "boards": [
+      "greenhouse:freedomconsulting"
+    ],
+    "artwork_source": "https://goftsg.com/wp-content/uploads/cropped-freedom-technology-solutions-group-favicon-192x192.png"
+  },
+  {
+    "domain": "graphcore.ai",
+    "name": "Graphcore",
+    "domains": [
+      "graphcore.ai"
+    ],
+    "boards": [
+      "greenhouse:graphcore"
+    ],
+    "artwork_source": "https://www.graphcore.ai/hubfs/assets/logo/Favicon_filled_dark_mode.svg"
+  },
+  {
+    "domain": "hmgroup.com",
+    "name": "H&M Group",
+    "domains": [
+      "hmgroup.com"
+    ],
+    "boards": [
+      "smartrecruiters:HMGroup"
+    ],
+    "artwork_source": "https://hmgroup.com/wp-content/uploads/2025/01/hm-group-fav-ico.png"
+  },
+  {
+    "domain": "kipp.org",
+    "name": "KIPP Public Schools",
+    "domains": [
+      "kipp.org"
+    ],
+    "boards": [
+      "smartrecruiters:KIPP"
+    ],
+    "artwork_source": "https://www.kipp.org/wp-content/themes/kipp/src/images/KIPP-LOGO-NEW.png"
+  },
+  {
+    "domain": "mongodb.com",
+    "name": "MongoDB",
+    "domains": [
+      "mongodb.com"
+    ],
+    "boards": [
+      "greenhouse:mongodb"
+    ],
+    "artwork_source": "https://webimages.mongodb.com/_com_assets/cms/kuyjf3vea2hg34taa-horizontal_default_slate_blue.svg?auto=format%252Ccompress"
+  },
+  {
+    "domain": "moveparallel.com",
+    "name": "Parallel",
+    "domains": [
+      "moveparallel.com"
+    ],
+    "boards": [
+      "greenhouse:parallel"
+    ],
+    "artwork_source": "https://cdn.prod.website-files.com/683f147ae8bb84d089b506fc/684933f8d40361dbc812c973_Webclip.png"
+  },
+  {
+    "domain": "palantir.com",
+    "name": "Palantir Technologies",
+    "domains": [
+      "palantir.com"
+    ],
+    "boards": [
+      "lever:palantir"
+    ],
+    "artwork_source": "https://lever-client-logos.s3.us-west-2.amazonaws.com/b8300af6-ed1c-4d0b-8956-cee7839555b9-1599675095718.png"
+  },
+  {
+    "domain": "pinterest.com",
+    "name": "Pinterest",
+    "domains": [
+      "pinterest.com"
+    ],
+    "boards": [
+      "greenhouse:pinterest"
+    ],
+    "artwork_source": "https://s.pinimg.com/images/favicon_red_192.png"
+  },
+  {
+    "domain": "qumulo.com",
+    "name": "Qumulo",
+    "domains": [
+      "qumulo.com"
+    ],
+    "boards": [
+      "ashby:qumulo"
+    ],
+    "artwork_source": "https://www.datocms-assets.com/195389/1770871323-image-62.png?auto=format&h=256&w=256"
+  },
+  {
+    "domain": "quora.com",
+    "name": "Quora",
+    "domains": [
+      "quora.com"
+    ],
+    "boards": [
+      "ashby:quora"
+    ],
+    "artwork_source": "https://app.ashbyhq.com/api/images/org-theme-logo/f6796641-6a8f-4737-85da-80958c490a56/52ab3a31-ee53-476b-b412-6f188e5eab7f/6d7cf2cc-8516-4738-b066-8080f2b0564e.png"
+  },
+  {
+    "domain": "robinhood.com",
+    "name": "Robinhood",
+    "domains": [
+      "robinhood.com"
+    ],
+    "boards": [
+      "greenhouse:robinhood"
+    ],
+    "artwork_source": "https://robinhood.com/us/en/rh_favicon_152.png?v=2024"
+  },
+  {
+    "domain": "scale.com",
+    "name": "Scale AI",
+    "domains": [
+      "scale.com"
+    ],
+    "boards": [
+      "greenhouse:scaleai"
+    ],
+    "artwork_source": "https://scale.com/static/global/favicon/v3/apple-touch-icon.png"
+  },
+  {
+    "domain": "sf.gov",
+    "name": "City and County of San Francisco",
+    "domains": [
+      "sf.gov"
+    ],
+    "boards": [
+      "smartrecruiters:CityAndCountyOfSanFrancisco1"
+    ],
+    "artwork_source": "https://www.sf.gov/_next/static/media/CCSF-seal-vector.f4f3942a.svg"
+  },
+  {
+    "domain": "shield.ai",
+    "name": "Shield AI",
+    "domains": [
+      "shield.ai"
+    ],
+    "boards": [
+      "lever:shieldai"
+    ],
+    "artwork_source": "https://lever-client-logos.s3.us-west-2.amazonaws.com/e4d7e3f9-4b87-4387-8892-028dfcb1212b-1785460999947.png"
+  },
+  {
+    "domain": "sierra.ai",
+    "name": "Sierra",
+    "domains": [
+      "sierra.ai"
+    ],
+    "boards": [
+      "ashby:sierra"
+    ],
+    "artwork_source": "https://sierra.ai/apple-icon.png"
+  },
+  {
+    "domain": "singlestore.com",
+    "name": "SingleStore",
+    "domains": [
+      "singlestore.com"
+    ],
+    "boards": [
+      "greenhouse:singlestore"
+    ],
+    "artwork_source": "https://www.singlestore.com/icons/icon-256x256.png?v=277b9cbbe31e8bc416504cf3b902d430"
+  },
+  {
+    "domain": "sirenopt.com",
+    "name": "SirenOpt",
+    "domains": [
+      "sirenopt.com"
+    ],
+    "boards": [
+      "greenhouse:sirenopt"
+    ],
+    "artwork_source": "https://cdn.prod.website-files.com/667465fdb09b6820af128108/669fc452c3a912d5298481ab_Artboard%201sirenopt-applications-industry-metrology.png"
+  },
+  {
+    "domain": "spotify.com",
+    "name": "Spotify",
+    "domains": [
+      "spotify.com"
+    ],
+    "boards": [
+      "lever:spotify"
+    ],
+    "artwork_source": "https://open.spotifycdn.com/cdn/images/icons/Spotify_MWP_384.b98158a0.png"
+  },
+  {
+    "domain": "spruceid.com",
+    "name": "SpruceID",
+    "domains": [
+      "spruceid.com"
+    ],
+    "boards": [
+      "ashby:spruceid"
+    ],
+    "artwork_source": "https://framerusercontent.com/images/TNAgocSCHDIhl5qeEpJarpKcC4.png"
+  },
+  {
+    "domain": "startree.ai",
+    "name": "StarTree",
+    "domains": [
+      "startree.ai"
+    ],
+    "boards": [
+      "greenhouse:startree"
+    ],
+    "artwork_source": "https://startree.ai/wp-content/uploads/2025/06/cropped-main-favicon-192x192.png"
+  },
+  {
+    "domain": "stripe.com",
+    "name": "Stripe",
+    "domains": [
+      "stripe.com"
+    ],
+    "boards": [
+      "greenhouse:stripe"
+    ],
+    "artwork_source": "https://images.stripeassets.com/fzn2n1nzq965/1hgcBNd12BfT9VLgbId7By/01d91920114b124fb4cf6d448f9f06eb/favicon.svg"
+  },
+  {
+    "domain": "teletracking.com",
+    "name": "TeleTracking",
+    "domains": [
+      "teletracking.com"
+    ],
+    "boards": [
+      "greenhouse:teletrackingtechnologiesinc"
+    ],
+    "artwork_source": "https://eadn-wc03-11006557.nxedge.io/wp-content/uploads/2025/01/TeleTracking_Logo.8ef0c78d9c25f23911a05caf3657e2a24cc9201d.png"
+  },
+  {
+    "domain": "together.ai",
+    "name": "Together AI",
+    "domains": [
+      "together.ai"
+    ],
+    "boards": [
+      "greenhouse:togetherai"
+    ],
+    "artwork_source": "https://cdn.prod.website-files.com/69654e88dce9154b5f1206dd/69a59cff65ed0f267dd2fbe8_touchicon.png"
+  },
+  {
+    "domain": "twitch.tv",
+    "name": "Twitch",
+    "domains": [
+      "twitch.tv"
+    ],
+    "boards": [
+      "greenhouse:twitch"
+    ],
+    "artwork_source": "https://www.twitch.tv/p/en/about/"
+  },
+  {
+    "domain": "vercel.com",
+    "name": "Vercel",
+    "domains": [
+      "vercel.com"
+    ],
+    "boards": [
+      "greenhouse:vercel"
+    ],
+    "artwork_source": "https://py8fhxnkzwtsqdo9.public.blob.vercel-storage.com/front/favicon/vercel/android-chrome-192x192.png"
+  },
+  {
+    "domain": "visa.com",
+    "name": "Visa",
+    "domains": [
+      "visa.com"
+    ],
+    "boards": [
+      "smartrecruiters:Visa"
+    ],
+    "artwork_source": "https://www.visa.com/vcom-assets/content/dam/visa/header/Vector.png"
+  },
+  {
+    "domain": "ziprecruiter.com",
+    "name": "ZipRecruiter",
+    "domains": [
+      "ziprecruiter.com"
+    ],
+    "boards": [
+      "greenhouse:ziprecruiter"
+    ],
+    "artwork_source": "https://www.ziprecruiter.com/favicon-144x144.png"
+  }
+]

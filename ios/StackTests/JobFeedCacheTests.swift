@@ -2,6 +2,22 @@ import XCTest
 @testable import Stack
 
 final class JobFeedCacheTests: XCTestCase {
+    func testLogosSurvivePaginationAndCacheRestore() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let cache = JobFeedCache(file: file)
+        defer { cache.remove() }
+        let context = JobFeedContext(origin: URL(string: "https://stack.invalid")!,
+                                     account: AccountState(raw: ["user_id": "logo-user"]))
+        let first: JSON = ["jobs": [["id": "first", "employer_brand": "one.example", "active": true]],
+                           "employer_logos": ["one.example": "b25l"]]
+        let next: JSON = ["jobs": [["id": "second", "employer_brand": "two.example", "active": true],
+                                   ["id": "unknown", "active": true]],
+                          "employer_logos": ["two.example": "dHdv"]]
+        cache.write(next, jobs: Job.feedPage(first) + Job.feedPage(next), for: context)
+        let restored = try XCTUnwrap(cache.read(for: context, decided: []))
+        XCTAssertEqual(Job.feedPage(restored).map(\.logoPNG), ["b25l", "dHdv", ""])
+    }
+
     func testRestoredMatchesRespectAccountPreferencesDecisionsAndExpiry() throws {
         let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         var now = Date(timeIntervalSince1970: 1_800_000_000)

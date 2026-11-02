@@ -1,11 +1,16 @@
 import SwiftUI
+import UIKit
 
 /// Presentation only: use the employer excerpts supplied by the compact feed, never generated fit prose.
 struct JobCardCopy {
     let job: Job
 
     var location: String {
-        [job.location.isBlank ? "Location not listed" : job.location, job.mode == "Unknown" ? "" : job.mode]
+        let region = job.raw["remote_eligibility"].string
+        let place = job.location.isBlank || job.location == "Location not listed" ? "" : job.location
+        let eligibility = job.mode == "Remote" && !region.isBlank ? "Eligible locations: " + region : ""
+        let arrangement = job.mode.isBlank || job.mode == "Unknown" ? job.raw["highlights"]["work_arrangement"].string : job.mode
+        return [place.isEmpty && eligibility.isEmpty ? "Location not listed" : place, arrangement, eligibility]
             .filter { !$0.isBlank }.joined(separator: " · ")
     }
 
@@ -25,12 +30,16 @@ struct JobCardCopy {
     }
 
     var payExcerpt: String {
-        guard job.salary.isBlank || job.salary.localizedCaseInsensitiveContains("not listed") else { return "" }
+        if !job.salary.isBlank && !job.salary.localizedCaseInsensitiveContains("not listed") {
+            return job.raw["highlights"]["pay_context"].string
+        }
         return job.raw["highlights"]["pay_excerpt"].string
     }
 
     /// When the employer only states pay in text, show that text in place of a "Pay not listed" headline.
-    var showsPayHeadline: Bool { payExcerpt.isEmpty }
+    var showsPayHeadline: Bool {
+        payExcerpt.isEmpty || (!job.salary.isBlank && !job.salary.localizedCaseInsensitiveContains("not listed"))
+    }
 
     var roleExcerpt: String {
         let supplied = job.raw["highlights"]["responsibilities"].strings.first { !$0.isBlank }
@@ -47,7 +56,7 @@ struct JobCardCopy {
     var tags: String { job.tags.filter { !$0.isBlank }.prefix(4).joined(separator: " · ") }
 
     var accessibilityLabel: String {
-        [job.company, job.posted, job.title, location, pay, payPeriod, payExcerpt, tags, roleExcerpt]
+        [job.company, job.posted, job.title, location, showsPayHeadline ? pay : "", payPeriod, payExcerpt, tags, roleExcerpt]
             .filter { !$0.isBlank }.joined(separator: ". ")
             + (requirements.isEmpty ? "" : ". " + requirements.joined(separator: ". "))
     }
@@ -161,12 +170,20 @@ struct JobCard: View {
     private var header: some View {
         HStack(alignment: .top, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
-                Text(job.initial)
-                    .font(.body.weight(.semibold)).foregroundStyle(Brand.ink)
-                    .frame(width: 40, height: 40)
-                    .background(Brand.page, in: Circle())
-                    .overlay(Circle().stroke(Brand.rule, lineWidth: 1))
-                    .accessibilityHidden(true)
+                Group {
+                    if !job.logoPNG.isEmpty, let data = Data(base64Encoded: job.logoPNG), let image = UIImage(data: data) {
+                        Image(uiImage: image).resizable().scaledToFit()
+                            .clipShape(RoundedRectangle(cornerRadius: 9))
+                    } else {
+                        Text(job.initial)
+                            .font(.body.weight(.semibold)).foregroundStyle(Brand.ink)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(Brand.page, in: Circle())
+                            .overlay(Circle().stroke(Brand.rule, lineWidth: 1))
+                    }
+                }
+                .frame(width: 40, height: 40)
+                .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(job.company).font(.headline).foregroundStyle(Brand.ink)
                         .lineLimit(2)

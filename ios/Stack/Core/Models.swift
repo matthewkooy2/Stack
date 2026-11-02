@@ -17,7 +17,21 @@ struct Job: Identifiable, Hashable {
     /// The complete server document, for fields only the detail screens read (match, timeline, source).
     let raw: JSON
 
+    let logoPNG: String
+
+    static func feedPage(_ page: JSON) -> [Job] {
+        let logos = page["employer_logos"]
+        return page["jobs"].array.map { row in
+            Job(row, logoPNG: logos[row["employer_brand"].string].string)
+        }
+    }
+
     init(_ json: JSON) {
+        self.init(json, logoPNG: "")
+    }
+
+    private init(_ json: JSON, logoPNG: String) {
+        self.logoPNG = logoPNG
         raw = json
         id = json["id"].string
         company = json["company"].string

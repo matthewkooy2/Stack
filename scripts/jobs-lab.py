@@ -102,6 +102,12 @@ def handler(api):
         def do_GET(self):
             if self.path == '/':
                 self.send(200, (ROOT / 'web/jobs-lab.html').read_bytes(), 'text/html; charset=utf-8')
+            elif photo := re.fullmatch(r'/job-photos/([a-z0-9-]+)\.jpg', self.path):
+                asset = ROOT / 'ios/Stack/Resources/JobPhotos' / f'job-photo-{photo[1]}.jpg'
+                if asset.is_file():
+                    self.send(200, asset.read_bytes(), 'image/jpeg')
+                else:
+                    self.send(404, b'{"error":"Unknown photo"}')
             elif self.path == '/lab-info':
                 manifest = LAB / 'manifest.json'
                 self.send(200, manifest.read_bytes() if manifest.exists() else b'{"kind":"synthetic","note":"Catalog manifest unavailable"}')

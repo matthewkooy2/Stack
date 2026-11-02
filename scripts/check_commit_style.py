@@ -26,10 +26,7 @@ def git(*args):
 
 
 def message_errors(message):
-    result = errors(message.splitlines()[0] if message else "")
-    if re.search(r"^co-authored-by\s*:", message, re.I | re.M):
-        result.append("omit coauthor attribution")
-    return result
+    return errors(message.splitlines()[0] if message else "")
 
 
 def main():

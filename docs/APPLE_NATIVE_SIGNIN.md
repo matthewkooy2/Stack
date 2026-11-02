@@ -4,7 +4,8 @@ Apple sign-in has three responsibilities:
 
 1. Verify Apple's identity proof, including its signature, app audience, expiry,
    issuer and the one-use sign-in challenge.
-2. Find the Stack account by Apple's stable subject, or create it on first sign-in.
+2. Find the Stack account by Apple's stable subject or normalized verified email,
+   or create it on first sign-in.
 3. Issue the same Stack session used by other sign-in methods.
 
 The iPhone uses Apple's official sign-in button and AuthenticationServices sheet.
@@ -21,12 +22,16 @@ signatures, audience and expiry. No Apple private key, client secret or stored
 Apple refresh grant is used. The native build needs the matching bundle ID and
 `Stack/StackApple.entitlements`, with `STACK_APPLE_SIGN_IN_ENABLED=YES`.
 
-Apple-specific account linking/deletion, refresh, revocation notifications,
-session versions, request preflights, persistent locks and crash recovery have
-been removed. Apple sessions now follow normal Stack session behavior. The
-Apple-specific account deletion control is removed; password-confirmed Stack
-account deletion is unchanged. Old Apple grant/state/lock rows are no longer read
-or written; this change does not delete stored account data.
+The native app requests email. Verified matching Apple and Google email addresses
+reuse one Stack account. Apple's private relay address remains a distinct email;
+Stack cannot infer the real address behind it. Existing provider subjects remain
+stable sign-in identifiers when no email is returned.
+
+Profile → Account → Delete account uses the current Stack session and one
+confirmation. It does not ask for a password or another Apple login. Deletion
+removes active account graph/identity data, queued work, uploads, recordings,
+saved sign-in state and this phone's drafts/cache. Failed cleanup is reported
+instead of returning success. Signing in again creates a fresh account.
 
 ## Verification
 

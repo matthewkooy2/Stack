@@ -23,7 +23,7 @@ import from core.automation {
     agent_settings, agent_save_model, agent_report, agent_admission, agent_register_push, agent_remove_push, agent_notification_claim, agent_notification_begin, agent_notification_finish, agent_notification_status, agent_save_facts, agent_save_policy, agent_activity, agent_run, agent_cancel, agent_respond, agent_reconcile,
     agent_contacts, agent_save_contact, agent_stop_contact, agent_import_contacts, agent_events, agent_claim, agent_model_log, agent_model_logs, agent_authorize, _agent_complete, agent_worker_connection, agent_approve, agent_retry, agent_dismiss, agent_trace, agent_traces, agent_feedback,
     agent_invite, agent_accept_invite, agent_google_start, agent_google_finish, agent_disconnect, agent_export,
-    prep_progress, prep_live, agent_live_claim, agent_live_check, agent_live_finish, prep_catalog, prep_sessions, prep_create, prep_get, prep_save
+    prep_progress, prep_live, agent_live_claim, agent_live_check, agent_live_finish, prep_catalog, prep_sessions, prep_create, prep_get, prep_save, prep_coach, prep_save_coaching
 }
 import from agents.contracts { authorize, config, digest, model_status, model_access, validate_facts, STEPS }
 import from agents.latex { load as latex_load, pack as latex_pack, unpack as latex_unpack, encode as latex_encode, compile as latex_compile, parse as latex_parse, summary as latex_summary, outline as latex_outline }
@@ -49,6 +49,9 @@ import from agents.stories { empty as empty_story }
 import os;
 import agents.interview as interview_flow;
 import agents.apple_auth as apple_auth;
+import agents.accounts as accounts;
+
+with entry { accounts.install(); }
 
 # Native Apple identity becomes an ordinary Stack session.
 def:pub auth_apple_begin() -> dict[str, any] {
@@ -73,7 +76,9 @@ def:priv interview_create(application_id: str, client_id: str) -> dict[str, any]
         apps=[a for a in [root -->][?:Application] if jid(a)==application_id and not a.demo];
         if not apps { return {"error":"Choose one of your saved roles."}; }
         a=apps[0];resume=_application_resume(a);resume_id=jid(resume) if resume is not None else "";
-        try { data=interview_flow.create(_application_job(a),_agent_memory().facts,application_id,resume_id); }
+        # A resume confirmed as reviewed records has no facts; its records supply the resume questions.
+        records=resume.review.get("records",[]) if resume is not None and resume.review_confirmed else [];
+        try { data=interview_flow.create(_application_job(a),_agent_memory().facts,application_id,resume_id,records); }
         except ValueError as e { return {"error":str(e)}; }
         data["client_id"]=client_id;
         p=root ++> PrepSession(data=data,created_at=time.time(),updated_at=time.time());commit();return interview_get(jid(p));
@@ -94,10 +99,11 @@ def:priv interview_sessions() -> dict[str, any] {
     return {"sessions":[{"id":jid(p),"data":p.data,"revision":p.revision,"updated_at":p.updated_at} for p in sessions[:50]]};
 }
 
-def _interview_queue(p: PrepSession, final: bool = False) -> None {
+def _interview_queue(p: PrepSession, final: bool = False, index: int = -1) -> None {
     kind="interview_coach" if final else "interview_turn";
     attempt=int(p.data.get("model_attempt",0))+1;
-    run=_agent_start(kind,jid(p),interview_flow.context(p.data,p.revision,final),str(p.revision)+":"+str(attempt),False);
+    turn=index if index>=0 else interview_flow.target(p.data);
+    run=_agent_start(kind,jid(p),interview_flow.context(p.data,p.revision,final,turn),str(p.revision)+":"+str(attempt),False);
     p.data={**p.data,"pending":run["id"],"model_attempt":attempt};
 }
 
@@ -110,7 +116,7 @@ def:priv interview_answer(id: str, revision: int, answer: str, client_id: str, r
             if any(t.get("client_id")==client_id for t in p.data["turns"]) { return interview_get(id); }
             if revision!=p.revision { raise ValueError("This transcript changed. Reopen it before saving; your typed draft is retained."); }
             if p.data["status"]!="active" or p.data.get("pending") or len(p.data["turns"])>=len(p.data["questions"]) { raise ValueError("Continue or finish the saved interview before answering."); }
-            if len(p.data["turns"])>=6 { raise ValueError("Finish this short interview after six answers."); }
+            if len(p.data["turns"])>=interview_flow.LIMIT { raise ValueError("Finish this short interview after six answers."); }
             original=text;
             if recording_id {
                 recording=TranscriptionStore().get(jid(root),recording_id);
@@ -133,7 +139,10 @@ def:priv interview_correct(id: str, revision: int, index: int, answer: str) -> d
             # Cancel any claimed attempt before changing its evidence.
             pending=_owned_run(p.data.get("pending",""));
             if pending is not None and pending.status not in ["completed","cancelled","failed"] { pending.status="cancelled";pending.lease="";pending.lease_until=0; }
-            p.data=interview_flow.correct(p.data,index,text);p.revision+=1;p.updated_at=time.time();commit();return interview_get(id);
+            p.data=interview_flow.correct(p.data,index,text);p.revision+=1;p.updated_at=time.time();
+            # A retried answer is coached again at once; a finished interview waits for its new final coaching request.
+            if p.data["status"]=="active" { _interview_queue(p,False,index); }
+            commit();return interview_get(id);
         } except ValueError as e { return {"error":str(e)}; }
     }
 }
@@ -146,12 +155,25 @@ def:priv interview_continue(id: str, revision: int, action: str = "followup") ->
             if revision!=p.revision { raise ValueError("This interview changed. Reopen it before continuing."); }
             if action=="finish" {
                 if p.data["status"]=="finished" { return interview_get(id); }
-                if len(p.data["turns"])<2 { raise ValueError("Review at least two answers before finishing."); }
+                # One answer is a useful shortened interview. With none there is nothing to assess.
+                if not p.data["turns"] { raise ValueError("Answer at least one question before finishing. An interview without answers gets no assessment."); }
                 pending=_owned_run(p.data.get("pending",""));
-                if pending is not None and pending.status not in ["completed","cancelled","failed"] { pending.status="cancelled";pending.lease="";pending.lease_until=0; }
-                if p.data["status"]!="finished" { p.data={**p.data,"status":"finished","pending":"","finished_at":time.time()};p.revision+=1; }
+                # Coaching of the last answer that is still being written keeps going, so finishing early never
+                # loses it; it is re-bound to the finished revision. Anything else pending is cancelled.
+                live=pending is not None and pending.status in ["queued","running"] and pending.kind=="interview_turn";
+                if pending is not None and not live and pending.status not in ["completed","cancelled","failed"] { pending.status="cancelled";pending.lease="";pending.lease_until=0; }
+                p.data={**p.data,"status":"finished","pending":p.data["pending"] if live else "","finished_at":time.time()};p.revision+=1;
+                if live and pending is not None { pending.context={**pending.context,"session_revision":p.revision}; }
             } elif action=="analyze" {
-                if not p.data["turns"] or p.data.get("pending") { raise ValueError("Wait for the current task, or retry it below."); }
+                if not p.data["turns"] { raise ValueError("Wait for the current task, or retry it below."); }
+                pending=_owned_run(p.data.get("pending",""));
+                if p.data.get("pending") {
+                    # Final coaching asked for while the last answer is still being coached starts right after it.
+                    if p.data["status"]=="finished" and pending is not None and pending.kind=="interview_turn" and pending.status in ["queued","running"] {
+                        p.data={**p.data,"final_after":True};p.updated_at=time.time();commit();return interview_get(id);
+                    }
+                    raise ValueError("Wait for the current task, or retry it below.");
+                }
                 _interview_queue(p,p.data["status"]=="finished");
             } elif action in ["followup","next"] {
                 if p.data["status"]!="active" or not p.data["turns"] { raise ValueError("Save a reviewed answer before continuing."); }
@@ -164,7 +186,7 @@ def:priv interview_continue(id: str, revision: int, action: str = "followup") ->
                 if action=="followup" {
                     analysis=p.data["analysis"].get(str(count));
                     if not analysis { raise ValueError("Analyze the reviewed answer first, or continue with the saved role question."); }
-                    if count>=6 { raise ValueError("This short interview has reached six answers. Finish and review it."); }
+                    if count>=interview_flow.LIMIT { raise ValueError("This short interview has reached six answers. Finish and review it."); }
                     question={"question":interview_flow.followup(analysis,p.data),"evidence":[],"kind":"followup","basis_revision":p.revision};
                     questions=p.data["questions"][:count]+[question]+[q for q in p.data["questions"][count:] if q["kind"]!="followup"];
                     p.data={**p.data,"questions":questions};p.revision+=1;
@@ -1290,11 +1312,16 @@ def _export_resume(r: Resume) -> dict[str, any] {
 def:priv account_export() -> dict[str, any] {
     _agent_access();return {"account":bootstrap(),"agents":agent_export(),"stories":story_list()["stories"],"recordings":TranscriptionStore().list(jid(root)),"resumes":[_export_resume(r) for r in [root -->][?:Resume]],"tailored_resumes":[read_tailored_resume(jid(x)) for x in [root -->][?:TailoredResume]]};
 }
-def:priv account_delete(username: str, password: str) -> dict[str, any] {
+def:priv account_delete(username: str = "", password: str = "") -> dict[str, any] {
     manager=__import__("jaclang.server.identity.user_manager",fromlist=["UserManager"]).UserManager();
-    user=manager.authenticate(username,password);
-    if not user or manager.get_root_id(user["user_id"])!=jid(root) { return {"error":"Confirm this account's username and password."}; }
-    return _delete_verified_account(user["user_id"]);
+    if username or password {
+        user=manager.authenticate(username,password);
+        if not user or manager.get_root_id(user["user_id"])!=jid(root) { return {"error":"This sign-in belongs to another account."}; }
+        return _delete_verified_account(user["user_id"]);
+    }
+    user_id=accounts.user_for_root(jid(root));
+    if not user_id { return {"error":"Sign in before deleting your account."}; }
+    return _delete_verified_account(str(user_id));
 }
 
 def _delete_verified_account(user_id: str) -> dict[str, any] {
@@ -1307,10 +1334,17 @@ def _delete_verified_account(user_id: str) -> dict[str, any] {
         commit();
         for c in [root -->][?:AgentConnection] {
             if c.sealed {
-                try { __import__("agents.google",fromlist=["revoke"]).revoke(__import__("agents.security",fromlist=["unseal"]).unseal(c.sealed)); } except Exception { cleanup_failed=True; }
+                try { __import__("agents.google",fromlist=["revoke"]).revoke(__import__("agents.security",fromlist=["unseal"]).unseal(c.sealed)); }
+                except Exception { return {"error":"Could not disconnect Google. Please retry account deletion."}; }
             }
         }
-        try { importlib.import_module("agents.worker").browser_call("purge",{"owner":owner}); } except Exception { cleanup_failed=True; }
+        if os.environ.get("STACK_BROWSER_URL","") {
+            try {
+                cleared=importlib.import_module("agents.worker").browser_call("purge",{"owner":owner});
+                if not cleared.get("purged") { return {"error":"Could not clear browser data. Please retry account deletion."}; }
+            }
+            except Exception { return {"error":"Could not clear browser data. Please retry account deletion."}; }
+        }
         for r in [root -->][?:Resume] { _cancel_resume_work(r);if r.file_key { _file_path(r.file_key).unlink(missing_ok=True); }_remove_template_files(r); }
         for x in [root -->][?:TailoredResume] {
             _file_path(x.pdf_key).unlink(missing_ok=True);
@@ -1318,9 +1352,10 @@ def _delete_verified_account(user_id: str) -> dict[str, any] {
         }
         for n in [root -->] { if jid(n)!=jid(m) { del n; } }
         TranscriptionStore().delete_owner(owner);
+        accounts.purge_files(owner);
         commit();
-        result=manager.delete_user(user_id);
-        if result.get("error") { return {"error":"Account cleanup could not finish. Please try again."}; }
+        try { accounts.delete_identity(manager,user_id,owner); }
+        except Exception { return {"error":"Account cleanup could not finish. Please try again."}; }
         return {"deleted":True};
     }
 }

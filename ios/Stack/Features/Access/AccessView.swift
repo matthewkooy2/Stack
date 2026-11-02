@@ -302,6 +302,15 @@ private struct AccessField: View {
                 .stroke(focused ? Brand.accent : Brand.rule, lineWidth: focused ? 2 : 1))
             .animation(Motion.fadeAnimation, value: focused)
         }
+        .toolbar {
+            if focused {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button { focused = false } label: { Image(systemName: "keyboard.chevron.compact.down") }
+                        .accessibilityLabel("Hide keyboard")
+                }
+            }
+        }
     }
 }
 

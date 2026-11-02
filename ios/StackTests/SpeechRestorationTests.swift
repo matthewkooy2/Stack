@@ -80,10 +80,10 @@ final class SpeechRestorationTests: XCTestCase {
         await model.openSession("session-1")
         XCTAssertEqual(model.draft, "Offline correction.")
         XCTAssertEqual(model.page, .review)
-        XCTAssertTrue(model.error.contains("also changed"))
-        await model.autoSave()
+        XCTAssertTrue(model.error.isEmpty)
+        model.edited(model.draft)
         XCTAssertEqual(RecordingStore.transcript(at: url)?.text, "Offline correction.")
-        XCTAssertEqual(StubProtocol.seen.count, 3)
+        XCTAssertEqual(StubProtocol.seen.count, 2)
         }
     }
 
@@ -156,7 +156,7 @@ final class SpeechRestorationTests: XCTestCase {
         XCTAssertEqual(StubProtocol.seen.count, 1)
     }
 
-    func testAutoSaveReconcilesRecordingWhenPrepAlreadyMatchesNewestEdit() async throws {
+    func testEditingKeepsPhoneTextWithoutRemoteWrites() async throws {
         let url = try file()
         try RecordingStore.saveTranscript(PhoneTranscript(original: "Original.", text: "Newest.", revision: 3), at: url)
         let store = AppStore(api: APIClient(origin: URL(string: "https://speech-test.invalid")!, session: stubSession()))
@@ -167,16 +167,15 @@ final class SpeechRestorationTests: XCTestCase {
         model.recording = ["id": "recording-1", "status": "completed", "model": "Apple SpeechTranscriber", "transcript": "Older.", "revision": 2]
         StubProtocol.seen = []
         StubProtocol.handler = { request in
-            XCTAssertEqual(request.url?.lastPathComponent, "transcription_action")
-            XCTAssertEqual(try self.body(request)["text"].string, "Newest.")
-            return (200, envelope(["id": "recording-1", "status": "completed", "model": "Apple SpeechTranscriber", "transcript": "Newest.", "revision": 3]))
+            XCTFail("Editing must not write to the server: \(request.url!)"); return (500, Data())
         }
         defer { StubProtocol.handler = nil }
-        await model.autoSave()
+        model.edited("Newest.")
         XCTAssertEqual(model.error, "")
-        XCTAssertEqual(model.recording["transcript"].string, "Newest.")
-        XCTAssertEqual(RecordingStore.transcript(at: url)?.syncedText, "Newest.")
-        XCTAssertEqual(StubProtocol.seen.count, 1)
+        XCTAssertEqual(model.recording["transcript"].string, "Older.")
+        XCTAssertEqual(RecordingStore.transcript(at: url)?.text, "Newest.")
+        XCTAssertNil(RecordingStore.transcript(at: url)?.syncedText)
+        XCTAssertEqual(StubProtocol.seen.count, 0)
     }
 
     func testFailedPrepSaveDoesNotAcknowledgePhoneEdits() async throws {
@@ -189,23 +188,23 @@ final class SpeechRestorationTests: XCTestCase {
         model.current = ["id": "session-1", "revision": 1, "data": ["problem_id": "project", "answer": "Older.", "canvas": [:], "behavioral": ["index": 0]]]
         StubProtocol.handler = { request in
             switch request.url?.lastPathComponent {
-            case "transcription_list": return (200, envelope(["client_transcripts": true]))
-            case "transcription_upload": return (200, envelope(["id": "recording-1", "status": "completed", "model": "Apple SpeechTranscriber", "original_transcript": "Original.", "transcript": "Original.", "revision": 1]))
-            case "transcription_action": return (200, envelope(["id": "recording-1", "status": "completed", "model": "Apple SpeechTranscriber", "original_transcript": "Original.", "transcript": "Reviewed.", "revision": 2]))
             case "prep_catalog": return (200, envelope(["problems": [["id": "project"]]]))
-            case "prep_save": return (500, Data())
+            case "prep_coach": return (200, envelope(["id": "session-1", "revision": 5, "data": try self.body(request)["data"], "feedback": ["text": "Useful feedback", "summary": "Useful feedback"]]))
+            case "prep_save_coaching": return (500, Data())
             default: XCTFail("Unexpected request \(request.url!)"); return (500, Data())
             }
         }
         defer { StubProtocol.handler = nil }
-        await model.retryUpload()
+        await model.coach()
         XCTAssertFalse(model.error.isEmpty)
+        XCTAssertEqual(model.page, .coaching)
+        XCTAssertEqual(model.feedback["text"].string, "Useful feedback")
         XCTAssertEqual(RecordingStore.transcript(at: url)?.text, "Reviewed.")
         XCTAssertNil(RecordingStore.transcript(at: url)?.syncedText)
         XCTAssertTrue(RecordingStore.transcript(at: url)?.hasPendingEdits == true)
     }
 
-    func testSyncSendsOriginalAndSavesReviewedCorrectionSeparately() async throws {
+    func testUploadSendsOriginalWithoutSavingTheAnswerOrEditingTheTranscript() async throws {
         let url = try file()
         try RecordingStore.saveTranscript(PhoneTranscript(original: "Original.", text: "Reviewed.", revision: 2), at: url)
         let store = AppStore(api: APIClient(origin: URL(string: "https://speech-test.invalid")!, session: stubSession()))
@@ -223,14 +222,6 @@ final class SpeechRestorationTests: XCTestCase {
                 XCTAssertEqual(args["local_transcript"].string, "Original.")
                 XCTAssertEqual(Data(base64Encoded: args["content"].string), try Data(contentsOf: url))
                 return (200, envelope(recording))
-            case "transcription_action":
-                let args = try self.body(request)
-                XCTAssertEqual(args["text"].string, "Reviewed."); XCTAssertEqual(args["revision"].int, 1)
-                var edited = recording; edited["transcript"] = "Reviewed."; edited["revision"] = 2
-                return (200, envelope(edited))
-            case "prep_catalog": return (200, envelope(["problems": [["id": "project"]]]))
-            case "prep_save": return (200, envelope(["id": "session-1", "revision": 2, "data": try self.body(request)["data"]]))
-            case "prep_sessions": return (200, envelope(["sessions": []]))
             default: XCTFail("Unexpected request \(request.url!)"); return (500, Data())
             }
         }
@@ -238,7 +229,7 @@ final class SpeechRestorationTests: XCTestCase {
         await model.retryUpload()
         XCTAssertEqual(model.error, "")
         XCTAssertEqual(model.recording["original_transcript"].string, "Original.")
-        XCTAssertEqual(model.recording["transcript"].string, "Reviewed.")
+        XCTAssertEqual(model.recording["transcript"].string, "Original.")
         XCTAssertEqual(model.draft, "Reviewed.")
         XCTAssertFalse(model.needsPolling)
         XCTAssertEqual(StubProtocol.seen.filter { $0.url?.lastPathComponent == "transcription_upload" }.count, 1)

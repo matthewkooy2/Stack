@@ -306,6 +306,15 @@ struct RemoteBrowserView: View {
                     HStack(spacing: 8) {
                         TextField("Text to type", text: $text)
                             .focused($keyboardFocused)
+                            .toolbar {
+                                if keyboardFocused {
+                                    ToolbarItemGroup(placement: .keyboard) {
+                                        Spacer()
+                                        Button { keyboardFocused = false } label: { Image(systemName: "keyboard.chevron.compact.down") }
+                                            .accessibilityLabel("Hide keyboard")
+                                    }
+                                }
+                            }
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                             .padding(12)

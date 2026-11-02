@@ -42,3 +42,9 @@ Use fixed examples, human-reviewed AI outputs, median/p95 timings and cold/warm 
 - **PC availability:** repaired the gateway/model port collision and started the existing WSL keepalive task. Public routing, API health and browser health pass; no resource cleanup needed.
 - **Real iPhone:** login and Prep recording/coaching retest pending after the connection repair.
 - **Other locked flows:** not user-verified yet.
+
+## Local coaching simplification candidate (November 2, 2026)
+
+Branch `codex/simple-coaching-20261102`, based on `bc49ae0`. SwiftUI Prep now reviews transcription before explicit Get coaching, calls the local model directly, displays feedback, and separately persists its submitted answer/feedback pair. The path no longer saves drafts or edits transcription on the server, creates agent runs, or polls for coaching. Atomic local drafts retain typed edits and unsaved results. Existing account access, input limits and ordinary session revision checks remain.
+
+Verified locally: focused endpoint regression (25.9 seconds), including stale revisions, exact pairing, save replay, failed inference and account isolation; one real Qwen3.8 27B request through the approved bridge (10.843 seconds inference, exact pair persisted in a disposable database); existing Swift structural/backend-call checks and nine checker tests; live API allow-list contract. New Swift XCTest behavior cases cover double taps, edits during inference, late transcription, inference/local/account storage failures and reopening. This PC has no Swift/Xcode toolchain, so those XCTest cases and device behavior remain unverified. No deployment, CI/CD gate, model/network setting or shared-service restart was performed. Publication and deployment through the existing owners require approval; the Mac owner must build/test the native candidate and verify it on iPhone.

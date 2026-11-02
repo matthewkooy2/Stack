@@ -4,6 +4,7 @@ import time;
 import json;
 import agents.worker as browser_worker;
 import agents.linkedin as linkedin;
+import agents.provider as coaching_provider;
 import secrets;
 import from uuid { uuid4, UUID }
 import from pathlib { Path }
@@ -22,6 +23,7 @@ import from agents.google { authorization_url, exchange, refreshed, SCOPES }
 import from agents.tracing { capture_enabled, trace_data }
 import from agents.browser_control { BROWSER_ERROR_MESSAGE, sanitize_browser_diagnostic }
 import agents.interview as interview;
+import agents.coaching as coaching;
 import from jaclang.server.identity.app_tokens { token_create, token_peek, token_consume }
 
 node AgentMemory { has facts: list[dict[str, any]] = [], policy: dict[str, any] = {}, revision: int = 0, admitted: bool = False, deleted: bool = False, model_selection: str = ""; }
@@ -531,12 +533,23 @@ def _agent_complete(token: str, id: str, owner: str, lease: str, result: dict[st
                     sessions=[p for p in [root -->][?:PrepSession] if jid(p)==r.target_id and p.data.get("mode")=="interview"];
                     try {
                         if not sessions { raise ValueError("Interview session not found."); }
+                        # A worker result is untrusted: re-check structured coaching before storing it.
+                        artifact=coaching.stored(artifact);
                         p=sessions[0];p.data=interview.apply(p.data,p.revision,step,artifact,r.context);p.updated_at=time.time();
+                        # Final coaching requested while this answer was being coached starts now (#133).
+                        if step=="interview_turn" and p.data.get("final_after") and p.data["status"]=="finished" and not p.data.get("pending") {
+                            attempt=int(p.data.get("model_attempt",0))+1;
+                            final=_agent_start("interview_coach",jid(p),interview.context(p.data,p.revision,True),str(p.revision)+":"+str(attempt),False);
+                            p.data={**p.data,"pending":final.get("id",""),"model_attempt":attempt,"final_after":False};
+                        }
                     } except ValueError as exc { r.status="needs_input";r.message=str(exc);commit();return _run_view(r,True); }
                 }
                 if step=="coach" {
                     sessions=[p for p in [root -->][?:PrepSession] if jid(p)==r.target_id];
                     if not sessions or sessions[0].revision!=r.context.get("session_revision",0) { r.status="needs_input";r.message="Practice changed while coaching was running. Request coaching again for your saved answer.";commit();return _run_view(r,True); }
+                    # A worker result is untrusted: re-check structured coaching before storing it.
+                    try { artifact=coaching.stored(artifact); }
+                    except ValueError as exc { r.status="needs_input";r.message=str(exc);commit();return _run_view(r,True); }
                 }
                 r.artifacts[step]=artifact;
                 for a in intents { a.status="confirmed";a.receipt=artifact; }
@@ -684,6 +697,52 @@ def:priv prep_get(id: str) -> dict[str, any] {
     for p in [root -->][?:PrepSession] { if jid(p)==id { return {"id":jid(p),"data":p.data,"revision":p.revision,"results":p.results,"feedback":p.feedback,"recordings":p.recordings}; } }
     return {"error":"Practice session not found."};
 }
+# Coaching consumes the submitted snapshot directly. Draft/session writes are separate.
+def:priv prep_coach(id: str, data: dict[str, any]) -> dict[str, any] {
+    _agent_access();
+    try { snapshot=validate_session(data); }
+    except ValueError as exc { return {"error":str(exc)}; }
+    if not snapshot["answer"].strip() { return {"error":"Type or transcribe your answer first."}; }
+    sessions=[p for p in [root -->][?:PrepSession] if jid(p)==id and p.data.get("mode")!="interview"];
+    if not sessions { return {"error":"Practice session not found."}; }
+    p=sessions[0];snapshot["application_id"]=p.data.get("application_id","");revision=p.revision;
+    c=config(_agent_memory().model_selection);
+    try {
+        model_access(c,jid(root));
+        if c["provider"] not in LOCAL_PROVIDERS { raise ValueError("Practice coaching requires the configured local model."); }
+        question=problem(snapshot["problem_id"]);workflow=snapshot["canvas"].get("stack_prep_workflow_v1",{});
+        question={**question,"prompt":workflow.get("prompt",question["prompt"])};
+        result=coaching_provider.generate("coach",{"session":{"answer":snapshot["answer"]},"problem":question},c);
+    } except Exception as exc { return {"error":str(exc)}; }
+    return {"id":id,"data":snapshot,"revision":revision,"feedback":result["artifact"]};
+}
+
+# Persist one answer/feedback pair atomically; never replace newer session edits.
+def:priv prep_save_coaching(id: str, submission: dict[str, any]) -> dict[str, any] {
+    _agent_access();
+    try {
+        snapshot=validate_session(submission["data"]);feedback=submission["feedback"];key=str(submission["key"]);
+        if not key or len(key)>100 or not isinstance(feedback,dict) or len(json.dumps(feedback))>50000 { raise ValueError("Invalid coaching result."); }
+    } except (ValueError,KeyError) as exc { return {"error":str(exc)}; }
+    with locks.account() {
+        _agent_fresh();
+        for p in [root -->][?:PrepSession] {
+            if jid(p)==id and p.data.get("mode")!="interview" {
+                snapshot["application_id"]=p.data.get("application_id","");
+                for f in p.feedback {
+                    if f.get("submission_id")==key {
+                        if f["session"]!=snapshot or f["data"]!=feedback { return {"error":"This coaching result was already saved with different content."}; }
+                        return prep_get(id);
+                    }
+                }
+                if p.revision==submission.get("revision") { p.data=snapshot;p.revision+=1; }
+                p.feedback=p.feedback+[{"at":time.time(),"revision":p.revision,"submission_id":key,"session":snapshot,"answer":snapshot["answer"],"data":feedback}];p.updated_at=time.time();commit();return prep_get(id);
+            }
+        }
+    }
+    return {"error":"Practice session not found."};
+}
+
 def:priv prep_save(id: str, revision: int, data: dict[str, any]) -> dict[str, any] {
     _agent_access();
     try { validated=validate_session(data); } except ValueError as e { return {"error":str(e)}; }

@@ -120,6 +120,30 @@ final class AppStore {
         }
     }
 
+    func deleteAccount() async -> Bool {
+        guard !busy else { return false }
+        busy = true
+        error = ""
+        defer { busy = false }
+        do {
+            try FileResumeDraftStore.shared.remove(userID: account.userID)
+            try RecordingStore.remove(owner: account.userID)
+            try jobFeedCache.removeForAccountDeletion()
+            #if DEBUG
+            try PrepTrace.remove()
+            #endif
+            URLCache.shared.removeAllCachedResponses()
+            let deleted = try await api.call("account_delete", timeout: 110)
+            guard deleted["deleted"].bool else { throw APIError(message: "Account deletion did not finish. Please retry.") }
+            await signOut()
+            notice = "Your account and data were deleted."
+            return true
+        } catch {
+            fail(error)
+            return false
+        }
+    }
+
     func signOut() async {
         epoch += 1
         sessionGeneration += 1

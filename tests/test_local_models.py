@@ -26,11 +26,12 @@ CONTEXT = {'facts':[{'key':'resume.project', 'value':'Built a tracker', 'verifie
 ANSWER = ('In a class project, our team was missing deadlines. I made a task list, '
           'asked each teammate to own one task, and scheduled a short weekly check-in. '
           'We delivered the project on time. Next time I would agree on responsibilities at kickoff.')
-COACH = {'summary':'The answer explains ownership and a concrete result.',
-         'rubric':[{'criterion':'Ownership', 'score':3, 'feedback':'Clarify your personal contribution.'}],
-         'next_exercises':['Practice explaining a tradeoff.'],
-         'followup_questions':['What did you change?', 'What would you do earlier?'],
-         'evidence':[{'source':'answer', 'quote':'I made a task list', 'claim':'Took initiative'}]}
+COACH = {'verdict':'The answer explains ownership and a concrete result.',
+         'scores':[{'name':'Ownership', 'score':3, 'why':'Clarify your personal contribution.'}],
+         'work_on':'Practice explaining a tradeoff.',
+         'follow_ups':['What did you change?', 'What would you do earlier?'], 'example':''}
+COACH_TEXT = ('The answer explains ownership and a concrete result.\n\nScores:\nOwnership: 3/4 - Clarify your personal contribution.'
+              '\n\nWork on: Practice explaining a tradeoff.\n\nFollow-up questions:\n1. What did you change?\n2. What would you do earlier?')
 
 def envelope(name, artifact=FIT):
     msg={'role':'assistant', 'content':json.dumps(artifact)}
@@ -150,11 +151,13 @@ class LocalModels(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'context limit'):
                 provider.generate('fit',{'session':{'answer':'x'*20000}},self.configure('lmstudio',url))
             self.assertEqual(requests,[])
-    def test_scores_boolean_values_and_nonfinite_fail_strict_schema(self):
-        for score in (-1,5,True,2.5,float('nan'),float('inf')):
-            artifact=copy.deepcopy(COACH);artifact['rubric'][0]['score']=score
+    def test_coach_scores_are_bounded_and_non_numbers_dropped(self):
+        for score,kept in ((-1,0),(5,4),(2.6,3),(True,None),(float('nan'),None),(float('inf'),None),('3',None)):
+            artifact=copy.deepcopy(COACH);artifact['scores'][0]['score']=score
             with self.subTest(score=score),service('lmstudio',artifact) as (url,_):
-                self.assertEqual(provider.generate('coach',{'session':{'answer':ANSWER}},self.configure('lmstudio',url))['artifact']['text'],json.dumps(artifact))
+                result=provider.generate('coach',{'session':{'answer':ANSWER}},self.configure('lmstudio',url))['artifact']
+                self.assertEqual([s['score'] for s in result['scores']],[] if kept is None else [kept])
+                self.assertEqual(result['summary'],COACH['verdict'])
     def test_arbitrary_plain_coaching_and_length_finish_on_both_local_transports(self):
         for name in ('lmstudio','ollama'):
             for text in ('Plain prose.', '{broken JSON', '<script>alert(1)</script>', 'unsupported claims', 'Partial:'):
@@ -166,8 +169,9 @@ class LocalModels(unittest.TestCase):
                 value.pop('model',None)
                 with service(name,raw=json.dumps(value).encode()) as (url,requests):
                     result=provider.generate('coach',{'session':{'answer':ANSWER}},self.configure(name,url))
-                    self.assertEqual(result['artifact']['text'],text)
-                    self.assertNotIn('format',requests[0][1]);self.assertNotIn('response_format',requests[0][1])
+                    # The schema is sent (#112), but a reply that is not JSON is still kept as prose.
+                    self.assertEqual(result['artifact']['text'],text);self.assertEqual(result['artifact']['format'],'text')
+                    self.assertIn('format' if name=='ollama' else 'response_format',requests[0][1])
 
     def test_linkedin_uses_raw_text_on_both_local_transports_without_a_context_gate(self):
         text = 'Profile coaching. {Plain prose; no source quotations or JSON.}'
@@ -256,7 +260,7 @@ class LocalModels(unittest.TestCase):
                         def observe(event,data): return rpc('agent_trace',{'token':'local-worker-token',**{k:claim[k] for k in ('id','owner','lease')},'event':event,'data':data})
                         with patch.object(worker,'call',side_effect=api),patch.object(provider,'http') as paid:
                             result=worker.dispatch(claim,'local-worker-token',observe=observe);paid.assert_not_called()
-                        self.assertEqual(result['artifact']['text'],json.dumps(COACH))
+                        self.assertEqual(result['artifact']['text'],COACH_TEXT);self.assertEqual(result['artifact']['scores'],COACH['scores'])
                         rpc('agent_finish',{'token':'local-worker-token',**{k:claim[k] for k in ('id','owner','lease')},'result':result})
                         client.set_auth_token(auth)
                         done=rpc('agent_run',{'id':run['id']});self.assertEqual(done['status'],'completed')
@@ -293,7 +297,7 @@ class LocalModels(unittest.TestCase):
                     for rid in paused: self.assertEqual(rpc('agent_run',{'id':rid})['status'],'needs_input')
                     for auth,sid,rid in runs:
                         client.set_auth_token(auth)
-                        saved=rpc('prep_get',{'id':sid});self.assertEqual(saved['feedback'][0]['data']['text'],json.dumps(COACH))
+                        saved=rpc('prep_get',{'id':sid});self.assertEqual(saved['feedback'][0]['data']['text'],COACH_TEXT);self.assertEqual(saved['feedback'][0]['data']['verdict'],COACH['verdict'])
                         self.assertIn('raw_response',rpc('agent_model_logs',{'id':rid})['attempts'][0])
                         self.assertTrue(rpc('agent_traces',{'id':rid})['events'])
                     client.set_auth_token(other_token)

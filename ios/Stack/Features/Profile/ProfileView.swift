@@ -30,6 +30,7 @@ struct ProfileView: View {
     @State private var modelError = ""
     @State private var nudges = NudgeSettings()
     @State private var nudgeNote = ""
+    @State private var confirmDelete = false
 
     private var changed: Bool {
         let a = store.account
@@ -63,6 +64,14 @@ struct ProfileView: View {
         .sheet(isPresented: $showAgents) { AgentHubView().environment(store) }
         .sheet(isPresented: $showReminders) { RemindersView().environment(store) }
         .sheet(isPresented: $showBank) { ExperienceBankView().environment(store) }
+        .alert("Delete your account?", isPresented: $confirmDelete) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete account", role: .destructive) {
+                Task { if await store.deleteAccount() { dismiss() } }
+            }
+        } message: {
+            Text("Are you sure? Your account and all its data will be permanently deleted.")
+        }
     }
 
     private func go(_ next: Pane) {
@@ -185,6 +194,10 @@ struct ProfileView: View {
                 StackButton(label: "Sign out", icon: "logout", kind: .secondary, disabled: store.busy) {
                     Task { await store.signOut(); dismiss() }
                 }
+                Button("Delete account", role: .destructive) { confirmDelete = true }
+                    .font(Typeface.body)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .disabled(store.busy)
             }
             Text("Stack 0.2").font(Typeface.caption).foregroundStyle(Palette.muted).frame(maxWidth: .infinity)
         }

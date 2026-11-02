@@ -169,7 +169,7 @@ class Providers(unittest.TestCase):
         self.assertIn('shell_tool', command);self.assertIn('plugins', command)
         self.assertFalse(Path(directory).exists())
 
-    def test_plain_coaching_clis_have_no_schema_or_json_acceptance(self):
+    def test_coaching_clis_send_the_schema_and_keep_prose_replies(self):
         text='<img src=x onerror=alert(1)> {broken JSON. Partial:'
         for name in ('codex-cli','claude-cli'):
             calls=[]
@@ -184,7 +184,7 @@ class Providers(unittest.TestCase):
             c={**contracts.config(),'provider':name,'model':'test'}
             with patch.object(local_cli.shutil,'which',return_value='/tools/cli'),patch.object(local_cli,'run',side_effect=run):
                 self.assertEqual(provider.generate('coach',{'session':{'answer':'My answer'}},c)['artifact']['text'],text)
-            self.assertNotIn('--output-schema',calls[-1]);self.assertNotIn('--json-schema',calls[-1])
+            self.assertIn('--output-schema' if name=='codex-cli' else '--json-schema',calls[-1])
 
     def test_codex_refuses_api_login_before_generation(self):
         with patch.object(local_cli.shutil, 'which', return_value='/tools/codex'), patch.object(local_cli, 'run', return_value=(0, 'Logged in using an API key')) as run:

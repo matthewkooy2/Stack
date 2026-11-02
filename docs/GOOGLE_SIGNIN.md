@@ -32,13 +32,13 @@ is inactive; cancellation and session changes reject late results. No Stack
 session is placed in a browser redirect or a native deep link. The existing
 mobile compilation script includes the helper without a new native dependency.
 
-An unlinked Google identity creates its own Stack account and graph root. Repeat
-sign-in resolves by Google's stable subject identifier. Email equality does not
-merge accounts. To preserve an existing password account, first sign in to that
-account and use **Link Google sign-in** in web Account or native Profile. Linking
-requires its authenticated, admitted Stack session. Conflicting identities are
-rejected, and password sign-in continues to work. This change has no identity
-transfer/recovery endpoint and performs no graph or database migration.
+Google's verified email is normalized and stored as a unique account identity.
+An unlinked Google identity reuses the account with that email, including an
+Apple account that shared the same address. Repeat sign-in also resolves by
+Google's stable subject. Apple's Hide My Email relay does not reveal the real
+address, so it cannot be matched to a different Google address automatically.
+Existing conflicting accounts are not silently merged or deleted. Explicit
+linking and password sign-in remain available; stored account data is preserved.
 
 Google registration does not bypass beta admission. A signed-in user may check
 admission and retry an invitation without repeating provider authorization.

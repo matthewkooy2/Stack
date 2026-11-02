@@ -76,11 +76,14 @@ private struct LinkedInBrowserKeyboard: UIViewRepresentable {
         field.smartDashesType = .no
         field.isSecureTextEntry = true
         let toolbar = UIToolbar()
+        let hideKeyboard = UIBarButtonItem(image: UIImage(systemName: "keyboard.chevron.compact.down"),
+                                           primaryAction: UIAction { _ in field.resignFirstResponder() })
+        hideKeyboard.accessibilityLabel = "Hide keyboard"
         toolbar.items = [
             UIBarButtonItem(title: "Tab", primaryAction: UIAction { _ in send(["type": "key", "key": "Tab"]) }),
             UIBarButtonItem(title: "Enter", primaryAction: UIAction { _ in send(["type": "key", "key": "Enter"]) }),
             UIBarButtonItem(systemItem: .flexibleSpace),
-            UIBarButtonItem(title: "Done", primaryAction: UIAction { _ in field.resignFirstResponder() })
+            hideKeyboard
         ]
         toolbar.sizeToFit()
         field.inputAccessoryView = toolbar

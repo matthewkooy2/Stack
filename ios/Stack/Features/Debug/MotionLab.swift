@@ -11,6 +11,8 @@ import SwiftUI
 enum LabScreen: String, CaseIterable, Identifiable {
     case jobsDeck = "Jobs deck", network = "Network", applications = "Applications", resume = "Resume", profile = "Profile"
     case resumeUpload = "Resume upload"
+    case gmailTracking = "Gmail tracking"
+    case gmailScan = "Gmail scan"
     case prepQuestion = "Prep question", prepWorking = "Prep reading", prepCoaching = "Prep coaching", prepDone = "Prep done", prepSaved = "Prep saved answer", prepCoachingA = "Coaching: real reply A", prepCoachingB = "Coaching: real reply B", logo = "Logo marks", launch = "Launch to login", login = "Login screen", signIn = "Sign-in form", signUp = "Create-account form"
     var id: String { rawValue }
 }
@@ -63,6 +65,13 @@ private struct MotionLabPreview: View {
             LabFlow(flow: "settings") { ProfileView() }
         case .resumeUpload:
             ResumeUploadScreen(onUpload: { take += 1 })
+        case .gmailTracking:
+            ZStack {
+                Brand.page.ignoresSafeArea()
+                GmailTrackingSection().padding(Spacing.page)
+            }
+        case .gmailScan:
+            GmailScanView()
         case .prepQuestion:
             ZStack {
                 Brand.page.ignoresSafeArea()

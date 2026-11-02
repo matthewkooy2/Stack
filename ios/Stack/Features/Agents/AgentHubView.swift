@@ -5,7 +5,6 @@ enum AgentPage: String, CaseIterable, Identifiable {
     case activity = "Activity"
     case features = "Features"
     case email = "Email & calendar"
-    case rules = "Rules"
     case facts = "Facts"
 
     var id: String { rawValue }
@@ -123,7 +122,6 @@ struct AgentHubView: View {
             case .activity: activity
             case .features: featuresPage
             case .email: emailPage
-            case .rules: rulesPage
             case .facts: factsPage
             }
         }
@@ -175,13 +173,17 @@ struct AgentHubView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Every agent, what it needs, and where to start it. Stack never sends email or changes your calendar without your approval.")
                 .font(Typeface.body).foregroundStyle(Palette.text)
-            ForEach(store.account.features) { feature in FeatureCardView(feature: feature, onAction: go) }
+            ForEach(store.account.features) { feature in
+                if feature.key == "email" { GmailTrackingSection() }
+                else { FeatureCardView(feature: feature, onAction: go) }
+            }
         }
     }
 
     private var emailPage: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let email = store.account.feature("email") { FeatureCardView(feature: email, onAction: go, compact: true) }
+            GmailTrackingSection(onConnected: { await loadSettings(resetRules: false) })
+            DisclosureSection("Advanced settings", detail: "Sending, calendar and disconnect") { rulesPage }
             if let calendar = store.account.feature("calendar") { FeatureCardView(feature: calendar, onAction: go, compact: true) }
             SectionLabel(text: "Messages to confirm")
             ForEach(Array(unresolved.enumerated()), id: \.offset) { _, event in
@@ -198,7 +200,7 @@ struct AgentHubView: View {
                         }
                     }
                     Text("What does it confirm?").font(Typeface.caption).foregroundStyle(Palette.muted)
-                    ChoiceChips(options: ["Submitted", "Assessment", "Interview", "Rejected"],
+                    ChoiceChips(options: ["Submitted", "Assessment", "Interview", "Offer", "Rejected"],
                                 isSelected: { eventStatus[key] == $0 }, onTap: { eventStatus[key] = $0 })
                     StackButton(label: "Save to application",
                                 disabled: busy || (eventApplication[key] ?? "").isEmpty || (eventStatus[key] ?? "").isEmpty) {
@@ -253,7 +255,7 @@ struct AgentHubView: View {
                 Text("Current permissions expire \(dateTime(settings["policy"]["expires_at"].double)).")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
-            ChoiceChips(options: ["gmail_read", "send_email", "calendar_write"],
+            ChoiceChips(options: ["send_email", "calendar_write"],
                         isSelected: { actions.contains($0) },
                         onTap: { actions = actions.toggled($0); rulesDirty = true },
                         labelFor: { $0.replacingOccurrences(of: "_", with: " ").capitalized })
@@ -272,16 +274,13 @@ struct AgentHubView: View {
                 StackButton(label: "Discard changes", kind: .secondary) { fillRules(settings["policy"]) }
             }
             Text("Google").font(Typeface.title).foregroundStyle(Palette.ink)
-            StackButton(label: "Connect Gmail tracking", kind: .secondary) { Task { await connect(["read"]) } }
-            StackButton(label: "Allow Gmail sending", kind: .secondary) { Task { await connect(["send"]) } }
-            StackButton(label: "Connect Google Calendar", kind: .secondary) { Task { await connect(["calendar", "availability"]) } }
-            Text("Gmail read access covers your whole mailbox. Stack only processes messages related to your applications and selected contacts.")
-                .font(Typeface.caption).foregroundStyle(Palette.muted)
-            ForEach(Array(settings["connections"].array.enumerated()), id: \.offset) { _, connection in
+            StackButton(label: "Allow Gmail sending", kind: .secondary, disabled: busy) { Task { await connect(["send"]) } }
+            StackButton(label: "Connect Google Calendar", kind: .secondary, disabled: busy) { Task { await connect(["calendar", "availability"]) } }
+            ForEach(Array(settings["connections"].array.filter { $0["state"].string == "connected" }.enumerated()), id: \.offset) { _, connection in
                 Card(spacing: 8) {
                     Text("\(connection["provider"].string.capitalized) · \(connection["state"].string)")
                         .font(Typeface.option).foregroundStyle(Palette.icon)
-                    StackButton(label: "Disconnect", kind: .secondary, disabled: busy) {
+                    StackButton(label: "Disconnect Google", kind: .secondary, disabled: busy) {
                         Task { await perform("agent_disconnect", ["id": connection["id"]], done: "Disconnected.") }
                     }
                 }
@@ -327,10 +326,10 @@ struct AgentHubView: View {
 
     /// Routes a fix or result action to the page that handles it.
     private func go(_ action: String) {
-        if action == "rules" { page = .rules; taskID = "" }
+        if action == "rules" { page = .email; taskID = "" }
         else if action == "facts" { page = .facts; taskID = "" }
         else if action.hasPrefix("connect:") {
-            page = .rules
+            page = .email
             taskID = ""
             Task { await connect([String(action.dropFirst(8))]) }
         } else if action == "web" {
@@ -378,6 +377,7 @@ struct AgentHubView: View {
         defer { busy = false }
         do {
             try await store.call(endpoint, args)
+            await store.refresh()
             notice = done
             await loadSettings(resetRules: endpoint == "agent_save_policy")
             await loadEvents()
@@ -385,14 +385,15 @@ struct AgentHubView: View {
     }
 
     private func connect(_ capabilities: [String]) async {
+        guard !busy else { return }
+        busy = true
         error = ""
+        defer { busy = false }
         do {
-            let result = try await store.call("agent_google_start", ["capabilities": .array(capabilities.map { .string($0) })])
-            guard let url = URL(string: result["url"].string), url.scheme == "https" else {
-                throw APIError(message: "Google connection is unavailable.")
-            }
-            openURL(url)
-            notice = "Finish connecting Google in your browser, then return to Stack."
+            try await store.googleConnection.connect(capabilities)
+            await store.refresh()
+            await loadSettings(resetRules: false)
+            notice = "Google connected."
         } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
     }
 
@@ -430,7 +431,7 @@ struct AgentTaskSheet: View {
             TaskDetailView(id: taskID, onBack: { dismiss() }) { destination in
                 if destination == "rules" || destination == "facts" || destination == "features" || destination.hasPrefix("connect:") {
                     hubAction = destination.hasPrefix("connect:") ? destination : ""
-                    hubPage = destination == "facts" ? .facts : (destination == "features" ? .features : .rules)
+                    hubPage = destination == "facts" ? .facts : (destination == "features" ? .features : .email)
                 } else {
                     NotificationCenter.default.post(name: .stackNavigate, object: nil, userInfo: ["destination": destination])
                     dismiss()

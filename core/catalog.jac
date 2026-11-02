@@ -10,7 +10,7 @@ import from urllib.parse { urlsplit, urlunsplit, parse_qsl, urlencode }
 import from jaclang.runtime.runtime { JacRuntime }
 import from discovery.normalize { digest, canonical, validate_filters, taxonomy, classify, dedupe_bucket, same_opening }
 import from discovery.card { card_view }
-import from discovery.matching { facts, current_facts, criteria, evaluate, FACTS_VERSION }
+import from discovery.matching { facts, current_facts, criteria, evaluate, role_match, codes_for, tokens, FACTS_VERSION }
 import from core.preferences { _match_preferences }
 import from discovery.ranking { rank, encode_cursor, decode_cursor, posting_label }
 import from core.timeline { _timeline_preferences }
@@ -19,10 +19,13 @@ glob ATS: list[str] = ["greenhouse","ashby","lever","smartrecruiters"];
 glob PAGE: int = 25;
 glob STALE_AFTER: float = 604800.0;
 glob DISCOVERED_LIMIT: int = 300;
+glob MATCH_INDEX_VERSION: int = 1;
 
 node CatalogJob {
-    has key: str, canonical_url: str, identity: str, data: dict[str, any], observations: dict[str, any] = {}, active: bool = True, checked_at: float = 0.0, discovered_at: float = 0.0, bucket: str = "";
+    has key: str, canonical_url: str, identity: str, data: dict[str, any], observations: dict[str, any] = {}, active: bool = True, checked_at: float = 0.0, discovered_at: float = 0.0, bucket: str = "", match_title: str = "";
 }
+node CatalogTitles { has titles: list[str] = [], complete: bool = False, groups: dict[str, str] = {}, facts_version: int = 0, projection_version: int = 0; }
+node CatalogMatchGroup { has key: str, rows: dict[str, dict[str, any]] = {}; }
 node JobAlias { has key: str, target: str; }
 node JobSource {
     has key: str, config: dict[str, any], status: str = "pending", message: str = "", checkpoint: dict[str, any] = {}, next_at: float = 0.0, lease: str = "", lease_until: float = 0.0, cycle: str = "", seen: list[str] = [], last_success: float = 0.0, failures: int = 0, imported: int = 0, unique_added: int = 0, cycle_invalid: int = 0;
@@ -85,9 +88,104 @@ def _job_view(j: CatalogJob) -> dict[str, any] {
     return data;
 }
 """Every listing an account can be matched against: active, unexpired and confirmed by a sweep this week."""
-def _match_records() -> list[dict[str, any]] {
+def _match_records(search: dict[str, any] | None = None) -> list[dict[str, any]] {
     cutoff=time.time()-STALE_AFTER;
+    c=_criteria(search["query"],search["filters"]) if search is not None else {};
+    indexes=[root.shared --> [?:CatalogTitles]];
+    if search is not None and indexes and indexes[0].complete {
+        index=indexes[0];
+        titles=[t for t in index.titles if role_match(t,c["roles_parsed"])["status"]!="conflict"] if c["roles_parsed"] else index.titles;
+        # All personalized checks still run. Description exclusions and outdated
+        # fact extraction use full records, since those checks need original text.
+        if index.facts_version==FACTS_VERSION and index.projection_version==MATCH_INDEX_VERSION and not c["exclude_terms"] {
+            mapping=index.groups;keys=list({mapping[t] for t in titles if t in mapping});
+            wanted=set(titles);rows: list[dict[str, any]]=[];
+            for group in [root.shared --> [?:CatalogMatchGroup, key in keys]] {
+                for data in group.rows.values() {
+                    if data["title"] in wanted and data["checked_at"]>=cutoff and (not data.get("expires_at") or data["expires_at"]>time.time()) {
+                        view=dict(data);view["occupation"]=classify(str(view["title"]));rows.append(view);
+                    }
+                }
+            }
+            return rows;
+        }
+        if c["roles_parsed"] {
+            return [v for v in [_job_view(j) for j in [root.shared --> [?:CatalogJob, active==True, checked_at>=cutoff, match_title in titles]]] if v["active"]];
+        }
+    }
     return [v for v in [_job_view(j) for j in [root.shared --> [?:CatalogJob, active==True, checked_at>=cutoff]]] if v["active"]];
+}
+
+def _match_group(wanted: str) -> CatalogMatchGroup | None {
+    for group in [root.shared --> [?:CatalogMatchGroup, key==wanted]] { return group; }
+    return None;
+}
+"""Public listing facts only. Full text is fetched for displayed cards or text exclusions."""
+def _matching_record(view: dict[str, any]) -> dict[str, any] {
+    fields=["id","title","company","country","occupation","facts","timeline_analysis","employment_type","posted_at","expires_at","checked_at"];
+    return {k:view[k] for k in fields if k in view};
+}
+# Fine occupation codes avoid decoding unrelated professions in a broad category.
+# The persisted title map keeps this grouping separate from personal matching rules.
+def _match_group_key(title: str) -> str {
+    codes=codes_for(title);
+    words=[t for t in tokens(title) if t not in ["senior","junior","intern","entry","level","lead","staff","principal"]];
+    return digest("onet:"+",".join(sorted(codes))) if codes else digest("title:"+" ".join(words[:2]));
+}
+def _update_projection(changes: list[tuple[CatalogJob, str]]) -> None {
+    indexes=[root.shared --> [?:CatalogTitles]];
+    if not changes or not indexes or not indexes[0].complete { return; }
+    index=indexes[0];titles=set(index.titles);mapping=dict(index.groups);changed=False;
+    buckets: dict[str, dict[str, dict[str, any]]]={};nodes: dict[str, CatalogMatchGroup]={};
+    for (j,previous_title) in changes {
+        titles.add(j.match_title);
+        if index.facts_version!=FACTS_VERSION or index.projection_version!=MATCH_INDEX_VERSION { continue; }
+        view=_job_view(j);key=_match_group_key(str(view["title"]));previous=mapping.get(previous_title,"");
+        for bucket in {key,previous} {
+            if bucket and bucket not in buckets {
+                group=_match_group(bucket);
+                if group is None { group=root.shared ++> CatalogMatchGroup(key=bucket);grant(group,level=AccessLevel.READ); }
+                nodes[bucket]=group;buckets[bucket]=dict(group.rows);
+            }
+        }
+        if previous and previous!=key { buckets[previous].pop(j.key,None); }
+        buckets[key][j.key]=_matching_record(view);
+        if mapping.get(j.match_title)!=key { mapping[j.match_title]=key;changed=True; }
+    }
+    # Each shared group and title map is copied/written once per source page,
+    # rather than once for every listing in that page.
+    for (key,rows) in buckets.items() { nodes[key].rows=rows; }
+    if len(titles)!=len(index.titles) { index.titles=sorted(titles); }
+    if changed { index.groups=mapping; }
+}
+def _remove_projection(j: CatalogJob) -> None {
+    indexes=[root.shared --> [?:CatalogTitles]];
+    if not indexes { return; }
+    group=_match_group(indexes[0].groups.get(j.match_title,""));
+    if group is not None { group.rows={k:v for (k,v) in group.rows.items() if k!=j.key}; }
+}
+
+"""Rebuild public matching facts once per sweep, before computing private account results."""
+def _rebuild_title_index {
+    titles: set[str]=set();mapping: dict[str, str]={};buckets: dict[str, dict[str, dict[str, any]]]={};
+    for j in [root.shared --> [?:CatalogJob]] {
+        title=str(j.data.get("title",""));
+        if j.match_title!=title { j.match_title=title; }
+        if j.active { titles.add(j.match_title); }
+        view=_job_view(j);
+        if view["active"] and not view["stale"] {
+            key=_match_group_key(title);mapping[title]=key;
+            if key not in buckets { buckets[key]={}; }
+            buckets[key][j.key]=_matching_record(view);
+        }
+    }
+    for group in [root.shared --> [?:CatalogMatchGroup]] { group.rows=buckets.pop(group.key,{}); }
+    for (key,rows) in buckets.items() {
+        group=root.shared ++> CatalogMatchGroup(key=key,rows=rows);grant(group,level=AccessLevel.READ);
+    }
+    indexes=[root.shared --> [?:CatalogTitles]];
+    index=indexes[0] if indexes else root.shared ++> CatalogTitles();
+    index.titles=sorted(titles);index.groups=mapping;index.facts_version=FACTS_VERSION;index.projection_version=MATCH_INDEX_VERSION;index.complete=True;grant(index,level=AccessLevel.READ);
 }
 def _saved_search() -> dict[str, any] {
     items=[root -->][?:SavedSearch]; return {"query":items[0].query,"filters":items[0].filters} if items else {};
@@ -148,7 +246,7 @@ def _matches_for(search: dict[str, any]) -> dict[str, any] {
     for m in [root -->][?:JobMatches] {
         if m.fingerprint==wanted { return {"fingerprint":m.fingerprint,"computed_at":m.computed_at,"rows":m.rows,"meta":m.meta}; }
     }
-    result=_compute_matches(search,_match_records());
+    result=_compute_matches(search,_match_records(search));
     with locks.account() { _fresh(); _store_matches(result); commit(); }
     return result;
 }
@@ -165,8 +263,10 @@ def _feed_page(search: dict[str, any], cursor: str) -> dict[str, any] {
     next_cursor="";
     if len(rows)>PAGE { rows=rows[:PAGE];next_cursor=encode_cursor(result["fingerprint"],tuple(rows[-1]["rank"])); }
     cards: list[dict[str, any]]=[];
+    wanted=[str(row["id"]) for row in rows];
+    jobs={j.key:j for j in [root.shared --> [?:CatalogJob, key in wanted]]};
     for row in rows {
-        j=_job(row["id"]);
+        j=jobs.get(row["id"]);
         # Stored matches name listings; a listing that closed or expired since then is left out.
         view=_job_view(j) if j is not None else {};
         if view and view["active"] { cards.append(card_view({**view,"match":row["match"],"timeline":row["timeline"]})); }
@@ -275,7 +375,7 @@ def:pub jobs_sweep_begin(token: str, only: list[dict[str, any]] | None = None) -
         return {"run":run.key,"sources":[{"config":s.config,"checkpoint":s.checkpoint if s.config["adapter"] in ["github","github_search"] else {}} for s in sources]};
     }
 }
-def _upsert(data: dict[str, any], source: JobSource, run: str) -> bool {
+def _upsert(data: dict[str, any], source: JobSource, run: str) -> tuple[CatalogJob, bool, str] {
     data=dict(data);data.pop("timeline",None);data.pop("timeline_analysis",None);
     wanted_key=data["id"]; existing=_job(wanted_key);
     alias_key=source.key+":"+str(data["source_job_id"]);
@@ -291,6 +391,7 @@ def _upsert(data: dict[str, any], source: JobSource, run: str) -> bool {
             if same_opening(candidate.data,data) { existing=candidate;break; }
         }
     }
+    previous_title=str(existing.data.get("title","")) if existing is not None else "";
     if existing is not None { data["timeline_analysis"]=existing.data.get("timeline_analysis",{}); }
     data["timeline_analysis"]=analyze(data);data["facts"]=facts(data);
     added=existing is None;
@@ -305,8 +406,9 @@ def _upsert(data: dict[str, any], source: JobSource, run: str) -> bool {
     observations[source.key]={"source_id":source.key,"name":source.config["name"],"adapter":source.config["adapter"],"source_job_id":data["source_job_id"],"url":data["url"],"last_seen":now,"run":run,"active":True,"attribution":data.get("attribution",{})};
     j.observations=observations;
     if added or data["source"] in ATS or j.data["source"] not in ATS { j.data=data; }
+    j.match_title=str(j.data.get("title",""));
     j.checked_at=now;j.active=True;
-    return added;
+    return (j,added,previous_title);
 }
 """Records one collected page (or failure) of a source. The final page marks the source complete for this run.
 Job boards a GitHub list points to are added to the run and returned, for the sweep to collect next."""
@@ -325,10 +427,13 @@ def:pub jobs_sweep_source(token: str, run: str, id: str, jobs: list[dict[str, an
             s.failures+=1;s.status="error";s.message=error[:300]+" Previous listings are kept.";
             outcome["status"]="error";planned[id]=outcome;r.sources=planned;commit();return {"saved":True,"added":[]};
         }
+        changes: list[tuple[CatalogJob, str]]=[];
         for data in jobs {
-            if _upsert(data,s,run) { s.unique_added+=1; }
-            s.imported+=1;
+            (job,unique,previous_title)=_upsert(data,s,run);
+            if unique { s.unique_added+=1; }
+            s.imported+=1;changes.append((job,previous_title));
         }
+        _update_projection(changes);
         outcome["seen"]=outcome["seen"]+len(jobs);outcome["invalid"]=outcome["invalid"]+invalid;
         added: list[dict[str, any]]=[];
         boards=[c for c in candidates if c.get("adapter") in ATS and c.get("approved")];
@@ -397,7 +502,7 @@ def:pub discovery_manage(token: str, id: str, action: str) -> dict[str, any] {
                     if id in j.observations {
                         observations=dict(j.observations);del observations[id];j.observations=observations;
                         # Remove the material supplied by the revoked source. Independently listed copies are collected again.
-                        if not observations or j.data.get("source_id")==id { del j; }
+                        if not observations or j.data.get("source_id")==id { _remove_projection(j);del j; }
                     }
                 }
             }

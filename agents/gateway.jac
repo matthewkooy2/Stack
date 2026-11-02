@@ -10,6 +10,7 @@ import threading;
 import time;
 import from agents.browser_stream { relay }
 import from agents.transcription_readiness { public_status }
+import agents.app_links as app_links;
 import urllib.error;
 import urllib.request;
 import from urllib.parse { urlsplit, parse_qs, urlencode }
@@ -20,8 +21,8 @@ select_application_resume save_contact upload_resume read_resume change_resume s
 job_feed search_jobs get_job save_search reset_search import_job_url get_import_status source_status
 agent_settings agent_save_model agent_save_facts agent_save_policy agent_activity agent_run agent_cancel agent_respond agent_traces agent_feedback
 agent_reconcile agent_contacts agent_save_contact agent_stop_contact agent_import_contacts agent_events agent_resolve_event
-agent_google_start agent_google_finish agent_disconnect agent_export agent_start agent_extract_resume resume_save_details
-agent_browser agent_browser_control agent_browser_subscribe prep_live prep_progress prep_for_application prep_catalog prep_sessions prep_create prep_get prep_save account_export account_delete
+agent_google_start agent_google_start_native agent_google_finish gmail_scan_start gmail_scan_status gmail_scan_dismiss agent_disconnect agent_export agent_start agent_extract_resume resume_save_details
+agent_browser agent_browser_control agent_browser_subscribe prep_live prep_progress prep_for_application prep_catalog prep_sessions prep_create prep_get prep_save prep_coach prep_save_coaching account_export account_delete
 interview_create interview_get interview_answer interview_correct interview_continue interview_sessions
 agent_model_logs agent_linkedin_profile agent_linkedin_start agent_features agent_approve agent_retry agent_dismiss
 resume_transfer_complete retry_resume_processing upload_resume_source use_resume_template read_resume_source read_tailored_resume check_tailored_resume score_resume delete_tailored_resume agent_continue_tailoring resume_save_records
@@ -103,6 +104,25 @@ class Handler(SimpleHTTPRequestHandler) {
     }
     def do_GET(self: Handler) -> any {
         path = urlsplit(self.path).path;
+        if path == '/auth/google/start' {
+            try {
+                (location,cookie)=app_links.native_start(self.path);
+                self.send_response(303);self.send_header('Location',location);self.send_header('Set-Cookie',cookie);self.end_headers();
+            } except ValueError { self.send_error(400,'Google sign-in could not start'); }
+            return;
+        }
+        if path == '/.well-known/apple-app-site-association' {
+            self.app_page(app_links.association(),'application/json');return;
+        }
+        if path == '/privacy' {
+            self.app_page(app_links.privacy_page());return;
+        }
+        if path == '/about' {
+            self.app_page(app_links.page(home=True));return;
+        }
+        if path == '/open' or path in ['/open/jobs','/open/applications','/open/resume','/open/network','/open/prep'] {
+            self.app_page(app_links.page(destination=path.removeprefix('/open/')));return;
+        }
         if (
             (path not in ('/', '/index.html', '/oauth/google', '/auth/google', '/sso/google/callback'))
             and not (
@@ -116,11 +136,31 @@ class Handler(SimpleHTTPRequestHandler) {
             return;
         }
         if (path == '/oauth/google') {
+            # The app finishes under its existing Stack session. Only Google's code and
+            # opaque state cross this fixed redirect; PKCE and tokens stay in the API.
+            try {
+                if len(self.path)>8192 { self.send_error(414);return; }
+                values=parse_qs(urlsplit(self.path).query,keep_blank_values=True,max_num_fields=20);
+                if any(len(values.get(k,[]))>1 for k in ['code','state','error']) { self.send_error(400);return; }
+                if values.get('state',[''])[0].startswith('native.') {
+                    query={k:values[k][0] for k in ['code','state','error'] if k in values};
+                    self.send_response(303);self.send_header('Location','stack://oauth/google?'+urlencode(query));self.send_header('Content-Length','0');self.end_headers();return;
+                }
+            } except ValueError { self.send_error(400);return; }
             self.path = '/index.html';
         }
         if path == '/sso/google/callback' { self.sso_callback();return; }
         if path == '/auth/google' { self.path='/index.html'; }
+        if urlsplit(self.path).path in ['/', '/index.html'] and app_links.banner() {
+            index=Path(os.environ.get('STACK_WEB_DIST','.jac/client/workspace/dist'),'index.html');
+            if index.is_file() {
+                self.app_page(index.read_text().replace('</head>',app_links.banner()+'</head>',1).encode());return;
+            }
+        }
         super.do_GET();
+    }
+    def app_page(self: Handler, page: bytes, content_type: str = 'text/html; charset=utf-8') -> any {
+        self.send_response(200);self.send_header('Content-Type',content_type);self.send_header('Content-Length',str(len(page)));self.end_headers();self.wfile.write(page);
     }
     def sso_callback(self: Handler) -> any {
         # Jac owns PKCE, state, provider exchange, linking and native polling.
@@ -142,10 +182,15 @@ class Handler(SimpleHTTPRequestHandler) {
                 if set(returned)-{'code','state','error'} or returned.get('state')!=[state] { self.send_error(400);return; }
                 self.send_response(303);self.send_header('Location',location);self.end_headers();return;
             }
-            # Native completion returns fixed text with no session token.
-            message='Google sign-in finished. Return to Stack on your iPhone.' if status==200 and b'Sign-in completed.' in raw else 'Google sign-in was cancelled or could not finish. Return to Stack and try again.';
-            page=('<!doctype html><html lang="en"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Stack Google sign-in</title><body><h1>Stack Google sign-in</h1><p>'+message+'</p><a href="/">Return to Stack</a></body></html>').encode();
-            self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(page)));self.end_headers();self.wfile.write(page);
+            # A state-bound, HttpOnly browser cookie opts new native sheets into app return.
+            # The redirect is a signal only: the existing one-use poll capability retrieves the session.
+            app_target=app_links.native_return(self.headers.get('Cookie',''),state);
+            if app_target {
+                self.send_response(303);self.send_header('Location',app_target);
+                self.send_header('Set-Cookie',app_links.COOKIE+'=; Max-Age=0; Path=/sso/google/callback; Secure; HttpOnly; SameSite=Lax');
+                self.end_headers();return;
+            }
+            self.app_page(app_links.page(success=status==200 and b'Sign-in completed.' in raw,callback_state=state));
         } except Exception { self.send_error(400,'Google sign-in could not finish'); }
     }
     def do_POST(self: Handler) -> any {
@@ -212,6 +257,11 @@ class Handler(SimpleHTTPRequestHandler) {
                 }
             }
             if path == '/browser/stream' { relay(self,body,authorization,upstream,linkedin=linkedin);return; }
+            if function=='agent_google_start' {
+                args=json.loads(body);
+                if args.pop('native',False) is True { path='/function/agent_google_start_native'; }
+                body=json.dumps(args).encode();
+            }
             (status, raw) = upstream(path, body, authorization, timeout=None if linkedin else 110);
             self.send_response(status);
             self.send_header('Content-Type', 'application/json');

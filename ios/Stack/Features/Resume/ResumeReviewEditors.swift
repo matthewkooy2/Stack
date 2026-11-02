@@ -6,6 +6,7 @@ import SwiftUI
 struct ResumeSectionEditor: View {
     let controller: ResumeReviewController
     let sectionKey: String
+    var inline = false
     let onBack: () -> Void
 
     @State private var pendingRemoval: PendingRemoval?
@@ -25,9 +26,11 @@ struct ResumeSectionEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            StackButton(label: "All sections", icon: "return", kind: .secondary, disabled: false, action: onBack)
-                .accessibilityIdentifier("resume-review-all-sections")
-            Text(title).font(Typeface.section).foregroundStyle(Palette.ink).accessibilityAddTraits(.isHeader)
+            if !inline {
+                StackButton(label: "All sections", icon: "return", kind: .secondary, disabled: false, action: onBack)
+                    .accessibilityIdentifier("resume-review-all-sections")
+                Text(title).font(Typeface.section).foregroundStyle(Palette.ink).accessibilityAddTraits(.isHeader)
+            }
             if isOther {
                 otherFields
             } else if isRepeated {
@@ -89,7 +92,7 @@ struct ResumeSectionEditor: View {
             ForEach(Array(list.enumerated()), id: \.element.id) { index, entry in
                 entryCard(entry, index: index, count: list.count, label: "\(entryLabel) \(index + 1)")
             }
-            StackButton(label: addLabel, icon: "add-session", kind: .primary,
+            StackButton(label: addLabel, icon: "add-session", kind: .secondary,
                         disabled: !controller.canEdit || !controller.canAddEntry(sectionKey)) {
                 controller.addEntry(sectionKey)
             }
@@ -102,7 +105,7 @@ struct ResumeSectionEditor: View {
         let known = controller.fieldSpecs(sectionKey)
         let knownNames = Set(known.map(\.name))
         let extras = entry.values.keys.filter { !knownNames.contains($0) }.sorted()
-        return Card(spacing: 14) {
+        return VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text(label).font(Typeface.option).foregroundStyle(Palette.icon).accessibilityAddTraits(.isHeader)
                 if document.isChanged(sectionKey, entry.id) {
@@ -161,6 +164,7 @@ struct ResumeFieldRow: View {
                     TextField("Not found", text: Binding(get: { controller.document.value(at: address) },
                                                          set: { controller.set($0, at: address) }),
                               axis: multiline ? .vertical : .horizontal)
+                        .keyboardDismissControl()
                         .lineLimit(multiline ? 3...10 : 1...3)
                         .font(Typeface.body)
                         .foregroundStyle(Palette.text)
@@ -221,6 +225,7 @@ struct ResumeBulletEditor: View {
                     TextField("Item \(index + 1)", text: Binding(
                         get: { controller.bullets(at: address).indices.contains(index) ? controller.bullets(at: address)[index] : "" },
                         set: { controller.setBullet($0, at: index, of: address) }), axis: .vertical)
+                        .keyboardDismissControl()
                         .lineLimit(1...6)
                         .font(Typeface.body)
                         .foregroundStyle(Palette.text)
@@ -307,6 +312,7 @@ struct ResumeRecordsEditor: View {
                     TextField("Not found", text: Binding(get: { controller.record(index)["text"].string },
                                                          set: { controller.setRecord(index, key: "text", value: .string($0)) }),
                               axis: .vertical)
+                        .keyboardDismissControl()
                         .lineLimit(2...10)
                         .font(Typeface.body)
                         .disabled(!controller.canEditRecords)

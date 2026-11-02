@@ -298,6 +298,8 @@ struct PrepWorkingScreen: View {
     var busy = false
     var onPrimary: (() -> Void)?
     var links: [ScreenLink] = []
+    /// Shows a spinner under the message, for longer waits such as final coaching.
+    var spinner = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -314,6 +316,7 @@ struct PrepWorkingScreen: View {
                     .font(.system(size: 24, weight: .bold)).tracking(-0.7)
                     .foregroundStyle(Brand.ink)
                     .multilineTextAlignment(.center)
+                if spinner && !stalled { ProgressView().tint(Brand.accent).controlSize(.large) }
                 if !detail.isEmpty {
                     Text(detail).font(Typeface.caption).foregroundStyle(Brand.muted).multilineTextAlignment(.center)
                 }

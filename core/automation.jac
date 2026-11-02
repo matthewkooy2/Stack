@@ -4,6 +4,7 @@ import time;
 import json;
 import agents.worker as browser_worker;
 import agents.linkedin as linkedin;
+import agents.provider as coaching_provider;
 import secrets;
 import from uuid { uuid4, UUID }
 import from pathlib { Path }
@@ -44,7 +45,15 @@ node AgentTicket { has owner: str, run_id: str, state: str = "queued", due_at: f
 node AgentAction { has run_id: str, step: str, key: str, payload_hash: str, policy_revision: int, created_at: float, status: str = "intent", receipt: dict[str, any] = {}; }
 node AgentUsage { has key: str, cents: int = 0, actions: int = 0; }
 node AgentContact { has data: dict[str, any], created_at: float, followups: int = 0, next_at: float = 0.0, thread_id: str = ""; }
-node AgentConnection { has provider: str, sealed: str, scopes: list[str], state: str = "connected", checkpoint: str = "", updated_at: float = 0.0, calendar_id: str = ""; }
+node AgentConnection {
+    has provider: str, sealed: str, scopes: list[str], state: str = "connected", checkpoint: str = "", updated_at: float = 0.0, calendar_id: str = "", tracking: bool = False, generation: str = "";
+
+    def tracks_mail(policy: dict[str, any]) -> bool {
+        # Existing, unexpired read permissions continue to work until reconnected.
+        legacy=policy.get("enabled",False) and policy.get("expires_at",0)>time.time() and "gmail_read" in policy.get("actions",[]);
+        return self.provider=="google" and self.state=="connected" and SCOPES["read"] in self.scopes and (self.tracking or bool(legacy));
+    }
+}
 node AgentInterview { has key: str, application_id: str, event: dict[str, any], updated_at: float, calendar_receipt: str = "", study_plan: list[dict[str, any]] = []; }
 node AgentEvent { has key: str, data: dict[str, any], created_at: float; }
 node PrepSession { has data: dict[str, any], created_at: float, updated_at: float, revision: int = 0, results: list[dict[str, any]] = [], feedback: list[dict[str, any]] = [], recordings: list[dict[str, any]] = []; }
@@ -150,6 +159,7 @@ def _run_view(r: AgentRun, detail: bool = False) -> dict[str, any] {
     out["needs_resume_review"]=r.status=="needs_input" and out["step"]=="tailor" and not _tailor_ready(r.context);
     out["has_requests"]=len(r.requests)>0;
     out["retry_at"]=r.next_at if r.status=="queued" and r.attempts>0 else 0.0;
+    if r.context.get("manual_scan") { out["scan"]={k:r.context.get(k,0) for k in ["since","until","scanned","imported","updated","to_review"]}; }
     if r.status=="review" { out["review"]=r.review; }
     if detail { out.update({"requests":r.requests,"artifacts":r.artifacts,"resume_id":r.context.get("resume_id",""),"resume_name":r.context.get("resume_name","")}); }
     if detail { out.update({"output_version":digest(r.artifacts),"feedback":[{"id":jid(f),"rating":f.rating,"note":f.note,"at":f.at,"output_version":f.output_version} for f in [root --> [?:AgentFeedback, run_id==jid(r), -at]][:50]]}); }
@@ -169,7 +179,7 @@ def:priv agent_admission() -> dict[str, any] {
 }
 def:priv agent_settings() -> dict[str, any] {
     _agent_access();m=_agent_memory();
-    return {"account_id":jid(root),"model_selection":m.model_selection or ("local" if config()["provider"] in LOCAL_PROVIDERS else "codex-cli" if config()["provider"]=="codex-cli" else ""),"model_options":[{"selection":choice,**model_status(jid(root),choice)} for choice in ["codex-cli","local"]],"facts":m.facts,"policy":m.policy,"revision":m.revision,"connections":[{"id":jid(c),"provider":c.provider,"state":c.state,"scopes":c.scopes} for c in [root -->][?:AgentConnection]],"web_url":config()["web_url"],"activity":_agent_summary()};
+    return {"account_id":jid(root),"model_selection":m.model_selection or ("local" if config()["provider"] in LOCAL_PROVIDERS else "codex-cli" if config()["provider"]=="codex-cli" else ""),"model_options":[{"selection":choice,**model_status(jid(root),choice)} for choice in ["codex-cli","local"]],"facts":m.facts,"policy":m.policy,"revision":m.revision,"connections":[{"id":jid(c),"provider":c.provider,"state":c.state,"scopes":c.scopes,"tracking":c.tracks_mail(m.policy)} for c in [root -->][?:AgentConnection]],"web_url":config()["web_url"],"activity":_agent_summary()};
 }
 def:priv agent_save_model(selection: str) -> dict[str, any] {
     _agent_access();
@@ -196,7 +206,7 @@ def:priv agent_save_policy(policy: dict[str, any]) -> dict[str, any] {
     return agent_settings();
 }
 def:priv agent_activity() -> dict[str, any] { _agent_access();return _agent_summary(); }
-def:priv agent_events() -> dict[str, any] { _agent_access();return {"events":[{"id":jid(e),**e.data} for e in [root --> [?:AgentEvent, -created_at]][:100]],"interviews":[{"id":jid(i),"application_id":i.application_id,"study_plan":i.study_plan,**i.event} for i in [root -->][?:AgentInterview]]}; }
+def:priv agent_events() -> dict[str, any] { _agent_access();return {"events":[{"id":jid(e),**e.data} for e in [root --> [?:AgentEvent, -created_at]] if not e.data.get("dismissed")][:100],"interviews":[{"id":jid(i),"application_id":i.application_id,"study_plan":i.study_plan,**i.event} for i in [root -->][?:AgentInterview]]}; }
 def:priv agent_run(id: str) -> dict[str, any] {
     r=_owned_run(id);
     if r is not None and r.kind=="linkedin" { return _run_view(r,True); }
@@ -357,7 +367,7 @@ def:pub agent_claim(token: str) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
     with locks.sweep() {
         _agent_fresh();now=time.time();
-        tickets=[t for t in [root.shared -->][?:AgentTicket] if t.state in ["queued","running"] and t.due_at<=now];
+        tickets=sorted([t for t in [root.shared -->][?:AgentTicket] if t.state in ["queued","running"] and t.due_at<=now],key=lambda (t: AgentTicket) { t.due_at; });
         for t in tickets {
             commit();_agent_owner(t.owner);r=_owned_run(t.run_id);
             if r is None { t.state="cancelled";continue; }
@@ -410,7 +420,9 @@ def:pub agent_claim(token: str) -> dict[str, any] {
                     r.provider=c["provider"];
                 }
             } except ValueError as e { _agent_owner(t.owner);r.status="blocked";r.message=str(e);t.state="blocked";_trace(r,"blocked",{"message":str(e)});continue; }
-            r.status="running";r.lease=secrets.token_urlsafe(32);r.lease_until=now+180;r.attempts+=1;r.updated_at=now;r.message="Working on "+step;t.state="running";
+            # A manual email page can include Gmail reads, an invite attachment and local inference.
+            lease_seconds=300 if r.context.get("manual_scan") else 180;
+            r.status="running";r.lease=secrets.token_urlsafe(32);r.lease_until=now+lease_seconds;r.attempts+=1;r.updated_at=now;r.message="Working on "+step;t.state="running";
             r.trace_attempt=str(uuid4());r.requested_model=(c.get("coach_models",{}).get(c["provider"],"") if step=="coach" else "") or c["model"] or "provider default";r.stage_started_at=time.time();
             _trace(r,"stage_start",{"provider":c["provider"],"requested_model":r.requested_model,"attempt_number":r.attempts,"prompt_version":r.context.get("prompt_version"),"context":r.context if capture_enabled() else {"content_capture":False}});
             commit();return {"id":jid(r),"owner":t.owner,"lease":r.lease,"step":step,"context":r.context,"artifacts":r.artifacts,"reservation_cents":reservation,"provider_config_hash":digest(c),"model_selection":r.model_selection};
@@ -532,7 +544,15 @@ def _agent_complete(token: str, id: str, owner: str, lease: str, result: dict[st
                     sessions=[p for p in [root -->][?:PrepSession] if jid(p)==r.target_id and p.data.get("mode")=="interview"];
                     try {
                         if not sessions { raise ValueError("Interview session not found."); }
+                        # A worker result is untrusted: re-check structured coaching before storing it.
+                        artifact=coaching.stored(artifact);
                         p=sessions[0];p.data=interview.apply(p.data,p.revision,step,artifact,r.context);p.updated_at=time.time();
+                        # Final coaching requested while this answer was being coached starts now (#133).
+                        if step=="interview_turn" and p.data.get("final_after") and p.data["status"]=="finished" and not p.data.get("pending") {
+                            attempt=int(p.data.get("model_attempt",0))+1;
+                            final=_agent_start("interview_coach",jid(p),interview.context(p.data,p.revision,True),str(p.revision)+":"+str(attempt),False);
+                            p.data={**p.data,"pending":final.get("id",""),"model_attempt":attempt,"final_after":False};
+                        }
                     } except ValueError as exc { r.status="needs_input";r.message=str(exc);commit();return _run_view(r,True); }
                 }
                 if step=="coach" {
@@ -586,8 +606,8 @@ def _google_missing(step: str) -> str {
     if step not in ["send","calendar"] { return ""; }
     scope=str(SCOPES["send" if step=="send" else "calendar"]);
     if [c for c in [root -->][?:AgentConnection] if c.provider=="google" and c.state=="connected" and scope in c.scopes] { return ""; }
-    if step=="send" { return "Gmail sending is not connected. Connect it in Agents → Rules to send from Stack, or copy this draft into your own email and cancel the task."; }
-    return "Google Calendar is not connected. Connect it in Agents → Rules, or add the event yourself and cancel the task.";
+    if step=="send" { return "Gmail sending is not connected. Connect it in your email settings to send from Stack, or copy this draft into your own email and cancel the task."; }
+    return "Google Calendar is not connected. Connect it in your email settings, or add the event yourself and cancel the task.";
 }
 def:priv agent_approve(id: str, step: str, review_hash: str, edits: dict[str, any] | None = None) -> dict[str, any] {
     _agent_access();
@@ -688,6 +708,52 @@ def:priv prep_get(id: str) -> dict[str, any] {
     for p in [root -->][?:PrepSession] { if jid(p)==id { return {"id":jid(p),"data":p.data,"revision":p.revision,"results":p.results,"feedback":p.feedback,"recordings":p.recordings}; } }
     return {"error":"Practice session not found."};
 }
+# Coaching consumes the submitted snapshot directly. Draft/session writes are separate.
+def:priv prep_coach(id: str, data: dict[str, any]) -> dict[str, any] {
+    _agent_access();
+    try { snapshot=validate_session(data); }
+    except ValueError as exc { return {"error":str(exc)}; }
+    if not snapshot["answer"].strip() { return {"error":"Type or transcribe your answer first."}; }
+    sessions=[p for p in [root -->][?:PrepSession] if jid(p)==id and p.data.get("mode")!="interview"];
+    if not sessions { return {"error":"Practice session not found."}; }
+    p=sessions[0];snapshot["application_id"]=p.data.get("application_id","");revision=p.revision;
+    c=config(_agent_memory().model_selection);
+    try {
+        model_access(c,jid(root));
+        if c["provider"] not in LOCAL_PROVIDERS { raise ValueError("Practice coaching requires the configured local model."); }
+        question=problem(snapshot["problem_id"]);workflow=snapshot["canvas"].get("stack_prep_workflow_v1",{});
+        question={**question,"prompt":workflow.get("prompt",question["prompt"])};
+        result=coaching_provider.generate("coach",{"session":{"answer":snapshot["answer"]},"problem":question},c);
+    } except Exception as exc { return {"error":str(exc)}; }
+    return {"id":id,"data":snapshot,"revision":revision,"feedback":result["artifact"]};
+}
+
+# Persist one answer/feedback pair atomically; never replace newer session edits.
+def:priv prep_save_coaching(id: str, submission: dict[str, any]) -> dict[str, any] {
+    _agent_access();
+    try {
+        snapshot=validate_session(submission["data"]);feedback=submission["feedback"];key=str(submission["key"]);
+        if not key or len(key)>100 or not isinstance(feedback,dict) or len(json.dumps(feedback))>50000 { raise ValueError("Invalid coaching result."); }
+    } except (ValueError,KeyError) as exc { return {"error":str(exc)}; }
+    with locks.account() {
+        _agent_fresh();
+        for p in [root -->][?:PrepSession] {
+            if jid(p)==id and p.data.get("mode")!="interview" {
+                snapshot["application_id"]=p.data.get("application_id","");
+                for f in p.feedback {
+                    if f.get("submission_id")==key {
+                        if f["session"]!=snapshot or f["data"]!=feedback { return {"error":"This coaching result was already saved with different content."}; }
+                        return prep_get(id);
+                    }
+                }
+                if p.revision==submission.get("revision") { p.data=snapshot;p.revision+=1; }
+                p.feedback=p.feedback+[{"at":time.time(),"revision":p.revision,"submission_id":key,"session":snapshot,"answer":snapshot["answer"],"data":feedback}];p.updated_at=time.time();commit();return prep_get(id);
+            }
+        }
+    }
+    return {"error":"Practice session not found."};
+}
+
 def:priv prep_save(id: str, revision: int, data: dict[str, any]) -> dict[str, any] {
     _agent_access();
     try { validated=validate_session(data); } except ValueError as e { return {"error":str(e)}; }
@@ -719,26 +785,43 @@ def:priv agent_accept_invite(invite: str) -> dict[str, any] {
         _agent_memory().admitted=True;commit();return {"admitted":True};
     }
 }
-def:priv agent_google_start(capabilities: list[str]) -> dict[str, any] {
+def _google_start(capabilities: list[str], native: bool) -> dict[str, any] {
     _agent_access();verifier=secrets.token_urlsafe(48);
     try {
         encrypted=seal({"verifier":verifier});
-        state=token_create("stack-google",subject=jid(root),ttl_seconds=600,payload={"owner":jid(root),"sealed":encrypted});
+        state=token_create("stack-google",subject=jid(root),ttl_seconds=600,payload={"owner":jid(root),"sealed":encrypted,"native":native,"capabilities":capabilities});
+        if native { state="native."+state; }
         return {"url":authorization_url(state,verifier,capabilities)};
     } except ValueError as e { return {"error":str(e)}; }
 }
+
+def:priv agent_google_start(capabilities: list[str]) -> dict[str, any] {
+    return _google_start(capabilities,False);
+}
+
+def:priv agent_google_start_native(capabilities: list[str]) -> dict[str, any] {
+    return _google_start(capabilities,True);
+}
 def:priv agent_google_finish(state: str, code: str) -> dict[str, any] {
     _agent_access();
+    native=state.startswith("native.");state=state.removeprefix("native.");
     pending=token_peek("stack-google",state);
-    if pending is None or pending["payload"]["owner"]!=jid(root) { return {"error":"Google connection belongs to another account or has expired."}; }
-    consumed=token_consume("stack-google",state);
-    if consumed is None { return {"error":"This authorization was already used."}; }
-    try { tokens=exchange(code,str(unseal(str(consumed["payload"]["sealed"]))["verifier"]));encrypted=seal(tokens); }
-    except Exception { return {"error":"Google authorization failed. Start a new connection."}; }
+    if pending is None or pending["payload"]["owner"]!=jid(root) or pending["payload"].get("native",False)!=native { return {"error":"Google connection belongs to another account or has expired."}; }
     with locks.account() {
-        _agent_fresh();items=[root -->][?:AgentConnection];
-        for old in items { if old.provider=="google" { old.sealed=encrypted;old.scopes=str(tokens.get("scope","")).split();old.state="connected";commit();return agent_settings(); } }
-        root ++> AgentConnection(provider="google",sealed=encrypted,scopes=str(tokens.get("scope","")).split(),updated_at=time.time());commit();
+        _agent_fresh();_agent_access();items=[root -->][?:AgentConnection];
+        # Refresh first: aborting after this boundary would reopen the read-only tier.
+        # Any retry must happen before consuming state or exchanging Google's one-time code.
+        session=JacRuntime.get_context().mem;
+        if isinstance(session,Session) { session.ensure_writable_txn(); }
+        consumed=token_consume("stack-google",state);
+        if consumed is None { return {"error":"This authorization was already used."}; }
+        try { tokens=exchange(code,str(unseal(str(consumed["payload"]["sealed"]))["verifier"]));encrypted=seal(tokens); }
+        except Exception { return {"error":"Google authorization failed. Start a new connection."}; }
+        capabilities=consumed["payload"].get("capabilities",[]);scopes=str(tokens.get("scope","")).split();
+        if any(SCOPES[cap] not in scopes for cap in capabilities) { return {"error":"Google did not grant the requested access. Connect again and allow access to continue."}; }
+        tracking="read" in capabilities;
+        for old in items { if old.provider=="google" { old.sealed=encrypted;old.scopes=scopes;old.state="connected";old.tracking=old.tracking or tracking;old.updated_at=time.time();old.generation=str(uuid4());commit();return agent_settings(); } }
+        root ++> AgentConnection(provider="google",sealed=encrypted,scopes=scopes,tracking=tracking,generation=str(uuid4()),updated_at=time.time());commit();
     }
     return agent_settings();
 }
@@ -747,7 +830,7 @@ def:priv agent_disconnect(id: str) -> dict[str, any] {
     with locks.account() {
         _agent_fresh();
         for c in [root -->][?:AgentConnection] {
-            if jid(c)==id { c.state="revoked";c.sealed="";c.checkpoint="";commit();return agent_settings(); }
+            if jid(c)==id { c.state="revoked";c.sealed="";c.checkpoint="";c.tracking=False;commit();return agent_settings(); }
         }
     }
     return {"error":"Connection not found."};
@@ -759,10 +842,13 @@ def:pub agent_worker_connection(token: str, id: str, owner: str, lease: str) -> 
         try {
             r=_agent_leased(id,owner,lease);step=_steps(r)[r.index];
             if step not in ["send","sync","calendar"] { return {"error":"This step cannot access Google."}; }
-            authorize(_agent_memory().policy,"gmail_read" if step=="sync" else ("calendar_write" if step=="calendar" else "send_email"));
             for c in [root -->][?:AgentConnection] {
                 scope=str(SCOPES["read" if step=="sync" else ("calendar" if step=="calendar" else "send")]);
                 if c.provider=="google" and c.state=="connected" and scope in c.scopes {
+                    if step=="sync" {
+                        if not c.tracks_mail(_agent_memory().policy) { return {"error":"Connect Gmail to turn on application tracking."}; }
+                        if r.context.get("manual_scan") and (r.context.get("connection_id")!=jid(c) or r.context.get("connection_generation")!=c.generation) { return {"error":"Gmail changed during this scan. Start a new scan."}; }
+                    } else { authorize(_agent_memory().policy,"calendar_write" if step=="calendar" else "send_email"); }
                     tokens=refreshed(unseal(c.sealed));c.sealed=seal(tokens);c.updated_at=time.time();commit();
                     return {"tokens":{"access_token":tokens["access_token"],"expires_at":tokens.get("expires_at",0)},"checkpoint":json.loads(c.checkpoint) if c.checkpoint else {},"calendar_id":c.calendar_id};
                 }

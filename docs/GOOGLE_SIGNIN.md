@@ -4,6 +4,35 @@ Stack uses Jac 0.37.21's existing Google provider and OAuthSession. Google
 authorization requests only `openid email profile`. Gmail and Calendar remain
 separate optional connections through `/oauth/google` and their existing APIs.
 
+In the Swift iPhone app, Applications → **Connect Gmail** starts optional read-only
+consent and automatically enables application tracking when consent completes.
+There is no separate rules toggle, daily limit or permission save. Tracking stays
+on until Google is disconnected or access becomes unavailable. Denied or partial
+consent never enables it. Existing active Gmail read policies remain compatible.
+Email & calendar shows tracking status; sending, calendar and disconnect controls
+live under **Advanced settings**. Sending and calendar changes retain their own
+permissions and per-action approval. This flow requires both the updated app and
+backend. Completing real Google consent and checking resulting application
+updates on an iPhone are still required for release acceptance.
+
+**Scan Gmail** in Applications opens an on-demand scan. Choose any past start
+date, then start it. The scan searches application-related mail across the
+mailbox, including any occupation and applications made outside Stack. It
+follows Gmail's search pages through the selected range, saves progress between
+messages, and can be closed, stopped or resumed. It uses the configured local
+model to extract source-backed employer, role, requisition and status details;
+there is no paid model fallback. Clear discoveries import into private
+Applications records, repeated messages and requisitions are deduplicated, and
+unclear discoveries wait for confirmation or dismissal. Structured interview
+invitations appear in Stack's calendar; external calendar writes still require
+their existing permissions and exact-content approval. Subsequent replies are
+matched to the imported application, including replies that omit its job title.
+
+Focused verification: `scripts/jac run --no-serve tests/test_mail_scan.py` uses
+fictional mail and disposable accounts. On the configured local-model host,
+`scripts/jac run --no-serve tests/mail_scan_model.py` exercises two occupations
+and two unrelated/adversarial advertisements without Gmail or real user data.
+
 The server reads the existing `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` through
 `[scale.sso.google]` in `jac.toml`. Empty values leave the provider disabled. No
 credentials belong in source, generated web assets, or the native application.
@@ -31,6 +60,90 @@ The session and pending capability use SecureStore. Polling pauses while the app
 is inactive; cancellation and session changes reject late results. No Stack
 session is placed in a browser redirect or a native deep link. The existing
 mobile compilation script includes the helper without a new native dependency.
+
+## Swift iPhone sign-in and app links
+
+The Swift app now presents Google's pages in `ASWebAuthenticationSession`, using
+the normal browser session so a signed-in Google account can be reused. It opens
+`/auth/google/start?url=...` on the same gateway. That route accepts only Google's
+identity-only authorization URL with the configured server callback and S256,
+then sets a ten-minute Secure, HttpOnly, SameSite=Lax cookie bound to OAuth state.
+After Jac processes the callback, a matching cookie returns the sheet to
+`com.matthewkooy.stack://auth/google?state=...`. The sheet checks the returned state,
+dismisses, and retrieves the Stack session through the existing one-use poll
+capability. Neither a Google credential nor a Stack session appears in that URL.
+Closing the sheet cancels quietly. Responses from cancelled attempts cannot
+adopt a session or reset a newer attempt. Existing web and Expo flows retain
+their original callbacks; ordinary browsers get a styled Continue in Stack page.
+
+`/open`, `/open/jobs`, `/open/applications`, `/open/resume`, `/open/network` and
+`/open/prep` have matching custom-scheme links and iOS Universal Links. Links only
+navigate; a signed-out user still signs in and passes admission before opening a
+screen. The AASA document is served as JSON at
+`/.well-known/apple-app-site-association` and claims only `/open` paths, never
+OAuth callback routes. The signed app includes `applinks:stackmvp.top` and
+`applinks:dev.stackmvp.top`. Enable Associated Domains on the existing App ID
+and refresh its provisioning profiles before building a release.
+
+The gateway injects Apple's Smart App Banner into the web entry page and app-link
+fallback, using the verified App Store record `6820196890` for
+`com.matthewkooy.stack` (App Store Connect display name `StackThatYeah`). Set
+`STACK_APP_STORE_ID` to override that ID. The URL uses the HTTPS origin from
+`STACK_SSO_HOST` or the gateway's existing `STACK_SSO_CALLBACK_URL`. Apple does
+not show its banner for an app unavailable in the App Store, including a
+TestFlight-only app; the custom Continue in Stack button works independently.
+Safari can keep same-domain Universal Links in the browser, so the visible
+fallback button uses the registered custom scheme.
+
+`/about` is a public description of Stack with app/web links and a privacy link;
+it avoids using an account login form as Google's application homepage.
+`/privacy` is an unauthenticated, static explanation of Stack's identity,
+optional Google connections, stored career/interview material and account
+controls. It ships with the backend source, without requiring a frontend rebuild.
+
+### Google configuration, November 2, 2026
+
+In the existing Stack Google Cloud project `serious-house-510618-m7`, the app
+name remains Stack; its existing iOS icon, public homepage
+`https://dev.stackmvp.top/about` and privacy URL `https://dev.stackmvp.top/privacy` were
+saved. Publishing status was changed from Testing to In production at the
+user's explicit request. Existing OAuth clients, credentials, redirect URIs and
+Gmail/Calendar scopes were retained. Google requires separate verification for
+the logo and any sensitive/restricted permissions. Production publishing alone
+does not establish verification approval or a warning-free consent screen.
+The privacy route must be deployed before submitting brand verification.
+
+Google's first automated branding check reported domain ownership, the former
+login-only homepage and the unavailable privacy page. A domain-verification TXT
+record was added to the existing Cloudflare zone and observed in public DNS;
+Google Search Console initially still saw cached DNS. Complete that ownership
+check, deploy `/about` and `/privacy`, and wait the 24 hours Google requests after
+ownership verification before retrying branding. This is ownership verification,
+not SEO setup, an indexing request or a marketing-site launch.
+
+The existing Apple App ID `com.matthewkooy.stack`, prefix `38BZ2B7677`, now has
+Associated Domains enabled. The development signing profile was refreshed by a
+successful signed-device build. The existing Stack App Store distribution
+profile was regenerated with the same distribution certificate, validated for
+the app ID, Apple sign-in and Associated Domains, and saved to the existing
+`stack-testflight` environment's `IOS_APP_STORE_PROFILE_BASE64` secret. No new
+certificate, signing private key or release workflow was created.
+
+### Candidate checks
+
+Use `python3 -m unittest discover -s tests -p test_app_links.py` for app-link,
+banner and authorization-start validation; the existing
+`scripts/jac test tests/google_signin_gateway_tests.jac` covers real HTTP
+start/return, legacy fallback and private-route restrictions. Run
+`scripts/jac run --no-serve tests/test_gateway.py` for admission regressions.
+Native manual selection: `StackTests/GoogleAuthSessionTests`,
+`StackTests/GoogleSignInTests` and `StackTests/AppStoreSessionTests`. No CI gate
+or blocking test selection is added by this change.
+
+Release acceptance still requires a real Google sign-in and cancellation on the
+signed iPhone, return to the same existing account, registration through
+admission, a cold/warm app-link tap, and inspection of the publicly deployed
+privacy and AASA routes. Build success and fixture tests do not prove those.
 
 Google's verified email is normalized and stored as a unique account identity.
 An unlinked Google identity reuses the account with that email, including an

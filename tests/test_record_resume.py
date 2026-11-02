@@ -270,6 +270,8 @@ class RecordWorkflow(unittest.TestCase):
             app = self.job()
             self.rpc('select_application_resume', {'id': app['id'], 'resume_id': rid})
             self.assertIn('error', self.rpc('agent_start', {'kind': 'resume', 'target_id': app['id']}))
+            # An unconfirmed import is never scored.
+            self.assertIn('Confirm your details', self.rpc('score_resume', {'application_id': app['id']}).get('error', ''))
             # Human review assigns semantic roles while every extracted line remains.
             confirmed = self.rpc('resume_save_records', {'id': rid, 'revision': review['revision'], 'records': RECORDS, 'confirm': True})
             self.assertTrue(confirmed['confirmed'], confirmed)
@@ -277,7 +279,10 @@ class RecordWorkflow(unittest.TestCase):
             source = self.rpc('read_resume_source', {'id': rid})['source']
             self.assertEqual((source['format'], source['template'], source['records']), ('records', 'jake', RECORDS))
             self.assertEqual(source['revision'], confirmed['revision'] + 1)
-            self.assertEqual(self.rpc('score_resume', {'application_id': app['id']})['source'], 'records')
+            scored = self.rpc('score_resume', {'application_id': app['id'], 'as_of': '2026-11'})
+            self.assertEqual((scored['source'], scored['job_score']['contract'], scored['job_score']['status']), ('confirmed_records', 'stack.job_score', 'scored'), scored)
+            self.assertEqual({r['term']: r['evidence'] for r in scored['job_score']['requirements'] if r['kind'] == 'skill'}, {'Python': ['r4'], 'SQL': ['r5'], 'Data visualization': ['r4']})
+            self.assertEqual(scored['score']['match'], scored['job_score']['score'])
             self.assertIn('error', self.rpc('resume_save_records', {'id': rid, 'revision': review['revision'], 'records': RECORDS, 'confirm': True}))
             self.client.reload(); self.client.set_auth_token(self.owner_token)
             self.assertTrue(self.rpc('agent_extract_resume', {'id': rid})['confirmed'])

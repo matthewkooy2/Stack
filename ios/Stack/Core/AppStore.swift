@@ -13,7 +13,9 @@ final class AppStore {
     let api: APIClient
     let prep: PrepTransport
     let google: GoogleSignIn
+    let googleConnection: GoogleConnection
     let apple: AppleSignIn
+    let googleBrowser = GoogleAuthSession()
     let jobFeedCache: JobFeedCache
 
     var phase: Phase = .starting
@@ -27,11 +29,12 @@ final class AppStore {
     var pendingInvite = ""
     /// A record a tapped notification asked to open; the owning tab consumes it.
     var pendingOpen: [String: String] = [:]
+    var linkedDestination: String?
     /// Session-only public-profile drafts; never written to an external profile.
     var profileDrafts: [String: String] = [:]
     var rewriteDrafts: [String: SavedRewriteReview] = [:]
-    /// Overridable so tests can drive the Google handoff without UIKit.
-    var openExternalURL: (URL) async -> Bool = { await UIApplication.shared.open($0) }
+    /// Tests substitute only the browser presentation; server session retrieval still executes.
+    var authenticateGoogle: ((URL) async throws -> Void)?
     var isForeground: () -> Bool = { UIApplication.shared.applicationState == .active }
 
     private var refreshing = false
@@ -39,12 +42,14 @@ final class AppStore {
     private(set) var sessionGeneration = 0
     private var swipeChain: Task<Void, Never>?
     private var pendingSwipes = 0
+    private var googleAttempt = UUID()
 
     init(api: APIClient = APIClient(origin: APIClient.configuredOrigin), jobFeedCache: JobFeedCache = JobFeedCache()) {
         self.api = api
         self.jobFeedCache = jobFeedCache
         self.prep = PrepTransport(api: api)
         self.google = GoogleSignIn(api: api)
+        self.googleConnection = GoogleConnection(api: api)
         self.apple = AppleSignIn(api: api)
     }
 
@@ -128,6 +133,7 @@ final class AppStore {
         do {
             try FileResumeDraftStore.shared.remove(userID: account.userID)
             try RecordingStore.remove(owner: account.userID)
+            try PrepDraftStore().remove(owner: account.userID)
             try jobFeedCache.removeForAccountDeletion()
             #if DEBUG
             try PrepTrace.remove()
@@ -152,6 +158,9 @@ final class AppStore {
         pendingSwipes = 0
         busy = false
         google.cancel()
+        googleBrowser.cancel()
+        googleAttempt = UUID()
+        googleConnection.cancel()
         apple.cancel()
         googlePending = false
         googleInfo = [:]
@@ -269,31 +278,47 @@ final class AppStore {
         guard !googlePending, !busy else { return }
         if link { guard phase == .ready || phase == .admission else { return } }
         googlePending = true
+        let attempt = UUID()
+        googleAttempt = attempt
         error = ""
         notice = ""
         do {
-            let handoff = try await google.begin(invite: invite.trimmingCharacters(in: .whitespaces), link: link, open: openExternalURL)
+            let handoff = try await google.begin(invite: invite.trimmingCharacters(in: .whitespaces), link: link) { url in
+                if let authenticate = self.authenticateGoogle { try await authenticate(url) }
+                else { _ = try await self.googleBrowser.authenticate(provider: url, origin: self.api.origin) }
+                return true
+            }
+            guard googleAttempt == attempt else { return }
             await finishGoogle(handoff)
+        } catch is CancellationError {
+            guard googleAttempt == attempt else { return }
+            google.cancel()
+            googlePending = false
         } catch {
+            guard googleAttempt == attempt else { return }
+            google.cancel()
             googlePending = false
             fail(error)
         }
     }
 
     private func finishGoogle(_ handoff: GoogleHandoff) async {
+        let attempt = googleAttempt
         googlePending = true
-        defer { googlePending = false }
+        defer { if googleAttempt == attempt { googlePending = false } }
         do {
             let token = try await google.wait(for: handoff, isActive: isForeground)
-            guard !Task.isCancelled else { return }
+            guard googleAttempt == attempt, !Task.isCancelled else { return }
             api.adopt(token: token)
             sessionGeneration += 1
             pendingInvite = handoff.invite
             await completeLogin()
             if handoff.link, phase == .ready { notice = "Google sign-in is linked to this Stack account." }
         } catch is CancellationError {
+            guard googleAttempt == attempt else { return }
             if phase == .starting { phase = api.hasSession ? .starting : .signedOut }
         } catch {
+            guard googleAttempt == attempt else { return }
             fail(error)
             if phase == .starting { phase = api.hasSession ? .starting : .signedOut }
             if phase == .starting { await completeLogin() }
@@ -301,7 +326,9 @@ final class AppStore {
     }
 
     func cancelGoogle() {
+        googleAttempt = UUID()
         google.cancel()
+        googleBrowser.cancel()
         googlePending = false
         if phase == .starting { phase = api.hasSession ? .starting : .signedOut }
     }

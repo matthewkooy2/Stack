@@ -4,13 +4,14 @@ from pathlib import Path
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
 if os.environ.get('JAC_DB_URL'):
     raise RuntimeError('Jobs verification requires disposable embedded data; unset JAC_DB_URL.')
 os.environ['JAC_DB_SCRATCH'] = '1'
 from jaclang.testing.testing import JacTestClient
 from discovery.normalize import normalize
-from tests.catalog_fixture import BOARD, open_worker_gate, sweep
+from tests.catalog_fixture import BOARD, open_worker_gate, sweep, catalog_modules
 
 ROOT = Path(__file__).resolve().parents[1]
 PRESET = {'levels': ['Entry-level'], 'employment_types': ['Full-time'], 'confirmed_level': True}
@@ -122,6 +123,34 @@ class JobsFeedAPI(unittest.TestCase):
         scoped = self.rpc('search_jobs', {'query': role_edited['query'], 'filters': role_edited['filters']})
         self.assertEqual(scoped['criteria']['roles'], 'Registered nurse')
         self.assertEqual(scoped['jobs'], [])
+
+    def test_new_account_index_matches_full_catalog_and_skips_unrelated_rows(self):
+        # A signup after the sweep has no prepared matches. It must still get identical
+        # ranking, exclusions and pagination, while evaluating only matching titles.
+        token = self.client.register_user('fresh-after-sweep', 'Fixture-password-c-789').data['token']
+        self.client.set_auth_token(token)
+        self.rpc('bootstrap')
+        module = catalog_modules()[0]
+        original = module._match_records
+        fingerprint = module._fingerprint
+        cases = [(query, {}) for query in ('Software engineer', 'Fry cook', 'Software engineer, Fry cook', 'Registered nurse', '')]
+        cases.append(('Software engineer', {'exclude_terms': ['Build software']}))
+        for query, overrides in cases:
+            args = {'query': query, 'filters': {'timeline': 'all', 'sort': 'newest', **overrides}}
+            with patch.object(module, '_compute_matches', wraps=module._compute_matches) as compute:
+                indexed = self.rpc('search_jobs', args)
+                evaluated = len(compute.call_args.args[1])
+            with patch.object(module, '_match_records', side_effect=lambda search=None: original()), \
+                 patch.object(module, '_fingerprint', side_effect=lambda search: fingerprint(search) + '-baseline'):
+                baseline = self.rpc('search_jobs', args)
+            for key in ('jobs', 'total', 'excluded', 'criteria', 'timeline_preferences'):
+                self.assertEqual(indexed[key], baseline[key], (query, key))
+            if query == 'Software engineer':
+                self.assertEqual(evaluated, 37)
+            elif query == 'Registered nurse':
+                self.assertEqual(evaluated, 0)
+            elif not query:
+                self.assertEqual(evaluated, 72)
 
     def test_confirmed_timeline_requires_profile_date_and_filters_validate(self):
         result = self.rpc('search_jobs', {'query': 'Software engineer', 'filters': {**PRESET, 'timeline': 'confirmed'}})

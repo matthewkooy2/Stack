@@ -33,6 +33,11 @@ ANSWER2 = 'I compared indexed and full table scans on our fixture data. I explai
 CORRECTED = 'I compared indexed and full table scans on our fixture data. I explained the write overhead to my teammate. We kept the full table scan for the small class tracker.'
 FACT = {'key':'resume.project', 'value':'Built a SQL tracker for a class project', 'verified':True}
 DESCRIPTION = 'Build SQL-backed tools and explain query performance tradeoffs. Collaborate with teammates and verify changes using tests.'
+WORK = {'key':'resume.work', 'value':'Data intern at Synthetic Labs: built SQL reports for the support team', 'verified':True}
+STRUCTURED = json.dumps({'verdict':'Specific example with a verified result.',
+    'scores':[{'name':'Specificity','score':3,'why':'Names the index and the fixture queries.'},{'name':'Results','score':2,'why':'No measured speedup.'}],
+    'strengths':['Explains the query plan.'],'weaknesses':['No measured result.'],'work_on':'State how much faster the query got.',
+    'follow_ups':['How did you pick the index columns?'],'example':''})
 
 @contextmanager
 def fixture_model():
@@ -45,7 +50,8 @@ def fixture_model():
             if state['mode']=='malformed': body=b'{malformed'
             else:
                 task=json.loads(payload['messages'][1]['content'])
-                assert 'response_format' not in payload
+                # Interview coaching asks for the structured coaching schema (#133) but keeps prose replies.
+                assert payload['response_format']['json_schema']['name'] in ('stack_interview_turn','stack_interview_coach')
                 text = state.get('text', 'Useful coaching in plain prose. Practice explaining your contribution.')
                 if state['mode']=='empty': text=''
                 body=json.dumps({'model':'qwen-fixture','choices':[{'finish_reason':state.get('finish_reason','stop'),'message':{'content':text}}]}).encode()
@@ -116,10 +122,13 @@ class Journey:
         current=self.get();assert current['data']['analysis']['2']['text']
         assert ANSWER2 in flow.followup(current['data']['analysis']['2'],current['data'])
         current=self.rpc('interview_correct',{'id':current['id'],'revision':current['revision'],'index':1,'answer':CORRECTED})
-        assert current['data']['turns'][1]['original']==ANSWER2
-        assert not current['data']['coaching'] and not current['data']['analysis']
+        assert current['data']['turns'][1]['original']==ANSWER2 and current['data']['turns'][1]['previous']==[ANSWER2]
+        # Only the retried answer's coaching and the overall assessment are stale.
+        assert not current['data']['coaching'] and list(current['data']['analysis'])==['1']
         current=self.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'finish'})
         self.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'analyze'})
+        # Finishing keeps the retried answer's coaching; the final assessment follows it.
+        work,_=self.work();assert work['step']=='interview_turn' and self.get()['data']['analysis']['2']['text']
         work,result=self.work();assert work['context']['interview']['answer_sources']['answer:2']==CORRECTED
         assert result['artifact']['text']
         self.client.reload();self.client.set_auth_token(self.tokens[0]);current=self.get()
@@ -153,7 +162,7 @@ class InterviewAcceptance(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory,fixture_model() as (url,state):
             journey=Journey(directory,url)
             try:
-                done=journey.complete();self.assertEqual(len(state['requests']),3)
+                done=journey.complete();self.assertEqual(len(state['requests']),4)
                 for payload in state['requests']:self.assertEqual(payload['model'],'qwen-fixture')
                 journey.client.set_auth_token(journey.tokens[1])
                 for endpoint,args in [('interview_get',{'id':done['id']}),('interview_correct',{'id':done['id'],'revision':done['revision'],'index':0,'answer':'Other user'}),
@@ -343,9 +352,10 @@ class InterviewAcceptance(unittest.TestCase):
                 current=journey.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'followup'})
                 self.assertEqual(current['data']['questions'][1]['kind'],'followup')
                 current=journey.rpc('interview_correct',{'id':current['id'],'revision':current['revision'],'index':0,'answer':ANSWER1+' I did not measure speed.'})
-                self.assertEqual(current['data']['questions'][1]['kind'],'experience')
+                self.assertEqual(current['data']['questions'][1]['kind'],'project')
                 self.assertFalse(current['data']['analysis'])
-                journey.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'analyze'});journey.work()
+                # The retried answer is coached again without a separate analyze request.
+                self.assertTrue(current['data']['pending']);journey.work()
                 current=journey.get();journey.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'followup'})
                 journey.answer(ANSWER2);journey.work();current=journey.get()
                 answered=current['data']['questions'][1]
@@ -354,6 +364,93 @@ class InterviewAcceptance(unittest.TestCase):
                 self.assertEqual(current['data']['questions'][1],answered)
                 self.assertEqual(current['data']['turns'][1]['question'],answered)
                 self.assertTrue(all(q['kind']!='followup' for q in current['data']['questions'][2:]))
+            finally:journey.close()
+
+    def test_mvp_questions_structured_coaching_retry_shortened_empty_and_recovery(self):
+        """#133 acceptance through the persisted APIs and real worker dispatch, with fixture inference."""
+        with tempfile.TemporaryDirectory() as directory,fixture_model() as (url,state):
+            journey=Journey(directory,url)
+            try:
+                state['text']=STRUCTURED
+                journey.rpc('agent_save_facts',{'facts':[FACT,WORK]})
+                session=journey.rpc('interview_create',{'application_id':journey.application,'client_id':'mvp-create'})
+                journey.session=session;questions=session['data']['questions']
+                self.assertEqual([q['kind'] for q in questions],['experience','project','behavioral'])
+                self.assertIn('Data intern at Synthetic Labs',questions[0]['question']);self.assertIn('Build SQL-backed tools',questions[0]['question'])
+                self.assertIn(FACT['value'],questions[1]['question']);self.assertIn('Collaborate with teammates',questions[2]['question'])
+                # An empty interview cannot be finished or assessed.
+                for action in ('finish','analyze'):
+                    self.assertIn('error',journey.rpc('interview_continue',{'id':session['id'],'revision':session['revision'],'action':action},True))
+                current=journey.get();self.assertEqual((current['data']['status'],current['data']['coaching'],current['run']),('active',{},{}))
+                # A network retry with the same request ID saves one answer.
+                journey.answer(ANSWER1);again=journey.rpc('interview_answer',{'id':session['id'],'revision':session['revision'],'answer':ANSWER1,'client_id':'answer-0'})
+                self.assertEqual(len(again['data']['turns']),1)
+                work,_=journey.work();self.assertEqual(work['context']['interview']['turns'][0]['answer'],ANSWER1)
+                first=journey.get()['data']['analysis']['1']
+                self.assertEqual((first['format'],first['scores'][0]['score'],first['strengths'],first['weaknesses']),('structured',3,['Explains the query plan.'],['No measured result.']))
+                self.assertEqual((first['strength'],first['improvement']),('Explains the query plan.','State how much faster the query got.'))
+                self.assertIn('Strengths: Explains the query plan.',first['text']);self.assertIn('Improvements: State how much faster',first['text'])
+                current=journey.get();journey.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'next'})
+                journey.answer(ANSWER2);journey.work()
+                # Retry question one: the new version is coached and answer two keeps its coaching.
+                current=journey.get();second=current['data']['analysis']['2']
+                current=journey.rpc('interview_correct',{'id':current['id'],'revision':current['revision'],'index':0,'answer':CORRECTED})
+                self.assertTrue(current['data']['pending']);self.assertEqual(current['data']['turns'][0]['previous'],[ANSWER1])
+                work,_=journey.work();self.assertEqual([t['answer'] for t in work['context']['interview']['turns']],[CORRECTED])
+                current=journey.get();self.assertEqual(current['data']['analysis']['2'],second);self.assertEqual(sorted(current['data']['analysis']),['1','2'])
+                # A failed final assessment keeps every answer and recovers without duplicates.
+                current=journey.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'finish'})
+                journey.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'analyze'})
+                state['text']='{"verdict": ""}';journey.work();current=journey.get()
+                self.assertEqual(current['run']['status'],'needs_input');self.assertFalse(current['data']['coaching'])
+                self.assertEqual([t['answer'] for t in current['data']['turns']],[CORRECTED,ANSWER2])
+                state['text']=STRUCTURED;journey.rpc('agent_respond',{'id':current['run']['id'],'values':[],'reuse':False})
+                work,_=journey.work();self.assertEqual(work['context']['interview']['unanswered'],1)
+                self.assertEqual([t['answer'] for t in work['context']['interview']['turns']],[CORRECTED,ANSWER2])
+                journey.client.reload();journey.client.set_auth_token(journey.tokens[0]);current=journey.get()
+                self.assertEqual((current['data']['status'],current['data']['coaching']['format'],len(current['data']['turns'])),('finished','structured',2))
+                # A session ended after one answer is assessed on that answer alone.
+                short=journey.rpc('interview_create',{'application_id':journey.application,'client_id':'mvp-short'});journey.session=short
+                journey.answer(ANSWER1);journey.work();current=journey.get()
+                current=journey.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'finish'})
+                self.assertEqual(current['data']['status'],'finished')
+                journey.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'analyze'})
+                work,_=journey.work();interview=work['context']['interview']
+                self.assertEqual(([t['answer'] for t in interview['turns']],interview['unanswered'],list(interview['answer_sources'])),([ANSWER1],2,['answer:1']))
+                sent=json.loads(state['requests'][-1]['messages'][1]['content'])
+                self.assertEqual([t['answer'] for t in sent['context']['interview']['turns']],[ANSWER1]);self.assertEqual(sent['context']['interview']['unanswered'],2)
+                self.assertEqual(journey.get()['data']['coaching']['verdict'],'Specific example with a verified result.')
+                # The second account sees neither session.
+                journey.client.set_auth_token(journey.tokens[1])
+                self.assertEqual(journey.rpc('interview_sessions')['sessions'],[])
+                for id in (session['id'],short['id']):self.assertIn('error',journey.rpc('interview_get',{'id':id},True))
+            finally:journey.close()
+
+    def test_finishing_while_the_answer_is_coached_keeps_that_coaching_then_writes_the_final(self):
+        """The app answers, then finishes and asks for final coaching at once (#133). Nothing is cancelled or lost."""
+        with tempfile.TemporaryDirectory() as directory,fixture_model() as (url,state):
+            journey=Journey(directory,url)
+            try:
+                state['text']=STRUCTURED;journey.rpc('agent_save_facts',{'facts':[FACT,WORK]})
+                journey.session=journey.rpc('interview_create',{'application_id':journey.application,'client_id':'finish-early'})
+                current=journey.answer(ANSWER1);turn=current['data']['pending'];self.assertTrue(turn)
+                current=journey.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'finish'})
+                self.assertEqual((current['data']['status'],current['data']['pending']),('finished',turn))
+                current=journey.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'analyze'})
+                self.assertTrue(current['data']['final_after']);self.assertEqual(current['data']['pending'],turn)
+                # The answer's coaching lands under the finished revision, and the final assessment is queued after it.
+                work,_=journey.work();self.assertEqual(work['step'],'interview_turn')
+                current=journey.get();self.assertEqual(current['data']['analysis']['1']['format'],'structured')
+                self.assertTrue(current['data']['pending']);self.assertNotEqual(current['data']['pending'],turn)
+                self.assertFalse(current['data']['final_after'])
+                work,_=journey.work();self.assertEqual(work['step'],'interview_coach')
+                self.assertEqual([t['answer'] for t in work['context']['interview']['turns']],[ANSWER1])
+                current=journey.get()
+                self.assertEqual((current['data']['pending'],current['data']['coaching']['format'],sorted(current['data']['analysis'])),('','structured',['1']))
+                # Asking for final coaching while an unrelated task is pending is still refused.
+                other=journey.rpc('interview_create',{'application_id':journey.application,'client_id':'finish-busy'});journey.session=other
+                current=journey.answer(ANSWER1)
+                self.assertIn('error',journey.rpc('interview_continue',{'id':current['id'],'revision':current['revision'],'action':'analyze'},True))
             finally:journey.close()
 
 if __name__=='__main__':unittest.main(verbosity=2)

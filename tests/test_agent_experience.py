@@ -100,6 +100,16 @@ class Features(unittest.TestCase):
         self.assertNotEqual(by['calendar']['state'], 'ready')
         self.assertEqual([c['key'] for c in by['calendar']['checks'] if not c['ok']], ['perm:calendar_write', 'operator:calendar_write'])
 
+    def test_gmail_setup_has_one_connect_action_and_no_outbound_permission_gate(self):
+        facts = self.facts(google_client=True, google_scopes=['read'], google_tracking=True,
+                           policy={'enabled': False, 'expires_at': time.time() - 1})
+        email = next(f for f in experience.feature_status(facts) if f['key'] == 'email')
+        self.assertEqual(email['state'], 'ready')
+        facts['google_tracking'] = False
+        email = next(f for f in experience.feature_status(facts) if f['key'] == 'email')
+        self.assertEqual(email['state'], 'setup')
+        self.assertEqual([c['action'] for c in email['checks'] if not c['ok']], ['connect:read'])
+
 
 
 if __name__ == '__main__':

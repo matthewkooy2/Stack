@@ -4,6 +4,31 @@ import XCTest
 /// by a stub URLProtocol. No sign-in, token, network or live data. Every flow keeps screenshot attachments.
 @MainActor
 final class ScreenFlowUITests: XCTestCase {
+    func testKeyboardDismissesAndPreservesDraftInAnswerAndSheet() {
+        let app = launch("keyboard-dismiss")
+        let answer = field(app, "Answer")
+        XCTAssertTrue(answer.waitForExistence(timeout: 10))
+        answer.tap()
+        answer.typeText("Draft answer")
+        let hide = app.buttons["Hide keyboard"]
+        XCTAssertTrue(hide.waitForExistence(timeout: 10))
+        hide.tap()
+        XCTAssertTrue(waitUntil(10) { !app.keyboards.firstMatch.exists })
+        XCTAssertEqual(text(answer), "Draft answer")
+        answer.tap()
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10))
+        hide.tap()
+        app.buttons["Open form"].tap()
+        let number = field(app, "Number")
+        XCTAssertTrue(number.waitForExistence(timeout: 10))
+        number.tap()
+        number.typeText("123")
+        XCTAssertTrue(hide.waitForExistence(timeout: 10))
+        hide.tap()
+        XCTAssertTrue(waitUntil(10) { !app.keyboards.firstMatch.exists })
+        XCTAssertEqual(text(number), "123")
+    }
+
     private func launch(_ flow: String, extra: [String] = []) -> XCUIApplication {
         continueAfterFailure = false
         let app = XCUIApplication()

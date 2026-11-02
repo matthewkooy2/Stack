@@ -54,9 +54,8 @@ struct GmailScanView: View {
                 MessageLine(text: error).fadeSwitch(!error.isEmpty)
                 if !reviews.isEmpty {
                     Text("A few need a check.").font(Typeface.title).foregroundStyle(Brand.ink)
-                    ForEach(reviews, id: \.self) { event in
+                    ForEach(reviews, id: \.["id"].string) { event in
                         GmailScanReviewRow(event: event) { await load() }
-                            .id(event["id"].string)
                     }
                 }
             }

@@ -92,6 +92,27 @@ are not shared login credentials.
 
 ## Configure and validate the tunnel
 
+For a dashboard-managed tunnel, create `stack-team-dev` in the confirmed account
+and configure exactly one published hostname pointing to the isolated loopback
+gateway. Store its scoped connector token directly in a private mode-600 file
+outside Git; do not put it in chat, client builds, shell history or command-line
+arguments. Start the connector using the supported token-file option:
+
+```sh
+cloudflared tunnel --no-autoupdate run --token-file /absolute/private/stack-team-dev.token
+```
+
+Keep the application authenticated with Stack login and invitation admission.
+Do not add raw API/database routes or use an Access browser challenge for native
+clients without implementing that additional authentication flow. Token-file
+startup uses the dashboard-managed routing; it does not use the locally managed
+example below. Any persistent connector service must read only this tunnel's
+credential and use the approved isolated upstream.
+
+The locally managed configuration is an alternative when the maintainer already
+uses that workflow. It requires its own tunnel credentials and routing; do not
+configure both methods for the same endpoint.
+
 After approval, install `cloudflared` using Cloudflare's supported instructions
 in the Linux/WSL environment. Follow the official [locally managed tunnel
 setup](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/local-management/create-local-tunnel/)

@@ -76,7 +76,8 @@ INSTRUCTIONS = {
         'Each item names one entry handle (R.e<n> for base resume entries, E<n> for memory entries, or SKILLS for a combined skills line). '
         'Stack prints each entry\'s fixed header (title, employer, organization, dates) itself: never write headers, dates, employers or titles in lines. '
         'Each line is one bullet with cites: the exact line IDs (such as R.r4, E3.r1 or E3.f.technologies) whose facts it states. '
-        'Cite only lines of the item\'s own entry, so a fact stays with its employer and dates; only lines in a Skills section may cite '
+        'Cite only lines of the item\'s own entry, so a fact stays with its employer and dates. A memory entry marked as the same role as a '
+        'base entry may be cited inside that base entry; never list both. Only lines in a Skills section may cite '
         'skill names and skill lines from any entry. Every number, tool, product, organization, credential, scope word (led, managed, '
         'owned, team size) and outcome in a line must appear in its cited lines; keep every negation. Never state a job requirement as experience. '
         'Copy a cited line exactly when it is already strong and relevant. Otherwise reword it concisely: start with a strong past-tense verb, '
@@ -278,6 +279,27 @@ def _section_heading(heading: str, base: dict[str, Any], items: list[dict[str, A
     return 'Additional Experience'
 
 
+ORG_FIELDS = ('employer', 'organization', 'institution', 'issuer', 'branch')
+ROLE_FIELDS = ('job_title', 'role', 'position', 'degree')
+
+
+def links(base: dict[str, Any], memory: Memory) -> dict[str, set[str]]:
+    """Memory entries describing the same role as a base entry: its organization and title both
+    appear in that entry's fixed header, so its lines may be cited there without moving a claim."""
+    out: dict[str, set[str]] = {}
+    for h, e in memory.entries.items():
+        f = e.get('fields', {})
+        org = next((f[k] for k in ORG_FIELDS if f.get(k)), '')
+        role = next((f[k] for k in ROLE_FIELDS if f.get(k)), '')
+        if not org or not role:
+            continue
+        for bh, be in base['entries'].items():
+            head = ' '.join(r['text'] for r in be['head']).lower()
+            if head and org.lower() in head and role.lower() in head:
+                out.setdefault(bh, set()).add(h)
+    return out
+
+
 def item_context(item: dict[str, Any], entry: dict[str, Any] | None) -> str:
     """Attribution a line may repeat without citing it: the fixed header and the entry's name/header fields."""
     if item['kind'] == 'memory' and entry is not None:
@@ -288,6 +310,7 @@ def item_context(item: dict[str, Any], entry: dict[str, Any] | None) -> str:
 def build(base: dict[str, Any], memory: Memory, data: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
     """Validated proposal sections. Unsupported lines fall back to verbatim sources with a note."""
     notes, sections, used, seen_text, uid = [], [], set(), set(), 0
+    linked = links(base, memory)
     for raw in data.get('sections', []) if isinstance(data.get('sections'), list) else []:
         if not isinstance(raw, dict) or not isinstance(raw.get('items'), list):
             continue
@@ -322,7 +345,8 @@ def build(base: dict[str, Any], memory: Memory, data: dict[str, Any]) -> tuple[l
                 if not isinstance(line, dict):
                     continue
                 cites = [_resolve(c, base, memory) for c in line.get('cites', [])] if isinstance(line.get('cites'), list) else []
-                cites = [c for c in cites if c is not None and (skills or c['entry'] == handle)]
+                allowed = {handle} | linked.get(handle, set())
+                cites = [c for c in cites if c is not None and (skills or c['entry'] in allowed)]
                 cites = list({c['uid']: c for c in cites}.values())
                 text = _clean(line.get('text', ''))
                 where = out['name']
@@ -421,12 +445,17 @@ def _size(text: str) -> int:
     return len(json.dumps(text, ensure_ascii=False).encode()) - 2
 
 
-def _render_memory(memory: Memory, handles: list[str], lines: dict[str, set[str]] | None = None) -> str:
+def _render_memory(memory: Memory, handles: list[str], lines: dict[str, set[str]] | None = None,
+                   linked: dict[str, set[str]] | None = None) -> str:
     out = []
+    same = {m: b for b, ms in (linked or {}).items() for m in ms}
     for h in handles:
         e = memory.entries[h]
         chosen = None if lines is None or h not in lines else [x for x in e['lines'] if x['role'] in ('name', 'header') or x['id'] in lines[h]]
-        out.append(render(e, h, chosen))
+        text = render(e, h, chosen)
+        if h in same:
+            text += '\n(Same role as ' + same[h] + ': cite these lines inside ' + same[h] + ' instead of listing ' + h + ' separately.)'
+        out.append(text)
     return '\n'.join(out)
 
 
@@ -495,7 +524,7 @@ def _screen(memory: Memory, job: dict[str, Any], c: dict[str, Any], generate: Ca
     return ratings
 
 
-def run(prepared: dict[str, Any], snapshot: dict[str, Any], job: dict[str, Any], c: dict[str, Any],
+def run(prepared: Any, snapshot: dict[str, Any], job: dict[str, Any], c: dict[str, Any],
         generate: Callable, served: int | None = None, resume_id: str = '') -> dict[str, Any]:
     """Model-facing part of tailoring. Returns the reviewable proposal (no documents yet).
 
@@ -521,7 +550,8 @@ def run(prepared: dict[str, Any], snapshot: dict[str, Any], job: dict[str, Any],
 
 def _run(base, memory, job, c, generate, limit, calls, prepared):
     everything = list(memory.entries)
-    ctx = {'job': _job(job), 'base_resume': render_base(base), 'memory': _render_memory(memory, everything)}
+    linked = links(base, memory)
+    ctx = {'job': _job(job), 'base_resume': render_base(base), 'memory': _render_memory(memory, everything, None, linked)}
     empty = {**ctx, 'memory': ''}
     if request_size('tailor_compose', empty, c) > limit:
         raise TooLarge(CONTEXT_ERROR + ' The job listing and resume need about ' + str(request_size('tailor_compose', empty, c))
@@ -539,7 +569,7 @@ def _run(base, memory, job, c, generate, limit, calls, prepared):
                 status[h] = ('screened_out', ratings[h]['reason'] or 'Rated unrelated to this job.')
                 continue
             for lines in (None, ratings[h]['lines'] or None):
-                trial = {**ctx, 'memory': _render_memory(memory, chosen + [h], {**trimmed, **({h: lines} if lines else {})})}
+                trial = {**ctx, 'memory': _render_memory(memory, chosen + [h], {**trimmed, **({h: lines} if lines else {})}, linked)}
                 if request_size('tailor_compose', trial, c) <= limit:
                     chosen.append(h)
                     if lines:
@@ -547,7 +577,7 @@ def _run(base, memory, job, c, generate, limit, calls, prepared):
                     break
             else:
                 status[h] = ('did_not_fit', 'Relevant (' + str(ratings[h]['relevance']) + '/100) but did not fit in the model context.')
-        ctx = {**ctx, 'memory': _render_memory(memory, chosen, trimmed)}
+        ctx = {**ctx, 'memory': _render_memory(memory, chosen, trimmed, linked)}
         sent = chosen
     else:
         sent = everything
@@ -596,7 +626,7 @@ def _base_lines(base: dict[str, Any]) -> list[dict[str, Any]]:
             for e in base['entries'].values() for r in e['content']]
 
 
-def plan(prepared: dict[str, Any], proposal: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def plan(prepared: Any, proposal: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """The stored plan and its individually rejectable changes."""
     base = segment(prepared['records'])
     sections = proposal['sections']
@@ -610,7 +640,11 @@ def plan(prepared: dict[str, Any], proposal: dict[str, Any]) -> tuple[dict[str, 
                 changes.append({'id': 'add:' + i['key'], 'kind': 'add', 'where': where, 'before': '', 'after': preview[:1500],
                                 'reason': (i['reason'] or 'Relevant to this job.') + ' From your memory bank.'})
             for line in i['lines']:
-                if line['status'] == 'rewrite':
+                if i['kind'] == 'base' and any('#' in u for u in line['cites']):
+                    changes.append({'id': 'add:' + line['uid'], 'kind': 'add', 'where': where,
+                                    'before': ' / '.join(line['sources'])[:1500], 'after': line['text'],
+                                    'reason': 'Added from your memory bank entry for this same role.'})
+                elif line['status'] == 'rewrite':
                     changes.append({'id': 'rewrite:' + line['uid'], 'kind': 'rewrite', 'where': where,
                                     'before': ' / '.join(line['sources'])[:1500], 'after': line['text'],
                                     'reason': 'Worded for this job from your confirmed text.'})
@@ -662,7 +696,7 @@ def plan(prepared: dict[str, Any], proposal: dict[str, Any]) -> tuple[dict[str, 
     return stored, changes
 
 
-def apply(prepared: dict[str, Any], stored: dict[str, Any], rejected: set[str]) -> list[dict[str, Any]]:
+def apply(prepared: Any, stored: dict[str, Any], rejected: set[str]) -> list[dict[str, Any]]:
     """Final records after the user's rejections. Base content leaves only by an approved omission."""
     base = segment(prepared['records'])
     sections = copy.deepcopy(stored['sections'])
@@ -671,6 +705,8 @@ def apply(prepared: dict[str, Any], stored: dict[str, Any], rejected: set[str]) 
         for i in s['items']:
             lines = []
             for line in i['lines']:
+                if 'add:' + line['uid'] in rejected:
+                    continue
                 if 'rewrite:' + line['uid'] in rejected:
                     if i['kind'] != 'skills':
                         lines += [x for x in _verbatim(line) if not any(x['text'] == k['text'] for k in lines)]
@@ -728,7 +764,7 @@ def _restore(base: dict[str, Any], sections: list[dict[str, Any]], line: dict[st
     item['lines'].insert(at, restored)
 
 
-def recheck(prepared: dict[str, Any], snapshot: dict[str, Any], stored: dict[str, Any]) -> None:
+def recheck(prepared: Any, snapshot: dict[str, Any], stored: dict[str, Any]) -> None:
     """Before final files: the resume and every cited memory entry are unchanged, and each line still passes."""
     current = {e['key']: e for e in snapshot['entries']}
     for key, value in stored['memory_refs'].items():
@@ -756,7 +792,7 @@ def recheck(prepared: dict[str, Any], snapshot: dict[str, Any], stored: dict[str
                     raise ValueError('The saved change plan is invalid. Start tailoring again.')
 
 
-def tailor(prepared: dict[str, Any], proposal: dict[str, Any]) -> dict[str, Any]:
+def tailor(prepared: Any, proposal: dict[str, Any]) -> dict[str, Any]:
     """The reviewable artifact: every change, the coverage report and a preview of the full result."""
     from agents.record_resume import documents
     stored, changes = plan(prepared, proposal)
@@ -771,7 +807,7 @@ def tailor(prepared: dict[str, Any], proposal: dict[str, Any]) -> dict[str, Any]
             'memory_coverage': proposal['coverage'], **files}
 
 
-def finalize(prepared: dict[str, Any], snapshot: dict[str, Any], tailored: dict[str, Any]) -> dict[str, Any]:
+def finalize(prepared: Any, snapshot: dict[str, Any], tailored: dict[str, Any]) -> dict[str, Any]:
     """Approved files from the stored plan and the user's rejections, after rechecking every source."""
     from agents.record_resume import documents
     if prepared['digest'] != tailored.get('source_digest'):

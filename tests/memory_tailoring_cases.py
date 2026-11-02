@@ -89,3 +89,100 @@ def bank_views(owner='owner'):
 def resume_view(rid='target'):
     return {'id': rid, 'name': 'Jordan Rivera resume', 'kind': '', 'confirmed': True, 'revision': 3,
             'records': RESUME, 'entry_type': 'other', 'fields': {}, 'source': ''}
+
+
+def standin(rewrites=None, omit=(), include=(), verdict='supported'):
+    """A deterministic agents.provider.generate stand-in for memory tailoring steps.
+
+    Keeps every base resume line verbatim except `rewrites` (record id -> text) and `omit`
+    (record ids), adds memory entries whose names are in `include`, and rates/verifies
+    whatever it is asked about. Other steps get the legacy record proposal shape."""
+    import re
+    rewrites = rewrites or {}
+
+    def generate(step, context, *args, **kwargs):
+        if step == 'tailor_screen':
+            entries = re.findall(r'^## (E\d+) ', context['memory'], re.M)
+            return {'artifact': {'entries': [{'entry': h, 'relevance': 70, 'lines': [], 'reason': 'Fixture'} for h in dict.fromkeys(entries)]}, 'cost_cents': 0}
+        if step == 'tailor_verify':
+            return {'artifact': {'results': [{'id': c['id'], 'verdict': verdict, 'problem': ''} for c in context['candidates']]}, 'cost_cents': 0}
+        if step != 'tailor_compose':
+            return {'artifact': {'summary': '', 'ranking': [], 'entry_order': [], 'evidence': [], 'omit': [], 'rewrites': []}, 'cost_cents': 0}
+        sections, item = [], None
+        for row in context['base_resume'].split('\n'):
+            if row.startswith('### Section: '):
+                sections.append({'heading': row[len('### Section: '):], 'items': []})
+            elif row.startswith('## R.e'):
+                item = {'entry': row.split(' ')[1], 'reason': 'Fixture', 'lines': []}
+                sections[-1]['items'].append(item)
+            elif row.startswith('R.r') and ' | ' in row:
+                cite, text = row.split(' | ', 1)
+                rid = cite[2:]
+                if rid not in omit:
+                    item['lines'].append({'text': rewrites.get(rid, text), 'cites': [cite]})
+        for h, name in re.findall(r'^## (E\d+) · [^·]+ · ([^·\n]+)', context['memory'], re.M):
+            if name.strip() in include:
+                lines = re.findall(r'^' + h + r'\.(r\d+) \| (.+)$', context['memory'], re.M)
+                sections[0]['items'].append({'entry': h, 'reason': 'Fixture', 'lines': [{'text': t, 'cites': [h + '.' + i]} for i, t in lines]})
+        return {'artifact': {'summary': 'Fixture tailoring.', 'sections': sections, 'left_out': []}, 'cost_cents': 0}
+    return generate
+
+
+# Second candidate, different field. Traps: only Six Sigma Yellow Belt training (the listing
+# wants a Green Belt), assisted rather than managed a line changeover, no SolidWorks.
+PRIYA_RESUME = [
+    {'id': 'r0', 'kind': 'title', 'text': 'Priya Nair'},
+    {'id': 'r1', 'kind': 'paragraph', 'text': 'Grand Rapids, MI · priya.nair@example.com'},
+    {'id': 'r2', 'kind': 'heading', 'text': 'Education'},
+    {'id': 'r3', 'kind': 'paragraph', 'text': 'B.S. Mechanical Engineering, Western Michigan University, May 2025, GPA 3.4'},
+    {'id': 'r4', 'kind': 'heading', 'text': 'Experience'},
+    {'id': 'r5', 'kind': 'paragraph', 'text': 'Manufacturing Engineering Co-op, Lakeview Plastics, Jan 2024 – Aug 2024'},
+    {'id': 'r6', 'kind': 'bullet', 'text': 'Assisted the process engineer with a mold changeover on Line 3.'},
+    {'id': 'r7', 'kind': 'bullet', 'text': 'Logged scrap counts by shift in Excel and charted weekly trends.'},
+    {'id': 'r8', 'kind': 'paragraph', 'text': 'Barista, Bluebird Coffee, Jun 2021 – Dec 2023'},
+    {'id': 'r9', 'kind': 'bullet', 'text': 'Prepared drinks during peak hours and kept the station stocked.'},
+    {'id': 'r10', 'kind': 'heading', 'text': 'Skills'},
+    {'id': 'r11', 'kind': 'paragraph', 'text': 'AutoCAD, Excel, MATLAB'},
+]
+PRIYA_BANK = [
+    {'name': 'Senior design: conveyor jam sensor', 'entry_type': 'project', 'confirm': True, 'source': 'Capstone report',
+     'fields': {'role': 'Team member (4 students)', 'organization': 'Western Michigan University', 'start_date': 'Sep 2024',
+                'end_date': 'Apr 2025', 'technologies': 'Arduino, AutoCAD, MATLAB'},
+     'records': [
+         {'id': 'r0', 'kind': 'bullet', 'text': 'Designed the sensor bracket in AutoCAD and printed 3 prototypes.'},
+         {'id': 'r1', 'kind': 'bullet', 'text': 'Wrote MATLAB scripts that flagged jams from vibration data in bench tests.'},
+         {'id': 'r2', 'kind': 'bullet', 'text': 'Our team cut false jam alerts from 14 to 3 per test run after tuning thresholds.'}]},
+    {'name': 'Six Sigma Yellow Belt training', 'entry_type': 'certification', 'confirm': True, 'source': 'Course completion email',
+     'fields': {'issuer': 'Western Michigan University Continuing Education', 'issued_date': 'Mar 2024'}, 'records': [
+         {'id': 'r0', 'kind': 'paragraph', 'text': 'Completed Yellow Belt training; I have not earned a Green Belt.'}]},
+    {'name': 'Root cause analysis on Line 3 scrap', 'entry_type': 'work_experience', 'confirm': True, 'source': 'Co-op final presentation',
+     'fields': {'employer': 'Lakeview Plastics', 'job_title': 'Manufacturing Engineering Co-op', 'start_date': 'Jan 2024', 'end_date': 'Aug 2024'},
+     'records': [
+         {'id': 'r0', 'kind': 'bullet', 'text': 'Ran a fishbone analysis with operators that traced short shots to an uncalibrated dryer.'},
+         {'id': 'r1', 'kind': 'bullet', 'text': 'After the dryer was recalibrated, Line 3 scrap fell from 6.1% to 4.2% over six weeks.'}]},
+    {'name': 'Society of Women Engineers', 'entry_type': 'activity', 'confirm': True, 'source': 'Membership card',
+     'fields': {'organization': 'Society of Women Engineers', 'role': 'Member', 'start_date': 'Sep 2021', 'end_date': 'May 2025'}, 'records': []},
+]
+PRIYA_JOB = {
+    'title': 'Manufacturing Process Engineer I', 'company': 'Harbor Precision Molding', 'location': 'Holland, MI', 'seniority': 'Entry-level',
+    'description': (
+        'We need an entry-level process engineer to reduce scrap on injection molding lines. You will lead root cause '
+        'investigations, run DOE studies, manage mold changeovers, and build fixtures in SolidWorks. Six Sigma Green Belt '
+        'required. Experience with SPC charts and Minitab is a plus. B.S. in Mechanical or Manufacturing Engineering.'),
+}
+PRIYA_FORBIDDEN = [r'green belt(?!.*not)', r'solidworks', r'minitab', r'\bdoe\b', r'\bspc\b', r'\bmanag(?:ed|ing|e)\b', r'\bled\b']
+
+
+def filler_bank(n=80):
+    """Varied, realistic but unrelated confirmed entries that push the bank past one request."""
+    jobs = ['Line cook', 'Camp counselor', 'Library page', 'Grocery stocker', 'Tutor', 'Delivery driver', 'Lifeguard', 'Usher']
+    out = []
+    for i in range(n):
+        role = jobs[i % len(jobs)]
+        out.append({'name': role + ' ' + str(i + 1), 'entry_type': 'work_experience', 'confirm': True, 'source': 'Old resume notes',
+                    'fields': {'employer': 'Neighborhood Employer ' + str(i + 1), 'job_title': role,
+                               'start_date': 'Jun ' + str(2010 + i % 10), 'end_date': 'Aug ' + str(2010 + i % 10)},
+                    'records': [{'id': 'r' + str(k), 'kind': 'bullet',
+                                 'text': '%s duty %d: greeted visitors, kept shared areas tidy, followed the posted weekly schedule and opened on weekends.' % (role, k)}
+                                for k in range(6)]})
+    return out

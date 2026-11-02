@@ -290,7 +290,8 @@ def:priv resume_bank_save(name: str, source: str, records: list[dict[str, any]],
     if id is None { id=""; }
     if not id and (revision is None or revision=="0") { revision=0; }
     if confirm is None or confirm=="False" { confirm=False; }
-    if entry_type is None { entry_type=""; }
+    if entry_type is None or entry_type=="None" { entry_type=""; }
+    if fields=="None" { fields=None; }
     with locks.account() {
         _agent_fresh();items=[r for r in [root -->][?:Resume] if r.review.get("kind")==BANK_KIND];
         current=[r for r in items if jid(r)==id];

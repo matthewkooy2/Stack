@@ -8,6 +8,7 @@ import secrets;
 import from uuid { uuid4, UUID }
 import from pathlib { Path }
 import from jaclang.runtime.runtime { JacRuntime }
+import from jaclang.server.session { Session }
 import from core.catalog { _catalog_lock }
 import from agents.contracts { VERSION, STEPS, workflow_steps, PAID, EXTERNAL, TERMINAL, CLI_PROVIDERS, LOCAL_PROVIDERS, config, model_access, model_status, digest, default_policy, validate_policy, validate_facts, context_facts, authorize, reserve_cents, validate_contact }
 import from agents.voice { voice_settings, voice_reservation, SECONDS }
@@ -706,6 +707,9 @@ def:pub agent_invite(token: str) -> dict[str, any] {
 def:priv agent_accept_invite(invite: str) -> dict[str, any] {
     with _catalog_lock {
         _agent_fresh();if _agent_memory().deleted { return {"error":"This account was deleted."}; }
+        # The read-tier retry must happen before this one-time token is consumed.
+        session=JacRuntime.get_context().mem;
+        if isinstance(session,Session) { session.ensure_writable_txn(); }
         accepted=token_consume("stack-beta",invite);
         if accepted is None { return {"error":"Invitation is invalid, expired, or already used."}; }
         _agent_memory().admitted=True;commit();return {"admitted":True};

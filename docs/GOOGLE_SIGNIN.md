@@ -15,6 +15,24 @@ permissions and per-action approval. This flow requires both the updated app and
 backend. Completing real Google consent and checking resulting application
 updates on an iPhone are still required for release acceptance.
 
+**Scan Gmail** in Applications opens an on-demand scan. Choose any past start
+date, then start it. The scan searches application-related mail across the
+mailbox, including any occupation and applications made outside Stack. It
+follows Gmail's search pages through the selected range, saves progress between
+messages, and can be closed, stopped or resumed. It uses the configured local
+model to extract source-backed employer, role, requisition and status details;
+there is no paid model fallback. Clear discoveries import into private
+Applications records, repeated messages and requisitions are deduplicated, and
+unclear discoveries wait for confirmation or dismissal. Structured interview
+invitations appear in Stack's calendar; external calendar writes still require
+their existing permissions and exact-content approval. Subsequent replies are
+matched to the imported application, including replies that omit its job title.
+
+Focused verification: `scripts/jac run --no-serve tests/test_mail_scan.py` uses
+fictional mail and disposable accounts. On the configured local-model host,
+`scripts/jac run --no-serve tests/mail_scan_model.py` exercises two occupations
+and two unrelated/adversarial advertisements without Gmail or real user data.
+
 The server reads the existing `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` through
 `[scale.sso.google]` in `jac.toml`. Empty values leave the provider disabled. No
 credentials belong in source, generated web assets, or the native application.

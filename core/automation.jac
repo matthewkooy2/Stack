@@ -46,7 +46,7 @@ node AgentAction { has run_id: str, step: str, key: str, payload_hash: str, poli
 node AgentUsage { has key: str, cents: int = 0, actions: int = 0; }
 node AgentContact { has data: dict[str, any], created_at: float, followups: int = 0, next_at: float = 0.0, thread_id: str = ""; }
 node AgentConnection {
-    has provider: str, sealed: str, scopes: list[str], state: str = "connected", checkpoint: str = "", updated_at: float = 0.0, calendar_id: str = "", tracking: bool = False;
+    has provider: str, sealed: str, scopes: list[str], state: str = "connected", checkpoint: str = "", updated_at: float = 0.0, calendar_id: str = "", tracking: bool = False, generation: str = "";
 
     def tracks_mail(policy: dict[str, any]) -> bool {
         # Existing, unexpired read permissions continue to work until reconnected.
@@ -159,6 +159,7 @@ def _run_view(r: AgentRun, detail: bool = False) -> dict[str, any] {
     out["needs_resume_review"]=r.status=="needs_input" and out["step"]=="tailor" and not _tailor_ready(r.context);
     out["has_requests"]=len(r.requests)>0;
     out["retry_at"]=r.next_at if r.status=="queued" and r.attempts>0 else 0.0;
+    if r.context.get("manual_scan") { out["scan"]={k:r.context.get(k,0) for k in ["since","until","scanned","imported","updated","to_review"]}; }
     if r.status=="review" { out["review"]=r.review; }
     if detail { out.update({"requests":r.requests,"artifacts":r.artifacts,"resume_id":r.context.get("resume_id",""),"resume_name":r.context.get("resume_name","")}); }
     if detail { out.update({"output_version":digest(r.artifacts),"feedback":[{"id":jid(f),"rating":f.rating,"note":f.note,"at":f.at,"output_version":f.output_version} for f in [root --> [?:AgentFeedback, run_id==jid(r), -at]][:50]]}); }
@@ -205,7 +206,7 @@ def:priv agent_save_policy(policy: dict[str, any]) -> dict[str, any] {
     return agent_settings();
 }
 def:priv agent_activity() -> dict[str, any] { _agent_access();return _agent_summary(); }
-def:priv agent_events() -> dict[str, any] { _agent_access();return {"events":[{"id":jid(e),**e.data} for e in [root --> [?:AgentEvent, -created_at]][:100]],"interviews":[{"id":jid(i),"application_id":i.application_id,"study_plan":i.study_plan,**i.event} for i in [root -->][?:AgentInterview]]}; }
+def:priv agent_events() -> dict[str, any] { _agent_access();return {"events":[{"id":jid(e),**e.data} for e in [root --> [?:AgentEvent, -created_at]] if not e.data.get("dismissed")][:100],"interviews":[{"id":jid(i),"application_id":i.application_id,"study_plan":i.study_plan,**i.event} for i in [root -->][?:AgentInterview]]}; }
 def:priv agent_run(id: str) -> dict[str, any] {
     r=_owned_run(id);
     if r is not None and r.kind=="linkedin" { return _run_view(r,True); }
@@ -419,7 +420,9 @@ def:pub agent_claim(token: str) -> dict[str, any] {
                     r.provider=c["provider"];
                 }
             } except ValueError as e { _agent_owner(t.owner);r.status="blocked";r.message=str(e);t.state="blocked";_trace(r,"blocked",{"message":str(e)});continue; }
-            r.status="running";r.lease=secrets.token_urlsafe(32);r.lease_until=now+180;r.attempts+=1;r.updated_at=now;r.message="Working on "+step;t.state="running";
+            # A manual email page can include Gmail reads, an invite attachment and local inference.
+            lease_seconds=300 if r.context.get("manual_scan") else 180;
+            r.status="running";r.lease=secrets.token_urlsafe(32);r.lease_until=now+lease_seconds;r.attempts+=1;r.updated_at=now;r.message="Working on "+step;t.state="running";
             r.trace_attempt=str(uuid4());r.requested_model=c["model"] or "provider default";r.stage_started_at=time.time();
             _trace(r,"stage_start",{"provider":c["provider"],"requested_model":r.requested_model,"attempt_number":r.attempts,"prompt_version":r.context.get("prompt_version"),"context":r.context if capture_enabled() else {"content_capture":False}});
             commit();return {"id":jid(r),"owner":t.owner,"lease":r.lease,"step":step,"context":r.context,"artifacts":r.artifacts,"reservation_cents":reservation,"provider_config_hash":digest(c),"model_selection":r.model_selection};
@@ -817,8 +820,8 @@ def:priv agent_google_finish(state: str, code: str) -> dict[str, any] {
         capabilities=consumed["payload"].get("capabilities",[]);scopes=str(tokens.get("scope","")).split();
         if any(SCOPES[cap] not in scopes for cap in capabilities) { return {"error":"Google did not grant the requested access. Connect again and allow access to continue."}; }
         tracking="read" in capabilities;
-        for old in items { if old.provider=="google" { old.sealed=encrypted;old.scopes=scopes;old.state="connected";old.tracking=old.tracking or tracking;old.updated_at=time.time();commit();return agent_settings(); } }
-        root ++> AgentConnection(provider="google",sealed=encrypted,scopes=scopes,tracking=tracking,updated_at=time.time());commit();
+        for old in items { if old.provider=="google" { old.sealed=encrypted;old.scopes=scopes;old.state="connected";old.tracking=old.tracking or tracking;old.updated_at=time.time();old.generation=str(uuid4());commit();return agent_settings(); } }
+        root ++> AgentConnection(provider="google",sealed=encrypted,scopes=scopes,tracking=tracking,generation=str(uuid4()),updated_at=time.time());commit();
     }
     return agent_settings();
 }
@@ -844,6 +847,7 @@ def:pub agent_worker_connection(token: str, id: str, owner: str, lease: str) -> 
                 if c.provider=="google" and c.state=="connected" and scope in c.scopes {
                     if step=="sync" {
                         if not c.tracks_mail(_agent_memory().policy) { return {"error":"Connect Gmail to turn on application tracking."}; }
+                        if r.context.get("manual_scan") and (r.context.get("connection_id")!=jid(c) or r.context.get("connection_generation")!=c.generation) { return {"error":"Gmail changed during this scan. Start a new scan."}; }
                     } else { authorize(_agent_memory().policy,"calendar_write" if step=="calendar" else "send_email"); }
                     tokens=refreshed(unseal(c.sealed));c.sealed=seal(tokens);c.updated_at=time.time();commit();
                     return {"tokens":{"access_token":tokens["access_token"],"expires_at":tokens.get("expires_at",0)},"checkpoint":json.loads(c.checkpoint) if c.checkpoint else {},"calendar_id":c.calendar_id};

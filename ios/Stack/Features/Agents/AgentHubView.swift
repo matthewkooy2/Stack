@@ -200,7 +200,7 @@ struct AgentHubView: View {
                         }
                     }
                     Text("What does it confirm?").font(Typeface.caption).foregroundStyle(Palette.muted)
-                    ChoiceChips(options: ["Submitted", "Assessment", "Interview", "Rejected"],
+                    ChoiceChips(options: ["Submitted", "Assessment", "Interview", "Offer", "Rejected"],
                                 isSelected: { eventStatus[key] == $0 }, onTap: { eventStatus[key] = $0 })
                     StackButton(label: "Save to application",
                                 disabled: busy || (eventApplication[key] ?? "").isEmpty || (eventStatus[key] ?? "").isEmpty) {

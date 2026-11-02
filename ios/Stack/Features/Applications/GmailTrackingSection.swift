@@ -8,6 +8,7 @@ struct GmailTrackingSection: View {
     var onConnected: (() async -> Void)?
     @State private var connecting = false
     @State private var error = ""
+    @State private var showScan = false
 
     private var feature: AgentFeature? { store.account.feature("email") }
     private var connected: Bool { feature?.state == "ready" }
@@ -17,9 +18,10 @@ struct GmailTrackingSection: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(connected ? "Gmail tracking is on." : "Track applications automatically.")
                 .font(.system(size: 22, weight: .semibold)).tracking(-0.5).foregroundStyle(Brand.ink)
-            Text(connected ? "Application updates arrive automatically from Gmail." : "Connect Gmail once. Stack keeps your application status up to date.")
+            Text(connected ? "Find applications from any job search, then track them here." : "Connect Gmail once. Stack keeps your application status up to date.")
                 .font(Typeface.body).foregroundStyle(Brand.muted)
             if connected {
+                PrimaryPill(title: "Scan Gmail", icon: "magnifyingglass") { showScan = true }
                 if let onManage { QuietLinks(links: [ScreenLink("Manage connection", action: onManage)]) }
             } else {
                 PrimaryPill(title: connecting ? "Connecting…" : "Connect Gmail", icon: "envelope",
@@ -39,6 +41,7 @@ struct GmailTrackingSection: View {
             MessageLine(text: error).fadeSwitch(!error.isEmpty)
         }
         .replayable()
+        .sheet(isPresented: $showScan) { GmailScanView().environment(store) }
     }
 
     private func connect() async {

@@ -182,7 +182,7 @@ def body_text(payload: dict[str, any]) -> str {
     }
     return '\n'.join(body_text(p) for p in payload.get('parts', []))[:12000];
 }
-def classify(message: dict[str, any], applications: list[dict[str, any]], interviews: list[dict[str, any]] | None = None) -> dict[str, any] {
+def classify(message: dict[str, any], applications: list[dict[str, any]], interviews: list[dict[str, any]] | None = None, threads: dict[str, str] | None = None) -> dict[str, any] {
     headers = {
         h['name'].lower(): h['value']
         for h in message.get('payload', {}).get('headers', [])
@@ -199,6 +199,7 @@ def classify(message: dict[str, any], applications: list[dict[str, any]], interv
         )
     ];
     patterns = [
+        ('Offer', r'(?:pleased to offer you|offer you the (?:position|role)|your offer letter)'),
         (
             'Rejected',
             r'(?:will not be moving forward|not moving forward|regret to inform|pursue other candidates)'
@@ -233,6 +234,9 @@ def classify(message: dict[str, any], applications: list[dict[str, any]], interv
     ];
     if (len(linked) == 1) {
         matches = [{'id': linked[0]['application_id']}];
+    }
+    if (threads or {}).get(message.get('threadId','')) {
+        matches=[{'id':(threads or {})[message['threadId']]}];
     }
     if (
         calendar
@@ -377,7 +381,8 @@ def synchronize(
     checkpoint: dict[str, any],
     applications: list[dict[str, any]],
     contacts: list[dict[str, any]],
-    interviews: list[dict[str, any]] | None = None
+    interviews: list[dict[str, any]] | None = None,
+    threads: dict[str, str] | None = None
 ) -> dict[str, any] {
     seen_order = `list(checkpoint.get('seen', []));
     seen = `set(seen_order);
@@ -457,7 +462,7 @@ def synchronize(
             tokens, ('messages/' + quote(`entry['id'], safe='') + '?format=full')
         );
         hydrate_calendar(tokens, `entry['id'], message.get('payload', {}));
-        event = classify(message, applications, interviews);
+        event = classify(message, applications, interviews, threads);
         if (
             event['application_id']
             or `any((c.get('email') == event['sender']) for c in contacts)

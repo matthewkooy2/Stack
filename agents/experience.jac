@@ -321,8 +321,8 @@ with entry {
             'kinds': ['sync'],
             'title': 'Email tracking',
             'where': 'Applications',
-            'summary': 'Checks Gmail every few minutes for application replies, assessments, interviews, and rejections, and updates status.',
-            'input': 'Connect Gmail once in Applications. Tracking starts after Google sign-in.',
+            'summary': 'Scan Gmail for applications from any job search, then track replies, assessments, interviews, offers, and rejections.',
+            'input': 'Connect Gmail in Applications, then choose how far back to scan.',
             'review': 'Unclear messages wait for you to confirm the application and status.',
             'alternative': 'Update application status yourself after reading your email.'
         },

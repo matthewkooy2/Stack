@@ -96,7 +96,7 @@ struct ApplicationDetailView: View {
                     }
                     .reveal(0)
 
-                    if !app.isDemo, app.status != "Submitted" {
+                    if !app.isDemo, ["Saved", "Ready to apply"].contains(app.status) {
                         VStack(spacing: Spacing.option) {
                             if let url = URL(string: app.job.url), !app.job.url.isEmpty {
                                 StackButton(label: "Apply on the employer site", icon: "link") { openURL(url) }

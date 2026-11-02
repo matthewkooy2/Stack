@@ -117,8 +117,10 @@ struct JobOnboardingView: View {
         var preferences = PreferenceForm(account.preferences)
         if !stage.isEmpty { preferences.stage = stage }
         do {
+            // Fresh profiles have no display name yet; keep the actual signed-in handle until one is supplied.
+            let name = account.name.isBlank ? store.googleInfo["username"].string : account.name
             try await store.callAccount("save_profile", [
-                "name": .string(account.name),
+                "name": .string(name),
                 "role": .string(role.isEmpty ? account.role : role),
                 "location": .string(location.isEmpty ? account.location : location),
                 "mode": .string(account.mode),

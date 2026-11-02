@@ -47,6 +47,15 @@ Supply an explicit styled merge/squash title and reviewed body, constrain the
 operation to the reviewed head, and verify the resulting message. Reuse existing
 issue PRs and keep drafts until current-head/current-base acceptance passes.
 
+Every PR description must include a **Performance** section with before/after
+timings for affected runtime paths, units, sample counts, conditions and
+failures/timeouts. Backend-only changes report backend endpoint/job times;
+browser rendering and iPhone timings are not required. Separate async enqueue
+time from result-ready time. For changes with no runtime effect, state
+`N/A` with a reason. Follow the measurement guidance in
+[docs/COMMIT_STYLE.md](docs/COMMIT_STYLE.md#performance-evidence-in-every-pr-description)
+and the repository PR template.
+
 ## CI scope
 
 Adding any CI/CD gate requires Matt's explicit direct verification and approval

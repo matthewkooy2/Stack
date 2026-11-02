@@ -38,6 +38,10 @@ targets:
       path: Stack/Info.plist
       properties:
         CFBundleDisplayName: Stack
+        CFBundleURLTypes:
+          - CFBundleURLName: com.matthewkooy.stack
+            CFBundleURLSchemes:
+              - com.matthewkooy.stack
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen:

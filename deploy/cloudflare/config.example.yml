@@ -1,0 +1,9 @@
+# Example only. Complete a PRIVATE copy outside the checkout after approval.
+# Run cloudflared in the same Linux/WSL environment as the isolated dev gateway.
+tunnel: 00000000-0000-0000-0000-000000000000
+credentials-file: /home/REPLACE_USER/.cloudflared/00000000-0000-0000-0000-000000000000.json
+
+ingress:
+  - hostname: stack-dev.example.com
+    service: http://127.0.0.1:18081
+  - service: http_status:404

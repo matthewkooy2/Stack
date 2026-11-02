@@ -32,6 +32,12 @@ targets:
     sources:
       - path: Stack
       - path: Shared
+      - path: ../discovery/employer_brands.json
+        buildPhase: resources
+      - path: ../discovery/brand_logos
+        buildPhase: resources
+      - path: ../discovery/job_photos.json
+        buildPhase: resources
     dependencies:
       - target: StackActivity
     info:

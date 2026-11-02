@@ -77,164 +77,156 @@ enum JobCardSwipe {
 @MainActor
 struct JobCard: View {
     let job: Job
-    var embedded = false
-    var requirementsDisabled = false
+    var isActive = true
+    var preferredLocation = ""
     var onOpen: (() -> Void)?
-    var onFilter: (() -> Void)?
     var onDetails: (() -> Void)?
     var onSave: (() -> Void)?
     var onPass: (() -> Void)?
     var accessibilityID: String?
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .largeTitle) private var titleSize: CGFloat = 36
-    @ScaledMetric(relativeTo: .title2) private var paySize: CGFloat = 28
 
     private var copy: JobCardCopy { JobCardCopy(job: job) }
 
     var body: some View {
-        VStack(spacing: 24) {
-            header
-            GeometryReader { geometry in
+        GeometryReader { geometry in
+            VStack(spacing: 0) {
+                photo
+                    .frame(width: geometry.size.width,
+                           height: dynamicTypeSize.isAccessibilitySize ? min(112, geometry.size.width / 2.5) : geometry.size.width / 2.5)
+                    .clipped()
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 0) {
-                        Text(job.title)
-                            .font(.system(size: titleSize, weight: .heavy)).tracking(-1.8)
+                        company.padding(.bottom, 22)
+                        Text(job.title.isBlank ? "Untitled role" : job.title)
+                            .font(.system(size: titleSize, weight: .heavy)).tracking(-1.5)
                             .foregroundStyle(Brand.ink)
                             .fixedSize(horizontal: false, vertical: true)
-                            .padding(.bottom, 16)
+                            .padding(.bottom, 18)
                         Text(copy.location)
                             .font(.body).foregroundStyle(Brand.muted)
                             .fixedSize(horizontal: false, vertical: true)
-                            .padding(.bottom, 18)
+                        if !employment.isEmpty {
+                            Text(employment).font(.body).foregroundStyle(Brand.muted)
+                                .padding(.top, 4)
+                        }
                         if copy.showsPayHeadline {
-                            pay
-                                .padding(.bottom, copy.payExcerpt.isEmpty ? 30 : 8)
+                            Text([copy.pay, copy.payPeriod].filter { !$0.isEmpty }.joined(separator: " "))
+                                .font(payIsMissing ? .subheadline : .title3.weight(.semibold))
+                                .foregroundStyle(payIsMissing ? Brand.muted : Brand.ink)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.top, 12)
                         }
                         if !copy.payExcerpt.isEmpty {
-                            Text(copy.payExcerpt)
-                                .font(copy.showsPayHeadline ? .subheadline : .body.weight(.semibold))
-                                .foregroundStyle(copy.showsPayHeadline ? Brand.muted : Brand.ink)
+                            Text(copy.payExcerpt).font(.subheadline).foregroundStyle(Brand.muted)
                                 .fixedSize(horizontal: false, vertical: true)
-                                .padding(.bottom, copy.showsPayHeadline ? 24 : 26)
+                                .padding(.top, 12)
                         }
-                        if !copy.tags.isEmpty {
-                            Text(copy.tags).font(.body.weight(.semibold)).foregroundStyle(Brand.ink)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .padding(.bottom, 16)
-                        }
-                        if !copy.roleExcerpt.isEmpty {
-                            Text(copy.roleExcerpt).font(.title3).foregroundStyle(Brand.ink)
-                                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 4)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .padding(.bottom, 26)
-                        }
-                        VStack(alignment: .leading, spacing: 8) {
-                            ForEach(copy.requirements, id: \.self) { requirement in
-                                Text(requirement).font(.body).foregroundStyle(Brand.muted)
-                                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
+                        if !copy.roleExcerpt.isEmpty || !copy.requirements.isEmpty {
+                            Rectangle().fill(Brand.rule).frame(height: 1).padding(.vertical, 24)
+                            if !copy.roleExcerpt.isEmpty {
+                                Text(copy.roleExcerpt).font(.body).foregroundStyle(Brand.ink)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
+                            if !copy.requirements.isEmpty {
+                                VStack(alignment: .leading, spacing: 10) {
+                                    ForEach(copy.requirements, id: \.self) { requirement in
+                                        Text(requirement).font(.subheadline).foregroundStyle(Brand.muted)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }.padding(.top, 16)
+                            }
                         }
-                        Spacer(minLength: 24)
                     }
-                    .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .topLeading)
+                    .padding(24)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
                     .contentShape(Rectangle())
-                    .onTapGesture { onOpen?() }
                 }
                 .scrollIndicators(.hidden)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel(copy.accessibilityLabel)
                 .accessibilityIdentifier(accessibilityID ?? "job-card-" + job.id)
                 .accessibilityAddTraits(onOpen == nil ? [] : .isButton)
-                .accessibilityHint(JobListing(job: job) == nil ? "Opens the job details" : "Opens the employer listing")
+                .accessibilityHint("Opens the employer listing. Swipe right to save or left to pass.")
                 .accessibilityAction { onOpen?() }
                 .accessibilityActions {
                     if let onDetails { Button("Job details", action: onDetails) }
                     if let onSave { Button("Save", action: onSave) }
                     if let onPass { Button("Pass", action: onPass) }
                 }
+                .accessibilityHidden(!isActive)
             }
-        }
-        .padding(.horizontal, 24)
-        .padding(.top, 24)
-        .padding(.bottom, embedded ? 0 : 24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background {
-            if !embedded {
-                RoundedRectangle(cornerRadius: 28, style: .continuous).fill(.white)
-                    .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(Brand.rule, lineWidth: 1))
-            }
-        }
-    }
-
-    private var header: some View {
-        HStack(alignment: .top, spacing: 10) {
-            HStack(alignment: .top, spacing: 12) {
-                Group {
-                    if !job.logoPNG.isEmpty, let data = Data(base64Encoded: job.logoPNG), let image = UIImage(data: data) {
-                        Image(uiImage: image).resizable().scaledToFit()
-                            .clipShape(RoundedRectangle(cornerRadius: 9))
-                    } else {
-                        Text(job.initial)
-                            .font(.body.weight(.semibold)).foregroundStyle(Brand.ink)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .background(Brand.page, in: Circle())
-                            .overlay(Circle().stroke(Brand.rule, lineWidth: 1))
-                    }
-                }
-                .frame(width: 40, height: 40)
-                .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(job.company).font(.headline).foregroundStyle(Brand.ink)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if !job.posted.isEmpty {
-                        Text(job.posted).font(.subheadline).foregroundStyle(Brand.muted)
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                Spacer(minLength: 0)
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(.white)
             .contentShape(Rectangle())
             .onTapGesture { onOpen?() }
-            .accessibilityHidden(true) // Included in the reading area's complete card label.
-            if let onFilter {
-                Button(action: onFilter) {
-                    Image(systemName: "slider.horizontal.3")
-                        .font(.system(size: 20, weight: .medium)).foregroundStyle(Brand.ink)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
+
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+    }
+
+    private var employment: String {
+        let type = job.raw["employment_type"].string
+        return type.isBlank || type == "Unknown" ? "" : type
+    }
+
+    private var payIsMissing: Bool {
+        job.salary.isBlank || job.salary.localizedCaseInsensitiveContains("not listed")
+    }
+
+    private var photo: some View {
+        let id = JobPhoto.id(for: job, preferredLocation: preferredLocation)
+        let image = UIImage(named: "job-photo-" + id + ".jpg") ?? UIImage(named: "job-photo-forest.jpg")
+        return Group {
+            if let image {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                Brand.page
+            }
+        }
+    }
+
+    private var company: some View {
+        HStack(spacing: 12) {
+            Group {
+                if let image = JobLogoImages.image(job) {
+                    Image(uiImage: image).resizable().scaledToFit()
+                } else {
+                    Text(job.initial).font(.title2.weight(.semibold)).foregroundStyle(Brand.ink)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity).background(Brand.page)
                 }
-                .buttonStyle(.plain)
-                .disabled(requirementsDisabled)
-                .accessibilityLabel("Requirements and job tools")
-                .accessibilityIdentifier("job-requirements")
-                .padding(.trailing, -10)
-                .padding(.top, -8)
             }
+            .frame(width: 44, height: 44)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            Text(job.company.isBlank ? "Company not listed" : job.company)
+                .font(.system(size: 22, weight: .semibold)).tracking(-0.5)
+                .foregroundStyle(Brand.ink).fixedSize(horizontal: false, vertical: true)
         }
     }
+}
 
-    private var pay: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                payAmount.fixedSize()
-                if !copy.payPeriod.isEmpty { payUnit.fixedSize() }
-            }
-            VStack(alignment: .leading, spacing: 4) {
-                payAmount
-                if !copy.payPeriod.isEmpty { payUnit }
+/// Keep the normalized employer PNG decoded while a card follows a finger at display refresh rate.
+@MainActor
+private enum JobLogoImages {
+    private static let cache: NSCache<NSString, UIImage> = {
+        let cache = NSCache<NSString, UIImage>()
+        cache.countLimit = 48
+        return cache
+    }()
+
+    static func image(_ job: Job) -> UIImage? {
+        let png = job.logoPNG
+        if !png.isEmpty {
+            if let image = cache.object(forKey: png as NSString) { return image }
+            if let data = Data(base64Encoded: png), let image = UIImage(data: data) {
+                cache.setObject(image, forKey: png as NSString)
+                return image
             }
         }
-    }
-
-    private var payAmount: some View {
-        Text(copy.pay).font(.system(size: paySize, weight: .bold)).tracking(-0.8)
-            .foregroundStyle(Brand.ink).fixedSize(horizontal: false, vertical: true)
-    }
-
-    private var payUnit: some View {
-        Text(copy.payPeriod).font(.body).foregroundStyle(Brand.muted)
+        guard let domain = JobBrand.domain(for: job) else { return nil }
+        return UIImage(named: domain + ".png")
     }
 }

@@ -44,6 +44,7 @@ struct ScreenFlowUITestScene: View {
         }
         .environment(store)
         .tint(Palette.dark)
+        .environment(\.stackMotionPolicy, ProcessInfo.processInfo.arguments.contains("--reduced-card-motion") ? .reduced : .system)
         .transaction { if ProcessInfo.processInfo.arguments.contains("--disable-draft-animations") { $0.animation = nil; $0.disablesAnimations = true } }
     }
 
@@ -61,7 +62,7 @@ struct ScreenFlowUITestScene: View {
         case "network": NetworkView(onProfile: {})
         case "applications", "applications-autofill-unavailable": ApplicationsView(onProfile: {}, onNavigate: { _ in })
         case "jobs": ScreenFlowJobHost(job: Job(ScreenFlowServer.job))
-        case "deck", "deck-paging": JobsView(onProfile: {})
+        case "deck", "deck-paging", "deck-reference": MainTabs()
         case "onboarding": AccessView()
         case "recovery": InvitationView()
         default: Text("Unknown screen flow").font(Typeface.title)
@@ -274,12 +275,28 @@ final class ScreenFlowServer: @unchecked Sendable {
         let entry = filters["levels"].strings == ["Entry-level"]
         let criteria: JSON = ["roles": .string(query.isEmpty ? "Product analyst" : query), "employment_types": ["Full-time"]]
         var jobs = entry ? entryJobs : deckJobs
+        if ProcessInfo.processInfo.arguments.contains("--screen-flow=deck-reference") {
+            let long = ProcessInfo.processInfo.arguments.contains("--job-card-long-content")
+            let invalid = ProcessInfo.processInfo.arguments.contains("--job-card-invalid-media")
+            jobs = [["id": "job-alpha", "title": .string(long ? Self.jobTitle : "Mobile Product Designer"),
+                     "company": .string(long ? "Linear — Product Development and Collaboration for Distributed Teams" : "Linear"),
+                     "location": "North America", "mode": "Remote", "employment_type": "Full-time",
+                     "salary": "Pay not listed", "photo_id": .string(invalid ? "unknown-photo" : "forest"),
+                     "employer_brand": "linear.app", "listing_url": "https://linear.app/careers/eac7f181-d658-4943-9430-51bae2bcd110",
+                     "highlights": ["responsibilities": [.string(long ? String(repeating: "Own the experience of our iOS and Android mobile apps. ", count: 8) : "Own the experience of our iOS and Android mobile apps.")]]],
+                    deckJobs[1], deckJobs[2]]
+        }
         var next = ""
         if paging, !entry {
             jobs = cursor.isEmpty ? [deckJobs[0]] : Array(deckJobs.dropFirst())
             next = cursor.isEmpty ? "page-2" : ""
         }
-        return ["jobs": .array(jobs), "next_cursor": .string(next), "criteria": criteria,
+        var logos: JSON = [:]
+        if let url = Bundle.main.url(forResource: "job-preview-linear", withExtension: "png"),
+           let data = try? Data(contentsOf: url) {
+            logos = ["linear.app": .string(ProcessInfo.processInfo.arguments.contains("--job-card-invalid-media") ? "invalid-png" : data.base64EncodedString())]
+        }
+        return ["jobs": .array(jobs), "employer_logos": logos, "next_cursor": .string(next), "criteria": criteria,
                 "excluded": [], "occupations": []]
     }
 

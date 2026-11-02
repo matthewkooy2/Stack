@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// A deck of roles. Drag a card right to save it, left to pass; the buttons do the same.
+/// Full-height roles: swipe right to save, left to pass; tap to read the employer listing.
 @MainActor
 struct JobsView: View {
     @Environment(AppStore.self) private var store
@@ -25,6 +25,11 @@ struct JobsView: View {
     @State private var suppressOpenUntil = Date.distantPast
     @State private var swipeAxis: Axis?
     @GestureState private var dragging = false
+    @State private var cardWidth: CGFloat = 390
+    @State private var swipeReady = false
+
+    private var settle: Animation { .spring(response: 0.38, dampingFraction: 0.90) }
+    private var swipeProgress: CGFloat { min(abs(drag.width) / max(cardWidth * 0.65, 1), 1) }
 
     private var deck: [Job] {
         guard displayedContext == accountContext else { return [] }
@@ -33,19 +38,25 @@ struct JobsView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            content
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        GeometryReader { geometry in
+            ZStack(alignment: .topTrailing) {
+                content.frame(width: geometry.size.width, height: geometry.size.height)
+                if feed.loaded && !deck.isEmpty {
+                    requirementsButton.padding(14).zIndex(1)
+                }
+            }
+            .onAppear { cardWidth = geometry.size.width }
+            .onChange(of: geometry.size.width) { _, width in cardWidth = width }
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 4)
-        .padding(.bottom, 16)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
         .clipped()
         .background(Brand.page.ignoresSafeArea())
+        .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.4), trigger: swipeReady) { _, ready in ready }
         .onChange(of: dragging) { _, active in
             if !active {
                 swipeAxis = nil
-                if leavingID == nil { withAnimation(reduceMotion ? nil : Motion.release) { drag = .zero } }
+                if leavingID == nil { withAnimation(reduceMotion ? nil : settle) { drag = .zero } }
             }
         }
         .task { await start() }
@@ -126,38 +137,33 @@ struct JobsView: View {
                 Spacer()
             }
             .padding(20)
-        } else if let top = deck.first {
+        } else if !deck.isEmpty {
             ZStack {
                 ForEach(Array(deck.prefix(3).enumerated().reversed()), id: \.element.id) { offset, job in
-                    VStack(spacing: 0) {
-                        JobCard(job: job, embedded: true, requirementsDisabled: feed.busy || !feed.loaded,
-                                onOpen: { open(job) },
-                                onFilter: { sheet = .filters },
-                                onDetails: { detail = job },
-                                onSave: { decide(job, save: true) },
-                                onPass: { decide(job, save: false) })
-                        if offset == 0 { feedback }
-                        HStack(spacing: 42) {
-                            roundButton(icon: "pass", label: "Pass") { decide(top, save: false) }
-                            roundButton(icon: "details", label: "Job details") { detail = top }
-                            roundButton(icon: "save", label: "Save", filled: true, size: 52) { decide(top, save: true) }
+                    JobCard(job: job, isActive: offset == 0,
+                            preferredLocation: search.filters["location"].string.isEmpty ? search.criteria["location"].string : search.filters["location"].string,
+                            onOpen: { open(job) },
+                            onDetails: { detail = job },
+                            onSave: { decide(job, save: true) },
+                            onPass: { decide(job, save: false) })
+                        .safeAreaInset(edge: .bottom, spacing: 0) {
+                            if offset == 0 {
+                                feedback.padding(.bottom, 8).background(.white)
+                            }
                         }
-                        .padding(.top, 12)
-                        .padding(.bottom, 28)
-                        .disabled(leavingID != nil)
-                    }
-                    .background(.white, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 28, style: .continuous).stroke(Brand.rule, lineWidth: 1))
-                    .scaleEffect(1 - CGFloat(offset) * 0.035, anchor: .bottom)
-                    .offset(y: CGFloat(offset) * 8)
-                    .offset(offset == 0 ? drag : .zero)
-                    .rotationEffect(.degrees(offset == 0 && !reduceMotion ? Double(drag.width / 24) : 0))
-                    .overlay(alignment: .topLeading) {
-                        if offset == 0, drag.width != 0 { stamp(for: drag.width).accessibilityHidden(true) }
-                    }
-                    .simultaneousGesture(swipe(job), including: offset == 0 ? .all : .none)
-                    .allowsHitTesting(offset == 0 && leavingID == nil)
-                    .accessibilityHidden(offset != 0)
+                        .background(.white, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+                        .shadow(color: .black.opacity(offset == 0 ? 0.07 : 0.025),
+                                radius: offset == 0 ? 10 + swipeProgress * 6 : 3, y: 3)
+                        .scaleEffect(offset == 0 ? 1 - swipeProgress * 0.012
+                                     : 1 - (CGFloat(offset) - swipeProgress) * 0.018)
+                        .offset(y: offset == 0 ? 0 : max(CGFloat(offset) - swipeProgress, 0) * 6)
+                        .offset(x: offset == 0 ? drag.width : 0)
+                        .rotationEffect(.degrees(offset == 0 && !reduceMotion
+                            ? max(-2.2, min(2.2, Double(drag.width / max(cardWidth, 1)) * 2.2)) : 0))
+                        .simultaneousGesture(swipe(job), including: offset == 0 ? .all : .none)
+                        .allowsHitTesting(offset == 0 && leavingID == nil)
+                        .accessibilityHidden(offset != 0)
                 }
             }
         } else {
@@ -184,12 +190,15 @@ struct JobsView: View {
     private var requirementsButton: some View {
         Button { sheet = .filters } label: {
             Image(systemName: "slider.horizontal.3")
-                .font(.system(size: 20, weight: .medium)).foregroundStyle(Brand.ink)
-                .frame(width: 44, height: 44)
+                .font(.system(size: 20, weight: .semibold)).foregroundStyle(Brand.ink)
+                .frame(width: 48, height: 48)
+                .background(.white, in: Circle())
                 .contentShape(Rectangle())
+                .overlay(Circle().stroke(Brand.rule.opacity(0.6), lineWidth: 0.5))
+                .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
         }
         .buttonStyle(.plain)
-        .disabled(feed.busy || !feed.loaded)
+        .disabled(!feed.loaded || leavingID != nil)
         .accessibilityLabel("Requirements and job tools")
         .accessibilityIdentifier("job-requirements")
     }
@@ -255,31 +264,6 @@ struct JobsView: View {
         if let next = JobListing(job: job) { listing = next } else { detail = job }
     }
 
-    private func roundButton(icon: String, label: String, filled: Bool = false, size: CGFloat = 46,
-                             action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            GlyphView(name: icon, size: 23, color: filled ? .white : Brand.muted)
-                .frame(width: size, height: size)
-                .background(filled ? Brand.accent : .white, in: Circle())
-                .overlay(Circle().stroke(filled ? .clear : Brand.rule, lineWidth: 1))
-        }
-        .buttonStyle(.tap(scale: 0.92))
-        .accessibilityLabel(label)
-    }
-
-    private func stamp(for width: CGFloat) -> some View {
-        let saving = width > 0
-        let tint = saving ? Brand.accent : Brand.muted
-        let label: Text = Text(saving ? "Save" : "Pass")
-            .font(.system(.headline).weight(.heavy))
-        return label.foregroundStyle(tint)
-            .padding(.horizontal, 12).padding(.vertical, 6)
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(tint, lineWidth: 2))
-            .rotationEffect(.degrees(saving ? -10 : 10))
-            .padding(22)
-            .opacity(min(Double(abs(width)) / 110.0, 1.0))
-    }
-
     private func swipe(_ job: Job) -> some Gesture {
         DragGesture(minimumDistance: 16)
             .updating($dragging) { _, active, _ in active = true }
@@ -291,15 +275,17 @@ struct JobsView: View {
                     swipeAxis = JobCardSwipe.isHorizontal(value.translation) ? .horizontal : .vertical
                 }
                 guard swipeAxis == .horizontal else { return }
-                drag = CGSize(width: value.translation.width, height: value.translation.height * 0.12)
+                drag = CGSize(width: value.translation.width, height: 0)
+                swipeReady = JobCardSwipe.decision(for: value.translation) != nil
             }
             .onEnded { value in
                 suppressOpenUntil = Date().addingTimeInterval(0.35)
                 if swipeAxis == .horizontal, let save = JobCardSwipe.decision(for: value.translation) {
                     decide(job, save: save)
                 } else {
-                    withAnimation(reduceMotion ? nil : Motion.release) { drag = .zero }
+                    withAnimation(reduceMotion ? nil : settle) { drag = .zero }
                 }
+                swipeReady = false
                 swipeAxis = nil
             }
     }
@@ -310,24 +296,30 @@ struct JobsView: View {
         commitDecision()
         leavingID = job.id
         let generation = store.sessionGeneration
-        withAnimation(reduceMotion ? nil : Motion.ease(0.26)) { drag = CGSize(width: save ? 700 : -700, height: 40) }
-        Task {
-            defer { if leavingID == job.id { leavingID = nil } }
-            try? await Task.sleep(for: .milliseconds(reduceMotion ? 0 : 230))
-            guard generation == store.sessionGeneration, store.phase == .ready, !Task.isCancelled else { return }
-            var reset = Transaction()
-            reset.disablesAnimations = true
-            withTransaction(reset) {
-                hidden.insert(job.id)
-                drag = .zero
-            }
-            pendingDecision = (job, save, generation)
-            if scenePhase != .active { commitDecision(); return }
-            undoTimer = Task {
-                do { try await Task.sleep(for: undoWindow) } catch { return }
-                guard !Task.isCancelled else { return }
-                commitDecision()
-            }
+        withAnimation(reduceMotion ? nil : Motion.ease(0.30), completionCriteria: .logicallyComplete) {
+            drag = CGSize(width: (save ? 1 : -1) * (cardWidth + 64), height: 0)
+        } completion: {
+            finishDecision(job, save: save, generation: generation)
+        }
+    }
+
+    private func finishDecision(_ job: Job, save: Bool, generation: Int) {
+        guard leavingID == job.id else { return }
+        let current = generation == store.sessionGeneration && store.phase == .ready && deck.first?.id == job.id
+        var reset = Transaction()
+        reset.disablesAnimations = true
+        withTransaction(reset) {
+            if current { hidden.insert(job.id) }
+            drag = .zero
+            leavingID = nil
+        }
+        guard current else { return }
+        pendingDecision = (job, save, generation)
+        if scenePhase != .active { commitDecision(); return }
+        undoTimer = Task {
+            do { try await Task.sleep(for: undoWindow) } catch { return }
+            guard !Task.isCancelled else { return }
+            commitDecision()
         }
     }
 

@@ -14,10 +14,9 @@ struct Job: Identifiable, Hashable {
     let url: String
     let tags: [String]
     let requirements: [String]
+    let logoPNG: String
     /// The complete server document, for fields only the detail screens read (match, timeline, source).
     let raw: JSON
-
-    let logoPNG: String
 
     static func feedPage(_ page: JSON) -> [Job] {
         let logos = page["employer_logos"]
@@ -26,9 +25,7 @@ struct Job: Identifiable, Hashable {
         }
     }
 
-    init(_ json: JSON) {
-        self.init(json, logoPNG: "")
-    }
+    init(_ json: JSON) { self.init(json, logoPNG: "") }
 
     private init(_ json: JSON, logoPNG: String) {
         self.logoPNG = logoPNG

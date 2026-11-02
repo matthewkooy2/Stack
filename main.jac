@@ -448,7 +448,15 @@ def:priv bootstrap() -> dict[str, any] {
     };
 }
 def:priv save_profile(name: str, role: str, location: str, mode: str, notifications: bool, graduation_month: str | None = None, available_from: str | None = None, preferences: dict[str, any] | None = None) -> dict[str, any] {
-    if not name.strip() or len(name)>100 or len(role)>160 or len(location)>160 or mode not in ["Any","Remote","Hybrid","On-site"] { return _error("Enter a name and valid preferences."); }
+    # The phone's "A little about your search" step sends only optional role, location and stage: it has no
+    # name or work-arrangement field. A blank name keeps the saved name (empty for a new account) and a blank
+    # mode means Any. Every value that is supplied is still validated, with a message naming its field.
+    if not name.strip() { name=_profile().name; }
+    if not mode.strip() { mode="Any"; }
+    if len(name)>100 { return _error("Keep your name to 100 characters or fewer."); }
+    if len(role)>160 { return _error("Keep your target roles to 160 characters or fewer."); }
+    if len(location)>160 { return _error("Keep your location to 160 characters or fewer."); }
+    if mode not in ["Any","Remote","Hybrid","On-site"] { return _error("Choose Any, Remote, Hybrid or On-site for work arrangement."); }
     timeline=_timeline_preferences();
     graduation=timeline["graduation_month"] if graduation_month in [None,"None"] else str(graduation_month);
     availability=timeline["available_from"] if available_from in [None,"None"] else str(available_from);

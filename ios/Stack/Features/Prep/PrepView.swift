@@ -264,7 +264,7 @@ struct PrepView: View {
         return PrepCoachingScreen(progress: "\(model.index + 1) of \(model.plan.count)",
                                   verdict: shown.verdict.isBlank ? "Here’s how that went." : shown.verdict,
                                   criteria: shown.criteria, focus: shown.focus,
-                                  worked: model.strengths.first?["feedback"].string ?? "",
+                                  worked: model.worked,
                                   primary: model.isLastQuestion ? "Finish" : "Next question",
                                   busy: model.busy || model.workflow["complete"].bool, message: screenMessage,
                                   onAnswer: { model.go(.review) },

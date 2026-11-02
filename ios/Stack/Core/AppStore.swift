@@ -128,6 +128,7 @@ final class AppStore {
         do {
             try FileResumeDraftStore.shared.remove(userID: account.userID)
             try RecordingStore.remove(owner: account.userID)
+            try PrepDraftStore().remove(owner: account.userID)
             try jobFeedCache.removeForAccountDeletion()
             #if DEBUG
             try PrepTrace.remove()

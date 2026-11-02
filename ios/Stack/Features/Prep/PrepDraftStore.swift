@@ -32,4 +32,11 @@ struct PrepDraftStore {
         stored["submission"] = submission
         try save(owner: owner, session: session, index: index, value: stored)
     }
+    func remove(owner: String) throws {
+        guard !owner.isEmpty, FileManager.default.fileExists(atPath: root.path) else { return }
+        for file in try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) where file.pathExtension == "json" {
+            let value = try JSONDecoder().decode(JSON.self, from: Data(contentsOf: file))
+            if value["owner"].string == owner { try FileManager.default.removeItem(at: file) }
+        }
+    }
 }

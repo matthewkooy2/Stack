@@ -27,7 +27,7 @@ interview_create interview_get interview_answer interview_correct interview_cont
 agent_model_logs agent_linkedin_profile agent_linkedin_start agent_features agent_approve agent_retry agent_dismiss
 resume_transfer_complete retry_resume_processing upload_resume_source use_resume_template read_resume_source read_tailored_resume check_tailored_resume score_resume delete_tailored_resume agent_continue_tailoring resume_save_records
 transcription_upload transcription_list transcription_get transcription_audio transcription_action transcription_transfer_complete transcription_retry_setup
-agent_register_push agent_remove_push agent_notification_status agent_admission resume_bank resume_bank_save resume_bank_delete resume_bank_select'''.split()
+agent_register_push agent_remove_push agent_notification_status agent_admission resume_bank resume_bank_save resume_bank_delete resume_bank_select resume_bank_attachment_save resume_bank_attachment'''.split()
     );
     IDENTITY = {'/user/register', '/user/login'};
     SSO = {'/sso/google/begin', '/sso/google/finish', '/sso/google/poll'};

@@ -76,7 +76,6 @@ enum ApplicationCalendar {
 @MainActor
 struct ApplicationCalendarView: View {
     @Environment(AppStore.self) private var store
-    @Environment(\.openURL) private var openURL
 
     @State private var interviews: [JSON] = []
     @State private var connected = false
@@ -216,11 +215,8 @@ struct ApplicationCalendarView: View {
 
     private func connect() async {
         do {
-            let result = try await store.call("agent_google_start", ["capabilities": ["calendar"]])
-            guard let url = URL(string: result["url"].string), url.scheme == "https" else {
-                throw APIError(message: result["error"].string.isEmpty ? "Google Calendar could not be connected." : result["error"].string)
-            }
-            openURL(url)
+            try await store.googleConnection.connect(["calendar"])
+            await load()
         } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
     }
 }

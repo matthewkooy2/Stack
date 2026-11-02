@@ -116,6 +116,17 @@ class Handler(SimpleHTTPRequestHandler) {
             return;
         }
         if (path == '/oauth/google') {
+            # The app finishes under its existing Stack session. Only Google's code and
+            # opaque state cross this fixed redirect; PKCE and tokens stay in the API.
+            try {
+                if len(self.path)>8192 { self.send_error(414);return; }
+                values=parse_qs(urlsplit(self.path).query,keep_blank_values=True,max_num_fields=20);
+                if any(len(values.get(k,[]))>1 for k in ['code','state','error']) { self.send_error(400);return; }
+                if values.get('state',[''])[0].startswith('native.') {
+                    query={k:values[k][0] for k in ['code','state','error'] if k in values};
+                    self.send_response(303);self.send_header('Location','stack://oauth/google?'+urlencode(query));self.send_header('Content-Length','0');self.end_headers();return;
+                }
+            } except ValueError { self.send_error(400);return; }
             self.path = '/index.html';
         }
         if path == '/sso/google/callback' { self.sso_callback();return; }

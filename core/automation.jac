@@ -774,18 +774,20 @@ def:priv agent_accept_invite(invite: str) -> dict[str, any] {
         _agent_memory().admitted=True;commit();return {"admitted":True};
     }
 }
-def:priv agent_google_start(capabilities: list[str]) -> dict[str, any] {
+def:priv agent_google_start(capabilities: list[str], native: bool = False) -> dict[str, any] {
     _agent_access();verifier=secrets.token_urlsafe(48);
     try {
         encrypted=seal({"verifier":verifier});
-        state=token_create("stack-google",subject=jid(root),ttl_seconds=600,payload={"owner":jid(root),"sealed":encrypted});
+        state=token_create("stack-google",subject=jid(root),ttl_seconds=600,payload={"owner":jid(root),"sealed":encrypted,"native":native});
+        if native { state="native."+state; }
         return {"url":authorization_url(state,verifier,capabilities)};
     } except ValueError as e { return {"error":str(e)}; }
 }
 def:priv agent_google_finish(state: str, code: str) -> dict[str, any] {
     _agent_access();
+    native=state.startswith("native.");state=state.removeprefix("native.");
     pending=token_peek("stack-google",state);
-    if pending is None or pending["payload"]["owner"]!=jid(root) { return {"error":"Google connection belongs to another account or has expired."}; }
+    if pending is None or pending["payload"]["owner"]!=jid(root) or pending["payload"].get("native",False)!=native { return {"error":"Google connection belongs to another account or has expired."}; }
     consumed=token_consume("stack-google",state);
     if consumed is None { return {"error":"This authorization was already used."}; }
     try { tokens=exchange(code,str(unseal(str(consumed["payload"]["sealed"]))["verifier"]));encrypted=seal(tokens); }

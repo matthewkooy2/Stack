@@ -40,6 +40,10 @@ targets:
         CFBundleDisplayName: Stack
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleURLTypes:
+          - CFBundleURLName: com.matthewkooy.stack.oauth
+            CFBundleURLSchemes:
+              - stack
         UILaunchScreen:
           UIColorName: LaunchBlue
         # Keep recording an answer when the app is not on screen (the red status bar pill shows it).

@@ -387,12 +387,9 @@ struct AgentHubView: View {
     private func connect(_ capabilities: [String]) async {
         error = ""
         do {
-            let result = try await store.call("agent_google_start", ["capabilities": .array(capabilities.map { .string($0) })])
-            guard let url = URL(string: result["url"].string), url.scheme == "https" else {
-                throw APIError(message: "Google connection is unavailable.")
-            }
-            openURL(url)
-            notice = "Finish connecting Google in your browser, then return to Stack."
+            try await store.googleConnection.connect(capabilities)
+            await loadSettings(resetRules: false)
+            notice = "Google connected."
         } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
     }
 

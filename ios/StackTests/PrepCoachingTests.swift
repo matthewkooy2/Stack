@@ -63,7 +63,7 @@ final class PrepCoachingTests: XCTestCase {
         release.signal(); await pending.value
         XCTAssertEqual(calls, 1)
         XCTAssertEqual(model.draft, "Newer edits while inference is pending")
-        XCTAssertEqual(model.page, .review)
+        XCTAssertEqual(model.page, .coaching)
         XCTAssertEqual(packet["data"]["answer"].string, "  Exact visible answer.\nSecond line.  ")
         XCTAssertEqual(packet["feedback"]["summary"].string, "Feedback for submitted text")
     }

@@ -181,22 +181,23 @@ struct PrepView: View {
             if model.localURL != nil, model.recording.object.isEmpty {
                 StackButton(label: "Upload saved answer", disabled: model.busy) { Task { await model.retryUpload() } }.reveal()
             }
-            AnswerEditor(text: Binding(get: { model.draft }, set: { model.edited($0) }),
-                         placeholder: "Type or fix your answer before coaching", label: "Your answer",
-                         disabled: model.busy && !model.canReviewPhoneText)
             if !model.feedback.object.isEmpty {
-                Text("Coaching for this submitted answer").font(Typeface.caption).foregroundStyle(Brand.muted)
                 Text(model.submitted["data"]["answer"].string).font(Typeface.body).foregroundStyle(Brand.ink)
                 coachingDetails
-            }
-            if model.hasUnsavedCoaching {
-                StackButton(label: "Save coaching", disabled: model.coaching) { Task { await model.retryCoachingSave() } }
-            }
-            VStack(spacing: 6) {
-                PrimaryPill(title: model.feedback.object.isEmpty ? "Get coaching" : "Update coaching",
-                            disabled: model.busy || model.coaching || model.draft.isBlank) { Task { await model.coach() } }
-                QuietLinks(links: [ScreenLink("Record again") { Task { await model.recordAnswer() } }]
-                           + (model.feedback.object.isEmpty ? [] : [ScreenLink("Back to coaching") { model.go(.coaching) }]))
+                if model.hasUnsavedCoaching {
+                    StackButton(label: "Save coaching", disabled: model.coaching) { Task { await model.retryCoachingSave() } }
+                }
+                QuietLinks(links: [ScreenLink("Back to coaching") { model.go(.coaching) }])
+            } else {
+                AnswerEditor(text: Binding(get: { model.draft }, set: { model.edited($0) }),
+                             placeholder: "Type or fix your answer before coaching", label: "Your answer",
+                             disabled: model.coaching || (model.busy && !model.canReviewPhoneText))
+                VStack(spacing: 6) {
+                    PrimaryPill(title: "Get coaching", disabled: model.busy || model.coaching || model.draft.isBlank) { Task { await model.coach() } }
+                    if !model.coaching {
+                        QuietLinks(links: [ScreenLink("Record again") { Task { await model.recordAnswer() } }])
+                    }
+                }
             }
         }
     }
@@ -255,7 +256,7 @@ struct PrepView: View {
                                   busy: model.busy || model.coaching || model.workflow["complete"].bool, message: screenMessage,
                                   onAnswer: { model.go(.review) },
                                   onPrimary: { Task { await model.nextAnswer() } },
-                                  onAgain: { model.tryAgain() })
+                                  onAgain: {}, secondary: nil)
     }
 
     private var complete: some View {

@@ -378,10 +378,13 @@ final class PrepModel {
                 if draft.isEmpty, !recovered["edited"].bool, let url = localURL,
                    let phone = RecordingStore.transcript(at: url) { draft = phone.text }
                 if !recovered["recording"].object.isEmpty { recording = recovered["recording"] }
-                submitted = recovered["submission"]; feedback = submitted["feedback"]
+                let localSubmission = recovered["submission"]
+                if feedback.object.isEmpty || (!localSubmission["feedback"].object.isEmpty && !localSubmission["saved"].bool) {
+                    submitted = localSubmission; feedback = submitted["feedback"]
+                }
             }
             dirty = !draft.isEmpty
-            if !feedback.object.isEmpty && draft == submitted["data"]["answer"].string { page = .coaching }
+            if !feedback.object.isEmpty { page = .coaching }
             else if !draft.isEmpty || localURL != nil || !recording.object.isEmpty { page = .review }
             else { page = .question }
             // A finished session opens to its answers (straight to the answer when there is only one). One still in
@@ -440,6 +443,8 @@ final class PrepModel {
         case .savedAnswer:
             page = openedDirectly ? .past : .history
             openedDirectly = false
+        case .review where !feedback.object.isEmpty:
+            page = .coaching
         case .answer, .review:
             remember(); page = .home
         default:
@@ -634,7 +639,7 @@ final class PrepModel {
             do { try drafts.saveSubmission(owner: owner, submission: packet) } catch { fail(error) }
             if current["id"] == packet["session_id"], index == packet["index"].int {
                 submitted = packet; feedback = packet["feedback"]
-                page = draft == packet["data"]["answer"].string ? .coaching : .review
+                page = .coaching
                 liveActivity.setReady(); remember()
             }
             await persistCoaching(packet)
@@ -725,16 +730,6 @@ final class PrepModel {
             if last { page = .complete }
             else { resetAnswer(); page = .question }
         } catch { fail(error) }
-    }
-
-    func tryAgain() {
-        // A new attempt starts empty: the last transcript must not turn up in the box or the recording.
-        resetAnswer()
-        var data = current["data"]
-        data["behavioral"]["complete"] = false
-        current["data"] = data
-        remember()
-        page = .question
     }
 
     // MARK: Saved answers

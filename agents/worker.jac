@@ -68,6 +68,47 @@ def browser_call(step: str, work: dict[str, any], timeout: int = 100) -> dict[st
     }
     return result;
 }
+"""The leased account's confirmed memory (agents.memory_access), read through the API's lease check."""
+def leased_memory(auth: dict[str, any], owner: str) -> dict[str, any] {
+    import from agents.memory_access { validate }
+    return validate(call('agent_worker_memory', auth), owner);
+}
+
+"""Tailor a reviewed-record resume from the whole memory bank (docs/MEMORY_TAILORING.md)."""
+def memory_tailor(work: dict[str, any], auth: dict[str, any], c: dict[str, any], prepared: any,
+                  before: any, observe: any, record: any) -> dict[str, any] {
+    import from agents.provider { generate }
+    import from agents.scoring { score, summary }
+    import agents.memory_tailoring as memory_tailoring;
+    import agents.record_resume as record_resume;
+    context = work['context'];
+    costs: list[int] = [];
+    def model(step: str, model_context: dict[str, any], configuration: dict[str, any]) -> dict[str, any] {
+        result = generate(step, model_context, configuration, record=record, observe=observe);
+        costs.append(result.get('cost_cents', 0));
+        return result;
+    }
+    try {
+        memory = leased_memory(auth, work['owner']);
+        served = None;
+        if c['provider'] in LOCAL_PROVIDERS {
+            import from agents.local_model { served_context }
+            served = served_context(c);
+        }
+        proposal = memory_tailoring.run(prepared, memory, context.get('job', {}), c, model, served, context.get('resume_id', ''));
+        artifact = memory_tailoring.tailor(prepared, proposal);
+    } except ValueError as exc {
+        return {'needs_input': True, 'message': str(exc), 'requests': []};
+    }
+    job = context.get('job', {});
+    if job {
+        after = score(record_resume.prepare({**prepared, 'records': artifact['records']})['outline'], job, [],
+            pages=artifact['pdf']['pages'], text='\n'.join(r['text'] for r in artifact['records']));
+        artifact['score'] = {'before': summary(before), 'after': summary(after)};
+    }
+    return {'artifact': artifact, 'cost_cents': sum(costs), 'provider_id': ''};
+}
+
 def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str, any] {
     (step, context, artifacts) = (work['step'], work['context'], work['artifacts']);
     import from agents.provider { generate }
@@ -128,6 +169,9 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
             try { call('agent_model_log', {**auth, 'record':attempt}); }
             except Exception { raise ValueError('Stack could not retain the model response log. Check the API before retrying.') from None; }
         }
+        if step == 'tailor' and prepared['format'] == 'records' {
+            return memory_tailor(work, auth, c, prepared, before, observe, record);
+        }
         try {
             result = generate(step, model_context, c, observe=observe, record=record);
         } except ValueError as exc {
@@ -161,6 +205,10 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
             if source.get('format')=='records' {
                 import agents.record_resume as record_resume;
                 prepared=record_resume.prepare(source);
+                if artifacts['tailor'].get('mode')=='memory' {
+                    import agents.memory_tailoring as memory_tailoring;
+                    return {'artifact':memory_tailoring.finalize(prepared,leased_memory(auth,work['owner']),artifacts['tailor'])};
+                }
                 return {'artifact':record_resume.finalize(prepared,artifacts['tailor'],context.get('job'))};
             }
             prepared = prepare(source);

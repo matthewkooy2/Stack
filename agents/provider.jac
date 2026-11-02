@@ -149,12 +149,106 @@ def generate(
     return result;
 }
 
+"""One request over the configured transport. Returns (response text, provider result)."""
+def _send(step: str, c: dict[str, any], system: str, payload: dict[str, any], schema: dict[str, any], coach: bool,
+          received: any, observe: any, key: any) -> tuple[str, dict[str, any]] {
+    provider = c['provider'];
+    result: dict[str, any] = {};
+    if observe { observe("model_request", {"provider":provider,"requested_model":c["model"] or "provider default","transport":"codex exec" if provider=="codex-cli" else "claude -p" if provider=="claude-cli" else "local HTTP API" if provider in LOCAL_PROVIDERS else "HTTPS API","system":system,"input":json.loads(payload["input"]),"prompt_text":system+'\nReturn only the requested JSON.\n'+payload["input"] if provider=="codex-cli" else payload["input"],"schema":schema,"max_output_tokens":c["max_output_tokens"] if provider not in CLI_PROVIDERS else None}); }
+    if (provider in CLI_PROVIDERS) {
+        import from agents.local_cli { generate as cli_generate }
+        cli_result = cli_generate(provider, c['model'], system, payload['input'], schema, record_response=received, observe=observe, lenient=coach) if observe else cli_generate(provider, c['model'], system, payload['input'], schema, record_response=received, lenient=coach);
+        text = cli_result.get('text', '') if coach and 'text' in cli_result else json.dumps(cli_result);
+    } elif (provider in LOCAL_PROVIDERS) {
+        import from agents.local_model { complete }
+        result = complete(step, system, payload['input'], schema, c, received);
+        text = result['text'];
+        if observe { observe("model_response", {"reported_models":[result['model']], "response":result}); }
+    } elif (provider == 'meta') {
+        meta_payload = {
+                'model': c['model'],
+                'max_completion_tokens': c['max_output_tokens'],
+                'messages': [
+                    {'role': 'system', 'content': system},
+                    {'role': 'user', 'content': payload['input']}
+                ],
+                'response_format': {
+                    'type': 'json_schema',
+                    'json_schema': {
+                        'name': ('stack_' + step),
+                        'strict': True,
+                        'schema': schema
+                    }
+                }
+            };
+        result = http('https://api.meta.ai/v1/chat/completions', meta_payload,
+            {'Authorization': ('Bearer ' + (key as str)), 'Content-Type': 'application/json'},timeout=90);
+        received(json.dumps(result, ensure_ascii=False), 'provider_json');
+        if observe { observe("model_response", {"response":result,"reported_models":[result["model"]] if result.get("model") else []}); }
+        choice = result.get('choices', [{}])[0];
+        if (not coach and choice.get('finish_reason') != 'stop') {
+            raise ValueError('Muse did not complete this step.');
+        }
+        text = choice.get('message', {}).get('content', '');
+    } elif (provider == 'openai') {
+        result = http(
+            'https://api.openai.com/v1/responses',
+            payload,
+            {'Authorization': ('Bearer ' + (key as str)), 'Content-Type': 'application/json'},
+            timeout=90
+        );
+        received(json.dumps(result, ensure_ascii=False), 'provider_json');
+        if observe { observe("model_response", {"response":result,"reported_models":[result["model"]] if result.get("model") else []}); }
+        if (not coach and result.get('status') != 'completed') {
+            raise ValueError('The model did not complete this step.');
+        }
+        text = ''.join(
+            part.get('text', '') for item in result.get('output', [])
+            for part in item.get('content', [])
+            if (part.get('type') == 'output_text')
+        );
+    } else {
+        raise ValueError('Unsupported model provider.');
+    }
+    return (text, result);
+}
+
+def _cost(result: dict[str, any], c: dict[str, any]) -> int {
+    if c['provider'] in (CLI_PROVIDERS | LOCAL_PROVIDERS) { return 0; }
+    usage = result.get('usage', {});
+    return max(1, math.ceil((usage.get('input_tokens', usage.get('prompt_tokens', 0)) * c['input_cents_per_million']
+        + usage.get('output_tokens', usage.get('completion_tokens', 0)) * c['output_cents_per_million']) / 1000000));
+}
+
+"""Memory-grounded tailoring requests (agents.memory_tailoring). That module validates
+citations and facts itself, so only the JSON shape is checked here."""
+def _memory_generate(step: str, context: dict[str, any], c: dict[str, any], received: any, observe: any, key: any) -> dict[str, any] {
+    import agents.memory_tailoring as memory_tailoring;
+    (system, text_input, schema) = memory_tailoring.request(step, context);
+    c = {**c, 'max_output_tokens': memory_tailoring.output_tokens(step, c)};
+    payload = {'model': c['model'], 'store': False, 'max_output_tokens': c['max_output_tokens'], 'instructions': system,
+        'input': text_input, 'text': {'format': {'type': 'json_schema', 'name': 'stack_' + step, 'strict': True, 'schema': schema}}};
+    (text, result) = _send(step, c, system, payload, schema, False, received, observe, key);
+    try {
+        data = json.loads(text);
+        if not isinstance(data, `dict) { raise ValueError('Expected an object.'); }
+    } except (ValueError, TypeError) {
+        if observe { observe("model_validation", {"valid":False,"message":"Response was not a JSON object."}); }
+        raise ValueError('The model response could not be read. Retry tailoring.') from None;
+    }
+    if observe { observe("model_validation", {"valid":True}); }
+    return {'artifact': data, 'cost_cents': _cost(result, c), 'provider_id': result.get('id', '')};
+}
+
 def _generate(step: any, context: any, configuration: any, received: any, observe: any = None) -> any {
     c = configuration if (configuration is not None) else config();
     provider = c['provider'];
     key = os.environ.get('MODEL_API_KEY' if (provider == 'meta') else 'OPENAI_API_KEY');
     if ((provider not in (CLI_PROVIDERS | LOCAL_PROVIDERS)) and (not key or not c['model'])) {
         raise ValueError('The model provider is not configured.');
+    }
+    if step in ['tailor_screen', 'tailor_compose', 'tailor_verify'] {
+        return _memory_generate(step, context, c, received, observe, key);
     }
     if (step not in SCHEMAS and step not in interview.STEPS) {
         raise ValueError('Unsupported model operation.');
@@ -235,63 +329,7 @@ def _generate(step: any, context: any, configuration: any, received: any, observ
             }
         }
     };
-    result = {};
-    if observe { observe("model_request", {"provider":provider,"requested_model":c["model"] or "provider default","transport":"codex exec" if provider=="codex-cli" else "claude -p" if provider=="claude-cli" else "local HTTP API" if provider in LOCAL_PROVIDERS else "HTTPS API","system":system,"input":json.loads(payload["input"]),"prompt_text":system+'\nReturn only the requested JSON.\n'+payload["input"] if provider=="codex-cli" else payload["input"],"schema":schema,"max_output_tokens":c["max_output_tokens"] if provider not in CLI_PROVIDERS else None}); }
-    if (provider in CLI_PROVIDERS) {
-        import from agents.local_cli { generate as cli_generate }
-        cli_result = cli_generate(provider, c['model'], system, payload['input'], schema, record_response=received, observe=observe, lenient=coach) if observe else cli_generate(provider, c['model'], system, payload['input'], schema, record_response=received, lenient=coach);
-        text = cli_result.get('text', '') if coach and 'text' in cli_result else json.dumps(cli_result);
-    } elif (provider in LOCAL_PROVIDERS) {
-        import from agents.local_model { complete }
-        result = complete(step, system, payload['input'], schema, c, received);
-        text = result['text'];
-        if observe { observe("model_response", {"reported_models":[result['model']], "response":result}); }
-    } elif (provider == 'meta') {
-        meta_payload = {
-                'model': c['model'],
-                'max_completion_tokens': c['max_output_tokens'],
-                'messages': [
-                    {'role': 'system', 'content': system},
-                    {'role': 'user', 'content': payload['input']}
-                ],
-                'response_format': {
-                    'type': 'json_schema',
-                    'json_schema': {
-                        'name': ('stack_' + step),
-                        'strict': True,
-                        'schema': schema
-                    }
-                }
-            };
-        result = http('https://api.meta.ai/v1/chat/completions', meta_payload,
-            {'Authorization': ('Bearer ' + (key as str)), 'Content-Type': 'application/json'},timeout=90);
-        received(json.dumps(result, ensure_ascii=False), 'provider_json');
-        if observe { observe("model_response", {"response":result,"reported_models":[result["model"]] if result.get("model") else []}); }
-        choice = result.get('choices', [{}])[0];
-        if (not coach and choice.get('finish_reason') != 'stop') {
-            raise ValueError('Muse did not complete this step.');
-        }
-        text = choice.get('message', {}).get('content', '');
-    } elif (provider == 'openai') {
-        result = http(
-            'https://api.openai.com/v1/responses',
-            payload,
-            {'Authorization': ('Bearer ' + (key as str)), 'Content-Type': 'application/json'},
-            timeout=90
-        );
-        received(json.dumps(result, ensure_ascii=False), 'provider_json');
-        if observe { observe("model_response", {"response":result,"reported_models":[result["model"]] if result.get("model") else []}); }
-        if (not coach and result.get('status') != 'completed') {
-            raise ValueError('The model did not complete this step.');
-        }
-        text = ''.join(
-            part.get('text', '') for item in result.get('output', [])
-            for part in item.get('content', [])
-            if (part.get('type') == 'output_text')
-        );
-    } else {
-        raise ValueError('Unsupported model provider.');
-    }
+    (text, result) = _send(step, c, system, payload, schema, coach, received, observe, key);
     if coach {
         if not isinstance(text, str) or not text.strip() { raise ValueError('The model returned no coaching text. Please retry.'); }
         usage = result.get('usage', {});

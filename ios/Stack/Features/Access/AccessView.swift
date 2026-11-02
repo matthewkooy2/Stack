@@ -48,7 +48,7 @@ struct AccessView: View {
                         Task { await store.signInWithApple(window: window) }
                     }.frame(height: 54)
                 }
-                GoogleSignInButton(label: store.googlePending ? "Waiting for Google…" : "Continue with Google",
+                GoogleSignInButton(label: store.googlePending ? "Signing you in…" : "Continue with Google",
                                    disabled: store.googlePending || store.busy) {
                     Task { await store.signInWithGoogle() }
                 }
@@ -217,7 +217,7 @@ struct GoogleAccountCard: View {
             if info["google"].bool {
                 Text("Google sign-in linked").font(Typeface.body).foregroundStyle(Palette.success)
             } else {
-                StackButton(label: store.googlePending ? "Waiting for Google…" : "Link Google sign-in",
+                StackButton(label: store.googlePending ? "Connecting…" : "Link Google sign-in",
                             disabled: store.googlePending || store.busy) {
                     Task { await store.signInWithGoogle(link: true) }
                 }

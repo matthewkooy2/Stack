@@ -44,6 +44,14 @@ struct RootView: View {
             .animation(reduceMotion ? nil : Motion.fadeAnimation, value: store.phase)
         }
         .transaction { if reduceMotion { $0.animation = nil; $0.disablesAnimations = true } }
+        .onOpenURL { url in
+            if let destination = StackAppLink.destination(url) { store.linkedDestination = destination }
+        }
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            if let url = activity.webpageURL, let destination = StackAppLink.destination(url) {
+                store.linkedDestination = destination
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await store.refresh() } }
         }
@@ -85,6 +93,12 @@ struct MainTabs: View {
             TabBar(selection: $selection, namespace: highlight, resumeIsEmpty: store.account.resumes.isEmpty)
         }
         .onChange(of: selection) { _, tab in visited.insert(tab) }
+        .onChange(of: store.linkedDestination) { _, destination in
+            if let destination { go(to: destination); store.linkedDestination = nil }
+        }
+        .onAppear {
+            if let destination = store.linkedDestination { go(to: destination); store.linkedDestination = nil }
+        }
         .sheet(isPresented: $showProfile) {
             ProfileView().environment(store).replayable()
         }

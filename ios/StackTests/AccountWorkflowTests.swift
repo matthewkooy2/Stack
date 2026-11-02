@@ -346,7 +346,7 @@ final class AppStoreSessionTests: XCTestCase {
         let api = APIClient(origin: origin, session: stubSession())
         api.forget()
         let store = AppStore(api: api)
-        store.openExternalURL = { _ in true }
+        store.authenticateGoogle = { _ in }
         store.isForeground = { true }
         return store
     }
@@ -397,10 +397,9 @@ final class AppStoreSessionTests: XCTestCase {
         let url = "https://accounts.google.com/o/oauth2/v2/auth?scope=openid+email+profile&code_challenge_method=S256&state=fixture"
         var polls = 0
         var opened = false
-        store.openExternalURL = { provider in
+        store.authenticateGoogle = { provider in
             XCTAssertEqual(provider.absoluteString, url)
             opened = true
-            return true
         }
         StubProtocol.handler = { request in
             let path = request.url?.path ?? ""
@@ -445,6 +444,63 @@ final class AppStoreSessionTests: XCTestCase {
             XCTAssertTrue(error is CancellationError)
         }
         XCTAssertTrue(StubProtocol.seen.isEmpty)
+    }
+
+    func testGoogleSheetCancellationIsQuietAndAllowsRetry() async {
+        let store = store()
+        store.phase = .signedOut
+        store.authenticateGoogle = { _ in throw CancellationError() }
+        StubProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/sso/google/begin")
+            let url = "https://accounts.google.com/o/oauth2/v2/auth?scope=openid+email+profile&code_challenge_method=S256&state=fixture"
+            return (200, try JSONEncoder().encode(JSON.object(["ok": true, "data": ["ok": true, "poll": "fixture-poll", "url": .string(url)]])))
+        }
+        await store.signInWithGoogle()
+        XCTAssertEqual(store.phase, .signedOut)
+        XCTAssertFalse(store.googlePending)
+        XCTAssertTrue(store.error.isEmpty)
+        XCTAssertFalse(store.api.hasSession)
+        XCTAssertNil(store.google.pending())
+        await store.signInWithGoogle()
+        XCTAssertEqual(StubProtocol.seen.count, 2)
+        XCTAssertTrue(store.error.isEmpty)
+        StubProtocol.handler = nil
+    }
+
+    func testCancelledGoogleSheetCannotFinishOrResetANewerAttempt() async {
+        let store = store()
+        store.phase = .signedOut
+        StubProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/sso/google/begin", "a cancelled browser must never poll or adopt a session")
+            let url = "https://accounts.google.com/o/oauth2/v2/auth?scope=openid+email+profile&code_challenge_method=S256&state=fixture"
+            return (200, try JSONEncoder().encode(JSON.object(["ok": true, "data": ["ok": true, "poll": "fixture-poll", "url": .string(url)]])))
+        }
+        let firstOpened = expectation(description: "first sheet opened")
+        let secondOpened = expectation(description: "second sheet opened")
+        var firstResume: CheckedContinuation<Void, Never>?
+        var secondResume: CheckedContinuation<Void, Never>?
+        store.authenticateGoogle = { _ in
+            await withCheckedContinuation { firstResume = $0; firstOpened.fulfill() }
+        }
+        let first = Task { await store.signInWithGoogle() }
+        await fulfillment(of: [firstOpened], timeout: 2)
+        store.cancelGoogle()
+        store.authenticateGoogle = { _ in
+            await withCheckedContinuation { secondResume = $0; secondOpened.fulfill() }
+        }
+        let second = Task { await store.signInWithGoogle() }
+        await fulfillment(of: [secondOpened], timeout: 2)
+        firstResume?.resume()
+        await first.value
+        XCTAssertTrue(store.googlePending)
+        XCTAssertFalse(store.api.hasSession)
+        XCTAssertTrue(store.error.isEmpty)
+        store.cancelGoogle()
+        secondResume?.resume()
+        await second.value
+        XCTAssertFalse(store.googlePending)
+        XCTAssertTrue(store.error.isEmpty)
+        StubProtocol.handler = nil
     }
 
     func testLateAnswerAfterSignOutIsDropped() async {

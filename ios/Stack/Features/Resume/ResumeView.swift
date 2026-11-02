@@ -53,11 +53,11 @@ struct ResumeView: View {
         }
         .sheet(item: $managing) { resume in ManageResumeSheet(resume: resume).environment(store) }
         .onChange(of: store.sessionGeneration) { _, _ in setupFor = ""; scores = [:] }
-        .sheet(isPresented: $showTailor) { ResumeTailorSheet(setupFor: $setupFor, scores: $scores).environment(store) }
+        .fullScreenCover(isPresented: $showTailor) { ResumeTailorSheet(setupFor: $setupFor, scores: $scores).environment(store) }
         .sheet(isPresented: $showTailored) {
             SheetPage(title: "Tailored resumes") { TailoredResumesSection() }.environment(store)
         }
-        .sheet(isPresented: $showBank) { ExperienceBankView().environment(store) }
+        .fullScreenCover(isPresented: $showBank) { MemoryBankView().environment(store) }
     }
 
     private var library: some View {
@@ -81,7 +81,7 @@ struct ResumeView: View {
                 if !store.account.tailored.isEmpty {
                     ListRow(label: "Tailored resumes", icon: "resume", detail: "\(store.account.tailored.count) saved") { showTailored = true }
                 }
-                ListRow(label: "Experience bank", icon: "star", detail: "Confirmed facts for tailoring") { showBank = true }
+                ListRow(label: "Memory bank", icon: "star", detail: "Skills, projects and experience") { showBank = true }
             }
         }
     }
@@ -153,12 +153,10 @@ private struct ResumeTailorSheet: View {
     @State private var showBank = false
 
     var body: some View {
-        SheetPage(title: "Tailor for a job") {
-            ResumeAgentsSection(setupFor: $setupFor, scores: $scores, onOpenTask: { task = TaskTarget(id: $0) }, onNavigate: navigate)
-        }
+        ResumeAgentsSection(setupFor: $setupFor, scores: $scores, onOpenTask: { task = TaskTarget(id: $0) }, onNavigate: navigate)
         .sheet(item: $task) { target in AgentTaskSheet(taskID: target.id).environment(store) }
-        .sheet(item: $details) { resume in ResumeDetailsView(resume: resume).environment(store) }
-        .sheet(isPresented: $showBank) { ExperienceBankView().environment(store) }
+        .fullScreenCover(item: $details) { resume in ResumeDetailsView(resume: resume).environment(store) }
+        .fullScreenCover(isPresented: $showBank) { MemoryBankView().environment(store) }
     }
 
     private func navigate(_ action: String) {
@@ -262,7 +260,7 @@ struct ManageResumeSheet: View {
         }
         .onAppear { if !seeded { name = resume.name; seeded = true } }
         .sheet(item: $preview) { PDFSheet(preview: $0) }
-        .sheet(item: $details) { resume in ResumeDetailsView(resume: resume).environment(store) }
+        .fullScreenCover(item: $details) { resume in ResumeDetailsView(resume: resume).environment(store) }
         .sheet(item: $formatting) { resume in ResumeFormatView(resume: resume).environment(store) }
         .confirmationDialog("Delete this resume?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) {

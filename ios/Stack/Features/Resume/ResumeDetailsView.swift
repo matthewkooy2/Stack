@@ -51,8 +51,11 @@ private struct ResumeReviewScreen: View {
 
     @Environment(AppStore.self) private var store
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.stackReduceMotion) private var reduceMotion
     @State private var controller: ResumeReviewController?
-    @State private var selection: String?
+    @State private var selection: String? = "profile"
+    @State private var editing: String?
     @State private var showSource = false
     @State private var lastReadTicket: JSON = .null
 
@@ -66,15 +69,48 @@ private struct ResumeReviewScreen: View {
     }
 
     var body: some View {
-        SheetPage(title: "Resume details", subtitle: resume.name) {
-            if let controller {
-                ProcessingStatusView(resumeID: resume.id, kind: ResumeLane.kind(of: activeProcessing),
-                                     processing: activeProcessing)
-                content(controller)
-            } else if userID.isEmpty {
-                MessageLine(text: "Sign in to review resume details.")
-            } else {
-                ProgressView().tint(Palette.muted).accessibilityLabel("Reading resume")
+        ZStack {
+            Brand.page.ignoresSafeArea()
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack {
+                        BackButton(label: "Close") { dismiss() }
+                        Spacer()
+                        if controller?.loaded == true {
+                            Menu {
+                                Button("Original extraction", systemImage: "doc.text") {
+                                    withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { selection = ResumeReviewController.originalSectionID; editing = nil }
+                                }.accessibilityIdentifier("resume-review-section-original")
+                            } label: {
+                                Image(systemName: "ellipsis").font(.system(size: 18, weight: .semibold))
+                                    .foregroundStyle(Brand.ink).frame(width: 44, height: 44)
+                                    .background(.white, in: Circle())
+                            }
+                            .accessibilityLabel("More options")
+                        }
+                    }.padding(.bottom, 32)
+                    Text("Review details").font(Typeface.display).tracking(-1.8).foregroundStyle(Brand.ink)
+                    Text("Check the information we extracted from your resume and make any corrections.")
+                        .font(Typeface.caption).foregroundStyle(Brand.muted).padding(.top, 10)
+                    VStack(alignment: .leading, spacing: 12) {
+                        if let controller {
+                            ProcessingStatusView(resumeID: resume.id, kind: ResumeLane.kind(of: activeProcessing), processing: activeProcessing)
+                            content(controller)
+                        } else if userID.isEmpty {
+                            MessageLine(text: "Sign in to review resume details.")
+                        } else {
+                            ProgressView().tint(Palette.muted).accessibilityLabel("Reading resume")
+                        }
+                    }.padding(.top, 28)
+                }
+                .padding(.horizontal, Spacing.page).padding(.top, 12).padding(.bottom, 24)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if let controller, controller.loaded, selection != ResumeReviewController.originalSectionID {
+                    actions(controller)
+                        .padding(.horizontal, Spacing.page).padding(.top, 12).padding(.bottom, 8)
+                        .background(Brand.page)
+                }
             }
         }
         .task {
@@ -120,19 +156,16 @@ private struct ResumeReviewScreen: View {
                 ResumeRecordsEditor(controller: controller)
             } else if selection == ResumeReviewController.originalSectionID {
                 ResumeOriginalScreen(controller: controller) { withAnimation(Motion.fadeAnimation) { selection = nil } }
-            } else if let key = selection {
-                ResumeSectionEditor(controller: controller, sectionKey: key) { withAnimation(Motion.fadeAnimation) { selection = nil } }
             } else {
                 overview(controller)
             }
-            actions(controller)
         }
     }
 
     private func statusBlock(_ controller: ResumeReviewController) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(controller.statusLabel)
-                .font(Typeface.caption.weight(.semibold)).foregroundStyle(Palette.dark)
+                .font(.system(size: 12, weight: .semibold)).foregroundStyle(Palette.muted)
                 .accessibilityIdentifier("resume-review-state")
                 .accessibilityValue(controller.statusID)
             if controller.hasConflict {
@@ -156,8 +189,6 @@ private struct ResumeReviewScreen: View {
                 Text(controller.draftError).font(Typeface.caption).foregroundStyle(Palette.danger)
                     .accessibilityIdentifier("resume-review-draft-error")
             }
-            Text("Check every extracted line. Original uploads stay unchanged. Saving a draft withdraws confirmation.")
-                .font(Typeface.caption).foregroundStyle(Palette.muted)
             ForEach(Array(controller.warnings.enumerated()), id: \.offset) { _, warning in
                 Text(warning).font(Typeface.caption).foregroundStyle(Palette.text)
             }
@@ -165,72 +196,130 @@ private struct ResumeReviewScreen: View {
     }
 
     private func overview(_ controller: ResumeReviewController) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            ForEach(controller.sectionSummaries()) { summary in
-                Button {
-                    withAnimation(Motion.fadeAnimation) { selection = summary.id }
-                } label: {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(summary.title).font(Typeface.option).foregroundStyle(Palette.icon)
-                            Text(summary.detail).font(Typeface.caption).foregroundStyle(Palette.muted).lineLimit(1)
+        let summaries = controller.sectionSummaries().sorted { left, right in
+            let order = ["profile", "workExperiences", "educations", "projects", "skills", "additional"]
+            return (order.firstIndex(of: left.id) ?? order.count) < (order.firstIndex(of: right.id) ?? order.count)
+        }
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(summaries) { summary in
+                VStack(alignment: .leading, spacing: 0) {
+                    Button {
+                        withAnimation(reduceMotion ? nil : Motion.fadeAnimation) {
+                            selection = selection == summary.id ? nil : summary.id
+                            editing = nil
                         }
-                        Spacer()
-                        if summary.changed { Text("Edited").font(Typeface.caption.weight(.semibold)).foregroundStyle(Palette.dark) }
-                        GlyphView(name: "chevron", size: 14, color: Palette.muted)
+                    } label: {
+                        HStack(alignment: .center, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(summary.title == "Work experience" ? "Experience" : summary.title)
+                                    .font(.system(size: 21, weight: .semibold)).tracking(-0.5).foregroundStyle(Brand.ink)
+                                if selection != summary.id {
+                                    Text(sectionPreview(controller.document, key: summary.id))
+                                        .font(Typeface.caption).foregroundStyle(Brand.muted).lineLimit(1)
+                                }
+                            }
+                            Spacer()
+                            Image(systemName: selection == summary.id ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 15, weight: .medium)).foregroundStyle(Brand.ink)
+                        }.frame(maxWidth: .infinity, minHeight: 52, alignment: .leading).contentShape(Rectangle())
+                    }.buttonStyle(.plain).accessibilityIdentifier("resume-review-section-\(summary.id)")
+                    if selection == summary.id {
+                        HStack {
+                            Spacer()
+                            Button(editing == summary.id ? "Done" : "Edit") {
+                                withAnimation(reduceMotion ? nil : Motion.fadeAnimation) {
+                                    editing = editing == summary.id ? nil : summary.id
+                                }
+                            }.font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
+                                .frame(minWidth: 44, minHeight: 44)
+                                .accessibilityIdentifier("resume-review-edit-\(summary.id)")
+                        }
+                        if editing == summary.id {
+                            ResumeSectionEditor(controller: controller, sectionKey: summary.id, inline: true) {
+                                withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { editing = nil }
+                            }
+                        } else {
+                            sectionDetails(controller.document, key: summary.id)
+                        }
                     }
-                    .padding(.vertical, 12)
-                    .frame(minHeight: 56)
-                    .overlay(alignment: .bottom) { Rectangle().fill(Palette.rule).frame(height: 1) }
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("\(summary.title), \(summary.detail)\(summary.changed ? ", edited" : "")")
-                .accessibilityAddTraits(.isButton)
-                .accessibilityIdentifier("resume-review-section-\(summary.id)")
+                .padding(.vertical, 8)
+                .padding(.bottom, selection == summary.id ? 14 : 0)
+                .overlay(alignment: .bottom) { Rectangle().fill(Brand.rule).frame(height: 1) }
             }
-            Button {
-                withAnimation(Motion.fadeAnimation) { selection = ResumeReviewController.originalSectionID }
-            } label: {
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Original extraction").font(Typeface.option).foregroundStyle(Palette.icon)
-                        Text("Read-only, in original order").font(Typeface.caption).foregroundStyle(Palette.muted).lineLimit(1)
-                    }
-                    Spacer()
-                    GlyphView(name: "chevron", size: 14, color: Palette.muted)
-                }
-                .padding(.vertical, 12)
-                .frame(minHeight: 56)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel("Original extraction, read-only, in original order")
-            .accessibilityAddTraits(.isButton)
-            .accessibilityIdentifier("resume-review-section-original")
         }
     }
 
+    private func sectionPreview(_ document: ResumeDocument, key: String) -> String {
+        let values: [String]
+        if let entry = document.entries(of: key).first {
+            let names = ResumeSchema.spec(key)?.fields.map(\.name) ?? entry.values.keys.sorted()
+            values = names.filter { $0 != "descriptions" }.compactMap { entry.values[$0] }.filter { !$0.isEmpty }
+        } else if key == ResumeReviewController.otherSectionID {
+            values = document.strayKeys.map { document.single($0) }.filter { !$0.isEmpty }
+        } else {
+            values = (ResumeSchema.spec(key)?.fields.map { document.single("\(key).\($0.name)") } ?? [])
+                .filter { !$0.isEmpty }.map { $0.replacingOccurrences(of: "\n", with: ", ") }
+        }
+        return values.prefix(2).joined(separator: " · ").isEmpty ? "Nothing found" : values.prefix(2).joined(separator: " · ")
+    }
+
+    @ViewBuilder
+    private func sectionDetails(_ document: ResumeDocument, key: String) -> some View {
+        let spec = ResumeSchema.spec(key)
+        if spec?.repeated == true || !document.entries(of: key).isEmpty {
+            let entries = document.entries(of: key)
+            if entries.isEmpty {
+                Text("Nothing found").font(Typeface.caption).foregroundStyle(Brand.muted)
+            }
+            ForEach(entries) { entry in
+                let known = spec?.fields.map(\.name) ?? []
+                let names = known + entry.values.keys.filter { !known.contains($0) }.sorted()
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(names, id: \.self) { name in
+                        if let value = entry.values[name], !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            detailValue(value, label: document.label(section: key, field: name), bullets: name == "descriptions")
+                        }
+                    }
+                }.padding(.bottom, 8)
+            }
+        } else {
+            let keys: [String] = key == ResumeReviewController.otherSectionID ? document.strayKeys :
+                (spec?.fields.map { "\(key).\($0.name)" } ?? []) + document.extraKeys(in: key)
+            let populated = keys.filter { !document.single($0).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            if populated.isEmpty { Text("Nothing found").font(Typeface.caption).foregroundStyle(Brand.muted) }
+            ForEach(populated, id: \.self) { field in
+                detailValue(document.single(field), label: document.label(forKey: field), bullets: field.hasSuffix(".descriptions"))
+            }
+        }
+    }
+
+    private func detailValue(_ value: String, label: String, bullets: Bool) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(label).font(Typeface.caption).foregroundStyle(Brand.muted).frame(width: 76, alignment: .leading)
+            if bullets {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(ResumeBullets.split(value).enumerated()), id: \.offset) { _, item in
+                        Text("•  " + item).font(Typeface.caption).foregroundStyle(Brand.ink)
+                    }
+                }
+            } else {
+                Text(value).font(Typeface.caption).foregroundStyle(Brand.ink).textSelection(.enabled)
+            }
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 5)
+    }
+
     private func actions(_ controller: ResumeReviewController) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            StackButton(label: showSource ? "Hide extracted text" : "View extracted text", kind: .secondary) {
-                withAnimation(Motion.fadeAnimation) { showSource.toggle() }
-            }
-            if showSource {
-                Text(controller.sourceText).font(Typeface.caption).foregroundStyle(Palette.text).textSelection(.enabled)
-            }
-            StackButton(label: onConfirmed != nil ? "Confirm and continue tailoring" : "Confirm resume details", icon: "check",
-                        disabled: controller.saving || controller.hasConflict
-                            || (controller.confirmed && !controller.dirty && onConfirmed == nil)) {
+        VStack(spacing: 2) {
+            StackButton(label: onConfirmed != nil ? "Confirm and continue tailoring" : "Confirm details",
+                        disabled: controller.saving || controller.hasConflict) {
                 Task { await controller.save(confirm: true) }
-            }
-            .accessibilityIdentifier("resume-review-confirm")
-            StackButton(label: "Save draft", kind: .secondary, disabled: controller.saving || controller.hasConflict || !controller.dirty) {
-                Task { await controller.save(confirm: false) }
-            }
-            .accessibilityIdentifier("resume-review-save")
+            }.accessibilityIdentifier("resume-review-confirm")
+            Button("Save draft") { Task { await controller.save(confirm: false) } }
+                .font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .disabled(controller.saving || controller.hasConflict || !controller.dirty)
+                .accessibilityIdentifier("resume-review-save")
             MessageLine(text: controller.message, isError: false).fadeSwitch(!controller.message.isEmpty)
                 .accessibilityIdentifier("resume-review-message")
         }

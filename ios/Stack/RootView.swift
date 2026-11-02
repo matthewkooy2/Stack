@@ -25,13 +25,11 @@ struct RootView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(AppStore.self) private var store
     @Environment(\.scenePhase) private var scenePhase
-    @State private var activeOnboardingID = ""
 
     /// Existing accounts with saved activity keep their current experience; onboarding is for fresh accounts.
     private var needsJobOnboarding: Bool {
         let account = store.account
         let saved = account.savedSearch
-        if !account.userID.isEmpty && activeOnboardingID == account.userID { return true }
         return !account.userID.isEmpty && !account.raw["profile"]["onboarded"].bool
             && !UserDefaults.standard.bool(forKey: "job-onboarding." + account.userID)
             && account.resumes.isEmpty && account.applications.isEmpty && account.decidedJobIDs.isEmpty
@@ -50,12 +48,8 @@ struct RootView: View {
                 case .admission:
                     InvitationView().replayable().transition(.opacity)
                 case .ready:
-                    if needsJobOnboarding {
-                        JobOnboardingGate(onStart: { activeOnboardingID = store.account.userID },
-                                          onFinish: { activeOnboardingID = "" }).transition(.opacity)
-                    } else {
-                        MainTabs().transition(.opacity)
-                    }
+                    JobOnboardingGate(required: needsJobOnboarding)
+                        .id(store.account.userID).transition(.opacity)
                 }
             }
             .animation(reduceMotion ? nil : Motion.fadeAnimation, value: store.phase)
@@ -85,18 +79,33 @@ struct RootView: View {
 }
 
 @MainActor
-private struct JobOnboardingGate: View {
+struct JobOnboardingGate: View {
     @Environment(AppStore.self) private var store
-    @State private var done = false
-    let onStart: () -> Void
-    let onFinish: () -> Void
+    @Environment(\.stackReduceMotion) private var reduceMotion
+    @State private var showingOnboarding: Bool
+    @State private var preparingJobs: Bool
+
+    init(required: Bool) {
+        _showingOnboarding = State(initialValue: required)
+        _preparingJobs = State(initialValue: !required)
+    }
+
     var body: some View {
-        if done { MainTabs() } else {
-            JobOnboardingView {
-                UserDefaults.standard.set(true, forKey: "job-onboarding." + store.account.userID)
-                done = true
-                onFinish()
-            }.id(store.account.userID).onAppear(perform: onStart)
+        ZStack {
+            if preparingJobs {
+                MainTabs()
+                    .opacity(showingOnboarding ? 0 : 1)
+                    .allowsHitTesting(!showingOnboarding)
+                    .accessibilityHidden(showingOnboarding)
+            }
+            if showingOnboarding {
+                JobOnboardingView(onPrepared: { preparingJobs = true }) {
+                    UserDefaults.standard.set(true, forKey: "job-onboarding." + store.account.userID)
+                    preparingJobs = true
+                    withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { showingOnboarding = false }
+                }
+                .transition(.opacity)
+            }
         }
     }
 }

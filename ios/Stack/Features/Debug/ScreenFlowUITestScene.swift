@@ -63,7 +63,7 @@ struct ScreenFlowUITestScene: View {
         case "applications", "applications-autofill-unavailable": ApplicationsView(onProfile: {}, onNavigate: { _ in })
         case "jobs": ScreenFlowJobHost(job: Job(ScreenFlowServer.job))
         case "deck", "deck-paging", "deck-reference": MainTabs()
-        case "job-onboarding-preview": JobOnboardingView(onDone: {})
+        case "job-onboarding-preview": JobOnboardingGate(required: true)
         case "job-filters-preview": JobFiltersSheet(search: JobSearch()) { _, _ in {} }
         case "onboarding": AccessView()
         case "recovery": InvitationView()
@@ -193,10 +193,12 @@ final class ScreenFlowServer: @unchecked Sendable {
     private var decisions: [JSON] = []
     /// What `job_feed` ranks: the search last saved through `save_search`.
     private var savedSearch: JSON = ["query": "", "filters": [:]]
+    private var onboardingProfile: JSON = [:]
 
     func reset(flow: String) {
         lock.lock(); defer { lock.unlock() }
         self.flow = flow
+        onboardingProfile = [:]
         notes = ""
         linkedInLoads = 0
         notesSaves = 0
@@ -305,7 +307,7 @@ final class ScreenFlowServer: @unchecked Sendable {
     /// How long a request is held before it is answered, so a test can open the browser while a page is pending.
     func delay(for name: String, body: JSON) -> TimeInterval {
         lock.lock(); defer { lock.unlock() }
-        if flow == "resume-upload", name == "upload_resume" { return 1.5 }
+        if ["resume-upload", "job-onboarding-preview"].contains(flow), name == "upload_resume" { return 1.5 }
         return flow == "deck-paging" && name == "job_feed" && !body["cursor"].string.isEmpty ? 3 : 0
     }
 
@@ -345,10 +347,15 @@ final class ScreenFlowServer: @unchecked Sendable {
             "stage": "Student", "years": "1", "education": "Bachelor's", "modes": ["Remote"],
             "employment_types": ["Full-time"], "salary_period": "year",
         ]
-        let profile: JSON = [
+        var profile: JSON = [
             "name": "Ada Example", "role": "Data analyst, Product analyst", "location": "Chicago, IL", "mode": "Any",
             "notifications": false, "graduation_month": "2027-05", "available_from": "", "preferences": preferences,
         ]
+        let onboarding = flow == "job-onboarding-preview"
+        if onboarding {
+            profile["role"] = ""; profile["location"] = ""; profile["preferences"] = [:]
+            for (key, value) in onboardingProfile.object { profile[key] = value }
+        }
         let format: JSON = ["kind": "builtin", "label": "Jake's Resume", "pages": 1,
                             "summary": ["sections": 4, "entries": 6, "bullets": 14]]
         let resumes: [JSON] = [
@@ -391,8 +398,8 @@ final class ScreenFlowServer: @unchecked Sendable {
         ]]
         return [
             "user_id": .string(reviewUser), "profile": profile,
-            "resumes": flow == "resume-upload" ? .array(uploaded) : .array(resumes),
-            "selected_resume": flow == "resume-upload" && !uploadedName.isEmpty ? "resume-uploaded" : "resume-1",
+            "resumes": flow == "resume-upload" || onboarding ? .array(uploaded) : .array(resumes),
+            "selected_resume": flow == "resume-upload" || onboarding ? .string(uploadedName.isEmpty ? "" : "resume-uploaded") : "resume-1",
             "applications": .array(applications), "people": .array(people), "contacts": .array(contacts),
             "agents": ["features": .array(features), "runs": .array(autofillStarted ? [Self.autofillRun] : []), "active": 0, "attention": 0,
                        "model_provider": ["provider": "", "message": ""]],
@@ -454,8 +461,11 @@ final class ScreenFlowServer: @unchecked Sendable {
                 reviewProcessing["status"] = reviewImportPolls > 1 ? "completed" : "parsing"
             }
             return ok(buildSnapshot())
+        case "save_profile":
+            if flow == "job-onboarding-preview" { onboardingProfile = body }
+            return ok(buildSnapshot())
         case "upload_resume":
-            guard flow == "resume-upload" else { return ok(buildSnapshot()) }
+            guard ["resume-upload", "job-onboarding-preview"].contains(flow) else { return ok(buildSnapshot()) }
             uploadedName = body["name"].string
             uploadPolls = 0
             return ok(buildSnapshot())

@@ -66,7 +66,7 @@ private struct MotionLabPreview: View {
         case .resumeUpload:
             ResumeUploadScreen(onUpload: { take += 1 })
         case .jobOnboarding:
-            LabFlow(flow: "resume") { JobOnboardingView(onDone: { take += 1 }) }
+            LabFlow(flow: "job-onboarding-preview") { JobOnboardingGate(required: true) }
         case .jobFilters:
             JobFiltersSheet(search: JobSearch()) { _, _ in { take += 1 } }
         case .gmailTracking:

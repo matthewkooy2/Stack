@@ -36,6 +36,11 @@ class Gateway(unittest.TestCase):
                 for endpoint in ['agent_claim', 'agent_finish', 'agent_authorize', 'agent_worker_resume_source', 'agent_model_log', 'agent_upgrade_workflows', 'resume_processing_claim', 'resume_processing_stage', 'resume_processing_finish', 'transcription_processing_claim', 'transcription_processing_progress', 'transcription_processing_finish','transcription_processing_runtime']:
                     self.assertEqual(request('/function/' + endpoint, True), 404, endpoint)
                     self.assertNotIn('/function/' + endpoint, calls)
+                # Both native and web Apple entry points work before invitation admission.
+                before = calls.count('/function/agent_admission')
+                for endpoint in sorted(gateway.APPLE_PUBLIC):
+                    self.assertEqual(request('/function/' + endpoint), 200)
+                self.assertEqual(calls.count('/function/agent_admission'), before)
                 gateway._rates.clear()
                 for _ in range(20):
                     self.assertEqual(request('/user/login'), 200)

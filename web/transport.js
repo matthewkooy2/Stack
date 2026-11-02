@@ -1,12 +1,14 @@
 // Browser capabilities only. Session tokens stay in memory; reload signs out.
 import React, {useRef, useState, useEffect} from 'react';
 import {beginGoogle,finishGoogle} from './google-auth.js';
+import {beginApple} from './apple-auth.js';
 let token = '', epoch = 0;
 const browserStreams=new Set();
 export async function request(path, body, authenticated=true) {
   const observed=epoch;
   const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json',...(authenticated?{Authorization:'Bearer '+token}:{})},body:JSON.stringify(body),signal:AbortSignal.timeout(25000)});
-  const result=await response.json();
+  let result;
+  try { result=await response.json(); } catch { throw new Error(response.status===503?'The Stack backend is unavailable. Start the API, then try again.':'The server returned an unreadable response. Try again.'); }
   if(observed!==epoch)throw new Error('Session changed.');
   if(!response.ok||result.ok===false)throw new Error(result.error?.message||'Request failed.');
   return result.data;
@@ -16,6 +18,11 @@ export async function login(username,password,signup=false){
   const identity={type:'username',value:username.trim().toLowerCase()},credential={type:'password',password};
   const result=await request(signup?'/user/register':'/user/login',signup?{identities:[identity],credential}:{identity,credential},false);
   if(!result.token)throw new Error('No session returned.');token=result.token;epoch++;
+}
+export async function appleSignIn(){
+ const observed=epoch,result=await beginApple(request);
+ if(observed!==epoch)throw new Error('Your session changed. Start Apple sign-in again.');
+ token=result.token;epoch++;return result;
 }
 export function logout(){token='';epoch++;for(const close of browserStreams)close();browserStreams.clear();}
 export async function googleSignIn(invite='',link=false){return beginGoogle(request,invite,link);}
@@ -28,7 +35,12 @@ export async function googleSignInResult(){
 export function errorText(e){return e?.message||'Request failed.';}
 export function oauthResult(){if(location.pathname!=='/oauth/google')return {};const q=new URLSearchParams(location.search);const result={code:q.get('code')||'',state:q.get('state')||''};if(result.code)history.replaceState(null,'',location.pathname);return result;}
 export function downloadJSON(value){const url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download='stack-export.json';a.click();URL.revokeObjectURL(url);}
-export function downloadPDF(pdf){const raw=Uint8Array.from(atob(pdf.content),c=>c.charCodeAt(0));const url=URL.createObjectURL(new Blob([raw],{type:'application/pdf'}));const a=document.createElement('a');a.href=url;a.download=pdf.name;a.click();URL.revokeObjectURL(url);}
+export function downloadPDF(pdf){
+ const raw=Uint8Array.from(atob(pdf.content),c=>c.charCodeAt(0)),docx=raw[0]===0x50&&raw[1]===0x4b;
+ const url=URL.createObjectURL(new Blob([raw],{type:docx?'application/vnd.openxmlformats-officedocument.wordprocessingml.document':'application/pdf'}));
+ const a=document.createElement('a');a.href=url;a.download=pdf.name.replace(/\.(pdf|docx)$/i,'')+(docx?'.docx':'.pdf');a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+
 export function Timer({seconds=0,onChange}){
  const [value,setValue]=useState(seconds),[running,setRunning]=useState(false);const callback=useRef(onChange);callback.current=onChange;
  useEffect(()=>{if(!running)return;const t=setInterval(()=>setValue(v=>{callback.current(v+1);return v+1;}),1000);return()=>clearInterval(t);},[running]);

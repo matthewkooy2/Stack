@@ -1,4 +1,4 @@
-"""Verify native Apple identity, resolve its Stack account, issue a normal session."""
+"""Verify native or web Apple identity and issue an ordinary Stack session."""
 import base64
 import hashlib
 import hmac
@@ -6,6 +6,8 @@ import json
 import os
 import secrets
 from typing import Any
+from urllib.parse import urlsplit
+import ipaddress
 from urllib.request import urlopen
 
 from cryptography.hazmat.primitives import serialization
@@ -22,11 +24,34 @@ def runtime():
     return UserManager(), AuthTokenStore.instance()
 
 
-def audience():
-    value = os.environ.get("STACK_APPLE_CLIENT_ID", "").strip()
+def audience(mode="native"):
+    key = "STACK_APPLE_WEB_CLIENT_ID" if mode == "web" else "STACK_APPLE_CLIENT_ID"
+    value = os.environ.get(key, "").strip()
     if os.environ.get("STACK_APPLE_ENABLED") != "1" or not value:
         raise ValueError("Apple sign-in is not available.")
     return value
+
+
+def web_configuration():
+    client_id = audience("web")
+    if client_id == os.environ.get("STACK_APPLE_CLIENT_ID", "").strip():
+        raise ValueError("Use a web Services ID, not the native App ID.")
+    redirect = os.environ.get("STACK_APPLE_WEB_REDIRECT_URI", "").strip()
+    url = urlsplit(redirect)
+    if (url.scheme != "https" or not url.hostname or "." not in url.hostname
+            or url.hostname.lower() == "localhost" or url.hostname.lower().endswith(".localhost")
+            or url.username or url.password or url.fragment or url.query
+            or url.path != "/auth/apple"):
+        raise ValueError("Configure the registered HTTPS Apple return URL ending in /auth/apple.")
+    try:
+        ipaddress.ip_address(url.hostname)
+    except ValueError:
+        pass
+    else:
+        raise ValueError("The Apple return URL must use a domain name.")
+    # Reading port also rejects malformed values instead of returning unsafe configuration.
+    url.port
+    return {"client_id": client_id, "redirect_uri": redirect}
 
 
 def public_keys():
@@ -43,25 +68,29 @@ def public_keys():
     }
 
 
-def begin() -> dict[str, Any]:
+def begin(mode="native") -> dict[str, Any]:
     try:
-        client_id = audience()
+        configuration = web_configuration() if mode == "web" else {}
+        client_id = audience(mode)
         _, store = runtime()
         nonce = hashlib.sha256(secrets.token_bytes(32)).hexdigest()
-        state = store.create_token("", PURPOSE, 300, json.dumps({"nonce": nonce, "audience": client_id}))
-        return {"ok": True, "state": state, "nonce": nonce, "expires_in": 300}
+        state = store.create_token("", PURPOSE, 300, json.dumps({"nonce": nonce, "audience": client_id, "mode": mode}))
+        return {"ok": True, "state": state, "nonce": nonce, "expires_in": 300, **configuration}
     except Exception:
-        return {"ok": False, "error": "Stack could not prepare Apple sign-in. Please retry."}
+        return {"ok": False, "error": ("Apple web sign-in is not configured. Set the Apple Services ID and registered HTTPS return URL on the Stack server." if mode == "web" else "Stack could not prepare Apple sign-in. Please retry.")}
 
 
 def finish(state: str, identity_token: str) -> dict[str, Any]:
     try:
-        client_id = audience()
         manager, store = runtime()
         record = store.peek_token(state, PURPOSE)
         if not record:
             raise ValueError("Apple sign-in expired. Please start again.")
         challenge = json.loads(record["identity_value"])
+        mode = challenge.get("mode", "native")
+        if mode not in ("native", "web"):
+            raise ValueError("Invalid Apple sign-in request.")
+        client_id = audience(mode)
         claims = jwt.decode(identity_token, public_keys(), audience=client_id)
         if (claims.get("iss") != ISSUER or not claims.get("sub")
                 or challenge["audience"] != client_id

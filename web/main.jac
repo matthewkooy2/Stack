@@ -1,20 +1,37 @@
-import from "./transport.js" { rpc, login, logout, errorText, oauthResult, googleSignIn, googleSignInResult, downloadJSON, downloadPDF, Timer, Diagram, BrowserView, Recorder, LiveInterview, confirmAccountDelete, Poll, isoTime }
+import from "./transport.js" { rpc, login, logout, errorText, oauthResult, googleSignIn, googleSignInResult, appleSignIn, downloadJSON, downloadPDF, Timer, Diagram, BrowserView, Recorder, LiveInterview, confirmAccountDelete, Poll, isoTime }
 import "./style.css";
 # Make the transport helper's relative dependency visible to Jac's asset staging.
 import "./google-auth.js";
+import "./apple-auth.js";
 import from "react" { useRef }
 import from .Feedback { AgentFeedback }
 import from .BulletBank { BulletBank }
 import from "./Interview.js" { Interview }
+import from "./Workspace.js" { Navigation, WorkspacePages, NetworkTools, AgentControls }
 
 def:pub app -> JsxElement {
     has logged: bool = False, username: str = "", password: str = "", invite: str = "", error: str = "", notice: str = "",
-        signup: bool = False, busy: bool = False, starting: bool = True, sessionReady: bool = False, page: str = "Practice", problems: list[dict[str, any]] = [], sessions: list[dict[str, any]] = [],
+        signup: bool = False, busy: bool = False, starting: bool = True, sessionReady: bool = False, page: str = "Jobs", problems: list[dict[str, any]] = [], sessions: list[dict[str, any]] = [],
         current: dict[str, any] = {}, data: dict[str, any] = {}, activity: dict[str, any] = {}, selected: dict[str, any] = {}, browser: dict[str, any] = {},
         values: dict[str, str] = {}, oauth: dict[str, any] = {}, settings: dict[str, any] = {}, mail: list[dict[str, any]] = [], interviews: list[dict[str, any]] = [], applications: list[dict[str, any]] = [], mailSelected: dict[str, any] = {}, eventApplication: str = "", eventStatus: str = "", deletePassword: str = "",
         linkedinUrl: str = "", targetRole: str = "", features: list[dict[str, any]] = [], subject: str = "", body: str = "", editsFor: str = "";
     practice=useRef({"epoch":0,"busy":False,"id":"","run":""});
-    has coachingRun: dict[str, any] = {};
+    has coachingRun: dict[str, any] = {}, snapshot: dict[str, any] = {}, refreshTick: int = 0;
+    def adoptSnapshot(result: dict[str, any]) -> None {
+        snapshot=result;applications=[a for a in result.get("applications",[]) if not a["demo"]];features=result.get("agents",{}).get("features",[]);
+    }
+    def viewRun(run: dict[str, any]) -> None { showRun(run);page="Activity"; }
+    async def refreshAccount -> None {
+        busy=True;error="";
+        try { await refresh();refreshTick+=1; } except Exception as e { error=errorText(e); }
+        busy=False;
+    }
+    def signout -> None {
+        practice.current["epoch"]+=1;practice.current["busy"]=False;practice.current["id"]="";practice.current["run"]="";
+        logout();logged=False;sessionReady=False;signup=False;busy=False;username="";password="";invite="";error="";notice="";deletePassword="";
+        linkedinUrl="";targetRole="";current={};selected={};settings={};snapshot={};data={};coachingRun={};activity={};mailSelected={};values={};browser={};
+        mail=[];interviews=[];applications=[];features=[];problems=[];sessions=[];page="Jobs";
+    }
     async can with entry {
         oauth=oauthResult();busy=True;
         try {
@@ -33,7 +50,7 @@ def:pub app -> JsxElement {
         result=await rpc("prep_catalog",{});if epoch!=practice.current["epoch"] { return; }problems=result["problems"];
         result=await rpc("prep_sessions",{});if epoch!=practice.current["epoch"] { return; }sessions=result["sessions"];
         result=await rpc("agent_events",{});if epoch!=practice.current["epoch"] { return; }mail=result["events"];interviews=result["interviews"];
-        result=await rpc("bootstrap",{});if epoch!=practice.current["epoch"] { return; }applications=[a for a in result["applications"] if not a["demo"]];features=result["agents"].get("features",[]);
+        result=await rpc("bootstrap",{});if epoch!=practice.current["epoch"] { return; }adoptSnapshot(result);
     }
     """Keep progress current without replacing answers or email edits being typed."""
     async def poll -> None {
@@ -157,11 +174,17 @@ def:pub app -> JsxElement {
         admitted=await rpc("agent_admission",{});
         if not admitted.get("admitted") { error="Enter your beta invitation to continue.";return; }
         saved=await rpc("agent_linkedin_profile",{});linkedinUrl=saved["url"];targetRole=saved.get("target_role","");
-        await refresh();logged=True;
+        await refresh();logged=True;signup=False;
     }
     async def acceptInvitation -> None {
         busy=True;error="";
         try { await completeSignin(); } except Exception as e { error=errorText(e); }
+        busy=False;
+    }
+    async def appleLogin -> None {
+        busy=True;error="";notice="";
+        try { result=await appleSignIn();username=result.get("username","");password="";sessionReady=True;await completeSignin(); }
+        except Exception as e { error=errorText(e); }
         busy=False;
     }
     async def googleLogin(link: bool = False) -> None {
@@ -174,26 +197,27 @@ def:pub app -> JsxElement {
     }
     async def deleteAccount -> None {
         if not confirmAccountDelete() { return; }
-        try { await rpc("account_delete",{"username":username,"password":deletePassword});practice.current["epoch"]+=1;practice.current["busy"]=False;busy=False;practice.current["id"]="";practice.current["run"]="";coachingRun={};logout();logged=False;deletePassword="";notice="Your account and active data were deleted."; }
+        try { await rpc("account_delete",{"username":username,"password":deletePassword});signout();notice="Your account and active data were deleted."; }
         except Exception as e { error=errorText(e); }
     }
     <main>
         <Poll onTick={poll}/>
-        <header><div><span className="brand">stack</span><h1>Your next chapter, in motion.</h1><p>Practice deeply. Let your agents handle the follow-through.</p></div>{<button onClick={lambda { practice.current["epoch"]+=1;practice.current["busy"]=False;busy=False;practice.current["id"]="";practice.current["run"]="";coachingRun={};logout();logged=False;sessionReady=False;linkedinUrl="";targetRole="";current={};selected={};settings={};data={}; }}>Sign out</button> if logged else <span>Private beta</span>}</header>
-        {<p className="error" role="alert">{error}</p> if error else <div/>}{<p className="notice">{notice}</p> if notice else <div/>}
+        {<Navigation page={page} onNavigate={lambda (next: str) { page=next; }} snapshot={snapshot} busy={busy} onRefresh={refreshAccount}/> if logged else <header className="access-header"><span className="brand">stack</span><span>Your next chapter.</span></header>}
+        {<p className="error" role="alert">{error}</p> if error else <div/>}{<p className="notice" role="status">{notice}</p> if notice else <div/>}
         {<section className="login"><h2>Checking your sign-in…</h2></section> if starting else (<section className="login"><h2>{"Join Stack" if signup else "Welcome back"}</h2>{<p>Sign in to the same Stack account you used to start connecting Google. Your connection will finish after sign-in.</p> if oauth.get("code") else <span/>}
-            {<div><button disabled={busy} onClick={lambda { googleLogin(); }}>Continue with Google</button><p>Google sign-in uses your basic identity. Gmail and Calendar are optional.</p><p>Already use Stack? Sign in with your password, then choose “Link Google sign-in” in Account to keep your data.</p><label>Username<input value={username} onChange={lambda (e: any) { username=e.target.value; }}/></label><label>Password<input type="password" value={password} onChange={lambda (e: any) { password=e.target.value; }}/></label></div> if not sessionReady else <p>You are signed in. Accept your invitation to open Stack.</p>}
+            {<div><button className="apple-signin" disabled={busy} onClick={appleLogin}>Continue with Apple</button><button className="google-signin" disabled={busy} onClick={lambda { googleLogin(); }}>Continue with Google</button><p>Google sign-in uses your basic identity. Gmail and Calendar are optional.</p><p>Already use Stack? Sign in with your password, then choose “Link Google sign-in” in Account to keep your data.</p><label>Username<input autoComplete="username" value={username} onChange={lambda (e: any) { username=e.target.value; }}/></label><label>Password<input type="password" autoComplete={"new-password" if signup else "current-password"} value={password} onChange={lambda (e: any) { password=e.target.value; }}/></label></div> if not sessionReady else <p>You are signed in. Accept your invitation to open Stack.</p>}
             <label>Invitation (first visit)<input value={invite} onChange={lambda (e: any) { invite=e.target.value; }}/></label><button className="primary" disabled={busy} onClick={acceptInvitation if sessionReady else signin}>{"Accept invitation" if sessionReady else "Continue"}</button>
             {<button onClick={lambda { logout();sessionReady=False;error=""; }}>Use another account</button> if sessionReady else <button disabled={busy} onClick={lambda { signup=not signup; }}>{"I already have an account" if signup else "Create an account"}</button>}
         </section> if not logged else <div/>)}
         {<div>
-            {<section><h2>Strengthen your LinkedIn profile</h2><p>Get prioritized recruiter-focused weaknesses and suggested rewrites based on your visible profile and confirmed facts.</p>
+            <WorkspacePages page={page} snapshot={snapshot} onSnapshot={adoptSnapshot} onNavigate={lambda (next: str) { page=next; }} onRun={viewRun} onSession={openSession} refreshTick={refreshTick}/>
+            <div hidden={page!="Network"}><NetworkTools onRun={viewRun} active={page=="Network"}/>
+            <details className="linkedin-review"><summary>Review your LinkedIn profile</summary><section><h2>Strengthen your LinkedIn profile</h2><p>Get prioritized recruiter-focused weaknesses and suggested rewrites based on your visible profile and confirmed facts.</p>
                 <p>Your profile URL is saved to your Stack account when you start a review.</p><label>Your LinkedIn profile URL<input value={linkedinUrl} placeholder="https://www.linkedin.com/in/your-name/" onChange={lambda (e: any) { linkedinUrl=e.target.value; }}/></label>
                 <label>Target role (optional)<input value={targetRole} onChange={lambda (e: any) { targetRole=e.target.value; }}/></label>
                 <p>Sign in through the browser handoff, confirm the profile is yours, then start analysis. Captured profile text goes to your configured model. Login details stay in a temporary browser session. You apply suggested edits yourself.</p>
                 <button className="primary" disabled={busy or not linkedinUrl.strip()} onClick={startLinkedIn}>Review my LinkedIn profile</button>
-            </section> if page=="Network" else <div/>}
-            <nav>{[<button key={p} className={"active" if page==p else ""} onClick={lambda { page=p; }}>{p}</button> for p in ["Practice","Interview","Network","Bullet bank","Activity","Features","Account"]]}<button onClick={refresh}>Refresh</button></nav>
+            </section></details></div>
             {<BulletBank/> if page=="Bullet bank" else <div/>}
             {<Interview applications={applications}/> if page=="Interview" else <div/>}
             {<div className="workspace"><aside><h2>Practice library</h2>{[<article key={p["id"]}><strong>{p["title"]}</strong><p>{p["topic"]+" · "+str(p["minutes"])+" minutes"}</p>{[<button key={lang} onClick={lambda { create(p["id"],lang); }}>{"C++" if lang=="cpp" else lang.upper()}</button> for lang in p["languages"]]}{<button onClick={lambda { create(p["id"],""); }}>Start</button> if len(p["languages"])==0 else <span/>}</article> for p in problems]}<h2>Continue</h2>{[<button key={p["id"]} onClick={lambda { openSession(p["id"]); }}>{p["data"]["problem_id"]}</button> for p in sessions]}</aside>
@@ -245,7 +269,7 @@ def:pub app -> JsxElement {
                 </article> if len(selected)>0 else <div/>}
             </section> if page=="Activity" else <div/>}
             {<section><h2>Agent features</h2>{[<article key={f["key"]}><strong>{f["title"]+" · "+{"ready":"Ready","setup":"Needs setup","unavailable":"Unavailable"}.get(f["state"],f["state"])}</strong><p>{f["summary"]}</p><p>{"Your control: "+f["review"]}</p>{[<p key={c["key"]}>{"✕ "+c["label"]+" — "+c["fix"]}</p> for c in f["checks"] if not c["ok"] and not c["optional"]]}{<p>{"Meanwhile: "+f["alternative"]}</p> if f["state"]!="ready" else <span/>}</article> for f in features]}</section> if page=="Features" else <div/>}
-            {<section><h2>Your account</h2><p>Link Google sign-in to keep using this Stack account and its saved data.</p><button disabled={busy} onClick={lambda { googleLogin(True); }}>Link Google sign-in</button><p>{"Model provider: "+activity.get("model_provider",{}).get("provider","Not configured")}</p><p>{activity.get("model_provider",{}).get("message","")}</p><p>Local subscription providers use the CLI login on this Stack server. Model tasks do not require a separate Stack permission or request cap.</p><p>Manage outbound permissions and confirmed facts in the iPhone app.</p><button onClick={exportData}>Export account data</button><label>Confirm password to delete account<input type="password" value={deletePassword} onChange={lambda (e: any) { deletePassword=e.target.value; }}/></label><button onClick={deleteAccount}>Delete my account and data</button><p>API providers still require separately configured credentials and budgets.</p></section> if page=="Account" else <div/>}
+            {<section className="account-security"><AgentControls onConnect={connectGoogle} settings={settings} onSettings={lambda (value: dict[str, any]) { settings=value;activity=value["activity"]; }}/><h2>Account & security</h2><button onClick={signout}>Sign out</button><p>Link Google sign-in to keep using this Stack account and its saved data.</p><button disabled={busy} onClick={lambda { googleLogin(True); }}>Link Google sign-in</button><p>{"Model provider: "+activity.get("model_provider",{}).get("provider","Not configured")}</p><p>{activity.get("model_provider",{}).get("message","")}</p><p>Local subscription providers use the CLI login on this Stack server. Model tasks do not require a separate Stack permission or request cap.</p><button onClick={exportData}>Export account data</button><label>Confirm password to delete account<input type="password" value={deletePassword} onChange={lambda (e: any) { deletePassword=e.target.value; }}/></label><button onClick={deleteAccount}>Delete my account and data</button><p>API providers still require separately configured credentials and budgets.</p></section> if page=="Account" else <div/>}
         </div> if logged else <div/>}
     </main>
 }

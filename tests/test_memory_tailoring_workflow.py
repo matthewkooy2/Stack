@@ -90,8 +90,9 @@ class MemoryWorkflow(unittest.TestCase):
         real = provider.generate
 
         def spy(step, context, *args, **kwargs):
-            self.prompts.append((step, json.dumps(context, ensure_ascii=False)))
-            return (real if REAL else model)(step, context, *args, **kwargs)
+            result = (real if REAL else model)(step, context, *args, **kwargs)
+            self.prompts.append((step, json.dumps(context, ensure_ascii=False), result.get('artifact')))
+            return result
         with patch.dict(record_cases.worker_dispatch.__globals__, {'call': self.callback}), patch('agents.provider.generate', side_effect=spy):
             return record_cases.worker_dispatch(claim, TOKEN)
 
@@ -175,7 +176,7 @@ class MemoryWorkflow(unittest.TestCase):
         model = standin({'r4': 'Built weekly Excel reports tracking carrier on-time rates for 6 regional managers.'},
                         omit=('r6', 'r8', 'r9'), include=('Transit delay dashboard', 'Data Intern, City of Detroit', 'Tableau Desktop Specialist'))
         outcome = self.tailor(app['id'], rid, model)
-        prompts = '\n'.join(text for _, text in self.prompts)
+        prompts = '\n'.join(text for _, text, _ in self.prompts)
         # Full memory: every confirmed bank line reached the model; the draft and the other account did not.
         for b in BANK:
             for r in b['records']:
@@ -258,7 +259,7 @@ class MemoryWorkflow(unittest.TestCase):
             if b['confirm']:
                 self.assertIn(b['name'], names)
                 self.assertTrue(names[b['name']]['reviewed_by'] or not names[b['name']]['rated'], names[b['name']])
-        for step, text in self.prompts:
+        for step, text, _ in self.prompts:
             self.assertLessEqual(mt.request_size(step, json.loads(text), {'provider': 'lmstudio', 'max_output_tokens': 1536}),
                                  int(os.environ.get('STACK_TEST_CONTEXT', '65536')))
         self.assertEqual(violations(outcome['final']['records']), [])

@@ -119,7 +119,7 @@ def standin(rewrites=None, omit=(), include=(), verdict='supported'):
                 rid = cite[2:]
                 if rid not in omit:
                     item['lines'].append({'text': rewrites.get(rid, text), 'cites': [cite]})
-        for h, name in re.findall(r'^## (E\d+) · [^·]+ · ([^·\n]+)', context['memory'], re.M):
+        for h, name in re.findall(r'^(E\d+)\.name \| (.+)$', context['memory'], re.M):
             if name.strip() in include:
                 lines = re.findall(r'^' + h + r'\.(r\d+) \| (.+)$', context['memory'], re.M)
                 sections[0]['items'].append({'entry': h, 'reason': 'Fixture', 'lines': [{'text': t, 'cites': [h + '.' + i]} for i, t in lines]})

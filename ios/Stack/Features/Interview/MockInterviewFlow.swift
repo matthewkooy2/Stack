@@ -280,7 +280,7 @@ struct MockInterviewFlow: View {
         case .working:
             working(message: "Reading your answer…")
         case .finishing:
-            working(message: "Writing your final coaching…")
+            working(message: "Writing your final coaching…", spinner: true)
         case .coaching:
             PrepCoachingScreen(progress: "\(model.turns.count) of \(model.total)",
                                verdict: model.note.strength.isBlank ? "Here’s how that went." : model.note.strength,
@@ -294,11 +294,11 @@ struct MockInterviewFlow: View {
         }
     }
 
-    private func working(message: String) -> some View {
+    private func working(message: String, spinner: Bool = false) -> some View {
         PrepWorkingScreen(progress: model.progress, message: model.runStalled ? "We couldn’t finish your coaching." : message,
                           detail: model.runStalled ? model.run["message"].string : model.error, stalled: model.runStalled,
                           primary: model.runStalled ? "Try again" : nil, busy: model.busy,
-                          onPrimary: { Task { await model.retry() } })
+                          onPrimary: { Task { await model.retry() } }, spinner: spinner)
     }
 
     private var typing: some View {

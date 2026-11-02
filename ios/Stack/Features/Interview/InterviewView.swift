@@ -28,6 +28,11 @@ struct InterviewView: View {
     private var analysis: JSON { data["analysis"][String(turns.count)] }
     private var coaching: JSON { data["coaching"] }
     private var active: Bool { data["status"].string == "active" }
+    private var finished: Bool { data["status"].string == "finished" }
+    /// Coaching has been requested and the worker has not returned or stopped yet.
+    private var working: Bool {
+        !data["pending"].string.isEmpty && !["needs_input", "blocked", "failed", "cancelled"].contains(run["status"].string)
+    }
 
     static func requestID() -> String { String(Int(Date().timeIntervalSince1970 * 1000)) + "-" + UUID().uuidString.lowercased() }
 
@@ -135,7 +140,18 @@ struct InterviewView: View {
                     Task { await action("analyze") }
                 }
             }
-            if !coaching.object.isEmpty {
+            if working {
+                // The worker is writing coaching; the screen reloads every 1.5 s until it arrives.
+                Card(tint: Palette.surfaceRaised, spacing: 8) {
+                    HStack(spacing: 12) {
+                        ProgressView().tint(Brand.accent)
+                        Text(finished ? "Writing your final coaching…" : "Coaching your answer…")
+                            .font(Typeface.body.weight(.semibold)).foregroundStyle(Brand.ink)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+            }
+            if !coaching.object.isEmpty, !(working && finished) {
                 Card(tint: Palette.surfaceRaised, spacing: 8) {
                     Text("Final coaching").font(Typeface.option).foregroundStyle(Palette.icon)
                     InterviewCoachingView(coaching: coaching)

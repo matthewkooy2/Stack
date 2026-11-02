@@ -535,6 +535,12 @@ def _agent_complete(token: str, id: str, owner: str, lease: str, result: dict[st
                         # A worker result is untrusted: re-check structured coaching before storing it.
                         artifact=coaching.stored(artifact);
                         p=sessions[0];p.data=interview.apply(p.data,p.revision,step,artifact,r.context);p.updated_at=time.time();
+                        # Final coaching requested while this answer was being coached starts now (#133).
+                        if step=="interview_turn" and p.data.get("final_after") and p.data["status"]=="finished" and not p.data.get("pending") {
+                            attempt=int(p.data.get("model_attempt",0))+1;
+                            final=_agent_start("interview_coach",jid(p),interview.context(p.data,p.revision,True),str(p.revision)+":"+str(attempt),False);
+                            p.data={**p.data,"pending":final.get("id",""),"model_attempt":attempt,"final_after":False};
+                        }
                     } except ValueError as exc { r.status="needs_input";r.message=str(exc);commit();return _run_view(r,True); }
                 }
                 if step=="coach" {

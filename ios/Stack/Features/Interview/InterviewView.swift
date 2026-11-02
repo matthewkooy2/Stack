@@ -15,6 +15,7 @@ struct InterviewView: View {
     @State private var offered: (text: String, id: String)?
     @State private var correction = -1
     @State private var edited = ""
+    @State private var fixing = false
     @State private var busy = false
     @State private var error = ""
     @State private var createID = InterviewView.requestID()
@@ -97,49 +98,7 @@ struct InterviewView: View {
                     }
                 }
             }
-            if !analysis.object.isEmpty {
-                Card(tint: Palette.surfaceRaised, spacing: 8) {
-                    Text("Answer coaching").font(Typeface.option).foregroundStyle(Palette.icon)
-                    let text = analysis["text"].string
-                    Text(text.isEmpty ? "\(analysis["strength"].string): \(analysis["improvement"].string)" : text)
-                        .font(Typeface.body).foregroundStyle(Palette.text)
-                    StackButton(label: "Ask answer follow-up", kind: .secondary, disabled: busy || turns.count >= 6 || !active) {
-                        Task { await action("followup") }
-                    }
-                }
-            }
-            if active, turns.count < questions.count, turns.count < 6 { currentQuestion }
-            SectionLabel(text: "Reviewed transcript")
-            ForEach(Array(turns.enumerated()), id: \.offset) { index, turn in
-                Card(spacing: 6) {
-                    Text("Answer \(index + 1)").font(Typeface.caption.weight(.semibold)).foregroundStyle(Palette.muted)
-                    Text(turn["question"]["question"].string).font(Typeface.caption).foregroundStyle(Palette.muted)
-                    Text(turn["answer"].string).font(Typeface.body).foregroundStyle(Palette.text)
-                    if turn["original"].string != turn["answer"].string {
-                        Text("Original transcript: \(turn["original"].string)").font(Typeface.caption).foregroundStyle(Palette.muted)
-                    }
-                    Chip(label: "Correct answer \(index + 1)") {
-                        if !busy { correction = index; edited = turn["answer"].string }
-                    }
-                }
-            }
-            if correction >= 0 {
-                StackField(label: "Corrected answer", text: $edited, multiline: true)
-                StackButton(label: "Save transcript correction", disabled: busy || edited.isBlank) {
-                    Task {
-                        await act("interview_correct", ["id": current["id"], "revision": current["revision"],
-                                                        "index": .number(Double(correction)), "answer": .string(edited)])
-                    }
-                }
-            }
-            if active {
-                StackButton(label: "Finish interview", disabled: busy || turns.isEmpty) { Task { await action("finish") } }
-            }
-            if !turns.isEmpty, data["pending"].string.isEmpty, data["status"].string == "finished" || analysis.object.isEmpty {
-                StackButton(label: data["status"].string == "finished" ? "Get final coaching" : "Analyze reviewed answer", disabled: busy) {
-                    Task { await action("analyze") }
-                }
-            }
+            // Coaching first; the answers it is about follow below.
             if working {
                 // The worker is writing coaching; the screen reloads every 1.5 s until it arrives.
                 Card(tint: Palette.surfaceRaised, spacing: 8) {
@@ -156,6 +115,57 @@ struct InterviewView: View {
                     Text("Final coaching").font(Typeface.option).foregroundStyle(Palette.icon)
                     InterviewCoachingView(coaching: coaching)
                 }
+            }
+            if !analysis.object.isEmpty, !finished {
+                Card(tint: Palette.surfaceRaised, spacing: 8) {
+                    Text("Answer \(turns.count) coaching").font(Typeface.option).foregroundStyle(Palette.icon)
+                    InterviewCoachingView(coaching: analysis)
+                    StackButton(label: "Ask answer follow-up", kind: .secondary, disabled: busy || turns.count >= 6 || !active) {
+                        Task { await action("followup") }
+                    }
+                }
+            }
+            if active, turns.count < questions.count, turns.count < 6 { currentQuestion }
+            if !turns.isEmpty, data["pending"].string.isEmpty, finished || analysis.object.isEmpty {
+                StackButton(label: finished ? "Get final coaching" : "Analyze reviewed answer", disabled: busy) {
+                    Task { await action("analyze") }
+                }
+            }
+            if active {
+                StackButton(label: "Finish interview", disabled: busy || turns.isEmpty) { Task { await action("finish") } }
+            }
+            SectionLabel(text: "Your answers")
+            ForEach(Array(turns.enumerated()), id: \.offset) { index, turn in
+                Card(spacing: 6) {
+                    let attempts = turn["previous"].array.count + 1
+                    Text("Question \(index + 1)" + (attempts > 1 ? " · attempt \(attempts)" : ""))
+                        .font(Typeface.caption.weight(.semibold)).foregroundStyle(Palette.muted)
+                    Text(turn["question"]["question"].string).font(Typeface.caption).foregroundStyle(Palette.muted)
+                    Text(turn["answer"].string).font(Typeface.body).foregroundStyle(Palette.text)
+                    HStack(spacing: 8) {
+                        // A retry is a new answer to the same question; the earlier one stays saved.
+                        Chip(label: "Try this question again") {
+                            if !busy { correction = index; fixing = false; edited = "" }
+                        }
+                        // Fixing only applies to a spoken answer, where the transcription can mishear words.
+                        if !turn["recording_id"].string.isEmpty {
+                            Chip(label: "Fix transcript") {
+                                if !busy { correction = index; fixing = true; edited = turn["answer"].string }
+                            }
+                        }
+                    }
+                }
+            }
+            if correction >= 0 {
+                StackField(label: fixing ? "Fix words the transcription got wrong" : "Your new answer to question \(correction + 1)",
+                           text: $edited, multiline: true)
+                StackButton(label: fixing ? "Save transcript fix" : "Save new answer", disabled: busy || edited.isBlank) {
+                    Task {
+                        await act("interview_correct", ["id": current["id"], "revision": current["revision"],
+                                                        "index": .number(Double(correction)), "answer": .string(edited)])
+                    }
+                }
+                StackButton(label: "Cancel", kind: .secondary, disabled: busy) { correction = -1; edited = "" }
             }
         }
     }

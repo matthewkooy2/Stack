@@ -283,8 +283,10 @@ struct MockInterviewFlow: View {
             working(message: "Writing your final coaching…", spinner: true)
         case .coaching:
             PrepCoachingScreen(progress: "\(model.turns.count) of \(model.total)",
-                               verdict: model.note.strength.isBlank ? "Here’s how that went." : model.note.strength,
-                               criteria: [], focus: model.note.improvement,
+                               verdict: !model.analysis["verdict"].string.isBlank ? model.analysis["verdict"].string
+                                   : model.note.strength.isBlank ? "Here’s how that went." : model.note.strength,
+                               criteria: CoachingPresentation.criteria(from: model.analysis),
+                               focus: model.analysis["work_on"].string.isBlank ? model.note.improvement : model.analysis["work_on"].string,
                                primary: model.turns.count >= model.total ? "Finish" : "Next question",
                                busy: model.busy, message: model.error,
                                onAnswer: {}, onPrimary: { model.next() }, onAgain: { Task { await model.finish() } },

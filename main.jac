@@ -158,10 +158,22 @@ def:priv interview_continue(id: str, revision: int, action: str = "followup") ->
                 # One answer is a useful shortened interview. With none there is nothing to assess.
                 if not p.data["turns"] { raise ValueError("Answer at least one question before finishing. An interview without answers gets no assessment."); }
                 pending=_owned_run(p.data.get("pending",""));
-                if pending is not None and pending.status not in ["completed","cancelled","failed"] { pending.status="cancelled";pending.lease="";pending.lease_until=0; }
-                if p.data["status"]!="finished" { p.data={**p.data,"status":"finished","pending":"","finished_at":time.time()};p.revision+=1; }
+                # Coaching of the last answer that is still being written keeps going, so finishing early never
+                # loses it; it is re-bound to the finished revision. Anything else pending is cancelled.
+                live=pending is not None and pending.status in ["queued","running"] and pending.kind=="interview_turn";
+                if pending is not None and not live and pending.status not in ["completed","cancelled","failed"] { pending.status="cancelled";pending.lease="";pending.lease_until=0; }
+                p.data={**p.data,"status":"finished","pending":p.data["pending"] if live else "","finished_at":time.time()};p.revision+=1;
+                if live and pending is not None { pending.context={**pending.context,"session_revision":p.revision}; }
             } elif action=="analyze" {
-                if not p.data["turns"] or p.data.get("pending") { raise ValueError("Wait for the current task, or retry it below."); }
+                if not p.data["turns"] { raise ValueError("Wait for the current task, or retry it below."); }
+                pending=_owned_run(p.data.get("pending",""));
+                if p.data.get("pending") {
+                    # Final coaching asked for while the last answer is still being coached starts right after it.
+                    if p.data["status"]=="finished" and pending is not None and pending.kind=="interview_turn" and pending.status in ["queued","running"] {
+                        p.data={**p.data,"final_after":True};p.updated_at=time.time();commit();return interview_get(id);
+                    }
+                    raise ValueError("Wait for the current task, or retry it below.");
+                }
                 _interview_queue(p,p.data["status"]=="finished");
             } elif action in ["followup","next"] {
                 if p.data["status"]!="active" or not p.data["turns"] { raise ValueError("Save a reviewed answer before continuing."); }

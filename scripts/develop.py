@@ -86,7 +86,7 @@ def main():
     config=private/'credentials.json'
     if config.exists():
         for key,value in json.loads(config.read_text()).items():
-            if key in ('ADZUNA_APP_ID','ADZUNA_APP_KEY','STACK_ADZUNA_APPROVED','THEIRSTACK_API_KEY','STACK_THEIRSTACK_TERMS_ACCEPTED','USAJOBS_API_KEY','USAJOBS_EMAIL','GITHUB_TOKEN'):
+            if key=='GITHUB_TOKEN':
                 os.environ[key]=str(value)
     agent_private=ROOT/'storage/agents';agent_private.mkdir(parents=True,exist_ok=True)
     agent_token=agent_private/'worker-token'
@@ -120,17 +120,16 @@ def main():
         wait_for_service(workspace,'http://127.0.0.1:8080/')
         print(f'LinkedIn browser ready. Sign-in workspace: {web}',flush=True)
         backend=start([JAC,'run','--no-client','--port','8000','Stack'],ROOT,'api.log')
-        worker=start([JAC,'run','--no-serve','scripts/discovery-worker.jac'],ROOT,'discovery.log')
         agent_worker=start([JAC,'run','--no-serve','scripts/agent-worker.jac'],ROOT,'agents.log')
         metro_command=['node','node_modules/expo/bin/cli','start','--dev-client','--port','8081']
         metro=start(metro_command,MOBILE,'metro.log',metro_environment(host))
         network=wifi_address();network_check=time.monotonic()
-        print(f'Stack API: {api}\nMetro: http://{host}:8081\nOpen Stack on your iPhone and choose Stack under local development servers.\nAllow Local Network access and keep both devices on the same Wi-Fi.\nWi-Fi changes refresh discovery automatically; the URLs stay the same.\nLogs: {logs}\nJac screen edits reload automatically. Ctrl-C stops all development services.',flush=True)
+        print(f'Stack API: {api}\nMetro: http://{host}:8081\nOpen Stack on your iPhone and choose Stack under local development servers.\nAllow Local Network access and keep both devices on the same Wi-Fi.\nWi-Fi changes refresh discovery automatically; the URLs stay the same.\nCollect jobs once with ./scripts/jac run --no-serve scripts/jobs-sweep.jac.\nLogs: {logs}\nJac screen edits reload automatically. Ctrl-C stops all development services.',flush=True)
         previous=snapshot([ROOT/'mobile',ROOT/'native',ROOT/'core',ROOT/'discovery',ROOT/'agents'])
         backend_time=(ROOT/'main.jac').stat().st_mtime_ns
         while True:
             time.sleep(1)
-            if any(p.poll() is not None for p in (backend,metro,worker,agent_worker,browser,workspace)):
+            if any(p.poll() is not None for p in (backend,metro,agent_worker,browser,workspace)):
                 raise RuntimeError('A development server stopped. Inspect .jac/logs.')
             if time.monotonic()-network_check>=5:
                 address=wifi_address();network_check=time.monotonic()
@@ -149,9 +148,7 @@ def main():
             modified=(ROOT/'main.jac').stat().st_mtime_ns
             if modified!=backend_time or any('/core/' in p or '/discovery/' in p or '/agents/' in p for p in changed):
                 stop(agent_worker)
-                stop(worker)
                 stop(backend);backend=start([JAC,'run','--no-client','--port','8000','Stack'],ROOT,'api.log')
-                worker=start([JAC,'run','--no-serve','scripts/discovery-worker.jac'],ROOT,'discovery.log')
                 agent_worker=start([JAC,'run','--no-serve','scripts/agent-worker.jac'],ROOT,'agents.log')
             previous=current;backend_time=modified
     except KeyboardInterrupt:

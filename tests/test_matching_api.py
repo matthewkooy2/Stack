@@ -1,15 +1,16 @@
 """End-to-end matching through the API: profile inputs -> search -> displayed jobs.
 
-Creates temporary catalog fixtures through the worker path (normalize -> upsert),
+Creates temporary catalog fixtures through the sweep path (normalize -> upsert),
 then checks exclusion, uncertainty, explanations, saved-search precedence, and
 preference changes. Fixtures are purged afterward. Requires the local server.
 """
 import sys,time,uuid,unittest
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-from discovery.normalize import normalize,digest
+from discovery.normalize import normalize
 from test_api import account,rpc
-from test_catalog_api import worker
+from test_catalog_api import worker,sweep
+from catalog_fixture import career
 
 BASE_PREFS={'stage':'Recent graduate','years':0,'education':"Bachelor's",'modes':[],'employment_types':['Full-time'],'salary_min':35,'salary_period':'hour','exclude_companies':[],'exclude_terms':[],'soft':[]}
 
@@ -17,13 +18,10 @@ class MatchingAPI(unittest.TestCase):
  @classmethod
  def setUpClass(cls):
     _,_,cls.a=account();cls.label='Zq'+uuid.uuid4().hex[:8]
-    cls.url='https://example.com/stack-match-tests/'+cls.label;cls.source_id='career:'+digest(cls.url)
-    rpc(cls.a,'import_job_url',url=cls.url)
-    work=worker('discovery_claim',preferred_id=cls.source_id)
-    assert work.get('id')==cls.source_id,work
+    cls.url='https://example.com/stack-match-tests/'+cls.label;source=career(cls.url);cls.source_id=source['id']
     def listing(key,**raw):
         base={'title':f'Registered Nurse {cls.label}','company':'Match test employer','url':f'{cls.url}/{key}','country':'US','location':'Detroit, MI','posted_at':time.time()-3600}
-        return normalize({**base,**raw},work['config'])
+        return normalize({**base,**raw},source)
     cls.jobs={
       'fit':listing('fit',employment_type='Full-time',description='New graduates welcome. RN license required. Pay range: $38 - $52 per hour.'),
       'contract':listing('contract',employment_type='Contract',description='13-week assignment. Pay: $60 per hour.'),
@@ -31,7 +29,7 @@ class MatchingAPI(unittest.TestCase):
       'unknown':listing('unknown',description='Care for patients on a busy unit.'),
       'senior':listing('senior',title=f'Senior Registered Nurse {cls.label}',employment_type='Full-time',description='Requirements\n5+ years of acute care experience required. Pay: $50 per hour.'),
     }
-    worker('discovery_complete',id=work['id'],lease=work['lease'],result={'jobs':list(cls.jobs.values()),'complete':True})
+    sweep(source,[{'jobs':list(cls.jobs.values())}])
     cls.ids={k:v['id'] for k,v in cls.jobs.items()}
  @classmethod
  def tearDownClass(cls):worker('discovery_manage',id=cls.source_id,action='purge')

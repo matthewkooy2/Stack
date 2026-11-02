@@ -6,7 +6,14 @@ Five tabs, in order: sample **Network**, real **Applications** tracking, swipeab
 
 LinkedIn profile review is available from Network: sign in through the browser handoff, then review recruiter-focused weaknesses and suggested rewrites. See [setup and current verification limits](docs/LINKEDIN_PROFILE_REVIEW.md).
 
-See [job-discovery setup, source coverage, and budget controls](docs/JOB_DISCOVERY.md). Provider credentials are optional for public feeds and required for Adzuna, TheirStack, and USAJOBS.
+See [job discovery](docs/JOB_DISCOVERY.md): jobs are collected once a day from public job boards, and each account's matches are stored for the app to read.
+
+## MVP scope and planning
+
+Read [MVP scope](docs/MVP_SCOPE.md) for agreed requirements and open decisions,
+and [MVP planning](docs/MVP_PLANNING.md) for the backend audit, gaps and
+verification needs. Teammates and their agents should read both before starting
+MVP work.
 
 ## Develop on Linux or Windows/WSL2
 
@@ -30,6 +37,9 @@ same Linux environment: `make login PROVIDER=codex` (or `PROVIDER=claude`).
 Model tasks then use that server login without a separate Stack permission,
 account binding, or request cap. External-action approvals still apply, and CLI
 failures never fall back to a paid API.
+
+For a shared team backend without teammate Tailscale installation, see
+[Cloudflare team development](docs/CLOUDFLARE_TEAM_DEVELOPMENT.md).
 
 See [local contributor development](docs/LOCAL_DEVELOPMENT.md) for Windows/WSL2
 machine prerequisites, Python command equivalents, optional integrations,

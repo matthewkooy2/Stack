@@ -1,7 +1,7 @@
 import XCTest
 @testable import Stack
 
-/// Holds every `search_jobs` request until the test answers it, so slow, failing and stale pages are deterministic.
+/// Holds every `job_feed` request until the test answers it, so slow, failing and stale pages are deterministic.
 /// Cancellation is recorded; by default a cancelled request still waits for an answer, like a response that was
 /// already on the wire. `releaseAll` ends whatever the test left open.
 @MainActor
@@ -553,5 +553,20 @@ final class JobDeckFeedTests: XCTestCase {
         await change.value
         XCTAssertFalse(screen.log.contains("accepted filters"))
         XCTAssertFalse(feed.busy)
+    }
+}
+
+final class JobSweepTests: XCTestCase {
+    private func date(_ text: String) -> Date { ISO8601DateFormatter().date(from: text)! }
+
+    func testOnlyMatchesFromBeforeTheLatestTenAMSweepAreStale() {
+        // 09:59 New York (EDT) is still yesterday's sweep; 10:00 starts today's.
+        let before = date("2026-10-27T13:59:00Z"), after = date("2026-10-27T14:01:00Z")
+        XCTAssertEqual(JobSweep.latest(before: before), date("2026-10-26T14:00:00Z"))
+        XCTAssertEqual(JobSweep.latest(before: after), date("2026-10-27T14:00:00Z"))
+        let rankedThisMorning = date("2026-10-27T14:05:00Z").timeIntervalSince1970
+        XCTAssertFalse(JobSweep.isNewer(than: rankedThisMorning, now: date("2026-10-27T20:00:00Z")))
+        XCTAssertTrue(JobSweep.isNewer(than: rankedThisMorning, now: date("2026-10-28T14:30:00Z")))
+        XCTAssertTrue(JobSweep.isNewer(than: 0, now: after))
     }
 }

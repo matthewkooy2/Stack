@@ -9,7 +9,6 @@ import {installTemplates} from './render';
 import {setReviewScreen,useReviewState} from './loading';
 import {events} from './services';
 import {backend,onBackendChange} from './backend';
-import {JobsPreview} from './jobs-controller';
 import {ApplicationsPreview} from './applications-controller';
 import {NetworkPreview} from './network-controller';
 import {ResumePreview} from './resume-controller';
@@ -30,7 +29,7 @@ export function RootFrame({children}){
  return <SafeAreaProvider><NativeFrame backgroundColor={screen==='Prep'?'#FFFDE7':undefined}><View style={{flex:1,minHeight:0,overflow:'hidden'}}>{backend.live?<OfflineBanner/>:null}{ready?children:<View><Text>{error||'Opening your Stack…'}</Text></View>}</View><ReviewMenu onNavigate={screen=>navigate(screen)}/></NativeFrame></SafeAreaProvider>;
 }
 function LegacyLoading({screen}){const pulse=usePulse(true),title=screen==='Edit profile'?'Preferences':screen;return <View style={{flex:1,padding:24,gap:24,backgroundColor:'#f6f7fb'}}><View style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between'}}><Text style={{fontSize:23,fontWeight:'800',letterSpacing:-.5,color:'#202b40'}}>{title}</Text><Animated.View accessibilityElementsHidden style={{width:14,height:14,borderWidth:2,borderColor:'#dce4f4',borderTopColor:'#3765e8',borderRadius:7,opacity:pulse}}/></View><Text accessibilityRole="text" accessibilityLiveRegion="polite" style={{fontSize:13,color:'#748096'}}>Loading your {title.toLowerCase()}…</Text><View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{padding:22,gap:17,backgroundColor:'white',borderWidth:1,borderColor:'#e9edf4',borderRadius:24}}>{[{width:50,height:50,borderRadius:15},{width:'85%',height:23,marginVertical:8},{height:12},{height:12,width:'73%'},{height:44,marginVertical:8}].map((style,i)=><Animated.View key={i} style={{borderRadius:6,backgroundColor:'#e9edf4',opacity:pulse,...style}}/>)}</View></View>;}
-const TABS={Jobs:JobsPreview,Applications:ApplicationsPreview,Network:NetworkPreview,Resume:ResumePreview,Prep:PrepPreview};
+const TABS={Applications:ApplicationsPreview,Network:NetworkPreview,Resume:ResumePreview,Prep:PrepPreview};
 const shown={flex:1,minHeight:0},hidden={display:'none'};
 // Props are stable, so a tab re-renders only for its own state, never because the app shell did.
 const Tab=React.memo(function Tab({name,onNavigate,onProfile}){const Component=TABS[name];return <Component onNavigate={onNavigate} onProfile={onProfile}/>;});

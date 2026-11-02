@@ -1,7 +1,7 @@
 """Stack API. All personal data endpoints require Jac authentication."""
 import time;
 import from jaclang.runtime.runtime { JacRuntime }
-import from core.catalog { _worker_allowed, _fresh, _criteria, _catalog_job, _saved_search, _retained_snapshot, _drop_overrides, _compute_matches, _store_matches, _match_records, _search_or_saved, _deactivate_missing, _retire_shared, _retire_account, _sweep_run, _stored_match_ids, SweepRun, job_feed, search_jobs, get_job, save_search, reset_search, import_job_url, get_import_status, source_status, jobs_sweep_begin, jobs_sweep_source, discovery_manage, discovery_report }
+import from core.catalog { _worker_allowed, _fresh, _criteria, _catalog_job, _saved_search, _retained_snapshot, _drop_overrides, _compute_matches, _store_matches, _match_records, _rebuild_title_index, _search_or_saved, _deactivate_missing, _retire_shared, _retire_account, _sweep_run, _stored_match_ids, SweepRun, job_feed, search_jobs, get_job, save_search, reset_search, import_job_url, get_import_status, source_status, jobs_sweep_begin, jobs_sweep_source, discovery_manage, discovery_report }
 import from core.preferences { MatchPreferences, _match_preferences, _save_match_preferences }
 import from core.timeline { _timeline_preferences, _save_timeline }
 import from discovery.timeline { validate_month }
@@ -324,7 +324,7 @@ def:pub jobs_sweep_finish(token: str, run: str) -> dict[str, any] {
         _fresh();r=_sweep_run(run);
         if r is None or r.status not in ["collecting","matching"] { return {"error":"This sweep is not running."}; }
         if r.status=="collecting" {
-            r.deactivated=_deactivate_missing(r);_retire_shared();r.status="matching";r.after="";
+            r.deactivated=_deactivate_missing(r);_rebuild_title_index();_retire_shared();r.status="matching";r.after="";
             commit();return {"done":False,"deactivated":r.deactivated};
         }
         after=r.after;

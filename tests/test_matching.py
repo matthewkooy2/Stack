@@ -78,6 +78,14 @@ class Locations(unittest.TestCase):
 
 
 class ListingFacts(unittest.TestCase):
+    def test_card_mode_and_pay_must_be_stated(self):
+        self.assertEqual(facts(job('Nurse', description='Work Arrangement: Onsite'))['stated_mode'], 'On-site')
+        for text in ['This role is not remote.', 'This position is remote or hybrid.', 'Our customers have hybrid schedules.']:
+            self.assertFalse(facts(job('Nurse', description=text))['stated_mode'], text)
+        for text in ['Base salary: $100,000', 'Pay: $120,000 CAD per year']:
+            self.assertIsNone(facts(job('Analyst', description=text))['pay'])
+        self.assertIsNone(facts(job('Analyst', compensation={'min':100000,'currency':'USD'}))['pay'])
+
     def test_pay(self):
         pay = facts(job('Cook', description='Pay range: $38 - $52 per hour.'))['pay']
         self.assertEqual((pay['min'], pay['max'], pay['unit'], pay['source']), (38.0, 52.0, 'hour', 'Pay stated in the listing text'))
@@ -106,7 +114,7 @@ class ListingFacts(unittest.TestCase):
     def test_real_listing_formats(self):
         # Found in catalog listings: pay on the line after its heading, curly apostrophes,
         # offices listed next to a US-remote scope, and "mentor entry-level engineers".
-        pay = facts(job('PM', description='For pay transparency purposes, the base salary range for this full-time position is:\n$240,000—$300,000 USD'))['pay']
+        pay = facts(job('PM', description='For pay transparency purposes, the annual base salary range for this full-time position is:\n$240,000—$300,000 USD'))['pay']
         self.assertEqual((pay['min'], pay['max'], pay['unit']), (240000.0, 300000.0, 'year'))
         self.assertEqual(facts(job('Teacher', description='Bachelor’s degree (required)'))['education']['name'], "Bachelor's")
         self.assertIsNone(facts(job('Counselor', description='We support high school students applying to college.'))['education'])

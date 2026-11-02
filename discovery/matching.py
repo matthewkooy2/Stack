@@ -277,6 +277,13 @@ def remote_scope(job: dict, segments: list[str], sentences: list | None = None) 
 
 # ---------------------------------------------------------------- listing facts
 
+STATED_MODE = re.compile(r'^(?:work(?:place)? (?:arrangement|model|type)\s*:\s*|'
+                         r'(?:this|the) (?:role|position|job) is (?:an? )?(?:fully |100% )?|'
+                         r'this role is based [^.!?]{1,100} with an? (?:office-centric )?)'
+                         r'(remote|hybrid|on[- ]?site|in[- ]person)'
+                         r'(?=$|[.,!]|\s+(?:role|position|schedule|work model|within|in|based)\b)', re.I)
+
+
 def _mode_facts(job: dict, places: list, remote_segments: list, sentences: list | None = None) -> dict:
     found, evidence = set(), []
     stated = job.get('mode')
@@ -294,13 +301,21 @@ def _mode_facts(job: dict, places: list, remote_segments: list, sentences: list 
         ('Hybrid', r'\b(?:this|the) (?:role|position|job) is (?:a )?hybrid\b|\bhybrid (?:role|position|schedule|work (?:model|schedule|arrangement))\b|\b(?:\w+|\d) days? (?:per|a|each) week in (?:the |our )?office\b'),
         ('On-site', r'\b(?:this|the) (?:role|position|job) is (?:an? )?(?:fully )?(?:on-?site|in[- ]person|in[- ]office)\b|\b(?:fully )?(?:on-?site|in[- ]person|in[- ]office) (?:role|position)\b|\b(?:must|required to|expected to) (?:work|be) (?:on-?site|in[- ]person|in (?:the|our) office)\b'),
     ]
+    direct = set()
     for sentence, _ in (lines(job) if sentences is None else sentences):
+        stated_match = STATED_MODE.search(sentence)
+        if stated_match and not re.search(r'\b(?:not|never|if|may|might|could|depending|except|until|unless|or)\b', sentence, re.I):
+            value = stated_match[1].lower()
+            mode = value.title() if value in ('remote', 'hybrid') else 'On-site'
+            direct.add(mode)
+            if mode not in found:
+                found.add(mode); evidence.append(clip(sentence))
         for mode, pattern in patterns:
             if re.search(pattern, sentence, re.I) and mode not in found:
                 found.add(mode); evidence.append(clip(sentence))
     # A remote listing that also names offices may allow other arrangements.
     open_other = 'Remote' in found and bool(places) and len(found) == 1
-    return {'modes': sorted(found), 'mode_open': open_other, 'mode_evidence': evidence[:2]}
+    return {'modes': sorted(found), 'mode_open': open_other, 'stated_mode': next(iter(direct)) if direct and len(found) == 1 else '', 'mode_evidence': evidence[:2]}
 
 
 def _employment_facts(job: dict, sentences: list | None = None) -> dict:
@@ -398,13 +413,15 @@ def _education_facts(job: dict, sentences: list | None = None) -> dict:
     return {'education': None}
 
 
-def _unit(text: str, amount: float) -> str:
+def _unit(text: str) -> str:
     text = text.lower()
-    if re.search(r'\b(?:hour|hourly|hr)\b|/\s?h(?:ou)?r', text): return 'hour'
-    if re.search(r'\b(?:week|weekly)\b', text): return 'week'
-    if re.search(r'\b(?:month|monthly)\b', text): return 'month'
-    if re.search(r'\b(?:year|yearly|annual\w*|per annum|yr|salary)\b', text): return 'year'
-    return 'hour' if amount < 300 else 'year' if amount >= 10000 else ''
+    for unit, pattern in (('hour', r'\bhourly|(?:\bper\s+|\ban\s+|/\s*)(?:hour|hr)'),
+                          ('week', r'\bweekly|(?:\bper\s+|\ba\s+|/\s*)week'),
+                          ('month', r'\bmonthly|(?:\bper\s+|\ba\s+|/\s*)month'),
+                          ('year', r'\byearly|\bannual(?:ly)?|\bper annum|(?:\bper\s+|\ba\s+|/\s*)(?:year|yr)')):
+        if re.search('(?:' + pattern + r')\b', text):
+            return unit
+    return ''
 
 
 PER_YEAR = {'hour': HOURS_PER_YEAR, 'week': 52, 'month': 12, 'year': 1, 'day': 260}
@@ -418,28 +435,38 @@ def _pay_facts(job: dict, sentences: list | None = None) -> dict:
         return {'pay': None, 'pay_note': 'Pay shown by the source is an estimate, not employer-stated'}
     if numbers:
         currency = comp.get('currency') or 'Unknown'
-        if currency not in ('USD', 'Unknown'):
+        if currency == 'Unknown':
+            return {'pay': None, 'pay_note': 'Pay currency not stated'}
+        if currency != 'USD':
             return {'pay': None, 'pay_note': f'Pay is listed in {currency}'}
-        unit = {'yearly': 'year', 'annual': 'year', 'hourly': 'hour', 'weekly': 'week', 'monthly': 'month'}.get(str(comp.get('unit')).lower(), str(comp.get('unit')).lower())
-        if unit not in PER_YEAR: unit = _unit('', max(numbers))
-        if unit:
-            return {'pay': {'min': float(low) if isinstance(low, (int, float)) and low > 0 else None, 'max': float(high) if isinstance(high, (int, float)) and high > 0 else None,
+        unit = {'yearly': 'year', 'annual': 'year', 'hourly': 'hour', 'weekly': 'week', 'monthly': 'month', 'per-year-salary': 'year', 'per-hour-wage': 'hour'}.get(str(comp.get('unit')).lower(), str(comp.get('unit')).lower())
+        if unit not in PER_YEAR:
+            return {'pay': None, 'pay_note': 'Pay period not stated'}
+        return {'pay': {'min': float(low) if isinstance(low, (int, float)) and low > 0 else None, 'max': float(high) if isinstance(high, (int, float)) and high > 0 else None,
                             'unit': unit, 'source': 'Structured pay from the source', 'quote': ''}, 'pay_note': ''}
-    ranges, context = [], 0
+    pay_note = ''
+    ranges, context = [], ''
     for sentence, _ in (lines(job) if sentences is None else sentences):
         # "The base salary range for this position is:" followed by "$150,000—$200,000 USD".
-        if NOT_PAY.search(sentence) and not MONEY.search(sentence): context = 0; continue
+        if NOT_PAY.search(sentence) and not MONEY.search(sentence): context = ''; continue
         worded = bool(PAY_WORDS.search(sentence))
-        if worded and not MONEY.search(sentence): context = 3; continue
-        if not (worded or context) or NOT_PAY.search(sentence): context = max(0, context - 1); continue
-        context = max(0, context - 1)
+        if worded and not MONEY.search(sentence): context = sentence; continue
+        if not (worded or context) or NOT_PAY.search(sentence): context = ''; continue
+        context, heading = '', context
         amounts = []
         for m in MONEY.finditer(sentence):
             if m.group(2) and m.group(2).lower() in ('m', 'b'): amounts = []; break
             amounts.append(float(m.group(1).replace(',', '')) * (1000 if m.group(2) and m.group(2).lower() == 'k' else 1))
         if not amounts: continue
-        unit = _unit(sentence, max(amounts))
-        if not unit: continue
+        context_text = heading + ' ' + sentence
+        if (re.search(r'\b(?:CAD|AUD|NZD|SGD|HKD|EUR|GBP)\b|[£€]', context_text, re.I)
+                or job.get('country') != 'US' and not re.search(r'\bUSD\b|\bUS\$', context_text, re.I)):
+            pay_note = 'Pay currency is not confirmed as USD'
+            continue
+        unit = _unit(sentence) or _unit(heading)
+        if not unit:
+            pay_note = 'Pay period not stated'
+            continue
         starting = re.search(r'\b(?:starting|starts|from|at least|minimum)\b', sentence, re.I) and len(amounts) == 1
         capped = re.search(r'\bup to\b', sentence, re.I) and len(amounts) == 1
         ranges.append({'min': None if capped else min(amounts[:2]), 'max': None if starting else max(amounts[:2]), 'unit': unit, 'quote': clip(sentence)})
@@ -447,7 +474,7 @@ def _pay_facts(job: dict, sentences: list | None = None) -> dict:
     if ranges:
         # The first range is usually the primary location; others vary by location or level.
         return {'pay': {**ranges[0], 'source': 'Pay stated in the listing text', 'alternatives': ranges[1:]}, 'pay_note': ''}
-    return {'pay': None, 'pay_note': ''}
+    return {'pay': None, 'pay_note': pay_note}
 
 
 def _confirm_facts(job: dict, sentences: list | None = None) -> dict:
@@ -459,7 +486,7 @@ def _confirm_facts(job: dict, sentences: list | None = None) -> dict:
     return {'confirm': list(dict.fromkeys(items))[:3]}
 
 
-FACTS_VERSION = 5
+FACTS_VERSION = 6
 
 
 def facts(job: dict) -> dict:

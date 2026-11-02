@@ -39,6 +39,10 @@ final class JobCardPresentationTests: XCTestCase {
         let excerpt = JobCardCopy(job: Job(["salary": "Pay not listed", "highlights": ["pay_excerpt": "Salary depends on location: $90k–$110k."]]))
         XCTAssertEqual(excerpt.payExcerpt, "Salary depends on location: $90k–$110k.")
         XCTAssertFalse(excerpt.showsPayHeadline)
+        XCTAssertFalse(excerpt.accessibilityLabel.contains("Pay not listed"))
+        let scoped = JobCardCopy(job: Job(["salary": "USD 90000–110000 / year", "highlights": ["pay_context": "US base salary range."]]))
+        XCTAssertTrue(scoped.showsPayHeadline)
+        XCTAssertTrue(scoped.accessibilityLabel.contains("US base salary range."))
         XCTAssertTrue(yearly.showsPayHeadline)
         XCTAssertTrue(JobCardCopy(job: Job(["salary": "Pay not listed"])).showsPayHeadline)
     }

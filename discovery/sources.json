@@ -19,6 +19,8 @@
     "adapter": "greenhouse",
     "board": "stripe",
     "domain": "stripe.com",
+    "posting_schema_host": "stripe.com",
+    "posting_body_selector": ".careers-listing-details__body",
     "sector": "Technology",
     "approved": true
   },

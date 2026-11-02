@@ -10,6 +10,7 @@ import from urllib.parse { urlsplit, urlunsplit, parse_qsl, urlencode }
 import from jaclang.runtime.runtime { JacRuntime }
 import from discovery.normalize { digest, canonical, validate_filters, taxonomy, classify, dedupe_bucket, same_opening }
 import from discovery.card { card_view }
+import from discovery.branding { employer_logos }
 import from discovery.matching { facts, current_facts, criteria, evaluate, role_match, codes_for, tokens, FACTS_VERSION }
 import from core.preferences { _match_preferences }
 import from discovery.ranking { rank, encode_cursor, decode_cursor, posting_label }
@@ -84,7 +85,11 @@ def _job_view(j: CatalogJob) -> dict[str, any] {
     data["discovered_at"]=j.discovered_at; data["stale"]=j.checked_at<time.time()-STALE_AFTER; data["sources"]=[v for v in j.observations.values()];
     data["listing_url"]=_listing_url(data);
     # Tags come from the same facts matching uses; the sweep stores them with the listing.
-    data["facts"]=current_facts(data); data["tags"]=[x for x in data["facts"]["employment"]+[data["facts"]["level"]] if x];
+    data["facts"]=current_facts(data);
+    if data.get("mode")=="Unknown" and data["facts"].get("stated_mode") { data["mode"]=data["facts"]["stated_mode"]; }
+    kind=data.get("employment_type"); level=data.get("seniority");
+    kinds=[kind] if kind and kind!="Unknown" else data["facts"]["employment"];
+    data["tags"]=list(dict.fromkeys([x for x in kinds+[level if level and level!="Unknown" else data["facts"]["level"]] if x]));
     return data;
 }
 """Every listing an account can be matched against: active, unexpired and confirmed by a sweep this week."""
@@ -269,9 +274,10 @@ def _feed_page(search: dict[str, any], cursor: str) -> dict[str, any] {
         j=jobs.get(row["id"]);
         # Stored matches name listings; a listing that closed or expired since then is left out.
         view=_job_view(j) if j is not None else {};
-        if view and view["active"] { cards.append(card_view({**view,"match":row["match"],"timeline":row["timeline"]})); }
+        if view and view["active"] { cards.append(card_view({**view,"match":row["match"],"timeline":row["timeline"]},str(result["meta"].get("criteria",{}).get("location","")))); }
     }
-    return {**result["meta"],"jobs":cards,"next_cursor":next_cursor,"sources":[],"occupations":[x["name"] for x in taxonomy()],"checked_at":result["computed_at"],"computed_at":result["computed_at"]};
+    logos=employer_logos(JacRuntime.get_context().mem.store,cards);
+    return {**result["meta"],"employer_logos":logos,"jobs":cards,"next_cursor":next_cursor,"sources":[],"occupations":[x["name"] for x in taxonomy()],"checked_at":result["computed_at"],"computed_at":result["computed_at"]};
 }
 
 """The signed-in account's matches for its saved search, one page at a time. Never collects listings."""

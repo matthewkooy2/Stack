@@ -1247,6 +1247,11 @@ def:pub agent_schedule(token: str, wake_key: str = "") -> dict[str, any] {
                 if r.kind=="live" and r.status in ["waiting","running"] and r.lease_until<time.time() { r.status="failed";r.lease="";r.message="Live interview expired. Its reserved budget is retained."; }
                 _project_agent(r);_notify_agent(r);
             }
+            # Connecting Gmail enables read-only tracking independently of outbound rules.
+            if any(c.tracks_mail(m.policy) for c in [root -->][?:AgentConnection]) {
+                context={"applications":[_app_view(a) for a in [root -->][?:Application] if not a.demo],"contacts":[c.data for c in [root -->][?:AgentContact]],"interviews":[{"key":i.key,"application_id":i.application_id} for i in [root -->][?:AgentInterview]]};
+                _agent_start("sync","google",context,"push:"+wake_key if wake_key else str(int(time.time()/300)));count+=1;
+            }
             if not m.policy.get("enabled") or m.policy.get("expires_at",0)<time.time() { continue; }
             if m.policy.get("analyze_top_matches") {
                 today=time.time()-86400;recent=[r for r in [root -->][?:AgentRun] if r.kind=="jobs" and r.created_at>today];
@@ -1257,11 +1262,6 @@ def:pub agent_schedule(token: str, wake_key: str = "") -> dict[str, any] {
                         if job { _agent_start("jobs","job:"+candidate,{"job":job,"profile":{"name":p.name,"role":p.role,"preferences":_match_preferences()},"resume_id":_settings().selected_resume}); }
                     }
                 }
-            }
-            connections=[c for c in [root -->][?:AgentConnection] if c.state=="connected"];
-            if connections and "gmail_read" in m.policy.get("actions",[]) {
-                context={"applications":[_app_view(a) for a in [root -->][?:Application] if not a.demo],"contacts":[c.data for c in [root -->][?:AgentContact]],"interviews":[{"key":i.key,"application_id":i.application_id} for i in [root -->][?:AgentInterview]]};
-                _agent_start("sync","google",context,"push:"+wake_key if wake_key else str(int(time.time()/300)));count+=1;
             }
             for c in [root -->][?:AgentContact] {
                 if c.next_at and c.next_at<=time.time() and c.data.get("selected") and not c.data.get("stopped") and c.followups<int(m.policy.get("followup_limit",0)) {
@@ -1286,7 +1286,7 @@ def _features() -> list[dict[str, any]] {
     default_resume=_owned_resume(_settings().selected_resume);resumes=[r for r in [root -->][?:Resume] if r.review.get("kind")!=BANK_KIND];
     if default_resume is None and len(resumes)==1 { default_resume=resumes[0]; }
     return feature_status({
-        "now":time.time(),"policy":m.policy,"model":model_status(jid(root),m.model_selection),"google_scopes":scopes,
+        "now":time.time(),"policy":m.policy,"model":model_status(jid(root),m.model_selection),"google_scopes":scopes,"google_tracking":any(c.tracks_mail(m.policy) for c in [root -->][?:AgentConnection]),
         "google_client":bool(os.environ.get("GOOGLE_CLIENT_ID","")) and os.environ.get("GOOGLE_REDIRECT_URI","").startswith("https://"),
         "browser":bool(os.environ.get("STACK_BROWSER_URL","")) and bool(os.environ.get("STACK_BROWSER_TOKEN","")),
         "sandbox":bool(os.environ.get("STACK_SANDBOX_URL","")) or c["sandbox_available"],"voice_error":voice_error,"web_url":c["web_url"],

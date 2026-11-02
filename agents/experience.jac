@@ -322,7 +322,7 @@ with entry {
             'title': 'Email tracking',
             'where': 'Applications',
             'summary': 'Checks Gmail every few minutes for application replies, assessments, interviews, and rejections, and updates status.',
-            'input': 'Gmail read access and the Gmail tracking permission.',
+            'input': 'Connect Gmail once in Applications. Tracking starts after Google sign-in.',
             'review': 'Unclear messages wait for you to confirm the application and status.',
             'alternative': 'Update application status yourself after reading your email.'
         },
@@ -374,7 +374,7 @@ def feature_status(facts: dict[(str, any)]) -> list[dict[(str, any)]] {
             'rules',
             'Standing permissions on',
             rules_on,
-            'Turn on standing permissions in Agents → Rules. They expire after 30 days.',
+            'Enable sending permissions in your email settings. They expire after 30 days.',
             'rules'
         );
     }
@@ -393,7 +393,7 @@ def feature_status(facts: dict[(str, any)]) -> list[dict[(str, any)]] {
             (
                 'Allow “'
                 + ACTION_NAMES[action]
-                + '” with a daily limit in Agents → Rules.'
+                + '” with a daily limit in your email settings.'
             ),
             'rules',
             optional=optional
@@ -428,7 +428,7 @@ def feature_status(facts: dict[(str, any)]) -> list[dict[(str, any)]] {
             user=False
         );
     }
-    def google(scope: any, label: any, optional: any = False) -> any {
+    def google(scope: any, label: any, optional: any = False, active: any = True) -> any {
         if not facts.get('google_client') {
             return check(
                 ('google:' + scope),
@@ -443,8 +443,8 @@ def feature_status(facts: dict[(str, any)]) -> list[dict[(str, any)]] {
         return check(
             ('google:' + scope),
             label,
-            (scope in scopes),
-            'Connect Google in Agents → Rules.',
+            (scope in scopes) and active,
+            'Connect Gmail to track application updates automatically.' if scope=='read' else 'Connect Google in Email & calendar.',
             ('connect:' + scope),
             optional=optional
         );
@@ -574,9 +574,7 @@ def feature_status(facts: dict[(str, any)]) -> list[dict[(str, any)]] {
             provider()
         ],
         'email': [
-            rules(),
-            permission('gmail_read'),
-            google('read', 'Gmail tracking connected')
+            google('read', 'Gmail tracking connected', active=facts.get('google_tracking',False) or (rules_on and 'gmail_read' in policy.get('actions',[])))
         ],
         'calendar': [
             rules(),

@@ -4,6 +4,17 @@ Stack uses Jac 0.37.21's existing Google provider and OAuthSession. Google
 authorization requests only `openid email profile`. Gmail and Calendar remain
 separate optional connections through `/oauth/google` and their existing APIs.
 
+In the Swift iPhone app, Applications → **Connect Gmail** starts optional read-only
+consent and automatically enables application tracking when consent completes.
+There is no separate rules toggle, daily limit or permission save. Tracking stays
+on until Google is disconnected or access becomes unavailable. Denied or partial
+consent never enables it. Existing active Gmail read policies remain compatible.
+Email & calendar shows tracking status; sending, calendar and disconnect controls
+live under **Advanced settings**. Sending and calendar changes retain their own
+permissions and per-action approval. This flow requires both the updated app and
+backend. Completing real Google consent and checking resulting application
+updates on an iPhone are still required for release acceptance.
+
 The server reads the existing `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` through
 `[scale.sso.google]` in `jac.toml`. Empty values leave the provider disabled. No
 credentials belong in source, generated web assets, or the native application.

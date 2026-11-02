@@ -45,7 +45,15 @@ node AgentTicket { has owner: str, run_id: str, state: str = "queued", due_at: f
 node AgentAction { has run_id: str, step: str, key: str, payload_hash: str, policy_revision: int, created_at: float, status: str = "intent", receipt: dict[str, any] = {}; }
 node AgentUsage { has key: str, cents: int = 0, actions: int = 0; }
 node AgentContact { has data: dict[str, any], created_at: float, followups: int = 0, next_at: float = 0.0, thread_id: str = ""; }
-node AgentConnection { has provider: str, sealed: str, scopes: list[str], state: str = "connected", checkpoint: str = "", updated_at: float = 0.0, calendar_id: str = ""; }
+node AgentConnection {
+    has provider: str, sealed: str, scopes: list[str], state: str = "connected", checkpoint: str = "", updated_at: float = 0.0, calendar_id: str = "", tracking: bool = False;
+
+    def tracks_mail(policy: dict[str, any]) -> bool {
+        # Existing, unexpired read permissions continue to work until reconnected.
+        legacy=policy.get("enabled",False) and policy.get("expires_at",0)>time.time() and "gmail_read" in policy.get("actions",[]);
+        return self.provider=="google" and self.state=="connected" and SCOPES["read"] in self.scopes and (self.tracking or bool(legacy));
+    }
+}
 node AgentInterview { has key: str, application_id: str, event: dict[str, any], updated_at: float, calendar_receipt: str = "", study_plan: list[dict[str, any]] = []; }
 node AgentEvent { has key: str, data: dict[str, any], created_at: float; }
 node PrepSession { has data: dict[str, any], created_at: float, updated_at: float, revision: int = 0, results: list[dict[str, any]] = [], feedback: list[dict[str, any]] = [], recordings: list[dict[str, any]] = []; }
@@ -170,7 +178,7 @@ def:priv agent_admission() -> dict[str, any] {
 }
 def:priv agent_settings() -> dict[str, any] {
     _agent_access();m=_agent_memory();
-    return {"account_id":jid(root),"model_selection":m.model_selection or ("local" if config()["provider"] in LOCAL_PROVIDERS else "codex-cli" if config()["provider"]=="codex-cli" else ""),"model_options":[{"selection":choice,**model_status(jid(root),choice)} for choice in ["codex-cli","local"]],"facts":m.facts,"policy":m.policy,"revision":m.revision,"connections":[{"id":jid(c),"provider":c.provider,"state":c.state,"scopes":c.scopes} for c in [root -->][?:AgentConnection]],"web_url":config()["web_url"],"activity":_agent_summary()};
+    return {"account_id":jid(root),"model_selection":m.model_selection or ("local" if config()["provider"] in LOCAL_PROVIDERS else "codex-cli" if config()["provider"]=="codex-cli" else ""),"model_options":[{"selection":choice,**model_status(jid(root),choice)} for choice in ["codex-cli","local"]],"facts":m.facts,"policy":m.policy,"revision":m.revision,"connections":[{"id":jid(c),"provider":c.provider,"state":c.state,"scopes":c.scopes,"tracking":c.tracks_mail(m.policy)} for c in [root -->][?:AgentConnection]],"web_url":config()["web_url"],"activity":_agent_summary()};
 }
 def:priv agent_save_model(selection: str) -> dict[str, any] {
     _agent_access();
@@ -595,8 +603,8 @@ def _google_missing(step: str) -> str {
     if step not in ["send","calendar"] { return ""; }
     scope=str(SCOPES["send" if step=="send" else "calendar"]);
     if [c for c in [root -->][?:AgentConnection] if c.provider=="google" and c.state=="connected" and scope in c.scopes] { return ""; }
-    if step=="send" { return "Gmail sending is not connected. Connect it in Agents → Rules to send from Stack, or copy this draft into your own email and cancel the task."; }
-    return "Google Calendar is not connected. Connect it in Agents → Rules, or add the event yourself and cancel the task.";
+    if step=="send" { return "Gmail sending is not connected. Connect it in your email settings to send from Stack, or copy this draft into your own email and cancel the task."; }
+    return "Google Calendar is not connected. Connect it in your email settings, or add the event yourself and cancel the task.";
 }
 def:priv agent_approve(id: str, step: str, review_hash: str, edits: dict[str, any] | None = None) -> dict[str, any] {
     _agent_access();
@@ -778,7 +786,7 @@ def _google_start(capabilities: list[str], native: bool) -> dict[str, any] {
     _agent_access();verifier=secrets.token_urlsafe(48);
     try {
         encrypted=seal({"verifier":verifier});
-        state=token_create("stack-google",subject=jid(root),ttl_seconds=600,payload={"owner":jid(root),"sealed":encrypted,"native":native});
+        state=token_create("stack-google",subject=jid(root),ttl_seconds=600,payload={"owner":jid(root),"sealed":encrypted,"native":native,"capabilities":capabilities});
         if native { state="native."+state; }
         return {"url":authorization_url(state,verifier,capabilities)};
     } except ValueError as e { return {"error":str(e)}; }
@@ -806,8 +814,11 @@ def:priv agent_google_finish(state: str, code: str) -> dict[str, any] {
         if consumed is None { return {"error":"This authorization was already used."}; }
         try { tokens=exchange(code,str(unseal(str(consumed["payload"]["sealed"]))["verifier"]));encrypted=seal(tokens); }
         except Exception { return {"error":"Google authorization failed. Start a new connection."}; }
-        for old in items { if old.provider=="google" { old.sealed=encrypted;old.scopes=str(tokens.get("scope","")).split();old.state="connected";commit();return agent_settings(); } }
-        root ++> AgentConnection(provider="google",sealed=encrypted,scopes=str(tokens.get("scope","")).split(),updated_at=time.time());commit();
+        capabilities=consumed["payload"].get("capabilities",[]);scopes=str(tokens.get("scope","")).split();
+        if any(SCOPES[cap] not in scopes for cap in capabilities) { return {"error":"Google did not grant the requested access. Connect again and allow access to continue."}; }
+        tracking="read" in capabilities;
+        for old in items { if old.provider=="google" { old.sealed=encrypted;old.scopes=scopes;old.state="connected";old.tracking=old.tracking or tracking;old.updated_at=time.time();commit();return agent_settings(); } }
+        root ++> AgentConnection(provider="google",sealed=encrypted,scopes=scopes,tracking=tracking,updated_at=time.time());commit();
     }
     return agent_settings();
 }
@@ -816,7 +827,7 @@ def:priv agent_disconnect(id: str) -> dict[str, any] {
     with locks.account() {
         _agent_fresh();
         for c in [root -->][?:AgentConnection] {
-            if jid(c)==id { c.state="revoked";c.sealed="";c.checkpoint="";commit();return agent_settings(); }
+            if jid(c)==id { c.state="revoked";c.sealed="";c.checkpoint="";c.tracking=False;commit();return agent_settings(); }
         }
     }
     return {"error":"Connection not found."};
@@ -828,10 +839,12 @@ def:pub agent_worker_connection(token: str, id: str, owner: str, lease: str) -> 
         try {
             r=_agent_leased(id,owner,lease);step=_steps(r)[r.index];
             if step not in ["send","sync","calendar"] { return {"error":"This step cannot access Google."}; }
-            authorize(_agent_memory().policy,"gmail_read" if step=="sync" else ("calendar_write" if step=="calendar" else "send_email"));
             for c in [root -->][?:AgentConnection] {
                 scope=str(SCOPES["read" if step=="sync" else ("calendar" if step=="calendar" else "send")]);
                 if c.provider=="google" and c.state=="connected" and scope in c.scopes {
+                    if step=="sync" {
+                        if not c.tracks_mail(_agent_memory().policy) { return {"error":"Connect Gmail to turn on application tracking."}; }
+                    } else { authorize(_agent_memory().policy,"calendar_write" if step=="calendar" else "send_email"); }
                     tokens=refreshed(unseal(c.sealed));c.sealed=seal(tokens);c.updated_at=time.time();commit();
                     return {"tokens":{"access_token":tokens["access_token"],"expires_at":tokens.get("expires_at",0)},"checkpoint":json.loads(c.checkpoint) if c.checkpoint else {},"calendar_id":c.calendar_id};
                 }

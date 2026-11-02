@@ -1,5 +1,6 @@
 """Durable resume lifecycle against Jac persistence. No paid calls or deployment."""
 import base64
+import importlib
 import json
 import logging
 import os
@@ -9,7 +10,7 @@ import time
 import unittest
 from unittest.mock import patch
 from jaclang.testing.testing import JacTestClient
-from agents import resume_processing, latex, local_model
+from agents import resume_processing, latex
 
 ROOT = Path(__file__).resolve().parents[1]
 PDF = (ROOT / 'tests/fixtures/synthetic-resume.pdf').read_bytes()
@@ -80,7 +81,8 @@ class ResumeProcessing(unittest.TestCase):
                 raise ValueError(result['error'])
             return result
         with patch.object(resume_processing, 'call', side_effect=callback), patch.object(
-            local_model, 'complete', return_value={'text': json.dumps(MODEL_DRAFT), 'model': 'test-model'}
+            importlib.import_module('agents.local_model'), 'complete',
+            return_value={'text': json.dumps(MODEL_DRAFT), 'model': 'test-model'}
         ):
             if compile_result is None:
                 result = resume_processing.process(work, TOKEN)

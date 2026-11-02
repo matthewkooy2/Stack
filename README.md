@@ -38,6 +38,9 @@ Model tasks then use that server login without a separate Stack permission,
 account binding, or request cap. External-action approvals still apply, and CLI
 failures never fall back to a paid API.
 
+For a shared team backend without teammate Tailscale installation, see
+[Cloudflare team development](docs/CLOUDFLARE_TEAM_DEVELOPMENT.md).
+
 See [local contributor development](docs/LOCAL_DEVELOPMENT.md) for Windows/WSL2
 machine prerequisites, Python command equivalents, optional integrations,
 troubleshooting, verification limits, and cleanup that preserves accounts,

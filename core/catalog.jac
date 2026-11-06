@@ -10,7 +10,7 @@ import from urllib.parse { urlsplit, urlunsplit, parse_qsl, urlencode }
 import from jaclang.runtime.runtime { JacRuntime }
 import from discovery.normalize { digest, canonical, validate_filters, taxonomy, classify, dedupe_bucket, same_opening }
 import from discovery.card { card_view }
-import from discovery.matching { facts, current_facts, criteria, evaluate, role_match, codes_for, tokens, FACTS_VERSION }
+import from discovery.matching { facts, current_facts, criteria, evaluate, role_match, codes_for, tokens, FACTS_VERSION, ROLES_VERSION }
 import from core.preferences { _match_preferences }
 import from discovery.ranking { rank, encode_cursor, decode_cursor, posting_label }
 import from core.timeline { _timeline_preferences }
@@ -208,7 +208,7 @@ def _criteria_view(c: dict[str, any]) -> dict[str, any] {
 }
 """Everything that decides an account's matches. Matcher versions are included so a rules change recomputes."""
 def _fingerprint(search: dict[str, any]) -> str {
-    return digest(json.dumps([search,_match_preferences(),_timeline_preferences(),FACTS_VERSION,VERSION],sort_keys=True));
+    return digest(json.dumps([search,_match_preferences(),_timeline_preferences(),FACTS_VERSION,VERSION,ROLES_VERSION],sort_keys=True));
 }
 def _search_or_saved(query: str | None, filters: dict[str, any] | None) -> dict[str, any] {
     if query is None and filters is None { saved=_saved_search(); query=saved.get("query",""); filters=saved.get("filters",{}); }

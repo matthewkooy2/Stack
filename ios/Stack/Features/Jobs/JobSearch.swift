@@ -8,10 +8,13 @@ struct JobSearch: Equatable {
     var excluded: [JSON] = []
     var occupations: [String] = []
     var graduation = ""
+    /// Listings matching the whole search; nil until the server has answered.
+    var total: Int?
 
     mutating func apply(_ result: JSON) {
         criteria = result["criteria"]
         excluded = result["excluded"].array
+        total = result["total"].isNull ? nil : result["total"].int
         occupations = result["occupations"].strings
         graduation = result["timeline_preferences"]["graduation_month"].string
     }
@@ -23,6 +26,12 @@ struct JobSearch: Equatable {
     }
 
     var notices: [String] { criteria["notices"].strings }
+
+    /// Nothing matched and no other requirement hid anything, so the target role matched no listing titles.
+    /// The server leaves role mismatches out of `excluded`, so without this the deck reads as "all caught up".
+    var noRoleMatches: Bool {
+        total == 0 && excluded.isEmpty && !criteria["roles"].string.trimmingCharacters(in: .whitespaces).isEmpty
+    }
 
     /// Confirmed-timeline search with no saved graduation month: nothing can be confirmed yet.
     var missingGraduation: Bool {

@@ -140,6 +140,21 @@ ROLE_QUALIFIERS = [
 ]
 # Words that turn a preceding occupation into a modifier of a different job ("Nurse Recruiter", "Teacher Assistant").
 MODIFIED_BY = {stem(w) for w in ('recruiter', 'recruitment', 'recruiting', 'sourcer', 'staffing', 'placement', 'assistant', 'aide', 'scheduler', 'liaison', 'coordinator', 'advocate', 'consultant', 'sales', 'marketing', 'trainer', 'training')}
+# Common title abbreviations, expanded in both target roles and listing titles. Ambiguous ones (PM, DS, TPM) are left alone.
+ROLE_ABBREVIATIONS = {'swe': 'software engineer', 'swes': 'software engineers', 'sde': 'software development engineer',
+                      'sdet': 'software development engineer in test', 'sre': 'site reliability engineer',
+                      'mle': 'machine learning engineer'}
+# Part of every stored match fingerprint, so a change to role parsing recomputes saved matches.
+ROLES_VERSION = 1
+
+
+ABBREVIATION = re.compile(r'\b(?:' + '|'.join(sorted(ROLE_ABBREVIATIONS, key=len, reverse=True)) + r')\b', re.I)
+
+
+def expand_abbreviations(text: str) -> str:
+    return ABBREVIATION.sub(lambda m: ROLE_ABBREVIATIONS[m.group(0).lower()], str(text or ''))
+
+
 STOP = {'a', 'an','the', 'and', 'of', 'for', 'in', 'at', 'to', 'with', 'job', 'jobs', 'role', 'roles', 'position', 'positions', 'opening', 'work'}
 
 
@@ -150,14 +165,14 @@ def parse_roles(text: str) -> list[dict]:
         part = part.strip()
         if not part: continue
         role = {'text': part, 'types': [], 'levels': [], 'modes': []}
-        core = part
+        core = expand_abbreviations(part)
         for pattern, key, value in ROLE_QUALIFIERS:
             if pattern.search(core):
                 role[key].append(value)
                 core = pattern.sub(' ', core)
         words = [w for w in re.findall(r'[a-z0-9]+', core.lower()) if w not in STOP]
         # A role made only of qualifiers ("Intern", "Remote") still has to appear in the title.
-        words = words or [w for w in re.findall(r'[a-z0-9]+', part.lower()) if w not in STOP]
+        words = words or [w for w in re.findall(r'[a-z0-9]+', expand_abbreviations(part).lower()) if w not in STOP]
         role['core'] = ' '.join(words)
         role['stems'] = [stem(w) for w in words]
         role['codes'] = codes_for(role['core'], whole=True) or codes_for(role['core'])
@@ -169,6 +184,7 @@ def role_match(title: str, roles: list[dict]) -> dict:
     """Best title match across target roles. Related titles require a shared O*NET occupation."""
     if not roles:
         return {'status': 'match', 'score': 0.0, 'kind': 'any', 'role': None, 'detail': 'No target role set'}
+    title = expand_abbreviations(title)
     title_stems = tokens(title)
     title_codes = codes_for(title)
     best = None

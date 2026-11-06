@@ -52,6 +52,17 @@ class Roles(unittest.TestCase):
         self.assertEqual((senior['core'], senior['levels']), ('product manager', ['Senior']))
         self.assertEqual(parse_roles('Part-time barista')[0]['types'], ['Part-time'])
 
+    def test_common_title_abbreviations(self):
+        self.assertTrue(self.matched('Software Engineer Intern', 'SWE'))
+        self.assertTrue(self.matched('Software Engineer, New Grad', 'swe'))
+        self.assertTrue(self.matched('SWE Intern', 'Software engineer'))
+        self.assertTrue(self.matched('Software Development Engineer I', 'SDE'))
+        self.assertTrue(self.matched('Site Reliability Engineer II', 'SRE'))
+        self.assertFalse(self.matched('Software Engineer Recruiter', 'SWE'))
+        self.assertFalse(self.matched('Registered Nurse', 'SWE'))
+        swe = parse_roles('SWE intern')[0]
+        self.assertEqual((swe['text'], swe['core'], swe['types']), ('SWE intern', 'software engineer', ['Internship']))
+
 
 class Locations(unittest.TestCase):
     def test_parsing(self):

@@ -229,6 +229,7 @@ struct JobsView: View {
         if search.missingGraduation { return "Add your graduation month" }
         if !feed.nextCursor.isEmpty { return "More roles to review" }
         if search.filters["timeline"].string == "confirmed" { return "No confirmed timeline matches." }
+        if search.noRoleMatches { return "No listings match \u{201C}\(search.roleLabel)\u{201D}" }
         return "You are all caught up"
     }
 
@@ -240,6 +241,9 @@ struct JobsView: View {
         if !feed.nextCursor.isEmpty { return "More verified roles are ready." }
         if search.filters["timeline"].string == "confirmed" {
             return "Many listings do not state a graduation window. Relax the timeline in Filters to see them."
+        }
+        if search.noRoleMatches {
+            return "Try the full job title instead of an abbreviation, or add related titles in Filters."
         }
         if !search.excluded.isEmpty {
             let reasons = search.excluded.prefix(4).map { "\($0["reason"].string) (\($0["count"].int))" }.joined(separator: ", ")

@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 ALL = {'backend': True, 'native': True}
@@ -53,6 +54,10 @@ def changed_paths(event, name):
             raise ValueError('Checkout does not match pushed commit')
     else:
         raise ValueError('Manual or unsupported event requires all checks')
+    return paths_between(before, head)
+
+
+def paths_between(before, head):
     # Disable rename detection so both old and new paths are classified. NUL
     # delimiters preserve spaces/newlines and deletions without API truncation.
     data = git('diff', '--no-ext-diff', '--no-textconv', '--no-renames',
@@ -63,19 +68,34 @@ def changed_paths(event, name):
 
 
 def upload_relevant(paths):
-    # Preserve the existing automatic native upload map, over the whole push.
+    # Preserve the existing automatic native upload map.
     return any(path.startswith(('ios/', 'scripts/ci/ios-', 'scripts/ci/resume-review/',
                                 '.github/actions/prepare-resume-review-fixture/'))
                or path in ('.github/workflows/ios-swift.yml', '.github/workflows/swift-testflight.yml',
                            'mobile/feature-rpcs.js') for path in paths)
 
 
-def selection(event, name, include_upload=False):
+def pending_native_upload(head):
+    records = json.loads(subprocess.check_output([
+        'gh', 'api', f'repos/{os.environ["GITHUB_REPOSITORY"]}/deployments'
+        '?environment=stack-testflight&task=stack-swift-testflight-confirmed&per_page=1',
+    ], timeout=30))
+    if not records:
+        return True  # The first confirmed upload establishes the baseline.
+    before = sha(records[0]['sha'])
+    git('merge-base', '--is-ancestor', before, head)
+    return upload_relevant(paths_between(before, head))
+
+
+def selection(event, name, include_upload=False, native_release=False):
     try:
         paths = changed_paths(event, name)
         result = select(paths)
         if include_upload:
             result['native_upload'] = upload_relevant(paths)
+            if native_release and name == 'push' and event.get('ref') == 'refs/heads/main':
+                result['native_upload'] = pending_native_upload(sha(event['after']))
+                result['native'] |= result['native_upload']
         return result
     except (KeyError, TypeError, ValueError, UnicodeError, OSError, subprocess.SubprocessError) as error:
         print(f'Full verification: diff unavailable or unsupported ({type(error).__name__}).')
@@ -87,7 +107,8 @@ def main():
         event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text(encoding='utf-8'))
     except (KeyError, ValueError, OSError):
         event = {}
-    result = selection(event, os.environ.get('GITHUB_EVENT_NAME', ''), include_upload=True)
+    result = selection(event, os.environ.get('GITHUB_EVENT_NAME', ''), include_upload=True,
+                       native_release='--native-release' in sys.argv[1:])
     lines = ''.join(f'{name}={str(value).lower()}\n' for name, value in result.items())
     print(lines, end='')
     with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:

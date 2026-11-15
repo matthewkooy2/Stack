@@ -8,7 +8,7 @@ import UserNotifications
 @MainActor
 @Observable
 final class AppStore {
-    enum Phase { case starting, signedOut, admission, ready }
+    enum Phase { case starting, startupFailed, signedOut, admission, ready }
 
     let api: APIClient
     let prep: PrepTransport
@@ -38,6 +38,8 @@ final class AppStore {
     var isForeground: () -> Bool = { UIApplication.shared.applicationState == .active }
 
     private var refreshing = false
+    private(set) var restoringSession = false
+    private var googleInfoTask: Task<Void, Never>?
     private var epoch = 0
     private(set) var sessionGeneration = 0
     private var swipeChain: Task<Void, Never>?
@@ -56,6 +58,10 @@ final class AppStore {
     // MARK: Session
 
     func start() async {
+        guard !restoringSession, phase == .starting || phase == .startupFailed else { return }
+        restoringSession = true
+        error = ""
+        defer { restoringSession = false }
         if let handoff = google.pending() {
             await finishGoogle(handoff)
             return
@@ -96,24 +102,36 @@ final class AppStore {
 
     private func completeLogin() async {
         let generation = sessionGeneration
+        let deadline = ProcessInfo.processInfo.systemUptime + 8
+        func remainingTime() throws -> TimeInterval {
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            guard remaining > 0 else {
+                throw APIError(message: "Stack took too long to load. Please retry.", failureCategory: "network timeout")
+            }
+            return remaining
+        }
         do {
-            googleInfo = (try? await api.call("auth_google_status")) ?? [:]
             if !pendingInvite.isEmpty {
                 let invite = pendingInvite
+                try await api.call("agent_accept_invite", ["invite": .string(invite)], timeout: remainingTime())
+                guard generation == sessionGeneration else { return }
                 pendingInvite = ""
-                try await api.call("agent_accept_invite", ["invite": .string(invite)])
             }
-            let admission = try await api.call("agent_admission")
+            startupTrace("requesting admission")
+            let admission = try await api.call("agent_admission", timeout: remainingTime())
             guard generation == sessionGeneration else { return }
-            guard admission["admitted"].bool else {
+            if admission["admitted"].bool {
+                startupTrace("requesting account")
+                let snapshot = try await api.call("bootstrap", timeout: remainingTime())
+                guard generation == sessionGeneration else { return }
+                account = AccountState(raw: snapshot)
+                phase = .ready
+                startupTrace("account ready")
+            } else {
                 phase = .admission
-                return
             }
-            let snapshot = try await api.call("bootstrap")
-            guard generation == sessionGeneration else { return }
-            account = AccountState(raw: snapshot)
-            phase = .ready
-            await reconcileReminders(ask: false)
+            refreshGoogleInfo()
+            if phase == .ready { await reconcileReminders(ask: false) }
         } catch let failure as APIError where failure.isUnauthorized && generation == sessionGeneration {
             await signOut()
             error = "Your session expired. Please sign in again."
@@ -121,7 +139,28 @@ final class AppStore {
         } catch {
             guard generation == sessionGeneration else { return }
             fail(error)
-            if phase == .starting { phase = .signedOut }
+            if phase == .starting || phase == .signedOut { phase = .startupFailed }
+            startupTrace("failed: " + ((error as? APIError)?.failureCategory ?? "request failed"))
+        }
+    }
+
+    private func startupTrace(_ event: String) {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--stack-startup-diagnostics") {
+            print("Stack startup: \(event)")
+        }
+        #endif
+    }
+
+    private func refreshGoogleInfo() {
+        let generation = sessionGeneration
+        googleInfoTask?.cancel()
+        googleInfoTask = Task { [weak self] in
+            guard let self, !Task.isCancelled, generation == self.sessionGeneration else { return }
+            if let info = try? await self.api.call("auth_google_status", timeout: 3),
+               !Task.isCancelled, generation == self.sessionGeneration {
+                self.googleInfo = info
+            }
         }
     }
 
@@ -161,6 +200,8 @@ final class AppStore {
         googleBrowser.cancel()
         googleAttempt = UUID()
         googleConnection.cancel()
+        googleInfoTask?.cancel()
+        googleInfoTask = nil
         apple.cancel()
         googlePending = false
         googleInfo = [:]

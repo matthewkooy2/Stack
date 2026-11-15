@@ -33,6 +33,17 @@ struct RootView: View {
                 switch store.phase {
                 case .starting:
                     Color.clear
+                case .startupFailed:
+                    VStack(alignment: .leading, spacing: Spacing.stack) {
+                        Text("Stack couldn’t load your account").font(Typeface.display).foregroundStyle(Palette.ink)
+                            .accessibilityAddTraits(.isHeader)
+                        MessageLine(text: store.error)
+                        StackButton(label: store.restoringSession ? "Retrying…" : "Retry", disabled: store.restoringSession) {
+                            Task { await store.start() }
+                        }
+                    }
+                    .frame(maxWidth: 400)
+                    .padding(Spacing.page)
                 case .signedOut:
                     AccessView().replayable().transition(.opacity)
                 case .admission:

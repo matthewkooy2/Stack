@@ -113,10 +113,40 @@ def _story_entry(s: dict[str, Any]) -> dict[str, Any]:
             'revision': s.get('revision', 0), 'provenance': 'User-reviewed behavioral story'}
 
 
+def _entry_digest(e: dict[str, Any]) -> str:
+    """Integrity digest of an entry. A derivation mark is covered only when present, so other digests are unchanged."""
+    covered = {k: e.get(k) for k in ('key', 'type', 'name', 'header', 'lines', 'revision')}
+    if 'derived_from' in e:
+        covered.update({'derived_from': e.get('derived_from'), 'derived_revision': e.get('derived_revision')})
+    return digest(covered)
+
+
+def _derived_from(f: dict[str, Any], proofs: dict[str, tuple[str, Any, str, str]]) -> tuple[str, Any] | None:
+    """(resume entry key, revision) when this stored fact is exactly what that confirmed resume's current details
+    project: same owner resume, key namespace, value and source. Anything else is independent and stays."""
+    proof = proofs.get(str(f.get('key', '')))
+    if proof is None:
+        return None
+    resume_id, revision, value, source = proof
+    if (f.get('resume_id') == resume_id and str(f['key']).startswith('resume.' + resume_id + '.')
+            and str(f.get('value', '')) == value and str(f.get('source', '')) == source):
+        return 'resume:' + resume_id, revision
+    return None
+
+
 def collect(owner: str, resumes: list[dict[str, Any]], facts: list[dict[str, Any]],
             stories: list[dict[str, Any]]) -> dict[str, Any]:
-    """Every confirmed item, in stable order, with excluded drafts listed by name."""
+    """Every confirmed item, in stable order, with excluded drafts listed by name.
+
+    A verified fact that a confirmed resume's current details project (``derived_facts``, computed by the server from
+    that revision's values) is marked with that resume and revision, so tailoring from that resume does not see the
+    same content twice. The fact itself remains available to every other use."""
     entries, excluded = [], []
+    proofs: dict[str, tuple[str, Any, str, str]] = {}
+    for r in resumes:
+        if r.get('confirmed') and r.get('records') and r.get('kind') != BANK_KIND:
+            for d in r.get('derived_facts') or []:
+                proofs[str(d['key'])] = (r['id'], r.get('revision', 0), str(d['value']), str(d['source']))
     for r in resumes:
         bank = r.get('kind') == BANK_KIND
         key = ('bank:' if bank else 'resume:') + r['id']
@@ -128,7 +158,11 @@ def collect(owner: str, resumes: list[dict[str, Any]], facts: list[dict[str, Any
             entries.append(_resume_entry(r))
     for f in facts:
         if f.get('verified') and str(f.get('value', '')).strip():
-            entries.append(_fact_entry(f))
+            entry = _fact_entry(f)
+            derived = _derived_from(f, proofs)
+            if derived:
+                entry['derived_from'], entry['derived_revision'] = derived
+            entries.append(entry)
         elif str(f.get('value', '')).strip():
             excluded.append({'key': 'fact:' + str(f.get('key', '')), 'name': str(f.get('key', '')), 'reason': 'Unverified fact.'})
     for s in stories:
@@ -136,7 +170,7 @@ def collect(owner: str, resumes: list[dict[str, Any]], facts: list[dict[str, Any
         if story['lines']:
             entries.append(story)
     for e in entries:
-        e['digest'] = digest({k: e[k] for k in ('key', 'type', 'name', 'header', 'lines', 'revision')})
+        e['digest'] = _entry_digest(e)
     return {'schema_version': SCHEMA_VERSION, 'owner': owner, 'entries': entries, 'excluded': excluded,
             'digest': digest([e['digest'] for e in entries])}
 
@@ -147,7 +181,7 @@ def validate(snapshot: Any, owner: str) -> dict[str, Any]:
             or snapshot.get('owner') != owner or not isinstance(snapshot.get('entries'), list)):
         raise ValueError('Stack could not read your memory bank for this task. Retry the task.')
     for e in snapshot['entries']:
-        if e.get('digest') != digest({k: e.get(k) for k in ('key', 'type', 'name', 'header', 'lines', 'revision')}):
+        if e.get('digest') != _entry_digest(e):
             raise ValueError('Your memory bank changed while it was read. Retry the task.')
     if snapshot.get('digest') != digest([e['digest'] for e in snapshot['entries']]):
         raise ValueError('Your memory bank changed while it was read. Retry the task.')

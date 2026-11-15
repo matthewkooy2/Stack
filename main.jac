@@ -559,11 +559,12 @@ def _resume_format(r: Resume) -> dict[str, any] {
     if t.get("kind")=="upload" {
         return {"kind":"upload","label":"Your LaTeX","file":t.get("name",""),"pages":t.get("pages",0),"summary":t.get("summary",{}),"skipped":t.get("skipped",[])};
     }
+    if r.review.get("records") {
+        design=_record_template(r);
+        return {"kind":"records","template":design,"label":LATEX_TEMPLATES.get(design,"Stack reviewed records"),"pages":0,"summary":{},"skipped":[]};
+    }
     if t.get("kind")=="builtin" {
         return {"kind":"builtin","template":t["builtin"],"label":LATEX_TEMPLATES[t["builtin"]],"pages":t.get("pages",0),"summary":t.get("summary",{}),"skipped":[]};
-    }
-    if r.review.get("records") {
-        return {"kind":"records","template":r.review.get("template","classic"),"label":LATEX_TEMPLATES.get(r.review.get("template","classic"),"Stack reviewed records"),"pages":0,"summary":{},"skipped":[]};
     }
     return {"kind":"","template":"","label":"Review imported content","pages":0,"summary":{},"skipped":[]};
 }
@@ -681,18 +682,27 @@ def:priv delete_tailored_resume(id: str) -> dict[str, any] {
     }
     return bootstrap();
 }
-"""The LaTeX source Stack edits: the user's upload, or the built-in template they chose, filled from confirmed details."""
+"""The design a confirmed import renders in. A design chosen before designs moved onto the records (a compiled
+built-in template) is kept; otherwise the records' own design."""
+def _record_template(r: Resume) -> str {
+    if r.template.get("kind")=="builtin" and str(r.template.get("builtin","")) in LATEX_TEMPLATES { return str(r.template["builtin"]); }
+    return str(r.review.get("template","classic"));
+}
+"""What Stack tailors: the user's uploaded LaTeX, or a confirmed import's records in its chosen design. A compiled
+built-in template remains only for older resumes that have no confirmed records."""
 def _resume_source(r: Resume) -> dict[str, any] {
     if r.template.get("kind")=="upload" {
         path=_file_path(r.template["files_key"]);
         if not path.exists() { raise ValueError("Your LaTeX source is unavailable. Upload it again on the Resume tab."); }
         return {**latex_unpack(path.read_bytes()),"format":"latex"};
     }
-    if r.template.get("kind")!="builtin" {
-        if not r.review_confirmed or not r.review.get("records") { raise ValueError("Review and confirm the imported records for "+r.name+" before tailoring."); }
+    # Confirmed PDF/DOCX imports always tailor from their current confirmed records; the chosen design only
+    # changes how they render. The original upload is not read again and generated LaTeX is not reparsed.
+    if r.review_confirmed and r.review.get("records") {
         composed=bank_compose(r.review["records"],r.review.get("bank_selection",[]),[_bank_view(x) for x in [root -->][?:Resume] if jid(x)!=jid(r) and (x.review.get("records") or x.review.get("kind")==BANK_KIND)]);
-        return {"format":"records",**composed,"template":r.review.get("template","classic"),"revision":r.review_revision,"upload_digest":r.upload_digest};
+        return {"format":"records",**composed,"template":_record_template(r),"revision":r.review_revision,"upload_digest":r.upload_digest};
     }
+    if r.template.get("kind")!="builtin" { raise ValueError("Review and confirm the imported records for "+r.name+" before tailoring."); }
     if not r.review_confirmed or not r.review.get("details",{}).get("confirmed") or r.review.get("records_source")!="details" { raise ValueError("Confirm the details for "+r.name+" to fill its built-in template."); }
     return {**fill_template(r.template["builtin"],r.review.get("values",{})),"format":"builtin"};
 }
@@ -739,7 +749,8 @@ def:priv use_resume_template(id: str, template: str) -> dict[str, any] {
         }
         if template not in LATEX_TEMPLATES { return _error("Choose one of the built-in templates."); }
         if not r.review_confirmed { return _error("Confirm your resume details first, so Stack can fill the template."); }
-        if r.review.get("records") and r.review.get("records_source")!="details" {
+        # Presentation only: no source generation is queued and the confirmed records are unchanged.
+        if r.review.get("records") {
             _cancel_resume_work(r,"source");_remove_template_files(r);r.template={};
             r.review={**r.review,"template":template};r.review_revision+=1;commit();return bootstrap();
         }
@@ -779,13 +790,20 @@ def:priv read_resume_source(id: str) -> dict[str, any] {
     }
     return {"id":id,"name":name,"format":view,"preview":{"name":"Resume preview.pdf","content":base64.b64encode(data).decode()},"tex":source["files"][source["main"]].decode("utf-8")[:200000]};
 }
+"""The verified facts a confirmed-details resume would project from its current confirmed values, so memory can tell
+facts derived from that exact revision apart from independent ones. Empty when the records do not come from details."""
+def _derived_resume_facts(r: Resume) -> list[dict[str, any]] {
+    if not r.review_confirmed or r.review.get("records_source")!="details" or not r.review.get("details",{}).get("confirmed") { return []; }
+    try { facts=validate_facts(details_facts(jid(r),r.name,r.review.get("values",{}))); } except ValueError { return []; }
+    return [{"key":f["key"],"value":f["value"],"source":f["source"]} for f in facts];
+}
 """The signed-in or leased account's confirmed memory: memory bank entries, confirmed imported
 resumes, verified facts and reviewed stories (agents/memory_access.py). Reads only this root's
 nodes; drafts are listed as excluded. Shared by tailoring, interviews and other agent steps."""
 def _memory_snapshot() -> dict[str, any] {
     resumes=[{"id":jid(r),"name":r.name,"kind":r.review.get("kind",""),"confirmed":r.review_confirmed,"revision":r.review_revision,
         "records":r.review.get("records",[]),"entry_type":r.review.get("entry_type","other"),"fields":r.review.get("fields",{}),
-        "source":r.review.get("source","")} for r in [root -->][?:Resume] if r.review.get("records") or r.review.get("kind")==BANK_KIND];
+        "source":r.review.get("source",""),"derived_facts":_derived_resume_facts(r)} for r in [root -->][?:Resume] if r.review.get("records") or r.review.get("kind")==BANK_KIND];
     stories=[{"id":jid(s),"title":s.title,"content":s.content,"revision":s.revision} for s in [root -->][?:BehavioralStory]];
     return memory_collect(jid(root),resumes,_agent_memory().facts,stories);
 }
@@ -879,14 +897,15 @@ def _application_resume(a: Application) -> Resume | None {
     if r is None and len(resumes)==1 { r=resumes[0]; }
     return r;
 }
-"""The LaTeX Stack tailors for this resume: "latex" (uploaded), "builtin" (a chosen template), or "" when it has none.
+"""What Stack tailors for this resume: "latex" (uploaded), "records" (a confirmed import, in any design), "builtin"
+(an older compiled template without confirmed records), or "" when it has none.
 A PDF alone is never tailored."""
 def _tailor_source(r: Resume | None) -> str {
     if r is None { return ""; }
     if r.template.get("kind")=="upload" { return "latex"; }
     if r.review_confirmed {
-        if r.template.get("kind")=="builtin" { return "builtin"; }
         if r.review.get("records") { return "records"; }
+        if r.template.get("kind")=="builtin" { return "builtin"; }
     }
     return "";
 }
@@ -1492,8 +1511,10 @@ def _export_resume(r: Resume) -> dict[str, any] {
     if r.review.get("kind")==BANK_KIND { return {**_bank_view(r),"review":r.review,"created_at":r.created_at,"supporting_document":resume_bank_attachment(jid(r)) if r.file_key else {}}; }
     out={"id":jid(r),**read_resume(jid(r)),"format":_resume_format(r)};
     if r.template {
-        try { out["source"]=latex_encode(_resume_source(r)); }
-        except ValueError as e { out["source_error"]=str(e); }
+        try {
+            source=_resume_source(r);
+            if source["format"]!="records" { out["source"]=latex_encode(source); }
+        } except ValueError as e { out["source_error"]=str(e); }
     }
     return out;
 }

@@ -223,7 +223,11 @@ class Memory:
     """Handles (E1, E2, ...) for the prompt; global IDs (<entry key>#<line id>) for storage."""
 
     def __init__(self, snapshot: dict[str, Any], job: dict[str, Any], skip: str):
-        entries = [e for e in snapshot['entries'] if e['key'] != skip and e['lines']]
+        # The base resume is the tailoring source, so it and the facts derived from its same revision are left out.
+        base = next((e for e in snapshot['entries'] if e['key'] == skip), None)
+        entries = [e for e in snapshot['entries'] if e['key'] != skip and e['lines']
+                   and not (base is not None and e.get('derived_from') == skip
+                            and e.get('derived_revision') == base.get('revision'))]
         entries.sort(key=lambda e: (-relevance(e, job), e['key']))
         self.entries = {'E' + str(i + 1): e for i, e in enumerate(entries)}
         self.by_key = {e['key']: h for h, e in self.entries.items()}

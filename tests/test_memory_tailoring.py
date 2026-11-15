@@ -129,6 +129,28 @@ class Guards(unittest.TestCase):
 
 
 class Collect(unittest.TestCase):
+    def test_base_resume_derivations_are_skipped_only_for_its_current_revision(self):
+        from agents.resume_details import facts_for
+        facts = facts_for('target', 'resume.pdf', {'profile.name': 'Confirmed candidate'})
+        resume = {**resume_view(), 'derived_facts': [
+            {k: f[k] for k in ('key', 'value', 'source')} for f in facts]}
+        independent = {'key': 'independent', 'value': 'Additional confirmed skill', 'source': 'User', 'verified': True}
+        snap = memory_access.collect('owner', [resume], facts + [independent], [])
+        memory_access.validate(snap, 'owner')
+        self.assertEqual([e['key'] for e in mt.Memory(snap, JOB, 'resume:target').entries.values()], ['fact:independent'])
+        self.assertEqual(len(mt.Memory(snap, JOB, 'resume:other').entries), len(snap['entries']))
+        changed = copy.deepcopy(facts)
+        changed[0]['value'] = 'Independently edited value'
+        current = memory_access.collect('owner', [resume], changed, [])
+        self.assertIn('fact:' + changed[0]['key'], mt.Memory(current, JOB, 'resume:target').by_key)
+        stale = copy.deepcopy(snap)
+        next(e for e in stale['entries'] if e['key'] == 'resume:target')['revision'] += 1
+        self.assertEqual(len(mt.Memory(stale, JOB, 'resume:target').entries), 2)
+        tampered = copy.deepcopy(snap)
+        next(e for e in tampered['entries'] if 'derived_from' in e)['derived_revision'] = -1
+        with self.assertRaises(ValueError):
+            memory_access.validate(tampered, 'owner')
+
     def test_full_memory_drafts_excluded_and_owner_bound(self):
         snap = snapshot()
         keys = {e['key'] for e in snap['entries']}

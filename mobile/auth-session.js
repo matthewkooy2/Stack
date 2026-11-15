@@ -1,9 +1,10 @@
 // The existing Jac OAuthSession protocol, isolated from mock product services.
 import {beginGoogle,waitGoogle,cancelGoogle,pendingGoogle} from './auth-google.js';
+import {startRequestTrace} from '../web/request-trace.js';
 export function normalizeOrigin(value){const u=new URL(value);if(u.protocol!=='https:'||u.username||u.password||u.pathname!=='/'||u.search||u.hash)throw Error('Google testing requires an HTTPS API origin.');return u.origin;}
 import {FEATURE_RPCS} from './feature-rpcs.js';
 // `features` opts a build into the signed-in product API (see call below). Authentication-only builds keep it off.
-export function createAuthSession({origin,store,openURL,fetcher=fetch,isActive=()=>true,delay,features=false,progress=true}){
+export function createAuthSession({origin,store,openURL,fetcher=fetch,isActive=()=>true,delay,features=false,progress=true,traceContext}){
  const base=normalizeOrigin(origin),prefix='stack.ui-auth.v1.'+Array.from(base).map(c=>c.charCodeAt(0).toString(16).padStart(2,'0')).join('')+'.';
  const scoped={getItemAsync:k=>store.getItemAsync(prefix+k),setItemAsync:(k,v)=>store.setItemAsync(prefix+k,v),deleteItemAsync:k=>store.deleteItemAsync(prefix+k)};
  let token='',epoch=0,queue=Promise.resolve(),pending=false;
@@ -11,11 +12,14 @@ export function createAuthSession({origin,store,openURL,fetcher=fetch,isActive=(
  const current=e=>{if(e!==epoch)throw Error('Sign-in was cancelled or the session changed.');};
  async function request(path,body,authenticated=true,timeout=20000){
   const observed=epoch,controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeout);
-  try{const response=await fetcher(base+path,{method:'POST',redirect:'error',headers:{'Content-Type':'application/json',...(authenticated&&token?{Authorization:'Bearer '+token}:{})},body:JSON.stringify(body),signal:controller.signal});
+  const trace=startRequestTrace(path,traceContext);
+  let response;
+  try{response=await fetcher(base+path,{method:'POST',redirect:'error',headers:{'Content-Type':'application/json',...trace.headers,...(authenticated&&token?{Authorization:'Bearer '+token}:{})},body:JSON.stringify(body),signal:controller.signal});
    let json;try{json=await response.json();}catch{current(observed);throw Object.assign(Error(response.status===404?'This sign-in option is unavailable on this server. Use your Stack username and password.':'Stack returned an invalid response. Please retry.'),{status:response.status});}current(observed);
    if(!response.ok||json.ok===false){const error=Error(typeof json.error?.message==='string'?json.error.message:'Sign-in request failed. Please retry.');error.status=response.status;throw error;}
+   trace.finish(response,json.data?.result?.error?'application_error':'response');
    return json.data;
-  }catch(e){if(e.name==='AbortError')throw Error('Stack did not respond. Check your connection and retry.');throw e;}finally{clearTimeout(timer);}
+  }catch(e){trace.fail(e,response);if(e.name==='AbortError')throw new Error('Stack did not respond. Check your connection and retry.',{cause:e});throw e;}finally{clearTimeout(timer);}
  }
  const allowed=new Set(['auth_google_status','auth_google_recover','agent_admission','agent_accept_invite']);
  async function rpc(name,args={}){if(!allowed.has(name))throw Error('This build only connects account authentication.');let result;try{result=(await request('/function/'+name,args))?.result;}catch(error){if(name==='auth_google_status'&&error.status===404)return {};throw error;}if(result?.error)throw Error(result.error);return result;}
@@ -39,15 +43,16 @@ export function createAuthSession({origin,store,openURL,fetcher=fetch,isActive=(
   onProgress({status:'uploading',loaded:0,total:body.length,percent:null});
   const json=await new Promise((resolve,reject)=>{
    const xhr=new XMLHttpRequest();xhr.open('POST',base+'/function/'+name);xhr.timeout=timeout;
+   const trace=startRequestTrace('/function/'+name,traceContext);trace.apply(xhr);
    xhr.setRequestHeader('Content-Type','application/json');xhr.setRequestHeader('Authorization','Bearer '+token);
    xhr.upload.onprogress=e=>{if(observed===epoch)onProgress({status:'uploading',loaded:e.loaded,total:e.total,percent:e.lengthComputable?Math.min(100,Math.round(e.loaded/e.total*100)):null});};
    xhr.onload=()=>{try{
     if(observed!==epoch)throw Error('Session changed. Please try again.');
     const value=JSON.parse(xhr.responseText);
     if(xhr.status<200||xhr.status>=300||value.ok===false||value.data?.result?.error){const error=Error(value.data?.result?.error||value.error?.message||'Upload failed. Retry the same file.');error.status=xhr.status;throw error;}
-    resolve(value);
-   }catch(error){reject(error);}};
-   xhr.onerror=xhr.ontimeout=xhr.onabort=()=>reject(Error('Upload interrupted. Check your connection, then retry the same file.'));
+    trace.finish(xhr);resolve(value);
+   }catch(error){reject(trace.fail(error,xhr));}};
+   xhr.onerror=xhr.ontimeout=xhr.onabort=()=>reject(trace.fail(Error('Upload interrupted. Check your connection, then retry the same file.'),xhr));
    xhr.send(body);
   });
   const result=json.data?.result;

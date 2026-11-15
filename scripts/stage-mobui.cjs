@@ -10,7 +10,9 @@ for(const name of fs.readdirSync(path.join(root,'mobile/prototype'))){
 }
 // Preserve the Mac's native helpers (OAuth, speech and assets) when applying the UI overlay.
 for(const name of fs.readdirSync(path.join(root,'native'))){if(/\.(js|png)$/.test(name)&&!['app.config.js','build-config.js'].includes(name))fs.copyFileSync(path.join(root,'native',name),path.join(out,name==='device.js'?'native-device.js':name));}
-for(const name of ['mock-device.js','auth-google.js','auth-session.js','feature-rpcs.js','live-device.js','auth-platform.js','auth-platform.web.js','prep-session.js','prep-catalog.json','prep-motion.js'])fs.copyFileSync(path.join(root,'mobile',name),path.join(out,name));
+for(const name of ['mock-device.js','auth-google.js','auth-session.js','feature-rpcs.js','live-device.js','auth-platform.js','auth-platform.web.js','prep-session.js','prep-catalog.json','prep-motion.js','request-context.js'])fs.copyFileSync(path.join(root,'mobile',name),path.join(out,name));
+fs.mkdirSync(path.join(out,'../web'),{recursive:true});
+fs.copyFileSync(path.join(root,'web/request-trace.js'),path.join(out,'../web/request-trace.js'));
 fs.copyFileSync(path.join(root,'mobile/device-facade.js'),path.join(out,'device.js'));
 const auth=authConfig.write(out);
 fs.mkdirSync(path.join(root,'.jac/mobile-rn/app'),{recursive:true});

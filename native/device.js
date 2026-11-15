@@ -10,6 +10,8 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import Pdf from 'react-native-pdf';
 import {BrowserViewer,createBrowserStream} from './browser-viewer.js';
 import {beginGoogle,waitGoogle,cancelGoogle,pendingGoogle} from './google-auth.js';
+import {startRequestTrace} from '../web/request-trace.js';
+import {expoContext} from '../mobile/request-context.js';
 import {Layers, BriefcaseBusiness, Users, FileText, UserRound, MapPin, ArrowUpRight, ArrowRight, X, Check, SlidersHorizontal, ChevronLeft, ChevronRight, Bell, Plus, Upload, MoreHorizontal, Sparkles, Bookmark, Search, LogOut, Clock, Mail, ShieldCheck, CircleCheck, RotateCcw, Settings, GraduationCap, CodeXml, MessagesSquare, CircleAlert, CalendarDays, Pencil, Mic, Play, Pause, Shuffle, Sprout, MessageCircle, ArrowLeft, CirclePlus, CirclePlay, FileQuestionMark} from 'lucide-react-native';
 const glyphs = {mic:Mic,play:Play,pause:Pause,shuffle:Shuffle,sprout:Sprout,chat:MessageCircle,return:ArrowLeft,"add-session":CirclePlus,"continue-session":CirclePlay,"question-file":FileQuestionMark,layers:Layers, jobs:Layers, applications:BriefcaseBusiness, network:Users, resume:FileText, profile:UserRound, prep:GraduationCap, code:CodeXml, conversation:MessagesSquare, pin:MapPin, arrow:ArrowUpRight, next:ArrowRight, x:X, check:Check, filter:SlidersHorizontal, back:ChevronLeft, chevron:ChevronRight, bell:Bell, plus:Plus, upload:Upload, more:MoreHorizontal, sparkles:Sparkles, bookmark:Bookmark, search:Search, logout:LogOut, clock:Clock, mail:Mail, shield:ShieldCheck, done:CircleCheck, retry:RotateCcw, settings:Settings, alert:CircleAlert, calendar:CalendarDays};
 glyphs.edit = Pencil;
@@ -28,17 +30,21 @@ const cacheDir=()=>Files.cacheDirectory+'stack-resumes/';
 async function request(path,body,authenticated=true) {
   const epoch=generation,session=currentToken(),origin=currentBase(), controller=new AbortController();
   const timer=setTimeout(()=>controller.abort(),20000);
+  const trace=startRequestTrace(path,expoContext);
+  let r;
   try {
-    const r=await fetch(origin+path,{method:'POST',headers:{'Content-Type':'application/json',...(authenticated&&session?{Authorization:'Bearer '+session}:{})},body:JSON.stringify(body),signal:controller.signal});
+    r=await fetch(origin+path,{method:'POST',headers:{'Content-Type':'application/json',...trace.headers,...(authenticated&&session?{Authorization:'Bearer '+session}:{})},body:JSON.stringify(body),signal:controller.signal});
     const json=await r.json();
     if(epoch!==generation||session!==currentToken()||origin!==currentBase()) throw new Error('Session changed. Please try again.');
     if(!r.ok || json.ok===false) {
       const message=json.error?.message || json.detail || 'Request failed. Please try again.';
       const error=new Error(typeof message==='string'?message:'Check your details and try again.'); error.status=r.status; throw error;
     }
+    trace.finish(r,json.data?.result?.error?'application_error':'response');
     return json.data;
   } catch(e) {
-    if(e.name==='AbortError' || e.message==='Network request failed') throw new Error('Cannot reach Stack. Check your connection and retry.');
+    trace.fail(e,r);
+    if(e.name==='AbortError' || e.message==='Network request failed') throw new Error('Cannot reach Stack. Check your connection and retry.',{cause:e});
     throw e;
   } finally {clearTimeout(timer);}
 }
@@ -264,6 +270,7 @@ export async function uploadResumeFile(endpoint, file, onProgress=()=>{}) {
     json=await new Promise((resolve,reject)=>{
       const xhr=new XMLHttpRequest();
       xhr.open('POST',currentBase()+'/function/'+endpoint);
+      const trace=startRequestTrace('/function/'+endpoint,expoContext);trace.apply(xhr);
       xhr.timeout=20000;
       xhr.setRequestHeader('Content-Type','application/json');
       if(currentToken())xhr.setRequestHeader('Authorization','Bearer '+currentToken());
@@ -280,10 +287,10 @@ export async function uploadResumeFile(endpoint, file, onProgress=()=>{}) {
             const error=new Error(value.data?.result?.error||value.error?.message||value.detail||'Upload failed. Retry the same file.');
             error.status=xhr.status;throw error;
           }
-          resolve(value);
-        }catch(error){reject(error);}
+          trace.finish(xhr);resolve(value);
+        }catch(error){reject(trace.fail(error,xhr));}
       };
-      xhr.onerror=xhr.ontimeout=xhr.onabort=()=>reject(new Error('Upload interrupted. Reopen Stack to check whether it was saved, or retry the same file.'));
+      xhr.onerror=xhr.ontimeout=xhr.onabort=()=>reject(trace.fail(new Error('Upload interrupted. Reopen Stack to check whether it was saved, or retry the same file.'),xhr));
       xhr.send(body);
     });
   }

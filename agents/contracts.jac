@@ -69,7 +69,13 @@ def config(selection: str = "") -> dict[(str, any)] {
             if raw.get('provider') not in LOCAL_PROVIDERS { raw = {**raw, 'provider': 'ollama', 'model': '', 'local_model_url': ''}; }
         }
     }
+    # Optional faster model for the coach step, per provider (#124). Present only when
+    # set, so deployments without it keep their configuration digest.
+    coach = raw.get('coach_models', {});
+    chosen_coach = {str(k): str(v).strip() for (k, v) in coach.items() if str(v).strip()} if isinstance(coach, `dict) else {};
+    extra = {'coach_models': chosen_coach} if chosen_coach else {};
     return {
+        **extra,
         'provider': str(raw.get('provider', 'openai')),
         'monthly_cents': int(raw.get('monthly_cents', 0)),
         'user_monthly_cents': int(raw.get('user_monthly_cents', 0)),

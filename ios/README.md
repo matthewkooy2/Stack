@@ -59,6 +59,7 @@ Stack account. Each upload is a snapshot: rebuild after changes. Free Appetize p
 | `Stack/Features/Resume` | upload, preview, details review, LaTeX format, tailored resumes, experience bank, resume agents |
 | `Stack/Features/Prep` | behavioral practice: state machine, WAV recorder, transcription and coaching polling |
 | `Stack/Features/Interview` | mock interviews, technical practice, recording and transcription |
+| `Stack/Features/Library` | practice interview library: industry slots, spoken questions, local video answers, scores ([docs](../docs/PRACTICE_LIBRARY.md)) |
 | `Stack/Features/Agents` | agent hub, task review and approval, remote browser |
 | `Stack/Features/Profile` | profile, matching preferences, follow-up reminders |
 

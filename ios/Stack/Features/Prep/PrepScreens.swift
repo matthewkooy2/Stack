@@ -248,6 +248,8 @@ struct PrepTopicSheet: View {
     let selected: PrepFocus
     let onFocus: (PrepFocus) -> Void
     let onInterview: () -> Void
+    /// Opens the practice-interview library (industry question slots with recorded, scored answers).
+    var onPractice: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -257,6 +259,7 @@ struct PrepTopicSheet: View {
             }
             Rectangle().fill(Brand.rule).frame(height: 1).padding(.vertical, 6)
             row("Mock interview") { dismiss(); onInterview() }
+            if let onPractice { row("Practice interview") { dismiss(); onPractice() } }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, Spacing.page)

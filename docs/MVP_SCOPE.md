@@ -4,7 +4,7 @@
 
 - **Onboarding:** 2–3 quick-selection screens covering career stage, target role, location and work arrangement; resume upload.
 - **Jobs:** swipe left to pass, right to save into Applications; filters; resume-to-job fit score using requirements and keywords. Continue browsing with a small “Saved · Tailor / Apply” action.
-- **Resume:** PDF/DOCX upload or guided creation covering contact details, jobs, dates, education, projects, skills and bullets; standard resume editing. Jake and Classic templates; preserve originals. AI rewrites bullets and wording for job-specific ATS fit. Review and accept/reject changes → preview PDF → attach to application. Never expose LaTeX terminology.
+- **Resume:** PDF/DOCX upload or guided creation covering contact details, jobs, dates, education, projects, skills and bullets; standard resume editing. Six templates: Jake, Awesome-CV, Bill Ryan, Sourabh Bajaj, Deedy OpenFonts and Jan Kuster Classic; preserve originals and legacy Classic documents. AI rewrites bullets and wording for job-specific ATS fit. Review and accept/reject changes → preview PDF → attach to application. Never expose LaTeX terminology.
 - **Applications:** complete a real external application live; use Stack autofill if reliable, otherwise an external browser. Keep applicant-details confirmation short. Track Saved → Applied → Interviewing → Offer / Rejected, with automatic Gmail updates and optional manual edits. Notes, follow-up reminders and calendar required. Link contacts and referral progress. One tap carries job and tailored resume into job-specific Prep.
 
   Gmail tracking also supports a user-started scan from a chosen past date: discover and import applications for any job, including applications made outside Stack, then track their replies and interview invitations. Clear discoveries import automatically; uncertain details require confirmation. External calendar changes retain their approval step.
@@ -16,7 +16,7 @@
 Answer each with **MVP / Later / Drop**, plus any quick clarification:
 
 1. **AI resume interview:** Should users be able to chat with AI to build their resume, beyond filling out the guided sections?
-2. **Match uploaded layout:** Must Stack recreate an uploaded resume’s appearance, or are Jake/Classic enough?
+2. **Match uploaded layout:** Must Stack recreate an uploaded resume’s appearance, or are the built-in designs enough?
 3. **Job search:** Must users type a role/company to find jobs, beyond swiping and filtering?
 4. **Potential score:** Before tailoring, should users see an estimate of how much their resume score could improve?
 5. **LinkedIn import:** Must users be able to populate resume details from LinkedIn instead of uploading or entering them?

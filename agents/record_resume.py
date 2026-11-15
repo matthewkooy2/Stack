@@ -20,7 +20,6 @@ MAX_BYTES = 10 * 1024 * 1024
 MAX_TEXT = 60000
 MAX_RECORDS = 300
 KINDS = {'title', 'heading', 'paragraph', 'bullet'}
-TEMPLATES = {'classic', 'jake'}
 W = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 
 
@@ -141,10 +140,11 @@ def validate_records(records):
 
 
 def prepare(value):
+    from agents.template_library import TEMPLATES as LIBRARY
     records = validate_records(value['records'])
     template = value.get('template', 'classic')
-    if template not in TEMPLATES:
-        raise ValueError('Choose the Classic or Jake template.')
+    if template not in {'classic', 'jake', *LIBRARY}:
+        raise ValueError('Choose one of the built-in templates.')
     payload = {'records': records, 'template': template,
                'upload_digest': value['upload_digest'], 'revision': value['revision']}
     if value.get('bank_sources'):
@@ -266,6 +266,17 @@ def _docx(records, template):
 
 
 def documents(records, template='classic'):
+    from agents.template_library import TEMPLATES as LIBRARY, records_source
+    if template in LIBRARY:
+        from agents.latex import compile as compile_latex
+        pdf = compile_latex(records_source(template, records))['pdf']
+        docx = _docx(records, template)
+        checked = check_documents(pdf, docx, records)
+        if not checked['ok']:
+            raise ValueError('Generated file text differs from approved records. No output was saved.')
+        return {'pdf': {'name': 'Tailored resume.pdf', 'content': base64.b64encode(pdf).decode(),
+                        'pages': checked['pages'], 'text': checked['text']},
+                'docx': {'name': 'Tailored resume.docx', 'content': base64.b64encode(docx).decode()}}
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont

@@ -119,6 +119,23 @@ final class JobDeckFeedTests: XCTestCase {
         return parse("{\"jobs\":[\(jobs)],\"next_cursor\":\"\(next)\"}")
     }
 
+    func testExhaustedDeckReloadsAfterReturningEvenAfterTodaysSweepStarted() {
+        let now = Date()
+        XCTAssertTrue(JobSweep.needsReload(computedAt: now.timeIntervalSince1970, hasReviewableJobs: false, now: now))
+        XCTAssertFalse(JobSweep.needsReload(computedAt: now.timeIntervalSince1970, hasReviewableJobs: true, now: now))
+        XCTAssertTrue(JobSweep.needsReload(computedAt: 0, hasReviewableJobs: true, now: now))
+    }
+
+    func testMalformedSuccessfulResponseIsAnErrorRatherThanAnEmptyDeck() async {
+        let load = start()
+        await desk.requested(1)
+        desk.answer(0, [:])
+        await load.value
+        XCTAssertFalse(feed.loadError.isEmpty)
+        XCTAssertTrue(feed.jobs.isEmpty)
+        XCTAssertEqual(screen.received, 0)
+    }
+
     private func makeSource() -> JobDeckSource {
         let feed = feed!, desk = desk!, screen = screen!
         return JobDeckSource(
@@ -223,12 +240,27 @@ final class JobDeckFeedTests: XCTestCase {
 
     func testFailingFirstPageEndsLoadingWithAnError() async {
         let load = start()
-        await desk.requested(1)
-        desk.fail(0)
+        for attempt in 0..<3 {
+            await desk.requested(attempt + 1)
+            desk.fail(attempt)
+        }
         await load.value
+        XCTAssertEqual(desk.requests.count, 3, "startup recovery is bounded")
         XCTAssertTrue(feed.loaded)
         XCTAssertTrue(feed.jobs.isEmpty)
         XCTAssertFalse(feed.loadError.isEmpty)
+    }
+
+    func testTransientStartupFailureRecoversWithoutManualReload() async {
+        let load = start()
+        await desk.requested(1)
+        desk.fail(0)
+        await desk.requested(2)
+        XCTAssertFalse(feed.loaded, "keep loading while the connection recovers")
+        desk.answer(1, page(["recovered"]))
+        await load.value
+        XCTAssertEqual(ids, ["recovered"])
+        XCTAssertTrue(feed.loadError.isEmpty)
     }
 
     func testBackgroundPagingStopsOnceTheDeckHasFiveCards() async {

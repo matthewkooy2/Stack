@@ -32,6 +32,12 @@ struct JobsView: View {
         return feed.jobs.filter { !decided.contains($0.id) && !hidden.contains($0.id) }
     }
 
+    private var needsMoreJobs: Bool {
+        feed.loaded && !feed.busy && feed.loadError.isEmpty && !feed.nextCursor.isEmpty
+            && deck.count < JobDeckFeed.targetDeck && scenePhase == .active
+            && listing == nil && detail == nil && sheet == nil
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             content
@@ -49,6 +55,9 @@ struct JobsView: View {
             }
         }
         .task { await start() }
+        .onChange(of: needsMoreJobs) { _, needed in
+            if needed { Task { await load(refresh: false, more: true) } }
+        }
         .onDisappear {
             // A full-screen cover reports the screen underneath as disappeared. It is still the same visit:
             // keep the pending Undo and the paging in flight until the browser or sheet closes.
@@ -66,8 +75,9 @@ struct JobsView: View {
         .onChange(of: store.phase) { _, phase in if phase != .ready { resetForSession() } }
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { commitDecision() }
-            // Matches change once a day, so coming back only reloads after a newer sweep could have run.
-            else if JobSweep.isNewer(than: feed.computedAt) { Task { await load(refresh: false) } }
+            else if JobSweep.needsReload(computedAt: feed.computedAt, hasReviewableJobs: !deck.isEmpty) {
+                Task { await load(refresh: false) }
+            }
         }
         .onChange(of: accountContext) { _, context in
             guard started, context != displayedContext, store.phase == .ready else { return }
@@ -118,7 +128,7 @@ struct JobsView: View {
 
     @ViewBuilder
     private var content: some View {
-        if !feed.loaded {
+        if !feed.loaded || (deck.isEmpty && feed.loadError.isEmpty && !feed.nextCursor.isEmpty) {
             VStack {
                 HStack { Spacer(); requirementsButton }
                 Spacer()
@@ -166,7 +176,11 @@ struct JobsView: View {
                     HStack { Spacer(); requirementsButton }
                     feedback
                     EmptyNote(icon: "sparkles", title: emptyTitle, message: emptyMessage)
-                    if search.missingGraduation {
+                    if !feed.loadError.isEmpty {
+                        StackButton(label: "Retry", icon: "refresh", disabled: feed.busy) {
+                            Task { await load(refresh: false) }
+                        }
+                    } else if search.missingGraduation {
                         StackButton(label: "Set graduation", icon: "clock") { sheet = .timeline }
                     } else if !feed.nextCursor.isEmpty {
                         StackButton(label: "Load more roles", icon: "refresh", disabled: feed.busy) {
@@ -371,7 +385,9 @@ struct JobsView: View {
     /// Coming back after the view was torn down only reloads when nothing was ever shown.
     private func start() async {
         if started {
-            if !feed.loaded { await load(refresh: false) }
+            if !feed.loaded || JobSweep.needsReload(computedAt: feed.computedAt, hasReviewableJobs: !deck.isEmpty) {
+                await load(refresh: false)
+            }
             return
         }
         started = true

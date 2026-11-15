@@ -84,7 +84,11 @@ def _job_view(j: CatalogJob) -> dict[str, any] {
     data["discovered_at"]=j.discovered_at; data["stale"]=j.checked_at<time.time()-STALE_AFTER; data["sources"]=[v for v in j.observations.values()];
     data["listing_url"]=_listing_url(data);
     # Tags come from the same facts matching uses; the sweep stores them with the listing.
-    data["facts"]=current_facts(data); data["tags"]=[x for x in data["facts"]["employment"]+[data["facts"]["level"]] if x];
+    data["facts"]=current_facts(data);
+    if data.get("mode")=="Unknown" and data["facts"].get("stated_mode") { data["mode"]=data["facts"]["stated_mode"]; }
+    kind=data.get("employment_type"); level=data.get("seniority");
+    kinds=[kind] if kind and kind!="Unknown" else data["facts"]["employment"];
+    data["tags"]=list(dict.fromkeys([x for x in kinds+[level if level and level!="Unknown" else data["facts"]["level"]] if x]));
     return data;
 }
 """Every listing an account can be matched against: active, unexpired and confirmed by a sweep this week."""
@@ -492,7 +496,11 @@ def _retire_account {
 def:pub discovery_manage(token: str, id: str, action: str) -> dict[str, any] {
     if not _worker_allowed(token) { return {"error":"Worker authorization required."}; }
     with locks.collector() {
-        _fresh(); s=_source(id);
+        _fresh();
+        if action=="rebuild_matches" {
+            _rebuild_title_index();commit();return {"saved":True};
+        }
+        s=_source(id);
         if s is None { return {"error":"Source not found."}; }
         if action=="enable" { s.status="pending";s.message=""; }
         elif action=="disable" or action=="purge" {
@@ -511,13 +519,15 @@ def:pub discovery_manage(token: str, id: str, action: str) -> dict[str, any] {
     }
 }
 
-def:pub discovery_report(token: str) -> dict[str, any] {
+def:pub discovery_report(token: str, include_jobs: bool = True) -> dict[str, any] {
     if not _worker_allowed(token) { return {"error":"Worker authorization required."}; }
     jobs=[];
-    for j in [root.shared -->][?:CatalogJob] {
-        view=_job_view(j);
-        for field in ["description","qualifications","requirements","facts"] { view.pop(field,None); }
-        jobs.append(view);
+    if include_jobs {
+        for j in [root.shared -->][?:CatalogJob] {
+            view=_job_view(j);
+            for field in ["description","qualifications","requirements","facts"] { view.pop(field,None); }
+            jobs.append(view);
+        }
     }
     return {"generated_at":time.time(),"sources":_source_views(),"sweep":_last_sweep(),"jobs":jobs};
 }

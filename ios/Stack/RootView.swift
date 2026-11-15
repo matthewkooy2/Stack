@@ -26,6 +26,16 @@ struct RootView: View {
     @Environment(AppStore.self) private var store
     @Environment(\.scenePhase) private var scenePhase
 
+    /// Existing accounts with saved activity keep their current experience; onboarding is for fresh accounts.
+    private var needsJobOnboarding: Bool {
+        let account = store.account
+        let saved = account.savedSearch
+        return !account.userID.isEmpty && !account.raw["profile"]["onboarded"].bool
+            && !UserDefaults.standard.bool(forKey: "job-onboarding." + account.userID)
+            && account.resumes.isEmpty && account.applications.isEmpty && account.decidedJobIDs.isEmpty
+            && account.role.isEmpty && saved["query"].string.isEmpty && saved["filters"].object.isEmpty
+    }
+
     var body: some View {
         LaunchSequence(isReady: store.phase != .starting) {
             ZStack {
@@ -49,7 +59,8 @@ struct RootView: View {
                 case .admission:
                     InvitationView().replayable().transition(.opacity)
                 case .ready:
-                    MainTabs().transition(.opacity)
+                    JobOnboardingGate(required: needsJobOnboarding)
+                        .id(store.account.userID).transition(.opacity)
                 }
             }
             .animation(reduceMotion ? nil : Motion.fadeAnimation, value: store.phase)
@@ -73,6 +84,38 @@ struct RootView: View {
             while !Task.isCancelled, store.account.activeRunCount > 0 {
                 try? await Task.sleep(for: .seconds(15))
                 if scenePhase == .active { await store.refresh() }
+            }
+        }
+    }
+}
+
+@MainActor
+struct JobOnboardingGate: View {
+    @Environment(AppStore.self) private var store
+    @Environment(\.stackReduceMotion) private var reduceMotion
+    @State private var showingOnboarding: Bool
+    @State private var preparingJobs: Bool
+
+    init(required: Bool) {
+        _showingOnboarding = State(initialValue: required)
+        _preparingJobs = State(initialValue: !required)
+    }
+
+    var body: some View {
+        ZStack {
+            if preparingJobs {
+                MainTabs()
+                    .opacity(showingOnboarding ? 0 : 1)
+                    .allowsHitTesting(!showingOnboarding)
+                    .accessibilityHidden(showingOnboarding)
+            }
+            if showingOnboarding {
+                JobOnboardingView(onPrepared: { preparingJobs = true }) {
+                    UserDefaults.standard.set(true, forKey: "job-onboarding." + store.account.userID)
+                    preparingJobs = true
+                    withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { showingOnboarding = false }
+                }
+                .transition(.opacity)
             }
         }
     }

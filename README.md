@@ -8,6 +8,55 @@ LinkedIn profile review is available from Network: sign in through the browser h
 
 See [job discovery](docs/JOB_DISCOVERY.md): jobs are collected once a day from public job boards, and each account's matches are stored for the app to read.
 
+## Outreach email templates
+
+Copy the subject and body, then replace the bracketed details with your own.
+
+### First note to a potential connection
+
+```text
+Subject: A question about your work at [Company]
+
+Hi [Name],
+
+I came across your work on [Project or topic] while exploring [Field].
+I'd like to hear how you got started in [Specific area]. Would you have
+15 minutes for a chat in the next couple of weeks?
+
+Thanks,
+[Your name]
+```
+
+### Follow-up after a networking meeting
+
+```text
+Subject: Thanks for meeting with me
+
+Hi [Name],
+
+Thanks for taking the time to chat. Your advice about [Specific takeaway]
+helped me decide to [Next step]. I appreciate your help and would love to
+stay in touch.
+
+Best,
+[Your name]
+```
+
+### Thank-you note to a recruiter
+
+```text
+Subject: Thank you for discussing the [Role] opening
+
+Hi [Name],
+
+Thanks for speaking with me about the [Role] opening at [Company].
+I enjoyed hearing about [Specific detail], and I'm interested in moving
+forward. Please let me know if I can share anything else for the next step.
+
+Best,
+[Your name]
+```
+
 ## MVP scope and planning
 
 Read [MVP scope](docs/MVP_SCOPE.md) for agreed requirements and open decisions,

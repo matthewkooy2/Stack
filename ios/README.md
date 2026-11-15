@@ -34,6 +34,18 @@ CI: `.github/workflows/ios-swift.yml` runs the static checks on Ubuntu and the X
 tests on `macos-14`. It is separate from `ci.yml`: it is not part of the `CI passed` gate and does not
 touch the TestFlight workflow.
 
+## Browser demo (Appetize)
+
+To let people try the app from a link or QR code without installing it, build a simulator copy against a
+public HTTPS backend and upload the zip to [Appetize](https://appetize.io/upload):
+
+```sh
+STACK_API_URL=https://dev.stackmvp.top bash scripts/appetize-build.sh   # writes .jac/appetize/Stack-appetize.zip
+```
+
+Appetize sessions have no microphone, so answers are typed, and Google sign-in may not complete there; use a
+Stack account. Each upload is a snapshot: rebuild after changes. Free Appetize plans cap minutes and concurrent sessions.
+
 ## Layout
 
 | Path | Purpose |

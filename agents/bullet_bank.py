@@ -2,26 +2,40 @@
 from copy import deepcopy
 from typing import Any
 from agents.record_resume import validate_records
+from agents.memory_bank import normalize, context_lines
 
 KIND = 'experience_bank'
 
 
 def save_review(previous: dict[str, Any], name: str, source: str, records: list[dict[str, Any]],
-                confirmed: bool, revision: int, now: float) -> dict[str, Any]:
+                confirmed: bool, revision: int, now: float, entry_type: str = '',
+                fields: dict[str, str] | None = None, attachment: dict | None = None) -> dict[str, Any]:
     if not isinstance(name, str) or not 1 <= len(name.strip()) <= 160:
         raise ValueError('Name this experience in 160 characters or less.')
     if not isinstance(source, str) or not 1 <= len(source.strip()) <= 500:
         raise ValueError('Describe the source of these facts in 500 characters or less.')
-    checked = validate_records(records)
+    kind = entry_type or previous.get('entry_type', 'other')
+    values = normalize(kind, previous.get('fields', {}) if fields is None else fields, confirmed)
+    # Typed inputs such as a skill or degree may consist entirely of fields.
+    checked = [] if records == [] else validate_records(records)
+    if confirmed and not checked and not values:
+        raise ValueError('Add a field or factual record before confirming this entry.')
     if any(r['kind'] not in ('paragraph', 'bullet') for r in checked):
         raise ValueError('Use paragraphs or bullets for experience facts; the experience name supplies the heading.')
-    snapshot = {'name': name.strip(), 'source': source.strip(), 'records': checked,
+    metadata = {'schema_version': 1, 'entry_type': kind, 'fields': values,
+                'attachment': deepcopy(previous.get('attachment', {}) if attachment is None else attachment)}
+    # Reuse the document's existing aggregate, character and control-character bounds.
+    context = [{'id': 'r' + str(i), 'kind': 'paragraph', 'text': line}
+               for i, line in enumerate(context_lines(metadata))]
+    if context or checked:
+        validate_records([{**r, 'id': 'r' + str(i)} for i, r in enumerate(context + checked)])
+    snapshot = {'name': name.strip(), 'source': source.strip(), 'records': checked, **deepcopy(metadata),
                 'confirmed': confirmed, 'revision': revision + 1, 'saved_at': now}
     history = deepcopy(previous.get('history', []))
     if len(history) >= 100:
         raise ValueError('This experience has 100 revisions. Export it before creating a new group.')
     history.append(snapshot)
-    return {**previous, 'kind': KIND, 'records': checked, 'source': source.strip(),
+    return {**previous, **metadata, 'kind': KIND, 'records': checked, 'source': source.strip(),
             'template': 'classic', 'original': deepcopy(previous.get('original', snapshot)),
             'history': history, 'confirmed_at': now if confirmed else 0.0}
 
@@ -45,15 +59,18 @@ def compose(base: list[dict[str, Any]], selections: list[dict[str, Any]],
         ids = selection.get('record_ids')
         if (not source or not source['confirmed'] or source['id'] in seen
                 or source['revision'] != selection.get('revision')
-                or not isinstance(ids, list) or not ids or any(not isinstance(rid, str) for rid in ids)
+                or not isinstance(ids, list) or (not ids and not source.get('fields')) or any(not isinstance(rid, str) for rid in ids)
                 or len(ids) != len(set(ids))):
             raise ValueError('Selected experience changed or is unavailable. Review your bullet bank selection again.')
-        available = {r['id']: r for r in validate_records(source['records'])}
+        available = {r['id']: r for r in (validate_records(source['records']) if source['records'] else [])}
         if any(not isinstance(rid, str) or rid not in available for rid in ids):
             raise ValueError('A selected experience record is unavailable. Review your selection again.')
         seen.add(source['id'])
         records.append({'id': 'r' + str(next_id), 'kind': 'heading', 'text': source['name']})
         next_id += 1
+        for line in context_lines(source):
+            records.append({'id': 'r' + str(next_id), 'kind': 'paragraph', 'text': line})
+            next_id += 1
         mapping = []
         included = []
         # Keep source order and grouping; selection does not rewrite a claim.
@@ -71,6 +88,9 @@ def compose(base: list[dict[str, Any]], selections: list[dict[str, Any]],
                            'revision': source['revision'], 'source': source['source'],
                            'upload_digest': source.get('upload_digest', ''),
                            'confirmed_at': source.get('confirmed_at', 0.0),
+                           'entry_type': source.get('entry_type', 'other'),
+                           'fields': deepcopy(source.get('fields', {})),
+                           'attachment': deepcopy(source.get('attachment', {})),
                            'records': deepcopy(included),
                            'mapping': mapping})
     return {'records': validate_records(records), 'bank_sources': provenance}

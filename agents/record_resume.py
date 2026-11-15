@@ -183,6 +183,13 @@ def _groups(records):
 
 def _plan(prepared, data):
     by_id = {r['id']: r for r in prepared['records']}
+    locations, section, entry = {}, '', ''
+    for record in prepared['records']:
+        if record['kind'] == 'heading':
+            section, entry = record['text'], ''
+        elif record['kind'] == 'paragraph':
+            entry = record['text'].split(' | ')[0]
+        locations[record['id']] = ' · '.join(x for x in (section, entry) if x) or 'Resume'
     changes, notes, rewrites, omitted, orders = [], [], {}, [], {}
     for edit in data.get('rewrites', []):
         rid, after = edit.get('id'), edit.get('text', '')
@@ -196,7 +203,7 @@ def _plan(prepared, data):
             notes.append('Kept ' + rid + ': the proposed rewrite changes wording beyond supported filler removal.')
             continue
         rewrites[rid] = after
-        changes.append({'id': rid, 'kind': 'rewrite', 'where': rid, 'before': original['text'],
+        changes.append({'id': rid, 'kind': 'rewrite', 'where': locations[rid], 'before': original['text'],
                         'after': after, 'reason': str(edit.get('reason', 'Remove introductory filler.'))[:500]})
     for edit in data.get('omit', []):
         rid = edit.get('id')
@@ -208,7 +215,7 @@ def _plan(prepared, data):
             notes.append('Ignored an unsupported omission.')
             continue
         omitted.append(rid)
-        changes.append({'id': 'omit:' + rid, 'kind': 'omit', 'where': rid, 'before': original['text'],
+        changes.append({'id': 'omit:' + rid, 'kind': 'omit', 'where': locations[rid], 'before': original['text'],
                         'after': '', 'reason': str(edit.get('reason', 'Select content relevant to the job.'))[:500]})
     ranking = list(dict.fromkeys(x for x in data.get('ranking', []) if x in by_id))
     for group in _groups(prepared['records']):
@@ -216,8 +223,12 @@ def _plan(prepared, data):
         if order != group:
             key = 'order:' + group[0]
             orders[key] = order
-            changes.append({'id': key, 'kind': 'order', 'where': group[0], 'before': ', '.join(group),
-                            'after': ', '.join(order), 'reason': 'Lead this bullet group with the most relevant content.'})
+            changes.append({'id': key, 'kind': 'order', 'where': locations[group[0]],
+                            'before': '\n'.join(by_id[x]['text'] for x in group),
+                            'after': '\n'.join(by_id[x]['text'] for x in order),
+                            'before_items': [{'id': x, 'text': by_id[x]['text']} for x in group],
+                            'after_items': [{'id': x, 'text': by_id[x]['text']} for x in order],
+                            'reason': 'Lead this bullet group with the most relevant content.'})
     return {'rewrites': rewrites, 'omit': omitted, 'orders': orders}, changes, notes
 
 

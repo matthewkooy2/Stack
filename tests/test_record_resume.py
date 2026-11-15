@@ -4,6 +4,7 @@ STACK_TEST_REAL_MODEL=1 additionally invokes the operator's local model through
 the actual worker, retaining model logs, output extraction and elapsed times.
 """
 import base64
+import contextlib
 import copy
 import hashlib
 import importlib.util
@@ -24,6 +25,7 @@ from pypdf import PdfReader
 from reportlab.pdfgen.canvas import Canvas
 from agents import record_resume as rr
 from tests.catalog_fixture import career, publish
+from tests.memory_tailoring_cases import standin
 if importlib.util.find_spec('jaclang') is not None:
     from agents import provider, resume_processing, worker
     from agents.worker import dispatch as worker_dispatch
@@ -69,6 +71,12 @@ def proposal(*args, **kwargs):
         'rewrites': [{'id': 'r4', 'text': 'Built Python dashboards that reduced review time by 25%.', 'reason': 'Remove pronoun.'},
                      {'id': 'r5', 'text': 'Documented SQL queries for the team.', 'reason': 'Remove filler.'},
                      {'id': 'r9', 'text': 'Led a team and hold a CPA license.', 'reason': 'Invented claim must be ignored.'}]}, 'cost_cents': 0}
+
+
+# Reviewed-record tailoring goes through memory tailoring (docs/MEMORY_TAILORING.md); the
+# invented r9 rewrite must be refused by its guards and the negation kept.
+memory_proposal = standin({'r4': 'Built Python dashboards that reduced review time by 25%.',
+                           'r5': 'Documented SQL queries for the team.', 'r9': 'Led a team and hold a CPA license.'}, omit=('r6',))
 
 
 def extracted(artifact):
@@ -224,7 +232,14 @@ class RecordWorkflow(unittest.TestCase):
         self.resumes.append(rid)
         claim = self.worker('resume_processing_claim')
         self.assertEqual(claim['kind'], 'import')
-        with patch.object(resume_processing, 'call', side_effect=self.callback):
+        # Import also drafts details with the local model (#152); without a real model, stand in for it.
+        empty = {'profile': {k: '' for k in ('name', 'email', 'phone', 'location', 'link', 'summary')}, 'skills': {'descriptions': []},
+                 'education': [], 'workExperience': [], 'projects': [], 'unclassified': []}
+        stub = {'text': json.dumps(empty), 'model': 'fixture', 'id': '', 'usage': {}}
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(patch.object(resume_processing, 'call', side_effect=self.callback))
+            if os.environ.get('STACK_TEST_REAL_MODEL') != '1':
+                stack.enter_context(patch('agents.local_model.complete', return_value=stub))
             result = resume_processing.process(claim, TOKEN)
         self.assertNotIn('error', result)
         saved = self.worker('resume_processing_finish', {**{k: claim[k] for k in ('id', 'owner', 'lease')}, 'result': result})
@@ -257,7 +272,7 @@ class RecordWorkflow(unittest.TestCase):
         with patch.dict(worker_dispatch.__globals__, {'call': self.callback}):
             if real or claim['step'] == 'approve_resume':
                 return worker_dispatch(claim, TOKEN)
-            with patch('agents.provider.generate', side_effect=proposal):
+            with patch('agents.provider.generate', side_effect=memory_proposal):
                 return worker_dispatch(claim, TOKEN)
 
     def finish(self, claim, result):
@@ -309,7 +324,13 @@ class RecordWorkflow(unittest.TestCase):
             waiting = self.rpc('agent_run', {'id': run['id']})
             self.assertEqual(waiting['status'], 'review', waiting)
             self.assertEqual(self.rpc('bootstrap')['tailored_resumes'][-1:] if suffix == '.pdf' else [], [])
-            rejected = [c['id'] for c in proposed['changes']] if real else ['r5', 'omit:r6', 'order:r4']
+            # Reject the omission and the SQL rewording; keep the 25% dashboard rewording.
+            rejected = [c['id'] for c in proposed['changes']] if real else [
+                c['id'] for c in proposed['changes'] if c['kind'] == 'omit' or 'SQL' in c['after']]
+            if not real:
+                self.assertEqual(sorted(c['kind'] for c in proposed['changes']), ['omit', 'rewrite', 'rewrite'], proposed['changes'])
+                self.assertNotIn('Led a team', proposed['pdf']['text'])
+                self.assertIn('Did not lead a team or hold a CPA license.', [r['text'] for r in proposed['records']])
             approved = self.rpc('agent_approve', {'id': run['id'], 'step': 'approve_resume', 'review_hash': waiting['review']['hash'], 'edits': {'rejected': rejected}})
             self.assertEqual(approved['status'], 'queued', approved)
             final_claim = self.worker('agent_claim')
@@ -359,7 +380,8 @@ class RecordWorkflow(unittest.TestCase):
                 deleted = self.rpc('account_delete', {'username': 'mat25-owner', 'password': 'Synthetic-Mat25-password-1'})
                 self.assertTrue(deleted.get('deleted'), deleted)
                 self.deleted = True
-                self.assertEqual(list(directory.iterdir()), [])
+                # Account deletion removes the account's whole file directory (#146).
+                self.assertFalse(directory.exists())
 
     def test_changed_review_invalidates_approval_and_deleted_import_lease(self):
         rid, review, _ = self.import_resume('.docx')

@@ -11,6 +11,50 @@ import from http.client { HTTPConnection, HTTPSConnection, HTTPException, HTTPRe
 with entry {
     RESPONSE_LIMIT = 262144;
     OUTPUT_LIMIT = 65536;
+    CONTEXT_MESSAGE = 'This task exceeds the local model context limit. Increase the configured context and load the model with that context before retrying.';
+}
+
+"""The context window the server reports for the configured model (NInfer and vLLM-style
+/v1/models), or None when it does not say. Never raises: planning falls back to config."""
+def served_context(c: dict[str, any]) -> int | None {
+    if c.get('provider') != 'lmstudio' {
+        return None;
+    }
+    try {
+        parts = urlsplit(origin(c['provider'], c.get('local_model_url', '')));
+        connection = HTTPSConnection(parts.hostname, parts.port, timeout=5)
+            if parts.scheme == 'https'
+            else HTTPConnection(parts.hostname, parts.port, timeout=5);
+        headers = {'Accept': 'application/json'};
+        token = os.environ.get('STACK_LOCAL_MODEL_API_KEY', '');
+        if token {
+            headers['Authorization'] = 'Bearer ' + token;
+        }
+        try {
+            connection.request('GET', '/v1/models', headers=headers);
+            response = connection.getresponse();
+            body = response.read(65536);
+            status = response.status;
+        } finally {
+            connection.close();
+        }
+        if status != 200 {
+            return None;
+        }
+        for item in json.loads(body).get('data', []) {
+            if isinstance(item, `dict) and item.get('id') == c['model'] {
+                for key in ['context_length', 'max_model_len', 'context_window'] {
+                    value = item.get(key);
+                    if isinstance(value, int) and not isinstance(value, bool) and value >= 1024 {
+                        return value;
+                    }
+                }
+            }
+        }
+    } except Exception {
+        return None;
+    }
+    return None;
 }
 
 def origin(provider: str, value: str = '') -> str {
@@ -157,9 +201,7 @@ def complete(
         + len(prompt.encode())
         + len(json.dumps(schema).encode());
     if input_bytes + output_tokens + 512 > context_tokens {
-        raise ValueError(
-            'This task exceeds the local model context limit. Increase the configured context and load the model with that context before retrying.'
-        );
+        raise ValueError(CONTEXT_MESSAGE);
     }
     messages = [
         {'role': 'system', 'content': system},
@@ -241,6 +283,12 @@ def complete(
             response = incoming as HTTPResponse;
             if expired.is_set() or time.monotonic() > deadline { raise TimeoutError(); }
             if response.status != 200 {
+                # A server holding less context than configured rejects the prompt; say so
+                # distinctly so callers can plan a smaller request instead of truncating.
+                detail = response.read(4096).lower();
+                if response.status in [400, 413] and b'context' in detail {
+                    raise ValueError(CONTEXT_MESSAGE);
+                }
                 raise ValueError(
                     'The local model service rejected the request. Check the selected model and local service authorization.'
                 );

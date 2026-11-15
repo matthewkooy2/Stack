@@ -1552,6 +1552,7 @@ def:pub agent_schedule(token: str, wake_key: str = "") -> dict[str, any] {
                 if r.kind=="live" and r.status in ["waiting","running"] and r.lease_until<time.time() { r.status="failed";r.lease="";r.message="Live interview expired. Its reserved budget is retained."; }
                 _project_agent(r);_notify_agent(r);
             }
+            try { _agent_access(); } except ValueError { continue; }
             # Connecting Gmail enables read-only tracking independently of outbound rules.
             if any(c.tracks_mail(m.policy) for c in [root -->][?:AgentConnection]) {
                 context=_mail_context();

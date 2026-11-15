@@ -22,7 +22,7 @@ with entry:__main__ {
     args = parser.parse_args();
     with tempfile.TemporaryDirectory(prefix="stack-live-coaching-") as directory {
         path = Path(directory) / "provider.json";
-        path.write_text(json.dumps({}));
+        path.write_text(json.dumps({"invite_only":False}));
         with patch.dict(os.environ, {"STACK_AGENT_CONFIG": str(path), "STACK_AGENT_WORKER_TOKEN": "isolated-smoke-worker"}) {
             client = JacTestClient.from_file(str(Path("main.jac").resolve()), base_path=directory);
             try {
@@ -30,7 +30,7 @@ with entry:__main__ {
                 assert registered.ok, registered.text;
                 token = registered.data["token"];
                 owner = rpc(client, "agent_settings")["account_id"];
-                path.write_text(json.dumps({"provider": args.provider}));
+                path.write_text(json.dumps({"invite_only":False,"provider": args.provider}));
                 session = rpc(client, "prep_create", {"problem_id": "project"});
                 data = session["data"];
                 data["answer"] = "In a class project, our team was missing deadlines. I made a task list, asked each teammate to own one task, and scheduled a short weekly check-in. We delivered the project on time. Next time I would agree on responsibilities at kickoff.";

@@ -34,7 +34,7 @@ def saved_job(client: any, user: str, url: str) -> str {
 
 test "autofill is model-free account-owned paused and resumable without submission" {
     with tempfile.TemporaryDirectory(prefix="stack-autofill-api-") as directory {
-        config=Path(directory)/"agents.json";config.write_text("{}");
+        config=Path(directory)/"agents.json";config.write_text('{"invite_only":false}');
         with patch.dict(os.environ,{"STACK_AGENT_CONFIG":str(config),"STACK_AGENT_WORKER_TOKEN":"autofill-worker","STACK_BROWSER_URL":"http://browser.invalid","STACK_BROWSER_TOKEN":"synthetic-browser-token"}) {
             client=JacTestClient.from_file(str(Path("main.jac").resolve()),base_path=directory);
             try {

@@ -91,7 +91,7 @@ class ImportJourney(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(prefix='stack-mail-scan-')
         self.addCleanup(self.tmp.cleanup)
         config = Path(self.tmp.name) / 'agents.json'
-        config.write_text('{}')
+        config.write_text('{"invite_only":false}')
         self.environment = patch.dict(os.environ, {'JAC_DB_SCRATCH': '1', 'STACK_AGENT_CONFIG': str(config),
             'STACK_AGENT_WORKER_TOKEN': 'scan-test-worker', 'STACK_CONNECTION_KEY': Fernet.generate_key().decode(),
             'GOOGLE_CLIENT_ID': 'fixture', 'GOOGLE_REDIRECT_URI': 'https://stack.example/oauth/google'})

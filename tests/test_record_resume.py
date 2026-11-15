@@ -175,7 +175,7 @@ class RecordWorkflow(unittest.TestCase):
         from jaclang.testing.testing import JacTestClient
         self.temp = tempfile.TemporaryDirectory(prefix='stack-mat25-')
         self.config = Path(self.temp.name) / 'config.json'
-        self.config.write_text(json.dumps({'provider': 'lmstudio', 'model': os.environ.get('STACK_TEST_MODEL', 'qwen3-4b-instruct'), 'local_model_url': os.environ.get('STACK_TEST_MODEL_URL', 'http://127.0.0.1:11236'), 'local_model_context_tokens': 32768, 'max_output_tokens': 2048, 'capture_agent_content': True}))
+        self.config.write_text(json.dumps({'invite_only': False, 'provider': 'lmstudio', 'model': os.environ.get('STACK_TEST_MODEL', 'qwen3-4b-instruct'), 'local_model_url': os.environ.get('STACK_TEST_MODEL_URL', 'http://127.0.0.1:11236'), 'local_model_context_tokens': 32768, 'max_output_tokens': 2048, 'capture_agent_content': True}))
         self.env = patch.dict(os.environ, {'STACK_AGENT_CONFIG': str(self.config), 'STACK_AGENT_WORKER_TOKEN': TOKEN, 'STACK_DISCOVERY_TOKEN': TOKEN, 'STACK_LOCAL_MODEL_API_KEY': ''})
         self.env.start()
         self.client = JacTestClient.from_file(str(ROOT / 'main.jac'), base_path=self.temp.name)

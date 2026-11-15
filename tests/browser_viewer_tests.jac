@@ -16,13 +16,13 @@ def _rpc(client: any, name: str, args: dict[str, any] = {}) -> dict[str, any] {
 }
 test "browser authority is owner scoped, explicit, ordered and resumable" {
     with tempfile.TemporaryDirectory(prefix="browser-viewer-fixture-") as directory {
-        config=Path(directory)/"config.json";config.write_text("{}");authority=BrowserControl();
+        config=Path(directory)/"config.json";config.write_text('{"invite_only":false}');authority=BrowserControl();
         with patch.dict(os.environ,{"STACK_AGENT_CONFIG":str(config),"STACK_AGENT_WORKER_TOKEN":"synthetic-worker","STACK_BROWSER_URL":"http://browser.invalid","STACK_BROWSER_TOKEN":"synthetic-private-worker-token"}) {
             client=JacTestClient.from_file(str(Path("main.jac").resolve()),base_path=directory);
             try {
                 token=client.register_user("viewer-owner","Synthetic-password-1").data["token"];client.set_auth_token(token);
                 owner=_rpc(client,"bootstrap")["user_id"];
-                config.write_text(json.dumps({"provider":"codex-cli","local_cli_owner":owner,"local_cli_daily_limit":10}));
+                config.write_text(json.dumps({"invite_only":False,"provider":"codex-cli","local_cli_owner":owner,"local_cli_daily_limit":10}));
                 _rpc(client,"agent_save_policy",{"policy":{"enabled":True,"expires_at":time.time()+3600,"actions":["model"]}});
                 run=_rpc(client,"agent_linkedin_start",{"url":"https://www.linkedin.com/in/synthetic-profile/"});key=(owner,run["id"]);controller="viewer-synthetic-owner";
                 client.clear_auth();initial=_rpc(client,"agent_claim",{"token":"synthetic-worker"});
@@ -77,7 +77,7 @@ test "browser authority is owner scoped, explicit, ordered and resumable" {
                     client.set_auth_token(token);assert _rpc(client,"agent_run",{"id":run["id"]})["status"]=="cancelled";
                     assert "synthetic-private-worker-token" not in json.dumps([grant,took,resumed,stopped]);
                 }
-                config.write_text(json.dumps({"provider":"codex-cli","local_cli_owner":owner,"local_cli_daily_limit":10,"capture_agent_content":True}));
+                config.write_text(json.dumps({"invite_only":False,"provider":"codex-cli","local_cli_owner":owner,"local_cli_daily_limit":10,"capture_agent_content":True}));
                 for value in [diagnostic,{"version":1,"operation":["private-profile"],"url":"https://private.invalid","cookie":"private-cookie"}] {
                     next_run=_rpc(client,"agent_linkedin_start",{"url":"https://www.linkedin.com/in/synthetic-profile/"});
                     client.clear_auth();next_work=_rpc(client,"agent_claim",{"token":"synthetic-worker"});

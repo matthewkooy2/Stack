@@ -34,7 +34,7 @@ def google_runtime() -> any {
 
 test "Gmail consent enables tracking without rules and disconnect stops leased reads" {
     with tempfile.TemporaryDirectory(prefix='stack-gmail-') as directory {
-        config=Path(directory)/'agents.json';config.write_text('{}');
+        config=Path(directory)/'agents.json';config.write_text('{"invite_only":false}');
         with patch.dict(os.environ,{'STACK_AGENT_CONFIG':str(config),'STACK_AGENT_WORKER_TOKEN':'gmail-test-worker',
             'STACK_CONNECTION_KEY':Fernet.generate_key().decode(),'GOOGLE_CLIENT_ID':'fixture',
             'GOOGLE_REDIRECT_URI':'https://stack.example/oauth/google'}) {
@@ -87,7 +87,7 @@ test "Gmail consent enables tracking without rules and disconnect stops leased r
 
 test "partial consent and send-only consent cannot silently enable Gmail tracking" {
     with tempfile.TemporaryDirectory(prefix='stack-gmail-denied-') as directory {
-        config=Path(directory)/'agents.json';config.write_text('{}');
+        config=Path(directory)/'agents.json';config.write_text('{"invite_only":false}');
         with patch.dict(os.environ,{'STACK_AGENT_CONFIG':str(config),'STACK_CONNECTION_KEY':Fernet.generate_key().decode(),
             'GOOGLE_CLIENT_ID':'fixture','GOOGLE_REDIRECT_URI':'https://stack.example/oauth/google'}) {
             client=JacTestClient.from_file(str(Path('main.jac').resolve()),base_path=directory);

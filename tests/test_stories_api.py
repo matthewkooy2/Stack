@@ -24,7 +24,7 @@ class API(unittest.TestCase):
         scratch=ROOT/'.jac/story-api-tests';scratch.mkdir(parents=True,exist_ok=True)
         self.tmp=tempfile.TemporaryDirectory(dir=scratch);self.addCleanup(self.tmp.cleanup)
         self.config=Path(self.tmp.name)/'config.json'
-        self.config.write_text(json.dumps({'provider':os.environ.get('STACK_STORY_MODEL_PROVIDER','ollama'),'model':os.environ.get('STACK_STORY_MODEL','qwen3:4b-instruct'),
+        self.config.write_text(json.dumps({'invite_only':False,'provider':os.environ.get('STACK_STORY_MODEL_PROVIDER','ollama'),'model':os.environ.get('STACK_STORY_MODEL','qwen3:4b-instruct'),
             'local_model_url':os.environ.get('STACK_STORY_MODEL_URL','http://127.0.0.1:11434'),
             'max_output_tokens':1800,'local_model_timeout':90}))
         env=patch.dict(os.environ,{'STACK_AGENT_CONFIG':str(self.config),

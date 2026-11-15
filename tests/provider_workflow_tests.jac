@@ -14,7 +14,7 @@ def rpc(client: any, name: str, args: dict[str, any] = {}) -> dict[str, any] {
 test "subscription claims need neither account binding permission nor stack caps" {
     with tempfile.TemporaryDirectory(prefix="stack-provider-test-") as directory {
         path=Path(directory)/"provider.json";
-        path.write_text(json.dumps({}));
+        path.write_text(json.dumps({"invite_only":False}));
         with patch.dict(os.environ,{"STACK_AGENT_CONFIG":str(path),"STACK_AGENT_WORKER_TOKEN":"provider-test-token"}) {
             client=JacTestClient.from_file(str(Path("main.jac").resolve()),base_path=directory);
             try {
@@ -22,7 +22,7 @@ test "subscription claims need neither account binding permission nor stack caps
                 a=first.data["token"];
                 second=client.register_user("provider-other","Test-provider-password-456");assert second.ok,second.text;
                 b=second.data["token"];
-                path.write_text(json.dumps({"provider":"codex-cli"}));
+                path.write_text(json.dumps({"invite_only":False,"provider":"codex-cli"}));
                 runs={};
                 for token in [a,b] {
                     client.set_auth_token(token);
@@ -53,13 +53,13 @@ test "subscription claims need neither account binding permission nor stack caps
 
 test "provider-aware task reuse preserves terminal and active selections" {
     with tempfile.TemporaryDirectory(prefix="stack-provider-dedupe-") as directory {
-        path=Path(directory)/"provider.json";path.write_text(json.dumps({}));
+        path=Path(directory)/"provider.json";path.write_text(json.dumps({"invite_only":False}));
         with patch.dict(os.environ,{"STACK_AGENT_CONFIG":str(path),"STACK_AGENT_WORKER_TOKEN":"dedupe-test-worker"}) {
             client=JacTestClient.from_file(str(Path("main.jac").resolve()),base_path=directory);
             try {
                 created=client.register_user("dedupe-owner","Test-dedupe-password-123");assert created.ok,created.text;
                 token=created.data["token"];client.set_auth_token(token);
-                path.write_text(json.dumps({"provider":"codex-cli","model_options":{"local":{"provider":"ollama","model":"test-only","local_model_url":"http://127.0.0.1:11434"}}}));
+                path.write_text(json.dumps({"invite_only":False,"provider":"codex-cli","model_options":{"local":{"provider":"ollama","model":"test-only","local_model_url":"http://127.0.0.1:11434"}}}));
 
                 rpc(client,"agent_save_model",{"selection":"codex-cli"});
                 completed=rpc(client,"agent_start",{"kind":"profile","target_id":"self"});

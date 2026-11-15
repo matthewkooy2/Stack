@@ -63,7 +63,7 @@ def fixture_model():
 class Journey:
     def __init__(self, directory, url, model='qwen-fixture', provider='lmstudio'):
         self.path=Path(directory)/'config.json'
-        self.path.write_text(json.dumps({'provider':provider,'model':model,'local_model_url':url,
+        self.path.write_text(json.dumps({'invite_only':False,'provider':provider,'model':model,'local_model_url':url,
             'max_output_tokens':1600,'local_model_context_tokens':16384,'capture_agent_content':True,'local_cli_daily_limit':1}))
         self.env=patch.dict(os.environ,{'STACK_AGENT_CONFIG':str(self.path),'STACK_AGENT_WORKER_TOKEN':'mat5-synthetic-worker',
             'STACK_TRANSCRIPTION_STORAGE':str(Path(directory)/'recordings'),'STACK_LOCAL_MODEL_API_KEY':''})

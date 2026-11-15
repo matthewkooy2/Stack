@@ -15,7 +15,7 @@ class SimpleCoaching(unittest.TestCase):
     def test_visible_snapshot_pair_failures_and_account_isolation(self):
         with tempfile.TemporaryDirectory() as tmp:
             cfg=Path(tmp)/'model.json'
-            cfg.write_text(json.dumps({'provider':'lmstudio','model':'synthetic-qwen','local_model_url':'http://127.0.0.1:1234'}))
+            cfg.write_text(json.dumps({'invite_only':False,'provider':'lmstudio','model':'synthetic-qwen','local_model_url':'http://127.0.0.1:1234'}))
             with patch.dict(os.environ,{'STACK_AGENT_CONFIG':str(cfg),'JAC_DB_URL':'','STACK_REQUIRE_INVITE':'0'}):
                 client=JacTestClient.from_file(str(Path('tests/simple_coaching_api.jac').resolve()),base_path=tmp+'/db')
                 def rpc(name,args=None,fail=False):

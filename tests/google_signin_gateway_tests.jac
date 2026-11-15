@@ -4,14 +4,16 @@ import tempfile;
 import threading;
 import urllib.request;
 import urllib.error;
+import from urllib.parse { urlencode }
 import from pathlib { Path }
 import from unittest.mock { patch }
 import from http.server { ThreadingHTTPServer }
 import agents.gateway as gateway;
 
-def request(base: str, path: str, body: dict[str, any] | None = None, auth: str = '') -> any {
+def request(base: str, path: str, body: dict[str, any] | None = None, auth: str = '', cookie: str = '') -> any {
     headers={'Content-Type':'application/json'};
     if auth { headers['Authorization']=auth; }
+    if cookie { headers['Cookie']=cookie; }
     req=urllib.request.Request(base+path,data=json.dumps(body).encode() if body is not None else None,headers=headers);
     try { response=urllib.request.build_opener(gateway.NoRedirect()).open(req,timeout=5); }
     except urllib.error.HTTPError as e { response=e; }
@@ -53,8 +55,32 @@ test "Google sign-in gateway permits only PKCE endpoints and retains admission c
                 }
                 with patch.object(gateway,'sso_callback_upstream',return_value=(200,b'Sign-in completed. Return to the app to continue.','')) {
                     (status,headers,body)=request(base,'/sso/google/callback?state='+state+'&code=fixture-code');
-                    assert status==200 and 'iPhone' in body and 'fixture-code' not in body and state not in body;
+                    assert status==200 and 'iPhone' in body and 'fixture-code' not in body;
+                    assert 'href="com.matthewkooy.stack://auth/google?state='+state+'"' in body;
                 }
+                provider='https://accounts.google.com/o/oauth2/v2/auth?'+urlencode({'scope':'openid email profile','state':state,'response_type':'code','code_challenge_method':'S256','redirect_uri':'https://stack.example/sso/google/callback'});
+                (status,headers,body)=request(base,'/auth/google/start?'+urlencode({'url':provider}));
+                assert status==303 and headers['Location']==provider;
+                cookie=headers['Set-Cookie'];assert 'Secure; HttpOnly; SameSite=Lax' in cookie;
+                for upstream_status in [200,400] {
+                    with patch.object(gateway,'sso_callback_upstream',return_value=(upstream_status,b'Sign-in completed.','')) {
+                        (status,headers,body)=request(base,'/sso/google/callback?state='+state+'&code=private-code',cookie=cookie);
+                        assert status==303 and headers['Location']=='com.matthewkooy.stack://auth/google?state='+state;
+                        assert 'private-code' not in headers['Location'] and 'Max-Age=0' in headers['Set-Cookie'];
+                        (status,headers,body)=request(base,'/sso/google/callback?state='+state+'&code=private-code',cookie='stack_native_signin=other');
+                        assert status==200 and 'private-code' not in body;
+                        assert 'href="com.matthewkooy.stack://auth/google?state='+state+'"' in body;
+                    }
+                }
+                (status,headers,body)=request(base,'/.well-known/apple-app-site-association');
+                assert status==200 and headers['Content-Type']=='application/json';
+                assert json.loads(body)['applinks']['details'][0]['appIDs']==['38BZ2B7677.com.matthewkooy.stack'];
+                (status,headers,body)=request(base,'/open/resume');
+                assert status==200 and 'com.matthewkooy.stack://open/resume' in body;
+                (status,headers,body)=request(base,'/about');
+                assert status==200 and 'href="/privacy"' in body and 'career tools' in body;
+                (status,headers,body)=request(base,'/privacy');
+                assert status==200 and 'Google sign-in' in body and 'optional connections' in body;
             } finally { server.shutdown();server.server_close();thread.join(timeout=5); }
         }
     }

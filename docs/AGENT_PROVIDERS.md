@@ -25,6 +25,26 @@ Ollama or LM Studio; without an installed model configuration Settings explains
 that Local is unavailable. Runtime sign-in, model/service errors appear on the
 task; no provider fallback or model installation occurs.
 
+## Practice coaching output
+
+The coach step asks every provider (openai, meta, codex-cli, claude-cli and the
+local services) for the schema in `agents/coaching.jac`: `verdict`, `scores`
+(`name`, `score` 0 to 4, `why`), `work_on`, up to two `follow_ups` and an
+optional `example`. Stack trims and bounds those fields in the provider and again
+before it stores the artifact, then adds `summary` (the verdict) and a rendered
+`text` with the same layout every time, so older clients keep working.
+
+A reply that parses as JSON but has neither a verdict nor a score is rejected and
+the run asks for a retry. A reply that is not JSON at all, such as a local model
+that ignored the format, is kept as prose (`format: "text"`), as before. Clients
+should read the structured fields when `format` is `structured` and fall back to
+`text` otherwise.
+
+The mock interview steps (`interview_turn`, `interview_coach`) use the same
+schema plus `strengths` and `weaknesses` (up to three each), so their text adds
+`Strengths:`, `Weaknesses:` and `Improvements:` paragraphs. See
+[job interviews](JOB_INTERVIEWS.md).
+
 ## Installed local models
 
 The general worker can use installed local instruction models for job fit,
@@ -73,13 +93,18 @@ retry, with no paid fallback; LinkedIn analysis retains its existing blocked sta
 and saved capture. Changing configuration after claim also pauses the task.
 
 Private configuration includes `local_model_timeout` (5�90 seconds, default 90)
-and `local_model_context_tokens` (1024�32768, default 8192).
+and `local_model_context_tokens` (1024 to 262,144, default 8192).
 `max_output_tokens` applies to local requests too. Load LM Studio's model with at
 least the configured context; Ollama receives it as `num_ctx`. Stack conservatively
 counts UTF-8 input bytes plus output tokens and chat overhead against that window
 and refuses oversized tasks instead of truncating source evidence. For larger
 resumes/listings, increase the loaded and configured context or lower the output
 limit. Bodies are capped at 256 KiB and generated proposals at 64 KiB.
+A server that rejects an over-length prompt (HTTP 400/413 naming the context) gets the
+same context-limit error instead of a generic failure. LM Studio-compatible servers
+that report `context_length` in `/v1/models` (NInfer does) are also read before memory
+tailoring, which plans within the smaller of that value and the configuration; see
+[MEMORY_TAILORING.md](MEMORY_TAILORING.md).
 
 The existing provider selector chooses one provider for the whole deployment.
 These local transports do not download models, change the service bind address,

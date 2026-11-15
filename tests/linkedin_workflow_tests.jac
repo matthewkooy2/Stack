@@ -52,7 +52,7 @@ def browser_rpc(control: any, frame: dict[str, any], capture: dict[str, any], tr
 def authenticate(client: any, token: str) -> None { client.fixture_token=token;client.set_auth_token(token); }
 test "Public LinkedIn login and both continuation actions need no worker or browser credentials" {
     with tempfile.TemporaryDirectory(prefix="stack-linkedin-test-") as directory {
-        path=Path(directory)/"agents.json";path.write_text(json.dumps({"provider":"codex-cli"}));
+        path=Path(directory)/"agents.json";path.write_text(json.dumps({"invite_only":False,"provider":"codex-cli"}));
         with patch.dict(os.environ,{"STACK_AGENT_CONFIG":str(path),"STACK_AGENT_WORKER_TOKEN":"",
             "STACK_BROWSER_URL":"http://browser.invalid","STACK_BROWSER_TOKEN":""}) {
             client: any=JacTestClient.from_file(str(Path("main.jac").resolve()),base_path=directory);

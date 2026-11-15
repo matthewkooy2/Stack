@@ -1,16 +1,57 @@
 # Job discovery
 
-Stack now keeps real shared listings in its existing Jac/Postgres database, separate from each user's account graph. Right swipe saves a **Ready to apply** record and offers optional agent help; it never starts an agent. The source application page opens on the phone; submission is recorded only when the user explicitly marks it submitted. Existing demo applications remain labeled. New accounts start without fictional applications.
+Stack keeps real shared listings in its Jac/Postgres database, separate from each user's account graph. Right swipe saves a **Ready to apply** record and offers optional agent help; it never starts an agent. The source application page opens on the phone; submission is recorded only when the user explicitly marks it submitted.
 
-## Start
+## How jobs arrive
+
+Listings are collected **once a day**. `stack-jobs-sweep.timer` starts `scripts/jobs-sweep.jac` at 10:00 America/New_York (a missed run happens at the next boot). The sweep:
+
+1. Collects every source in `discovery/sources.json`: public Greenhouse, Ashby, Lever and SmartRecruiters boards, plus curated GitHub lists. The GitHub lists contribute the public job boards they link to, which are collected in the same run (up to 300 boards in total). Other linked pages and newly discovered repositories are not collected.
+2. Adds or updates each listing. A listing that a **cleanly collected** source no longer lists is closed. A source that fails, has unreadable listings, or suddenly lists nothing keeps its previous listings; they drop out of matching once unconfirmed for seven days.
+3. Ranks every account's matches for its saved search and stores them.
+
+For the configured Stripe board, the collector also reads the employer page linked by Greenhouse, in batches of ten openings. It uses structured fields only when the title and posting ID agree, and records the employer page URL in the attribution. If that page is unavailable the collector uses the board record. Other boards use their public provider payloads.
+
+Cards also show locations explicitly assigned to the role in the stored posting text. For example, a Greenhouse headline may say only “Hybrid” while an “Available Locations” section lists multiple offices. Remote options and regional scope are preserved.
+
+Card excerpts are computed when a feed page is read, so existing descriptions can supply pay and qualifications after a backend update. Fields previously discarded by a source adapter, including Greenhouse publication dates and Lever's additional text, require the updated collector to finish a sweep. The sweep rebuilds the search index and account matches. Allow cached phone feeds to reload after the sweep. A board that no longer publishes an opening cannot supply its missing fields.
+
+Nothing collects between sweeps, and no request from the app ever triggers collection.
+
+**In the app**, opening Jobs shows the phone's cached cards immediately and reads the stored matches (`job_feed`), 25 at a time. Coming back to the app reloads only if a newer sweep could have run. Changing filters or a profile input saves the search and ranks that one account again from the existing catalog (`save_search` returns the first page). The account refresh (`bootstrap`) no longer carries jobs, and the app has no timed refresh; it rechecks the account only while an agent task is running.
+
+A new account can rank the existing shared catalog immediately; it never waits for the next sweep. Role searches first apply the exact title/related-occupation matcher to a shared title list, then rank compact shared listing facts grouped by occupation. Full records are loaded only for the displayed page; description-text exclusions use the indexed `match_title` path so their original-text checks stay exact. Other preferences, ranking, totals, and pagination retain the same rules. The sweep builds this projection before account matching and maintains new titles during collection. Existing databases use the full-catalog path until their first sweep rebuilds the projection.
+
+For an isolated Mac browser workflow and measured production sizing, see [the jobs lab](JOBS_LAB.md).
+
+Importing a job link is not available yet. `import_job_url` answers with that message.
+
+## Employer logos on job cards
+
+The Jobs feed resolves each page against two shared Postgres tables. `stack_employer_brand` holds one reviewed PNG, display name, and artwork source per employer. `stack_employer_brand_key` connects exact domains and hiring-board identifiers to that employer. A board can identify a posting with a blank domain. An unrecognized explicit domain or a conflict between two identified employers leaves the card unbranded. The iPhone then shows the company initial. Logos travel with the feed once per employer per page and the iPhone can restore them with its cached cards.
+
+From a checkout of the matching revision, install the directory into each catalog database using its database owner's connection. For example, with the catalog connection configured in `PGHOST`, `PGDATABASE`, and `PGUSER`, run:
 
 ```sh
-./scripts/dev
+set -o pipefail
+python3 scripts/sync-employer-brands.py | psql -X
 ```
 
-This starts the API, Metro, and a resumable Jac collection worker. Leave the Mac awake and on the phone's Wi-Fi. Logs: `.jac/logs/api.log`, `metro.log`, `discovery.log`. The worker token is generated into private `storage/discovery/worker-token`. It never enters the mobile build. Stop all three with Ctrl-C. A startup after sleep/restart resumes stored checkpoints; an interrupted lease can take up to ten minutes to expire.
+To add or change a logo, review the employer's own artwork at 40 pixels. Save a crisp 120 x 120 PNG smaller than 32 KiB in `discovery/brand_logos` and record the source URL and verified domain or board identifiers in `discovery/employer_brands.json`. Run the same sync after editing. The manifest is authoritative for these two tables, including removals. The sync is atomic and safe to repeat. Current and future postings pick up changes on the next feed request. This works without rewriting postings or running a collector sweep.
 
-In Jobs, open filters to change role, occupation, city/state, work arrangement, level, employment type, advertised pay and posting age. **Best match** is the default: title fit and confirmed requirements first, then nice-to-haves, then posting date. **Newest first** orders dated jobs by posting date, with unknown dates last. **Has posting date** excludes undated jobs. Sorting applies across the matching catalog before pagination, and changing either control does not itself create a distinct paid search. The existing collector starts a daily catalog refresh at 6:00 a.m. America/New_York (or when it next runs after that time). After successful collection, it prepares and persists each account's matched feed using its saved search and current preferences. Failed or partial collection keeps the previous feeds. Prepared results have no cache expiry, and Stack includes the last prepared first page in account bootstrap. **Refresh jobs** requests background collection without bypassing budgets; the prepared feed remains visible until successful preparation. Ordinary four-second account polling does not call external providers. Opening Jobs reads the prepared feed without launching provider searches. **Live sources** shows pending, collecting, partial, unavailable, quota, error, and review states.
+## Card media
+
+Reserve a square for the employer mark (all reviewed PNGs are 120 x 120) and a 5:2 rectangle for the posting photograph (all JPEGs are 1050 x 420). The feed returns a `photo_id` on each job. On iOS it identifies the bundled resource `job-photo-<photo_id>.jpg`; the Jobs lab serves the same bytes at `/job-photos/<photo_id>.jpg`. Old cached cards without a photo ID can use `job-photo-forest.jpg`. Neither the size nor the aspect ratio depends on the posting.
+
+The photo directory in `discovery/job_photos.json` records the original Pexels page and reviewed location names. Matching uses the posting's location labels or explicit role-location statement. Ambiguous bare names need supporting geography or a reviewed employer-board alias. A multi-location card can use its matching search city. Otherwise ambiguous, remote-only and unmapped locations use a nature photo chosen from the posting ID. Assignment happens at feed read time, including for older database rows. To extend the directory, add an identically cropped JPEG to `ios/Stack/Resources/JobPhotos` and its source and geographic identity to the manifest.
+
+## Running a sweep
+
+```sh
+./scripts/jac run --no-serve scripts/jobs-sweep.jac   # or: python3 scripts/catalog.py sweep
+```
+
+The local API must be running. The worker token is generated into private `storage/discovery/worker-token`; it never enters the app build. `./scripts/dev` no longer runs a collector.
 
 ## Matching
 
@@ -21,7 +62,7 @@ In Jobs, open filters to change role, occupation, city/state, work arrangement, 
 - **Missing information.** Unknown facts never hide a job by default. The card says "Some requirements unconfirmed" and lists them. **Confirmed matches only** hides these jobs.
 - **Related titles.** A title matches when it contains the role's words, or shares an O*NET occupation with the role (e.g. Charge Nurse for Registered Nurse). Ambiguous single words such as "nurse" never drive expansion, and "Teacher Recruitment Specialist" does not match "Teacher". Every other input still applies to expanded titles.
 - **Precedence.** Saved searches store only the values that differ from the profile, and the Jobs screen names them ("This search changes your profile's location"). **Use profile** clears them. Editing a profile field removes any older search override of that field.
-- **Pay** compares hourly and yearly pay at 2,080 hours/year. Provider estimates and non-USD pay count as unknown. Pay text such as "the salary range is:" followed by "$150,000—$200,000" is read; funding amounts and 401(k) mentions are not.
+- **Pay** compares hourly and yearly pay at 2,080 hours/year. Provider estimates and non-USD pay count as unknown. Pay text such as "the annual salary range is:" followed by "$150,000—$200,000" is read; funding amounts and 401(k) mentions are not.
 
 Check matching behavior against independently labeled synthetic examples:
 
@@ -36,79 +77,49 @@ It reports unsuitable jobs admitted, suitable jobs excluded, incomplete listings
 
 Set optional **Expected graduation (YYYY-MM)** and **Available full-time from (YYYY-MM)** in Profile or the Jobs timeline panel. These belong to the signed-in account; new accounts have no assumed graduation date. Availability is not applied to internships.
 
-The local collector analyzes description, qualifications, and eligibility text once per content/rules version and stores the extracted graduation windows, start/end dates, student/degree requirements, and verbatim evidence with the shared listing. A resumable worker migration processes existing listings in batches of 50. Personalized assessments are calculated from private preferences, never written into the shared listing. Timeline changes invalidate old pagination cursors.
+The sweep analyzes description, qualifications, and eligibility text as it stores each listing, keeping the extracted graduation windows, start/end dates, student/degree requirements, and verbatim evidence with the shared listing. Personalized assessments are calculated from private preferences, never written into the shared listing. Timeline changes invalidate old pagination cursors.
 
 Jobs default to **Hide timeline mismatches**. **Confirmed timeline matches only** keeps explicit graduation-window matches; **All timelines** includes mismatches for inspection. Cards and details explain the result; details show the supporting text. This checks timeline compatibility only, not degree subject, experience, work authorization, or overall eligibility.
 
 This version uses deterministic text rules, **not an AI model**. Missing windows, snippets, alternatives, negations, conflicting windows, seasonal dates, day-level boundaries, and unsupported wording stay unclear. A generic degree requirement or a year in the job title is not evidence that an applicant must already have graduated. Returning-to-school requirements remain unclear unless an explicit internship end date establishes a mismatch. No descriptions or personal data are sent to a model provider and there are no model charges.
 
-## Provider configuration
+## Sources
 
-Copy `discovery/credentials.example.json` to `storage/discovery/credentials.json`, fill in credentials locally, then restart `scripts/dev`. Do not put keys in chat, source files, or mobile environment variables. The storage directory is ignored by source control; restrict the credentials file to your user (`chmod 600`). Environment variables with the same names also work.
-
-| Provider | Required values | Development limits |
-|---|---|---|
-| Adzuna | `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`, `STACK_ADZUNA_APPROVED=yes` after approved access | 25/minute, 250/day, 1,000/week, 2,500/month; three 50-result pages per search |
-| TheirStack | `THEIRSTACK_API_KEY`, `STACK_THEIRSTACK_TERMS_ACCEPTED=yes` after terms review | $49 subscription chosen manually; reserve at most 1,500 returned jobs/month and 50/day; 25 per dispatch |
-| USAJOBS | `USAJOBS_API_KEY`, `USAJOBS_EMAIL` | Three 50-result pages per search; provider backoff on errors |
-| GitHub | Optional `GITHUB_TOKEN` | Conditional requests for curated lists; weekly repository discovery; rate-limit failures back off |
-| Brave | Disabled | No requests or charges; storage rights must be established before implementation/enabling |
-
-No paid accounts were purchased or connected during implementation. TheirStack is a gap-filler: when the catalog already has 25 matching listings, its search is skipped to preserve credits. Returned provider IDs are excluded on subsequent searches. Reservations are committed before requests; uncertain failures consume the reservation conservatively. No automatic upgrades or purchases exist. $20 of the $100 total development ceiling remains reserved for possible future search discovery, with the rest uncommitted.
-
-Adzuna uses its required redirect links and bundled official logo. Its snippets are labeled; predicted salaries are omitted to avoid presenting them as employer pay. TheirStack redistribution and retention conditions must be covered by the deployment's terms before setting its acceptance flag. Full provider terms: [Adzuna](https://developer.adzuna.com/docs/terms_of_service), [TheirStack](https://theirstack.com/en/docs/legal/terms-and-conditions). Disabling a subscription is not an automatic notification to Stack: use the purge command below when rights to display a source end.
-
-## Sources and expansion
-
-- `discovery/employers.json`: 200 employer discovery candidates across twelve sectors. Registration does **not** mean verified job coverage.
-- `discovery/sources.json`: public Greenhouse, Ashby, Lever, SmartRecruiters feeds and GitHub list/directory configurations, plus weekly repository discovery.
-- The reviewed San Francisco municipal SmartRecruiters source uses a persisted public ID manifest, a 1,000-posting ceiling and ten-detail batches. Its explicit Close Date field expires at the end of that day in Pacific time. A disposable worker/catalog/account run measured 158 active government listings and verified ten exact samples; see [municipal discovery evidence](MAT19_DISCOVERY.md). Existing installations that previously discovered this board must use `configure smartrecruiters:CityAndCountyOfSanFrancisco1` to apply this configuration.
-- Curated GitHub sources produce destination links, not jobs. Newly discovered repositories enter review; Stack never executes repository code.
-- Company pages use robots-checked HTML/JSON-LD. Same-host career links inherit the approved employer policy, with bounded link counts and depth. Known public ATS links become feed candidates. Other external hosts require review.
-- Workday, Taleo, iCIMS, and similar sites are not treated as universal open APIs. Unsupported sites remain visibly in review; they are expected coverage gaps until a provider or tested adapter covers them.
-- O*NET 31.0 occupation titles and aliases are bundled under CC BY 4.0; see `discovery/NOTICE.md`. Classification is conservative; unknown titles remain searchable.
-
-To approve a source requiring review, add its exact configuration to `discovery/sources.json`, including its `id`, `adapter`, `name`, public `url`, `domain`, `sector`, and `approved:true`, after checking the site's permitted access and testing the extraction. Existing source configuration changes require the `configure` command below. Never set a whole browser/URL namespace to unrestricted access.
-
-Optional HTML fallbacks take a `selectors` object with exact tag, `#id`, or `.class` selectors for `title`, `company`, `description`, and `location`, plus explicit `country`. They must be tested against a fixture. No generic header is guessed to be a job.
-
-An optional browser fallback supports `renderer:"playwright"` and an explicit `browser_hosts` list. Install `discovery/browser-requirements.txt` and Chromium in the interpreter used by Jac before enabling it. This runtime is not installed/enabled by default. Every browser HTTP request goes through the DNS-pinned public transport; unapproved hosts, non-GET requests, service workers, and WebSockets are blocked. No browser-based site was certified during this implementation.
+- `discovery/sources.json` is the reviewed list. To add a source, add its exact configuration (`id`, `adapter`, `name`, `board` or `repo`, `sector`, `approved:true`) after checking the site's permitted access and testing the extraction. The next sweep adopts changes to configured sources.
+- The reviewed San Francisco municipal SmartRecruiters source uses a public ID manifest, a 1,000-posting ceiling and ten-detail batches; see [municipal discovery evidence](MAT19_DISCOVERY.md).
+- `discovery/employers.json` (200 employer candidates) is kept for future expansion and is not collected.
+- Paid providers (Adzuna, TheirStack, USAJOBS) and the browser-rendered fallback were removed. An optional `GITHUB_TOKEN` raises GitHub rate limits.
+- O*NET 31.0 occupation titles and aliases are bundled under CC BY 4.0; see `discovery/NOTICE.md`.
 
 ## Source administration and measurement
 
 ```sh
 python3 scripts/catalog.py report
 python3 scripts/catalog.py audit
-python3 scripts/catalog.py refresh greenhouse:stripe
-python3 scripts/catalog.py retry greenhouse:stripe
+python3 scripts/catalog.py sweep
 python3 scripts/catalog.py disable SOURCE_ID
+python3 scripts/catalog.py enable SOURCE_ID
 python3 scripts/catalog.py purge SOURCE_ID
-python3 scripts/catalog.py configure SOURCE_ID
 ```
 
-`refresh` starts a fresh collection; `retry` preserves the page checkpoint. `disable` stops collection. `purge` stops collection and removes supplied catalog content, including mixed records whose selected detail came from that source; independent copies can be recollected. Tracked application notes and decisions remain, with an unavailable-listing placeholder instead of revoked source details.
+`disable` stops collecting a source. `purge` also removes the content it supplied; use it when rights to display a source end. Tracked application notes and decisions remain, with an unavailable-listing placeholder. Reports are written to `artifacts/discovery-coverage.json`. The audit refetches official active-job IDs for up to 120 sampled listings. It measures activity and duplicates among collected jobs, **not nationwide recall**.
 
-Reports are written to `artifacts/discovery-coverage.json`. They include per-sector coverage, incomplete employers, occupation counts, source health, and reserved usage. The audit independently refetches official active-job IDs and samples up to 120 US jobs across connected employer feeds. It measures activity and duplicates among imported jobs, **not nationwide recall**. Sectors with zero jobs must be reported as gaps, not silently omitted. New adapters should be prioritized by unique active jobs added to those gaps.
-
-Catalog pages use stable key cursors and bounded database queries. SQL indexes are declared in `[database]` for this pinned runtime; its bundled guide incorrectly places that option under `[scale.database]`. Restart the backend after changing index declarations so migrations occur before reads. Do not reset `.jac` or the database.
+Listing and source lookups use the indexes declared in `[database]` in `jac.toml`. Restart the backend after changing index declarations so migrations occur before reads.
 
 ## Verification
 
 ```sh
 python3 tests/test_discovery.py
+python3 tests/test_sweep_runner.py
 python3 tests/test_matching.py
 PYTHONPATH=. python3 tests/test_timeline.py
-JAC_TEST_JOBS=0 ./scripts/jac test tests/catalog_tests.jac
-python3 tests/test_api.py
+./scripts/jac test tests/catalog_tests.jac
+./scripts/jac run --no-serve tests/test_jobs_sweep_api.py
+./scripts/jac run --no-serve tests/test_jobs_feed_api.py
+# Against a running local API:
 python3 tests/test_catalog_api.py
 python3 tests/test_matching_api.py
-./scripts/jac run --no-serve scripts/compile-mobile.jac
-node tests/native.cjs
-python3 tests/persistence.py prepare
-# Restart the backend, then:
-python3 tests/persistence.py verify
+python3 tests/test_timeline_api.py
 ```
 
-Fixtures used by catalog and native integration tests are removed afterward. Tests require local API access; native tests mock iPhone OS behavior and do not certify layout or actual notification delivery.
-
-On the phone: change professions → inspect real job/source → right swipe → open Applications → open source page → mark submitted → relaunch and verify persistence. Repeat with a non-SWE search; verify unknown pay and unavailable sources are honest. Check compact/large text layouts, import a public job link, and verify an inaccessible page produces review/error feedback. Existing resume/reminder checks remain in `docs/PHONE_TESTING.md`.
+On the host, see [the PC host README](../deploy/pc-host/README.md) to replace the retired always-on collector with the timer.

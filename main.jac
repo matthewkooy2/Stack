@@ -1,22 +1,20 @@
 """Stack API. All personal data endpoints require Jac authentication."""
 import time;
-import from datetime { datetime }
-import from zoneinfo { ZoneInfo }
-import from threading { RLock }
 import from jaclang.runtime.runtime { JacRuntime }
-import from core.catalog { _catalog_lock, _worker_allowed, _fresh, _prepare_job_feed, _prepared_job_feed, _enqueue_roles, _criteria, _cache_clear, JobSource, DailyJobsRefresh, _catalog_job, _saved_search, _retained_snapshot, _drop_overrides, search_jobs, get_job, save_search, reset_search, import_job_url, get_import_status, source_status, discovery_claim, discovery_complete, discovery_manage, discovery_report, discovery_analyze }
+import from core.catalog { _worker_allowed, _fresh, _criteria, _catalog_job, _saved_search, _retained_snapshot, _drop_overrides, _compute_matches, _store_matches, _match_records, _rebuild_title_index, _search_or_saved, _deactivate_missing, _retire_shared, _retire_account, _sweep_run, _stored_match_ids, SweepRun, job_feed, search_jobs, get_job, save_search, reset_search, import_job_url, get_import_status, source_status, jobs_sweep_begin, jobs_sweep_source, discovery_manage, discovery_report }
 import from core.preferences { MatchPreferences, _match_preferences, _save_match_preferences }
 import from core.timeline { _timeline_preferences, _save_timeline }
 import from discovery.timeline { validate_month }
 import from discovery.matching { validate_preferences }
-import from discovery.normalize { validate_filters, source_enabled }
-glob _write_lock = _catalog_lock;
+import from discovery.normalize { validate_filters }
+import core.locks as locks;
 import base64;
 import hashlib;
 import from uuid { uuid4, UUID }
 import from pathlib { Path }
 import importlib;
 import logging;
+import agents.mail_scan as mail_scan;
 import agents.worker as browser_worker;
 import from core.fixtures { JOBS, PEOPLE }
 import from core.agents { _demo_status }
@@ -25,18 +23,20 @@ import from core.automation {
     _agent_access, _agent_memory, _agent_summary, _agent_start, _linkedin_execute, _agent_fresh, _agent_system, _agent_owner, _owned_run, _agent_leased, _run_view, _steps, agent_upgrade_workflows,
     agent_settings, agent_save_model, agent_report, agent_admission, agent_register_push, agent_remove_push, agent_notification_claim, agent_notification_begin, agent_notification_finish, agent_notification_status, agent_save_facts, agent_save_policy, agent_activity, agent_run, agent_cancel, agent_respond, agent_reconcile,
     agent_contacts, agent_save_contact, agent_stop_contact, agent_import_contacts, agent_events, agent_claim, agent_model_log, agent_model_logs, agent_authorize, _agent_complete, agent_worker_connection, agent_approve, agent_retry, agent_dismiss, agent_trace, agent_traces, agent_feedback,
-    agent_invite, agent_accept_invite, agent_google_start, agent_google_finish, agent_disconnect, agent_export,
-    prep_progress, prep_live, agent_live_claim, agent_live_check, agent_live_finish, prep_catalog, prep_sessions, prep_create, prep_get, prep_save
+    agent_invite, agent_accept_invite, agent_google_start, agent_google_start_native, agent_google_finish, agent_disconnect, agent_export,
+    prep_progress, prep_live, agent_live_claim, agent_live_check, agent_live_finish, prep_catalog, prep_sessions, prep_create, prep_get, prep_save, prep_coach, prep_save_coaching
 }
 import from agents.contracts { authorize, config, digest, model_status, model_access, validate_facts, STEPS }
 import from agents.latex { load as latex_load, pack as latex_pack, unpack as latex_unpack, encode as latex_encode, compile as latex_compile, parse as latex_parse, summary as latex_summary, outline as latex_outline }
-import from agents.scoring { score as resume_score, summary as score_summary }
-import from agents.tailoring { resume_text }
+import from agents.scoring { quality as resume_quality }
+import from agents.job_score { score as job_score, legacy_summary as job_score_summary }
 import from agents.pdf_safety { inspect_pdf, inspect_file }
 import from agents.resume_templates { TEMPLATES as LATEX_TEMPLATES, fill as fill_template }
-import from agents.record_resume { validate_upload, validate_records, check_documents }
+import from agents.record_resume { validate_upload, validate_records, check_documents, prepare as record_outline, documents as record_documents }
 import from agents.resume_details { view as details_view, save as details_save, facts_for as details_facts, is_resume_fact, attach_import, DetailsError }
 import from agents.bullet_bank { save_review as bank_save_review, compose as bank_compose, KIND as BANK_KIND }
+import from agents.memory_bank { definitions as bank_definitions, context_lines as bank_context }
+import from agents.memory_access { collect as memory_collect, interview_facts as memory_interview_facts }
 import from agents.linkedin { profile_url }
 import from agents.autofill { application_url }
 import from agents.voice { voice_settings }
@@ -51,7 +51,11 @@ import from core.automation { BehavioralStory }
 import from agents.stories { empty as empty_story }
 import os;
 import agents.interview as interview_flow;
+import agents.practice as practice;
 import agents.apple_auth as apple_auth;
+import agents.accounts as accounts;
+
+with entry { accounts.install(); }
 
 # Native and browser Apple identity become ordinary Stack sessions.
 def:pub auth_apple_begin() -> dict[str, any] {
@@ -73,14 +77,19 @@ def _owned_interview(id: str) -> PrepSession {
 def:priv interview_create(application_id: str, client_id: str) -> dict[str, any] {
     _agent_access();
     if not client_id or len(client_id)>100 { return {"error":"A bounded request ID is required."}; }
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();
         for p in [root -->][?:PrepSession] { if p.data.get("mode")=="interview" and p.data.get("client_id")==client_id { return interview_get(jid(p)); } }
         apps=[a for a in [root -->][?:Application] if jid(a)==application_id and not a.demo];
         if not apps { return {"error":"Choose one of your saved roles."}; }
         a=apps[0];resume=_application_resume(a);resume_id=jid(resume) if resume is not None else "";
-        try { data=interview_flow.create(_application_job(a),_agent_memory().facts,application_id,resume_id); }
+        # A resume confirmed as reviewed records has no facts; its records supply the resume questions.
+        records=resume.review.get("records",[]) if resume is not None and resume.review_confirmed else [];
+        # Confirmed memory bank entries add grounded experience beyond this resume.
+        job=_application_job(a);memory=memory_interview_facts(_memory_snapshot(),job,6000,("resume:"+resume_id,));
+        try { data=interview_flow.create(job,_agent_memory().facts,application_id,resume_id,records,memory["facts"]); }
         except ValueError as e { return {"error":str(e)}; }
+        data["memory_coverage"]=memory["coverage"];
         data["client_id"]=client_id;
         p=root ++> PrepSession(data=data,created_at=time.time(),updated_at=time.time());commit();return interview_get(jid(p));
     }
@@ -100,15 +109,16 @@ def:priv interview_sessions() -> dict[str, any] {
     return {"sessions":[{"id":jid(p),"data":p.data,"revision":p.revision,"updated_at":p.updated_at} for p in sessions[:50]]};
 }
 
-def _interview_queue(p: PrepSession, final: bool = False) -> None {
+def _interview_queue(p: PrepSession, final: bool = False, index: int = -1) -> None {
     kind="interview_coach" if final else "interview_turn";
     attempt=int(p.data.get("model_attempt",0))+1;
-    run=_agent_start(kind,jid(p),interview_flow.context(p.data,p.revision,final),str(p.revision)+":"+str(attempt),False);
+    turn=index if index>=0 else interview_flow.target(p.data);
+    run=_agent_start(kind,jid(p),interview_flow.context(p.data,p.revision,final,turn),str(p.revision)+":"+str(attempt),False);
     p.data={**p.data,"pending":run["id"],"model_attempt":attempt};
 }
 
 def:priv interview_answer(id: str, revision: int, answer: str, client_id: str, recording_id: str = "") -> dict[str, any] {
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();
         try {
             p=_owned_interview(id);text=interview_flow.answer_text(answer);
@@ -116,7 +126,7 @@ def:priv interview_answer(id: str, revision: int, answer: str, client_id: str, r
             if any(t.get("client_id")==client_id for t in p.data["turns"]) { return interview_get(id); }
             if revision!=p.revision { raise ValueError("This transcript changed. Reopen it before saving; your typed draft is retained."); }
             if p.data["status"]!="active" or p.data.get("pending") or len(p.data["turns"])>=len(p.data["questions"]) { raise ValueError("Continue or finish the saved interview before answering."); }
-            if len(p.data["turns"])>=6 { raise ValueError("Finish this short interview after six answers."); }
+            if len(p.data["turns"])>=interview_flow.LIMIT { raise ValueError("Finish this short interview after six answers."); }
             original=text;
             if recording_id {
                 recording=TranscriptionStore().get(jid(root),recording_id);
@@ -131,7 +141,7 @@ def:priv interview_answer(id: str, revision: int, answer: str, client_id: str, r
 }
 
 def:priv interview_correct(id: str, revision: int, index: int, answer: str) -> dict[str, any] {
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();
         try {
             p=_owned_interview(id);text=interview_flow.answer_text(answer);
@@ -139,25 +149,41 @@ def:priv interview_correct(id: str, revision: int, index: int, answer: str) -> d
             # Cancel any claimed attempt before changing its evidence.
             pending=_owned_run(p.data.get("pending",""));
             if pending is not None and pending.status not in ["completed","cancelled","failed"] { pending.status="cancelled";pending.lease="";pending.lease_until=0; }
-            p.data=interview_flow.correct(p.data,index,text);p.revision+=1;p.updated_at=time.time();commit();return interview_get(id);
+            p.data=interview_flow.correct(p.data,index,text);p.revision+=1;p.updated_at=time.time();
+            # A retried answer is coached again at once; a finished interview waits for its new final coaching request.
+            if p.data["status"]=="active" { _interview_queue(p,False,index); }
+            commit();return interview_get(id);
         } except ValueError as e { return {"error":str(e)}; }
     }
 }
 
 def:priv interview_continue(id: str, revision: int, action: str = "followup") -> dict[str, any] {
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();
         try {
             p=_owned_interview(id);
             if revision!=p.revision { raise ValueError("This interview changed. Reopen it before continuing."); }
             if action=="finish" {
                 if p.data["status"]=="finished" { return interview_get(id); }
-                if len(p.data["turns"])<2 { raise ValueError("Review at least two answers before finishing."); }
+                # One answer is a useful shortened interview. With none there is nothing to assess.
+                if not p.data["turns"] { raise ValueError("Answer at least one question before finishing. An interview without answers gets no assessment."); }
                 pending=_owned_run(p.data.get("pending",""));
-                if pending is not None and pending.status not in ["completed","cancelled","failed"] { pending.status="cancelled";pending.lease="";pending.lease_until=0; }
-                if p.data["status"]!="finished" { p.data={**p.data,"status":"finished","pending":"","finished_at":time.time()};p.revision+=1; }
+                # Coaching of the last answer that is still being written keeps going, so finishing early never
+                # loses it; it is re-bound to the finished revision. Anything else pending is cancelled.
+                live=pending is not None and pending.status in ["queued","running"] and pending.kind=="interview_turn";
+                if pending is not None and not live and pending.status not in ["completed","cancelled","failed"] { pending.status="cancelled";pending.lease="";pending.lease_until=0; }
+                p.data={**p.data,"status":"finished","pending":p.data["pending"] if live else "","finished_at":time.time()};p.revision+=1;
+                if live and pending is not None { pending.context={**pending.context,"session_revision":p.revision}; }
             } elif action=="analyze" {
-                if not p.data["turns"] or p.data.get("pending") { raise ValueError("Wait for the current task, or retry it below."); }
+                if not p.data["turns"] { raise ValueError("Wait for the current task, or retry it below."); }
+                pending=_owned_run(p.data.get("pending",""));
+                if p.data.get("pending") {
+                    # Final coaching asked for while the last answer is still being coached starts right after it.
+                    if p.data["status"]=="finished" and pending is not None and pending.kind=="interview_turn" and pending.status in ["queued","running"] {
+                        p.data={**p.data,"final_after":True};p.updated_at=time.time();commit();return interview_get(id);
+                    }
+                    raise ValueError("Wait for the current task, or retry it below.");
+                }
                 _interview_queue(p,p.data["status"]=="finished");
             } elif action in ["followup","next"] {
                 if p.data["status"]!="active" or not p.data["turns"] { raise ValueError("Save a reviewed answer before continuing."); }
@@ -170,7 +196,7 @@ def:priv interview_continue(id: str, revision: int, action: str = "followup") ->
                 if action=="followup" {
                     analysis=p.data["analysis"].get(str(count));
                     if not analysis { raise ValueError("Analyze the reviewed answer first, or continue with the saved role question."); }
-                    if count>=6 { raise ValueError("This short interview has reached six answers. Finish and review it."); }
+                    if count>=interview_flow.LIMIT { raise ValueError("This short interview has reached six answers. Finish and review it."); }
                     question={"question":interview_flow.followup(analysis,p.data),"evidence":[],"kind":"followup","basis_revision":p.revision};
                     questions=p.data["questions"][:count]+[question]+[q for q in p.data["questions"][count:] if q["kind"]!="followup"];
                     p.data={**p.data,"questions":questions};p.revision+=1;
@@ -181,7 +207,104 @@ def:priv interview_continue(id: str, revision: int, action: str = "followup") ->
     }
 }
 
+def _library_attempt(id: str) -> PrepSession {
+    _agent_access();
+    for p in [root -->][?:PrepSession] { if jid(p)==id and p.data.get("mode")=="library" { return p; } }
+    raise ValueError("Practice attempt not found.");
+}
+
+"""Latest coaching run per attempt. Runs are found by target, so attempts never store a run ID."""
+def _library_runs() -> dict[str, AgentRun] {
+    latest: dict[str, AgentRun] = {};
+    for r in [root -->][?:AgentRun] {
+        if r.kind=="prep" and (r.target_id not in latest or r.created_at>=latest[r.target_id].created_at) { latest[r.target_id]=r; }
+    }
+    return latest;
+}
+
+"""Coaching for the attempt's current revision, with its parsed 0-100 score when the model followed the SCORES format."""
+def _library_view(p: PrepSession, runs: dict[str, AgentRun] | None = None) -> dict[str, any] {
+    coached=[f["data"] for f in p.feedback if f.get("revision")==p.revision];
+    parsed=practice.parse_score(str(coached[-1].get("text",""))) if coached else {"score":None,"rubric":{},"feedback":""};
+    r=(runs if runs is not None else _library_runs()).get(jid(p));
+    status="scored" if parsed["score"] is not None else "unscored" if coached else r.status if r is not None else "not_started";
+    return {"id":jid(p),"question_id":p.data["problem_id"],"created_at":p.created_at,"revision":p.revision,"transcript":p.data.get("answer",""),
+        "video_id":p.data.get("video_id",""),"recording_id":p.data.get("recording_id",""),"duration":p.data.get("duration",0.0),
+        "score":parsed["score"],"rubric":parsed["rubric"],"feedback":parsed["feedback"],"status":status,"run":_run_view(r,True) if r is not None else {}};
+}
+
+def _library_views() -> list[dict[str, any]] {
+    runs=_library_runs();
+    return [_library_view(p,runs) for p in [root -->][?:PrepSession] if p.data.get("mode")=="library"];
+}
+
+def:priv practice_options() -> dict[str, any] {
+    _agent_access();return {"industries":practice.industries(),"tracks":practice.tracks(),"industry":_profile().industry};
+}
+
+def:priv practice_profile(industry: str) -> dict[str, any] {
+    _agent_access();
+    if not practice.valid_industry(industry) { return {"error":"Choose one of the listed industries."}; }
+    with _write_lock { _agent_fresh();p=_profile();p.industry=industry;commit(); }
+    return practice_options();
+}
+
+"""One slot per curated question for the profile's industry, each opening on its best attempt."""
+def:priv practice_slots(track: str = "behavioral") -> dict[str, any] {
+    _agent_access();industry=_profile().industry;
+    if not industry { return {"industry":"","slots":[],"needs_industry":True}; }
+    if not any(t["id"]==track and t["available"] for t in practice.tracks()) { return {"error":"This practice track is not available yet."}; }
+    views=_library_views();slots=[];
+    for q in practice.questions_for(industry,track) {
+        ranked=practice.rank([v for v in views if v["question_id"]==q["id"]]);
+        slots.append({"question":q,"attempt_count":len(ranked),"best":ranked[0] if ranked else {}});
+    }
+    return {"industry":industry,"track":track,"slots":slots};
+}
+
+def:priv practice_attempts(question_id: str) -> dict[str, any] {
+    _agent_access();
+    try { q=practice.question(question_id); } except ValueError as e { return {"error":str(e)}; }
+    return {"question":q,"attempts":practice.rank([v for v in _library_views() if v["question_id"]==question_id])};
+}
+
+def:priv practice_attempt_get(id: str) -> dict[str, any] {
+    try { return _library_view(_library_attempt(id)); } except ValueError as e { return {"error":str(e)}; }
+}
+
+"""Saves a reviewed answer transcript and starts coaching. The video itself stays on the device."""
+def:priv practice_attempt_create(question_id: str, client_id: str, answer: str, recording_id: str = "", video_id: str = "", duration: float = 0.0) -> dict[str, any] {
+    _agent_access();
+    if not client_id or len(client_id)>100 { return {"error":"A bounded request ID is required."}; }
+    if not answer.strip() { return {"error":"Review your answer transcript before scoring."}; }
+    if len(answer)>30000 or len(recording_id)>100 or len(video_id)>100 { return {"error":"This answer is too long."}; }
+    try { q=practice.question(question_id); } except ValueError as e { return {"error":str(e)}; }
+    with _write_lock {
+        _agent_fresh();
+        for p in [root -->][?:PrepSession] { if p.data.get("mode")=="library" and p.data.get("client_id")==client_id { return _library_view(p); } }
+        data={"problem_id":q["id"],"mode":"library","track":"behavioral","industry":_profile().industry,"language":"","answer":answer.strip(),
+            "code":"","notes":"","transcript":"","canvas":{},"elapsed_seconds":0,"client_id":client_id,"recording_id":recording_id,
+            "video_id":video_id,"duration":max(0.0,min(float(duration),3600.0))};
+        p=root ++> PrepSession(data=data,created_at=time.time(),updated_at=time.time());commit();
+        run=agent_start("prep",jid(p));
+        view=_library_view(p);
+        if run.get("error") { view["error"]=run["error"]; }
+        return view;
+    }
+}
+
+"""Removes the attempt and its uploaded answer audio. The client deletes its local video."""
+def:priv practice_attempt_delete(id: str) -> dict[str, any] {
+    with _write_lock {
+        try { p=_library_attempt(id); } except ValueError as e { return {"error":str(e)}; }
+        rid=str(p.data.get("recording_id",""));
+        if rid { try { TranscriptionStore().action(jid(root),rid,"delete"); } except ValueError { } }
+        del p;commit();return {"deleted":True,"id":id};
+    }
+}
+
 node Profile {
+    has industry: str = "";
     has linkedin_url: str = "", linkedin_target_role: str = "";
     has name: str = "", role: str = "", location: str = "United States", mode: str = "Any", onboarded: bool = False, notifications: bool = True;
 }
@@ -218,7 +341,7 @@ def _profile() -> Profile { _agent_access();return _profile_data(); }
 def _profile_data() -> Profile {
     items = [root -->][?:Profile];
     if items and [root -->][?:MatchPreferences] { return items[0]; }
-    with _write_lock {
+    with locks.account() {
         items = [root -->][?:Profile];
         if items and [root -->][?:MatchPreferences] { return items[0]; }
         _refresh_transaction();
@@ -246,6 +369,8 @@ def _owned_resume(id: str) -> Resume | None {
 
 def _bank_view(r: Resume) -> dict[str, any] {
     return {"id":jid(r),"name":r.name,"records":r.review.get("records",[]),"revision":r.review_revision,
+        "schema_version":1,"entry_type":r.review.get("entry_type","other") if r.review.get("kind")==BANK_KIND else "imported_resume",
+        "fields":r.review.get("fields",{}),"attachment":r.review.get("attachment",{}),
         "confirmed":r.review_confirmed,"editable":r.review.get("kind")==BANK_KIND,
         "upload_digest":r.upload_digest,"confirmed_at":r.review.get("confirmed_at",0.0),
         "source":r.review.get("source","Imported resume: "+r.name),"history":r.review.get("history",r.review.get("record_history",[]))};
@@ -253,26 +378,29 @@ def _bank_view(r: Resume) -> dict[str, any] {
 
 def:priv resume_bank() -> dict[str, any] {
     _agent_access();
-    return {"sources":[_bank_view(r) for r in [root -->][?:Resume] if r.review.get("records")],
+    return {"schema_version":1,"entry_types":bank_definitions(),
+        "sources":[_bank_view(r) for r in [root -->][?:Resume] if r.review.get("records") or r.review.get("kind")==BANK_KIND],
         "resumes":[{"id":jid(r),"name":r.name,"revision":r.review_revision,"confirmed":r.review_confirmed,
             "selection":r.review.get("bank_selection",[])} for r in [root -->][?:Resume] if r.review.get("records") and r.review.get("kind")!=BANK_KIND and not r.template.get("kind")],
-        "limits":{"groups":100,"records_per_group":300,"records_per_resume":300}};
+        "limits":{"groups":100,"records_per_group":300,"records_per_resume":300,"attachment_bytes":10485760,"attachments_per_group":1,"attachment_extensions":[".pdf",".docx"]}};
 }
 
-def:priv resume_bank_save(name: str, source: str, records: list[dict[str, any]], confirm: bool = False, id: str = "", revision: int = 0) -> dict[str, any] {
+def:priv resume_bank_save(name: str, source: str, records: list[dict[str, any]], confirm: bool = False, id: str = "", revision: int = 0, entry_type: str = "", fields: dict[str, any] | None = None) -> dict[str, any] {
     _agent_access();
     # The pinned RPC adapter stringifies omitted defaults. Edits still require a revision.
     if id is None { id=""; }
     if not id and (revision is None or revision=="0") { revision=0; }
     if confirm is None or confirm=="False" { confirm=False; }
-    with _write_lock {
+    if entry_type is None { entry_type=""; }
+    if fields=="None" { fields=None; }
+    with locks.account() {
         _agent_fresh();items=[r for r in [root -->][?:Resume] if r.review.get("kind")==BANK_KIND];
         current=[r for r in items if jid(r)==id];
         if id and not current { return _error("Experience not found."); }
         if not id and (revision!=0 or len(items)>=100) { return _error("Create up to 100 experience groups."); }
         r=current[0] if current else None;
         if r is not None and r.review_revision!=revision { return _error("Experience changed. Reload before saving."); }
-        try { review=bank_save_review(r.review if r is not None else {},name,source,records,confirm,revision,time.time()); }
+        try { review=bank_save_review(r.review if r is not None else {},name,source,records,confirm,revision,time.time(),entry_type,fields); }
         except ValueError as e { return _error(str(e)); }
         if r is None { r=root ++> Resume(name=name.strip(),file_key="",size=0,created_at=time.time()); }
         r.name=name.strip();r.review=dict(review);r.review_revision=revision+1;r.review_confirmed=confirm;
@@ -282,23 +410,62 @@ def:priv resume_bank_save(name: str, source: str, records: list[dict[str, any]],
 
 def:priv resume_bank_delete(id: str, revision: int) -> dict[str, any] {
     _agent_access();
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();items=[r for r in [root -->][?:Resume] if jid(r)==id and r.review.get("kind")==BANK_KIND];
         if not items { return _error("Experience not found."); }
         r=items[0];
         if r.review_revision!=revision { return _error("Experience changed. Reload before deleting."); }
-        del r;commit();return resume_bank();
+        key=r.file_key;del r;commit();
+        if key { _file_path(key).unlink(missing_ok=True); }
+        return resume_bank();
     }
+}
+
+def:priv resume_bank_attachment_save(id: str, revision: int, name: str, content: str) -> dict[str, any] {
+    _agent_access();
+    # An empty name and content removes the current supporting document.
+    if len(name)>160 or len(content)>13981016 { return _error("Use a filename under 160 characters and a file of 10 MB or less."); }
+    raw=b"";suffix="";
+    if name or content {
+        try { raw=base64.b64decode(content,validate=True);suffix=validate_upload(name,raw); }
+        except ValueError as e { return _error(str(e)); }
+    }
+    with locks.account() {
+        _agent_fresh();items=[r for r in [root -->][?:Resume] if jid(r)==id and r.review.get("kind")==BANK_KIND];
+        if not items { return _error("Memory bank entry not found."); }
+        r=items[0];
+        if r.review_revision!=revision { return _error("Entry changed. Reload before changing its file."); }
+        attachment={"name":Path(name).name,"size":len(raw),"digest":hashlib.sha256(raw).hexdigest()} if raw else {};
+        try { review=bank_save_review(r.review,r.name,r.review["source"],r.review["records"],False,revision,time.time(),attachment=attachment); }
+        except ValueError as e { return _error(str(e)); }
+        # Jac can replay a first write after a read-only snapshot; reuse its file key.
+        old_key=r.file_key;key="bank-"+hashlib.sha256((id+":"+str(revision)).encode()+raw).hexdigest()+suffix if raw else "";
+        if raw { _write_private(key,raw); }
+        r.file_key=key;r.size=len(raw);r.review=dict(review);r.review_revision+=1;r.review_confirmed=False;
+        commit();
+        if old_key { _file_path(old_key).unlink(missing_ok=True); }
+        return resume_bank();
+    }
+}
+
+def:priv resume_bank_attachment(id: str) -> dict[str, any] {
+    _agent_access();
+    for r in [root -->][?:Resume] {
+        if jid(r)==id and r.review.get("kind")==BANK_KIND and r.file_key {
+            return {**r.review["attachment"],"content":base64.b64encode(_file_path(r.file_key).read_bytes()).decode()};
+        }
+    }
+    return _error("Supporting document not found.");
 }
 
 def:priv resume_bank_select(id: str, revision: int, selection: list[dict[str, any]]) -> dict[str, any] {
     _agent_access();
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_resume(id);
         if r is None { return _error("Resume not found."); }
         if revision!=r.review_revision { return _error("Resume changed. Reload before choosing experience."); }
         if not r.review_confirmed or not r.review.get("records") or r.template.get("kind") { return _error("Use a confirmed PDF/DOCX record resume for bullet bank selection."); }
-        try { bank_compose(r.review["records"],selection,[_bank_view(x) for x in [root -->][?:Resume] if jid(x)!=id and x.review.get("records")]); }
+        try { bank_compose(r.review["records"],selection,[_bank_view(x) for x in [root -->][?:Resume] if jid(x)!=id and (x.review.get("records") or x.review.get("kind")==BANK_KIND)]); }
         except ValueError as e { return _error(str(e)); }
         checked=[{"id":x["id"],"revision":x["revision"],"record_ids":x["record_ids"]} for x in selection];
         r.review={**r.review,"bank_selection":checked};r.review_revision+=1;commit();return resume_bank();
@@ -321,46 +488,45 @@ def _application_job(a: Application) -> dict[str, any] {
     live=_catalog_job(a.job_id);
     return live if live else _retained_snapshot(a.snapshot);
 }
-# The existing collector calls this before collection and once its queue is idle.
-def:pub discovery_daily(token: str, finish: bool = False) -> dict[str, any] {
+"""Finishes the daily sweep in bounded steps: first closes listings the clean sources no longer list, then stores
+each account's matches. Matching runs outside the write lock; each account's result is written on its own."""
+def:pub jobs_sweep_finish(token: str, run: str) -> dict[str, any] {
     if not _worker_allowed(token) { return {"error":"Worker authorization required."}; }
-    with _write_lock {
-        _fresh();now=datetime.now(ZoneInfo("America/New_York"));day=now.strftime("%Y-%m-%d");
-        states=[root.shared -->][?:DailyJobsRefresh];
-        state=states[0] if states else root.shared ++> DailyJobsRefresh();
-        owners=[a.owner for a in [root.shared -->][?:AgentAdmission]];
-        system=jid(root);
-        if not finish {
-            if now.hour<6 or state.day==day { return {"started":False}; }
-            state.day=day;state.finished=False;state.failed=False;state.successes=0;
-            for owner in owners {
-                _agent_owner(owner);memories=[root -->][?:AgentMemory];
-                if memories and not memories[0].deleted {
-                    saved=_saved_search();search=validate_filters(saved.get("query",""),saved.get("filters",{}));
-                    _enqueue_roles(_criteria(search["query"],search["filters"]),search);
-                }
-            }
-            _agent_owner(system);
-            for source in [root.shared -->][?:JobSource] {
-                if source.status not in ["review","disabled"] and not source_enabled(source.config["adapter"]) { source.next_at=time.time(); }
-            }
-            commit();return {"started":True};
+    system=jid(root);
+    with locks.collector() {
+        _fresh();r=_sweep_run(run);
+        if r is None or r.status not in ["collecting","matching"] { return {"error":"This sweep is not running."}; }
+        if r.status=="collecting" {
+            r.deactivated=_deactivate_missing(r);_rebuild_title_index();_retire_shared();r.status="matching";r.after="";
+            commit();return {"done":False,"deactivated":r.deactivated};
         }
-        if state.finished { return {"prepared":False}; }
-        sources=[root.shared -->][?:JobSource];
-        if any([s.lease_until>time.time() or (s.status in ["pending","collecting"] and not source_enabled(s.config["adapter"])) for s in sources]) { return {"prepared":False}; }
-        state.finished=True;
-        if state.failed or state.successes==0 or any([s.status in ["error","partial","quota"] for s in sources if not source_enabled(s.config["adapter"])]) {
-            commit();return {"prepared":False};
-        }
-        _cache_clear();commit();
-        for owner in owners {
-            _agent_owner(owner);memories=[root -->][?:AgentMemory];
-            if memories and not memories[0].deleted {
-                saved=_saved_search();_prepare_job_feed(validate_filters(saved.get("query",""),saved.get("filters",{})));
+        after=r.after;
+    }
+    owners=sorted([a.owner for a in [root.shared -->][?:AgentAdmission] if a.owner>after]);
+    records=_match_records();deadline=time.time()+30;last=after;count=0;
+    for owner in owners {
+        _agent_owner(owner);memories=[root -->][?:AgentMemory];
+        if memories and not memories[0].deleted {
+            ranked: dict[str, any]={};
+            # A saved search that no longer validates keeps the account's previous matches.
+            try { ranked=_compute_matches(_search_or_saved(None,None),records); } except ValueError { ranked={}; }
+            with locks.account(owner) {
+                _agent_fresh();
+                if ranked { _store_matches(ranked);count+=1; }
+                _retire_account();commit();
             }
         }
-        _agent_owner(system);commit();return {"prepared":True};
+        last=owner;
+        if time.time()>deadline { break; }
+    }
+    _agent_owner(system);
+    with locks.collector() {
+        _fresh();current=_sweep_run(run);
+        if current is None { return {"error":"This sweep is not running."}; }
+        done=last==(owners[-1] if owners else after);
+        current.after=last;current.prepared=current.prepared+count;
+        if done { current.status="done";current.finished_at=time.time(); }
+        commit();return {"done":done,"prepared":current.prepared};
     }
 }
 
@@ -368,10 +534,9 @@ def:priv bootstrap() -> dict[str, any] {
     p = _profile();_backfill_tailored();
     return {
       "user_id":jid(root),
-      "profile":{"name":p.name,"role":p.role,"linkedin_url":p.linkedin_url,"linkedin_target_role":p.linkedin_target_role,"location":p.location,"mode":p.mode,"onboarded":p.onboarded,"notifications":p.notifications,**_timeline_preferences(),"preferences":_match_preferences()},
+      "profile":{"name":p.name,"role":p.role,"linkedin_url":p.linkedin_url,"linkedin_target_role":p.linkedin_target_role,"location":p.location,"mode":p.mode,"industry":p.industry,"onboarded":p.onboarded,"notifications":p.notifications,**_timeline_preferences(),"preferences":_match_preferences()},
       "jobs":[_application_job(a) for a in [root -->][?:Application]],
       "saved_search":_saved_search(),
-      "prepared_jobs":_prepared_job_feed(),
       "decisions":[{"job_id":d.job_id,"action":d.action} for d in [root -->][?:Decision]],
       "applications":[_app_view(a) for a in [root -->][?:Application]],
       "people":PEOPLE,
@@ -384,7 +549,15 @@ def:priv bootstrap() -> dict[str, any] {
     };
 }
 def:priv save_profile(name: str, role: str, location: str, mode: str, notifications: bool, graduation_month: str | None = None, available_from: str | None = None, preferences: dict[str, any] | None = None) -> dict[str, any] {
-    if not name.strip() or len(name)>100 or len(role)>160 or len(location)>160 or mode not in ["Any","Remote","Hybrid","On-site"] { return _error("Enter a name and valid preferences."); }
+    # The phone's "A little about your search" step sends only optional role, location and stage: it has no
+    # name or work-arrangement field. A blank name keeps the saved name (empty for a new account) and a blank
+    # mode means Any. Every value that is supplied is still validated, with a message naming its field.
+    if not name.strip() { name=_profile().name; }
+    if not mode.strip() { mode="Any"; }
+    if len(name)>100 { return _error("Keep your name to 100 characters or fewer."); }
+    if len(role)>160 { return _error("Keep your target roles to 160 characters or fewer."); }
+    if len(location)>160 { return _error("Keep your location to 160 characters or fewer."); }
+    if mode not in ["Any","Remote","Hybrid","On-site"] { return _error("Choose Any, Remote, Hybrid or On-site for work arrangement."); }
     timeline=_timeline_preferences();
     graduation=timeline["graduation_month"] if graduation_month in [None,"None"] else str(graduation_month);
     availability=timeline["available_from"] if available_from in [None,"None"] else str(available_from);
@@ -395,7 +568,7 @@ def:priv save_profile(name: str, role: str, location: str, mode: str, notificati
     else { chosen={**chosen,**preferences}; }
     try { validate_month(graduation);validate_month(availability);validate_preferences(chosen); } except Exception as e { return _error(str(e)); }
     p = _profile();
-    with _write_lock {
+    with locks.account() {
         _refresh_transaction(); p=[root -->][?:Profile][0];
         _save_timeline(graduation,availability);
         changed=_save_match_preferences(role,location,chosen);
@@ -408,13 +581,13 @@ def:priv save_profile(name: str, role: str, location: str, mode: str, notificati
 }
 def:priv save_timeline(graduation_month: str, available_from: str = "") -> dict[str, any] {
     try { validate_month(graduation_month);validate_month(available_from); } except Exception as e { return _error(str(e)); }
-    with _write_lock { _refresh_transaction(); _save_timeline(graduation_month,available_from); commit(); }
+    with locks.account() { _refresh_transaction(); _save_timeline(graduation_month,available_from); commit(); }
     return bootstrap();
 }
 """Save or pass a job. `start_agent` is accepted from older clients and ignored:
 a right swipe only saves; agent help is offered afterwards and starts on request."""
 def:priv swipe(job_id: str, action: str, start_agent: bool = False) -> dict[str, any] {
-    with _write_lock {
+    with locks.account() {
         _refresh_transaction();
         _profile();
         job=_catalog_job(job_id); demo=job_id in [j["id"] for j in JOBS];
@@ -465,7 +638,7 @@ def:priv upload_resume(name: str, content: str, transfer_ms: float = 0.0) -> dic
     } except ValueError as e { return _error(str(e)); }
     except Exception { return _error("This resume could not be opened. Please export a new copy."); }
     fingerprint=hashlib.sha256(raw).hexdigest();
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();
         for existing in [root -->][?:Resume] {
             if existing.upload_digest==fingerprint and existing.name==Path(name).name { return bootstrap(); }
@@ -487,11 +660,12 @@ def _resume_format(r: Resume) -> dict[str, any] {
     if t.get("kind")=="upload" {
         return {"kind":"upload","label":"Your LaTeX","file":t.get("name",""),"pages":t.get("pages",0),"summary":t.get("summary",{}),"skipped":t.get("skipped",[])};
     }
+    if r.review.get("records") {
+        design=_record_template(r);
+        return {"kind":"records","template":design,"label":LATEX_TEMPLATES.get(design,"Stack reviewed records"),"pages":0,"summary":{},"skipped":[]};
+    }
     if t.get("kind")=="builtin" {
         return {"kind":"builtin","template":t["builtin"],"label":LATEX_TEMPLATES[t["builtin"]],"pages":t.get("pages",0),"summary":t.get("summary",{}),"skipped":[]};
-    }
-    if r.review.get("records") {
-        return {"kind":"records","template":r.review.get("template","classic"),"label":"Stack reviewed records","pages":0,"summary":{},"skipped":[]};
     }
     return {"kind":"","template":"","label":"Review imported content","pages":0,"summary":{},"skipped":[]};
 }
@@ -539,7 +713,7 @@ def _backfill_tailored() -> None {
     }
     # bootstrap() follows other writes (such as an upload); keep them before re-reading under the lock.
     commit();
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();settings=_settings();
         if settings.tailored_backfilled { return; }
         for r in [root -->][?:AgentRun] { _save_tailored(r); }
@@ -548,7 +722,7 @@ def _backfill_tailored() -> None {
 }
 """Independently check approved record documents; legacy checks remain unavailable."""
 def _check_tailored(id: str) -> None {
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();x=_owned_tailored(id);
         if x is not None {
             if x.format=="records" and x.docx_key {
@@ -577,31 +751,31 @@ def:priv check_tailored_resume(id: str) -> dict[str, any] {
     if _owned_tailored(id) is None { return _error("Tailored resume not found."); }
     _check_tailored(id);return bootstrap();
 }
-"""Score an owned LaTeX resume for a saved job. PDF-only scoring is temporarily unavailable."""
-def:priv score_resume(application_id: str) -> dict[str, any] {
+"""The records the user confirmed for this resume, with any confirmed bullet-bank experience they chose.
+Empty when the resume is unconfirmed. Uploaded LaTeX and unreviewed imports are never included."""
+def _confirmed_records(r: Resume) -> list[dict[str, any]] {
+    if not r.review_confirmed or not r.review.get("records") { return []; }
+    return bank_compose(r.review["records"],r.review.get("bank_selection",[]),[_bank_view(x) for x in [root -->][?:Resume] if jid(x)!=jid(r) and (x.review.get("records") or x.review.get("kind")==BANK_KIND)])["records"];
+}
+"""Job score for a saved job (docs/JOB_SCORE.md): only the job's resume's confirmed records, against the listing.
+`as_of` ("YYYY-MM") ends roles marked Present; it defaults to this month. `score` keeps the earlier summary for older clients."""
+def:priv score_resume(application_id: str, as_of: str = "") -> dict[str, any] {
     apps=[a for a in [root -->][?:Application] if jid(a)==application_id and not a.demo];
     if not apps { return _error("Saved job not found."); }
     found=_application_resume(apps[0]);
     if found is None { return _error("Upload your resume on the Resume tab first."); }
     r: Resume = found;
-    if not _tailor_source(r) { return _error("PDF-only scoring is temporarily unavailable. Upload your LaTeX source to score this resume."); }
     try {
-        source=_resume_source(r);
-        facts=[f for f in _agent_memory().facts if f.get("verified")];
-        if source["format"]=="records" {
-            import agents.record_resume as record_resume;
-            prepared=record_resume.prepare(source);
-            result=score_summary(resume_score(prepared["outline"],_application_job(apps[0]),facts,text="\n".join(record["text"] for record in prepared["records"])));
-        } else {
-            structure=latex_parse(source);
-            result=score_summary(resume_score(latex_outline(structure),_application_job(apps[0]),facts,text=resume_text(structure["tex"])));
-        }
+        records=_confirmed_records(r);
+        if not records { return _error("Confirm your details for "+r.name+" on the Resume tab. The job score uses only information you confirmed."); }
+        result=job_score(records,_application_job(apps[0]),None if as_of in [None,"","None"] else as_of);
+        quality=resume_quality(record_outline({"records":records,"template":"classic","upload_digest":"","revision":0})["outline"]);
     } except ValueError as e { return _error(str(e)); }
-    return {"application_id":application_id,"resume_name":r.name,"source":source["format"],"score":result};
+    return {"application_id":application_id,"resume_id":jid(r),"resume_name":r.name,"source":"confirmed_records","job_score":result,"score":job_score_summary(result,quality)};
 }
 
 def:priv delete_tailored_resume(id: str) -> dict[str, any] {
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();x=_owned_tailored(id);
         if x is None { return _error("Tailored resume not found."); }
         if x.docx_key { _file_path(x.docx_key).unlink(missing_ok=True); }
@@ -609,25 +783,34 @@ def:priv delete_tailored_resume(id: str) -> dict[str, any] {
     }
     return bootstrap();
 }
-"""The LaTeX source Stack edits: the user's upload, or the built-in template they chose, filled from confirmed details."""
+"""The design a confirmed import renders in. A design chosen before designs moved onto the records (a compiled
+built-in template) is kept; otherwise the records' own design."""
+def _record_template(r: Resume) -> str {
+    if r.template.get("kind")=="builtin" and str(r.template.get("builtin","")) in LATEX_TEMPLATES { return str(r.template["builtin"]); }
+    return str(r.review.get("template","classic"));
+}
+"""What Stack tailors: the user's uploaded LaTeX, or a confirmed import's records in its chosen design. A compiled
+built-in template remains only for older resumes that have no confirmed records."""
 def _resume_source(r: Resume) -> dict[str, any] {
     if r.template.get("kind")=="upload" {
         path=_file_path(r.template["files_key"]);
         if not path.exists() { raise ValueError("Your LaTeX source is unavailable. Upload it again on the Resume tab."); }
         return {**latex_unpack(path.read_bytes()),"format":"latex"};
     }
-    if r.template.get("kind")!="builtin" {
-        if not r.review_confirmed or not r.review.get("records") { raise ValueError("Review and confirm the imported records for "+r.name+" before tailoring."); }
-        composed=bank_compose(r.review["records"],r.review.get("bank_selection",[]),[_bank_view(x) for x in [root -->][?:Resume] if jid(x)!=jid(r) and x.review.get("records")]);
-        return {"format":"records",**composed,"template":r.review.get("template","classic"),"revision":r.review_revision,"upload_digest":r.upload_digest};
+    # Confirmed PDF/DOCX imports always tailor from their current confirmed records; the chosen design only
+    # changes how they render. The original upload is not read again and generated LaTeX is not reparsed.
+    if r.review_confirmed and r.review.get("records") {
+        composed=bank_compose(r.review["records"],r.review.get("bank_selection",[]),[_bank_view(x) for x in [root -->][?:Resume] if jid(x)!=jid(r) and (x.review.get("records") or x.review.get("kind")==BANK_KIND)]);
+        return {"format":"records",**composed,"template":_record_template(r),"revision":r.review_revision,"upload_digest":r.upload_digest};
     }
+    if r.template.get("kind")!="builtin" { raise ValueError("Review and confirm the imported records for "+r.name+" before tailoring."); }
     if not r.review_confirmed or not r.review.get("details",{}).get("confirmed") or r.review.get("records_source")!="details" { raise ValueError("Confirm the details for "+r.name+" to fill its built-in template."); }
     return {**fill_template(r.template["builtin"],r.review.get("values",{})),"format":"builtin"};
 }
 def _save_template(id: str, template: dict[str, any], files: dict[str, any]) -> dict[str, any] {
     key=str(uuid4());stored={};
     for (suffix,data) in files.items() { _write_private(key+suffix,data);stored[suffix]=key+suffix; }
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_resume(id);
         if r is None {
             for name in stored.values() { _file_path(name).unlink(missing_ok=True); }
@@ -646,7 +829,7 @@ def:priv upload_resume_source(id: str, name: str, content: str, transfer_ms: flo
     try { raw=base64.b64decode(content,validate=True); } except Exception { return _error("This file could not be read. Choose it again."); }
     if not raw or len(raw)>2097152 { return _error("Upload a LaTeX source of 2 MB or less."); }
     fingerprint=hashlib.sha256(name.encode()+raw).hexdigest();
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_resume(id);
         if r is None { return _error("Resume not found."); }
         current=r.processing.get("source",{});
@@ -659,7 +842,7 @@ def:priv upload_resume_source(id: str, name: str, content: str, transfer_ms: flo
 }
 def:priv use_resume_template(id: str, template: str) -> dict[str, any] {
     _agent_access();
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_resume(id);
         if r is None { return _error("Resume not found."); }
         if template=="" {
@@ -667,7 +850,8 @@ def:priv use_resume_template(id: str, template: str) -> dict[str, any] {
         }
         if template not in LATEX_TEMPLATES { return _error("Choose one of the built-in templates."); }
         if not r.review_confirmed { return _error("Confirm your resume details first, so Stack can fill the template."); }
-        if r.review.get("records") and r.review.get("records_source")!="details" {
+        # Presentation only: no source generation is queued and the confirmed records are unchanged.
+        if r.review.get("records") {
             _cancel_resume_work(r,"source");_remove_template_files(r);r.template={};
             r.review={**r.review,"template":template};r.review_revision+=1;commit();return bootstrap();
         }
@@ -685,11 +869,15 @@ def:priv read_resume_source(id: str) -> dict[str, any] {
     if r is None { return _error("Resume not found."); }
     name=r.name;view=_resume_format(r);key=str(r.template.get("preview_key",""));
     try { source=_resume_source(r); } except ValueError as e { return _error(str(e)); }
-    if source["format"]=="records" { return {"id":id,"name":name,"format":view,"source":source}; }
+    if source["format"]=="records" {
+        try { output=record_documents(source["records"],source["template"]); }
+        except ValueError as e { return _error(str(e)); }
+        return {"id":id,"name":name,"format":view,"source":source,"preview":output["pdf"]};
+    }
     data: bytes = b"";
     if key and _file_path(key).exists() { data=_file_path(key).read_bytes(); }
     else {
-        with _write_lock {
+        with locks.account() {
             _agent_fresh();current=_owned_resume(id);
             if current is None { return _error("Resume not found."); }
             t=_resume_ticket(str(current.processing.get("source",{}).get("id","")));
@@ -703,9 +891,38 @@ def:priv read_resume_source(id: str) -> dict[str, any] {
     }
     return {"id":id,"name":name,"format":view,"preview":{"name":"Resume preview.pdf","content":base64.b64encode(data).decode()},"tex":source["files"][source["main"]].decode("utf-8")[:200000]};
 }
+"""The verified facts a confirmed-details resume would project from its current confirmed values, so memory can tell
+facts derived from that exact revision apart from independent ones. Empty when the records do not come from details."""
+def _derived_resume_facts(r: Resume) -> list[dict[str, any]] {
+    if not r.review_confirmed or r.review.get("records_source")!="details" or not r.review.get("details",{}).get("confirmed") { return []; }
+    try { facts=validate_facts(details_facts(jid(r),r.name,r.review.get("values",{}))); } except ValueError { return []; }
+    return [{"key":f["key"],"value":f["value"],"source":f["source"]} for f in facts];
+}
+"""The signed-in or leased account's confirmed memory: memory bank entries, confirmed imported
+resumes, verified facts and reviewed stories (agents/memory_access.py). Reads only this root's
+nodes; drafts are listed as excluded. Shared by tailoring, interviews and other agent steps."""
+def _memory_snapshot() -> dict[str, any] {
+    resumes=[{"id":jid(r),"name":r.name,"kind":r.review.get("kind",""),"confirmed":r.review_confirmed,"revision":r.review_revision,
+        "records":r.review.get("records",[]),"entry_type":r.review.get("entry_type","other"),"fields":r.review.get("fields",{}),
+        "source":r.review.get("source",""),"derived_facts":_derived_resume_facts(r)} for r in [root -->][?:Resume] if r.review.get("records") or r.review.get("kind")==BANK_KIND];
+    stories=[{"id":jid(s),"title":s.title,"content":s.content,"revision":s.revision} for s in [root -->][?:BehavioralStory]];
+    return memory_collect(jid(root),resumes,_agent_memory().facts,stories);
+}
+"""Worker read of the leased owner's memory, for steps that ground model output in it."""
+def:pub agent_worker_memory(token: str, id: str, owner: str, lease: str) -> dict[str, any] {
+    if not _agent_system(token) { return {"error":"Worker authorization required."}; }
+    with locks.account(owner) {
+        _agent_fresh();
+        try {
+            r=_agent_leased(id,owner,lease);
+            if _steps(r)[r.index] not in ["tailor","approve_resume","interview_turn","interview_coach","coach"] { return {"error":"This step cannot read the memory bank."}; }
+            return _memory_snapshot();
+        } except ValueError as e { return {"error":str(e)}; }
+    }
+}
 def:pub agent_worker_resume_source(token: str, id: str, owner: str, lease: str) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
-    with _write_lock {
+    with locks.account(owner) {
         _agent_fresh();
         try {
             r=_agent_leased(id,owner,lease);
@@ -781,14 +998,15 @@ def _application_resume(a: Application) -> Resume | None {
     if r is None and len(resumes)==1 { r=resumes[0]; }
     return r;
 }
-"""The LaTeX Stack tailors for this resume: "latex" (uploaded), "builtin" (a chosen template), or "" when it has none.
+"""What Stack tailors for this resume: "latex" (uploaded), "records" (a confirmed import, in any design), "builtin"
+(an older compiled template without confirmed records), or "" when it has none.
 A PDF alone is never tailored."""
 def _tailor_source(r: Resume | None) -> str {
     if r is None { return ""; }
     if r.template.get("kind")=="upload" { return "latex"; }
     if r.review_confirmed {
-        if r.template.get("kind")=="builtin" { return "builtin"; }
         if r.review.get("records") { return "records"; }
+        if r.template.get("kind")=="builtin" { return "builtin"; }
     }
     return "";
 }
@@ -807,7 +1025,7 @@ def _application_agent_context(a: Application) -> dict[str, any] {
 def:priv agent_start(kind: str, target_id: str) -> dict[str, any] {
     _agent_access();
     if kind=="application" { return _error("The application assistant has been retired. Apply on the employer site yourself."); }
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();
         if kind in ["jobs","resume","autofill"] {
             for a in [root -->][?:Application] {
@@ -857,7 +1075,7 @@ def:priv agent_start(kind: str, target_id: str) -> dict[str, any] {
 A chosen resume_id is attached to the job first."""
 def:priv agent_continue_tailoring(id: str, resume_id: str = "") -> dict[str, any] {
     _agent_access();
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_run(id);
         if r is None { return _error("Task not found."); }
         steps=_steps(r);
@@ -880,7 +1098,7 @@ def:priv agent_continue_tailoring(id: str, resume_id: str = "") -> dict[str, any
 }
 
 def:priv agent_linkedin_profile(url: str = "", target_role: str | None = None) -> dict[str, any] {
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();p=_profile_data();
         if url { p.linkedin_url=profile_url(url); }
         if target_role is not None and target_role!="None" { p.linkedin_target_role=target_role.strip(); }
@@ -890,7 +1108,7 @@ def:priv agent_linkedin_profile(url: str = "", target_role: str | None = None) -
 
 def:priv agent_linkedin_start(url: str = "", target_role: str = "") -> dict[str, any] {
     saved=agent_linkedin_profile(url,target_role);
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();now=time.time();
         r=root ++> AgentRun(workflow_version=2,kind="linkedin",target_id="self",
             context={"linkedin_url":saved["url"],"target_role":saved["target_role"]},
@@ -907,7 +1125,7 @@ def _resume_review(r: Resume) -> dict[str, any] {
 }
 def:priv agent_extract_resume(id: str) -> dict[str, any] {
     _agent_access();
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_resume(id);
         if r is None { return _error("Resume not found."); }
         if r.review.get("records") {
@@ -926,9 +1144,9 @@ def:priv agent_extract_resume(id: str) -> dict[str, any] {
 """Save edited imported records with optimistic revision checks and explicit confirmation."""
 def:priv resume_save_records(id: str, revision: int, records: list[dict[str, any]], confirm: bool = False, template: str = "classic") -> dict[str, any] {
     _agent_access();
-    if template not in ["classic","jake"] { return _error("Choose the Classic or Jake template."); }
+    if template not in LATEX_TEMPLATES { return _error("Choose one of the built-in templates."); }
     try { checked=validate_records(records); } except ValueError as e { return _error(str(e)); }
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_resume(id);
         if r is None { return _error("Resume not found."); }
         if r.review_revision!=revision { return _error("Resume review changed. Reload it before saving."); }
@@ -954,9 +1172,10 @@ def:priv resume_save_records(id: str, revision: int, records: list[dict[str, any
 def:priv story_sources() -> dict[str, any] {
     _agent_access();sources=[];
     for r in [root -->][?:Resume] {
-        if r.review_confirmed and r.review.get("records") {
-            sources.append({"key":"resume:"+jid(r),"kind":"reviewed_resume_records","revision":digest({"revision":r.review_revision,"records":r.review["records"]}),
-                "text":"\n".join(record["text"] for record in r.review["records"]),"resume_id":jid(r),"provenance":"User-confirmed imported resume records","review_revision":r.review_revision});
+        if r.review_confirmed and (r.review.get("records") or r.review.get("kind")==BANK_KIND) {
+            lines: list[str]=([r.name]+bank_context(r.review) if r.review.get("schema_version")==1 and r.review.get("fields") else [])+[record["text"] for record in r.review.get("records",[])];
+            sources.append({"key":"resume:"+jid(r),"kind":"reviewed_resume_records","revision":digest({"revision":r.review_revision,"records":r.review.get("records",[])}),
+                "text":"\n".join(lines),"resume_id":jid(r),"provenance":r.review.get("source","User-confirmed imported resume records"),"review_revision":r.review_revision});
         }
     }
     for f in _agent_memory().facts {
@@ -976,7 +1195,7 @@ def:priv story_create(source_key: str, source_revision: str, excerpt: str, title
     _agent_access();
     if not reviewed_single_event { return _error("Review the excerpt and confirm it describes one event before saving a story."); }
     if not title.strip() or len(title)>160 or not excerpt.strip() or len(excerpt)>8000 { return _error("Use a title under 160 characters and a single event excerpt under 8,000 characters."); }
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();sources=[s for s in story_sources()["sources"] if s["key"]==source_key];
         if not sources or sources[0]["revision"]!=source_revision { return _error("The source changed or is unavailable. Review its current version."); }
         source=sources[0];
@@ -1001,7 +1220,7 @@ def _invalidate_builtin_resume(r: Resume) -> None {
 Confirming makes these details the trusted resume (records and facts); any draft withdraws both."""
 def:priv resume_save_details(id: str, revision: int, values: dict[str, any], confirm: bool = False) -> dict[str, any] {
     _agent_access();
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_resume(id);
         if r is None { return _error("Resume not found."); }
         if r.review_revision!=revision { return _error("Resume review changed. Reload it before saving."); }
@@ -1044,7 +1263,7 @@ def _linkedin_browser_control(r: AgentRun, action: str, generation: int, control
     state=browser_worker.browser_call("control",{"owner":jid(root),"id":id,"action":action,
         "generation":generation,"controller":controller,"instance":instance,"linkedin":True});
     if action=="resume" { return {**_linkedin_execute(id),"control":state}; }
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_run(id) as AgentRun;
         if action=="take" { r.status="paused";r.message="You have browser control"; }
         elif action=="stop" { r.status="cancelled";r.message="Cancelled"; }
@@ -1067,7 +1286,7 @@ def:priv agent_browser_control(id: str, action: str, generation: int = -1, contr
     if action=="take" and [a for a in [root -->][?:AgentAction] if a.run_id==id and a.status=="intent"] { return {"error":"An approved action is already being sent. Wait for its receipt before taking control."}; }
     previous=r.context.get("browser_return",r.status);
     if action=="take" {
-        with _write_lock {
+        with locks.account() {
             _agent_fresh();r=_browser_run(id);
             if r is None { return {"error":"This browser step has ended."}; }
             if [a for a in [root -->][?:AgentAction] if a.run_id==id and a.status=="intent"] { return {"error":"Wait for the approved action's receipt before taking control."}; }
@@ -1078,7 +1297,7 @@ def:priv agent_browser_control(id: str, action: str, generation: int = -1, contr
     try { state=browser_worker.browser_call("control",{"owner":jid(root),"id":id,"action":action,"generation":generation,"controller":controller,"instance":instance},5); }
     except ValueError as e { return {"error":str(e)}; }
     except Exception { return {"error":"Control could not be confirmed. Reconnect before sending input."}; }
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_run(id);
         if r is None or r.status in ["completed","cancelled","failed"] or (r.kind=="linkedin" and r.index!=0) { return {"error":"The browser step ended while control was changing."}; }
         if action in ["take","resume"] and r.context.get("browser_instance","")==state["instance"] and r.context.get("browser_generation",0)>state["generation"] { return {"error":"Browser control changed while this request was finishing. Reconnect before continuing."}; }
@@ -1136,12 +1355,12 @@ def:priv agent_browser(id: str, event: dict[str, any]) -> dict[str, any] {
 def:pub agent_finish(token: str, id: str, owner: str, lease: str, result: dict[str, any]) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
     created="";
-    with _write_lock {
+    with locks.account(owner) {
         output=_agent_complete(token,id,owner,lease,result);
         if output.get("error") { return output; }
         _agent_owner(owner);r=_owned_run(id);
         if r is None { return output; }
-        _project_agent(r);_notify_agent(r);created=_save_tailored(r);
+        _project_agent(r);_notify_agent(r);created=_save_tailored(r);output=_run_view(r,True);
         commit();
     }
     # Parsing takes a second or two, so it runs after the lock is released.
@@ -1174,7 +1393,108 @@ def _create_study_plan(application_id: str) -> list[dict[str, any]] {
 }
 def:priv prep_for_application(application_id: str) -> dict[str, any] {
     _agent_access();
-    with _write_lock { _agent_fresh();result=_create_study_plan(application_id);commit();return {"plan":result}; }
+    with locks.account() { _agent_fresh();result=_create_study_plan(application_id);commit();return {"plan":result}; }
+}
+def _mail_context() -> dict[str, any] {
+    applications=[];
+    for a in [root -->][?:Application] {
+        if not a.demo { job=_application_job(a);applications.append({"id":jid(a),"job":{"company":str(job.get("company","")),"title":str(job.get("title",""))}}); }
+    }
+    owned={a["id"] for a in applications};threads: dict[str, any]={};
+    for e in [root -->][?:AgentEvent] {
+        if e.data.get("application_id") in owned and not e.data.get("ambiguous") and e.data.get("thread_id") {
+            key=e.data["thread_id"];threads[key]=list(set(threads.get(key,[])+[e.data["application_id"]]));
+        }
+    }
+    return {"applications":applications,"contacts":[{"email":str(c.data.get("email",""))} for c in [root -->][?:AgentContact]],"interviews":[{"key":i.key,"application_id":i.application_id} for i in [root -->][?:AgentInterview]],"threads":{k:v[0] for (k,v) in threads.items() if len(v)==1}};
+}
+def:priv gmail_scan_status() -> dict[str, any] {
+    _agent_access();runs=[r for r in [root --> [?:AgentRun, -created_at]] if r.kind=="sync" and r.context.get("manual_scan")];
+    latest=runs[0] if runs else None;
+    return {"scan":_run_view(latest) if latest is not None else {},"reviews":[{"id":jid(e),**e.data} for e in [root -->][?:AgentEvent] if e.data.get("discovery") and e.data.get("ambiguous") and not e.data.get("resolved")]};
+}
+def:priv gmail_scan_start(since: float) -> dict[str, any] {
+    _agent_access();
+    try { since=mail_scan.validate_since(since); } except ValueError as exc { return {"error":str(exc)}; }
+    with locks.account() {
+        _agent_fresh();m=_agent_memory();connections=[c for c in [root -->][?:AgentConnection] if c.tracks_mail(m.policy)];
+        if not connections { return {"error":"Connect Gmail before starting a scan."}; }
+        active=[r for r in [root -->][?:AgentRun] if r.kind=="sync" and r.context.get("manual_scan") and r.status in ["queued","running"]];
+        if not active {
+            c=connections[0];context={**_mail_context(),"manual_scan":True,"since":since,"until":time.time(),"scan_cursor":"","scanned":0,"imported":0,"updated":0,"to_review":0,"connection_id":jid(c),"connection_generation":c.generation,
+                "known_messages":[e.key for e in [root -->][?:AgentEvent] if (e.data.get("application_id") and not e.data.get("ambiguous")) or e.data.get("dismissed")]};
+            _agent_start("sync","google",context,str(uuid4()),False);commit();
+        }
+    }
+    return gmail_scan_status();
+}
+def:priv gmail_scan_dismiss(id: str) -> dict[str, any] {
+    _agent_access();
+    with locks.account() {
+        _agent_fresh();events=[e for e in [root -->][?:AgentEvent] if jid(e)==id and e.data.get("discovery")];
+        if not events { return {"error":"This message was not found."}; }
+        e=events[0];
+        if e.data.get("ambiguous") { e.data={**e.data,"resolved":True,"ambiguous":False,"dismissed":True};commit(); }
+    }
+    return gmail_scan_status();
+}
+def _mail_application(event: dict[str, any]) -> Application | None {
+    apps=[a for a in [root -->][?:Application] if not a.demo];
+    if event.get("application_id") { return next((a for a in apps if jid(a)==event["application_id"]),None); }
+    d=event.get("discovery",{});
+    if not d.get("confirmed") { return None; }
+    company=str(d.get("company",""));title=str(d.get("title",""));reference=str(d.get("reference",""));
+    matches=[];
+    for a in apps {
+        job=_application_job(a);
+        if mail_scan.identity(company,title)[:2]==mail_scan.identity(str(job.get("company","")),str(job.get("title","")))[:2] {
+            existing_reference=str(a.snapshot.get("gmail_reference",job.get("gmail_reference","")));
+            if reference and existing_reference and mail_scan.identity("","",reference)[2]!=mail_scan.identity("","",existing_reference)[2] { continue; }
+            matches.append(a);
+        }
+    }
+    if len(matches)>1 { return None; }
+    if matches {
+        a=matches[0];
+        if a.snapshot.get("gmail_import") { a.created_at=min(a.created_at,float(event["at"])); }
+        if reference { a.snapshot={**a.snapshot,"gmail_reference":reference}; }
+        return a;
+    }
+    job=mail_scan.snapshot(company,title,reference,str(event.get("thread_id","")));
+    return root ++> Application(job_id=job["id"],created_at=float(event["at"]),demo=False,snapshot=job);
+}
+def _project_mail_scan(r: AgentRun) -> None {
+    connections=[c for c in [root -->][?:AgentConnection] if jid(c)==r.context.get("connection_id") and c.generation==r.context.get("connection_generation") and c.tracks_mail(_agent_memory().policy)];
+    if not connections { r.status="cancelled";r.message="Gmail changed during this scan. Start a new scan.";return; }
+    artifact=r.artifacts.get("sync",{});events=artifact.get("events",[]);
+    try {
+        if type(artifact.get("done")) is not bool or type(artifact.get("scanned")) is not int or not 0<=artifact["scanned"]<=1 or not isinstance(events,list) or len(events)>1 or not isinstance(artifact.get("scan_cursor"),str) or (not artifact["done"] and not artifact["scan_cursor"]) { raise ValueError("Gmail returned an invalid scan page. Start a new scan."); }
+        for event in events {
+            if not str(event.get("key","")) or not r.context["since"]<=float(event.get("at",-1))<=r.context["until"] { raise ValueError("Gmail returned a message outside the scan dates."); }
+            if event.get("discovery") {
+                d=event["discovery"];checked=mail_scan.validate_discovery({**d,"decision":"confirmed" if d.get("confirmed") else "uncertain"},str(event.get("excerpt","")));
+                event["discovery"]=checked;event["ambiguous"]=not checked["confirmed"];event["status"]=checked["status"];event["quote"]=checked["quote"];
+            }
+        }
+    } except (ValueError,TypeError,KeyError) as exc { r.status="failed";r.index=0;r.message=str(exc);return; }
+    for event in events {
+        previous=[e for e in [root -->][?:AgentEvent] if e.key==event["key"]];
+        if previous and not previous[0].data.get("ambiguous") { continue; }
+        existing={jid(a) for a in [root -->][?:Application]};a=_mail_application(event);
+        event["scan_id"]=jid(r);
+        if a is not None {
+            event["application_id"]=jid(a);event["ambiguous"]=False;
+            field="updated" if jid(a) in existing else "imported";r.context[field]=int(r.context.get(field,0))+1;
+        } else { event["ambiguous"]=True;r.context["to_review"]=int(r.context.get("to_review",0))+1; }
+        if previous { previous[0].data=event; }
+        else { root ++> AgentEvent(key=str(event["key"]),data=event,created_at=time.time()); }
+        _apply_confirmed_mail(event);
+    }
+    r.context["scanned"]=int(r.context.get("scanned",0))+artifact["scanned"];r.context["scan_cursor"]=artifact["scan_cursor"];
+    r.context.update(_mail_context());r.projected=artifact["done"];
+    if not artifact["done"] { r.index=0;r.status="queued";r.attempts=0;r.next_at=0; }
+    r.message="Scan complete" if artifact["done"] else "Scanning email";
+    for t in [root.shared -->][?:AgentTicket] { if t.run_id==jid(r) { t.state=r.status;t.due_at=time.time() if r.status=="queued" else 0; } }
 }
 def _apply_confirmed_mail(event: dict[str, any]) -> None {
     if not event.get("ambiguous") {
@@ -1186,10 +1506,11 @@ def _apply_confirmed_mail(event: dict[str, any]) -> None {
             _agent_start("calendar",jid(interview),{"event":interview.event},str(interview.updated_at),False);
         }
         for a in [root -->][?:Application] {
-            if jid(a)==event.get("application_id") and event["at"]>a.status_at and not a.demo {
+            if jid(a)==event.get("application_id") and not a.demo {
                 status=str(event["status"]);
-                if status in ["Submitted","Assessment","Interview","Rejected"] and not (status=="Submitted" and a.status in ["Assessment","Interview","Rejected"]) and a.status!="Rejected" and not (a.status=="Interview" and status=="Assessment") {
-                    a.status=status;a.status_at=float(event["at"]);a.history=a.history+[{"status":status,"at":a.status_at,"source":"Gmail","evidence":event["quote"]}];
+                if status in mail_scan.STATUSES {
+                    if not any(h.get("message_id")==event.get("key") for h in a.history) { a.history=sorted(a.history+[{"status":status,"at":float(event["at"]),"source":"Gmail","evidence":event["quote"],"message_id":event.get("key","")}],key=lambda (h: dict[str, any]) { h["at"]; }); }
+                    if event["at"]>a.status_at and not (status=="Submitted" and a.status in ["Assessment","Interview","Offer","Rejected"]) { a.status=status;a.status_at=float(event["at"]); }
                 }
             }
         }
@@ -1197,6 +1518,7 @@ def _apply_confirmed_mail(event: dict[str, any]) -> None {
 }
 def _project_agent(r: AgentRun) -> None {
     if r.projected or r.status!="completed" { return; }
+    if r.kind=="sync" and r.context.get("manual_scan") { _project_mail_scan(r);return; }
     if r.status=="completed" and r.kind=="network" {
         for c in [root -->][?:AgentContact] {
             if jid(c)==r.target_id {
@@ -1224,7 +1546,7 @@ def _project_agent(r: AgentRun) -> None {
 }
 def:pub agent_schedule(token: str, wake_key: str = "") -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
-    with _write_lock {
+    with locks.sweep() {
         _agent_fresh();accounts=[a.owner for a in [root.shared -->][?:AgentAdmission]];count=0;
         for owner in accounts {
             commit();_agent_owner(owner);m=_agent_memory();
@@ -1233,21 +1555,22 @@ def:pub agent_schedule(token: str, wake_key: str = "") -> dict[str, any] {
                 if r.kind=="live" and r.status in ["waiting","running"] and r.lease_until<time.time() { r.status="failed";r.lease="";r.message="Live interview expired. Its reserved budget is retained."; }
                 _project_agent(r);_notify_agent(r);
             }
+            try { _agent_access(); } except ValueError { continue; }
+            # Connecting Gmail enables read-only tracking independently of outbound rules.
+            if any(c.tracks_mail(m.policy) for c in [root -->][?:AgentConnection]) {
+                context=_mail_context();
+                _agent_start("sync","google",context,"push:"+wake_key if wake_key else str(int(time.time()/300)));count+=1;
+            }
             if not m.policy.get("enabled") or m.policy.get("expires_at",0)<time.time() { continue; }
             if m.policy.get("analyze_top_matches") {
                 today=time.time()-86400;recent=[r for r in [root -->][?:AgentRun] if r.kind=="jobs" and r.created_at>today];
                 if len(recent)<3 {
-                    saved=_saved_search();matches=search_jobs(str(saved.get("query","")),saved.get("filters",{}));
-                    for candidate in matches.get("jobs",[])[:max(0,3-len(recent))] {
-                        job=_catalog_job(str(candidate["id"]));p=_profile();
-                        if job is not None { _agent_start("jobs","job:"+str(candidate["id"]),{"job":job,"profile":{"name":p.name,"role":p.role,"preferences":_match_preferences()},"resume_id":_settings().selected_resume}); }
+                    # The sweep's stored matches; never recompute inside this write transaction.
+                    for candidate in _stored_match_ids()[:max(0,3-len(recent))] {
+                        job=_catalog_job(candidate);p=_profile();
+                        if job { _agent_start("jobs","job:"+candidate,{"job":job,"profile":{"name":p.name,"role":p.role,"preferences":_match_preferences()},"resume_id":_settings().selected_resume}); }
                     }
                 }
-            }
-            connections=[c for c in [root -->][?:AgentConnection] if c.state=="connected"];
-            if connections and "gmail_read" in m.policy.get("actions",[]) {
-                context={"applications":[_app_view(a) for a in [root -->][?:Application] if not a.demo],"contacts":[c.data for c in [root -->][?:AgentContact]],"interviews":[{"key":i.key,"application_id":i.application_id} for i in [root -->][?:AgentInterview]]};
-                _agent_start("sync","google",context,"push:"+wake_key if wake_key else str(int(time.time()/300)));count+=1;
             }
             for c in [root -->][?:AgentContact] {
                 if c.next_at and c.next_at<=time.time() and c.data.get("selected") and not c.data.get("stopped") and c.followups<int(m.policy.get("followup_limit",0)) {
@@ -1272,7 +1595,7 @@ def _features() -> list[dict[str, any]] {
     default_resume=_owned_resume(_settings().selected_resume);resumes=[r for r in [root -->][?:Resume] if r.review.get("kind")!=BANK_KIND];
     if default_resume is None and len(resumes)==1 { default_resume=resumes[0]; }
     return feature_status({
-        "now":time.time(),"policy":m.policy,"model":model_status(jid(root),m.model_selection),"google_scopes":scopes,
+        "now":time.time(),"policy":m.policy,"model":model_status(jid(root),m.model_selection),"google_scopes":scopes,"google_tracking":any(c.tracks_mail(m.policy) for c in [root -->][?:AgentConnection]),
         "google_client":bool(os.environ.get("GOOGLE_CLIENT_ID","")) and os.environ.get("GOOGLE_REDIRECT_URI","").startswith("https://"),
         "browser":bool(os.environ.get("STACK_BROWSER_URL","")) and bool(os.environ.get("STACK_BROWSER_TOKEN","")),
         "sandbox":bool(os.environ.get("STACK_SANDBOX_URL","")) or c["sandbox_available"],"voice_error":voice_error,"web_url":c["web_url"],
@@ -1287,38 +1610,52 @@ def _features() -> list[dict[str, any]] {
 def:priv agent_features() -> dict[str, any] { _agent_access();return {"features":_features()}; }
 
 def _export_resume(r: Resume) -> dict[str, any] {
-    if r.review.get("kind")==BANK_KIND { return {**_bank_view(r),"review":r.review,"created_at":r.created_at}; }
+    if r.review.get("kind")==BANK_KIND { return {**_bank_view(r),"review":r.review,"created_at":r.created_at,"supporting_document":resume_bank_attachment(jid(r)) if r.file_key else {}}; }
     out={"id":jid(r),**read_resume(jid(r)),"format":_resume_format(r)};
     if r.template {
-        try { out["source"]=latex_encode(_resume_source(r)); }
-        except ValueError as e { out["source_error"]=str(e); }
+        try {
+            source=_resume_source(r);
+            if source["format"]!="records" { out["source"]=latex_encode(source); }
+        } except ValueError as e { out["source_error"]=str(e); }
     }
     return out;
 }
 def:priv account_export() -> dict[str, any] {
     _agent_access();return {"account":bootstrap(),"agents":agent_export(),"stories":story_list()["stories"],"recordings":TranscriptionStore().list(jid(root)),"resumes":[_export_resume(r) for r in [root -->][?:Resume]],"tailored_resumes":[read_tailored_resume(jid(x)) for x in [root -->][?:TailoredResume]]};
 }
-def:priv account_delete(username: str, password: str) -> dict[str, any] {
+def:priv account_delete(username: str = "", password: str = "") -> dict[str, any] {
     manager=__import__("jaclang.server.identity.user_manager",fromlist=["UserManager"]).UserManager();
-    user=manager.authenticate(username,password);
-    if not user or manager.get_root_id(user["user_id"])!=jid(root) { return {"error":"Confirm this account's username and password."}; }
-    return _delete_verified_account(user["user_id"]);
+    if username or password {
+        user=manager.authenticate(username,password);
+        if not user or manager.get_root_id(user["user_id"])!=jid(root) { return {"error":"This sign-in belongs to another account."}; }
+        return _delete_verified_account(user["user_id"]);
+    }
+    user_id=accounts.user_for_root(jid(root));
+    if not user_id { return {"error":"Sign in before deleting your account."}; }
+    return _delete_verified_account(str(user_id));
 }
 
 def _delete_verified_account(user_id: str) -> dict[str, any] {
     manager=__import__("jaclang.server.identity.user_manager",fromlist=["UserManager"]).UserManager();
     if manager.get_root_id(user_id)!=jid(root) { return {"error":"This account could not be confirmed."}; }
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();owner=jid(root);m=_agent_memory();m.deleted=True;m.policy={"enabled":False};m.facts=[];m.admitted=False;
         for r in [root -->][?:AgentRun] { r.lease="";r.status="cancelled"; }
         for t in [root.shared -->][?:AgentTicket] { if t.owner==owner { del t; } }
         commit();
         for c in [root -->][?:AgentConnection] {
             if c.sealed {
-                try { __import__("agents.google",fromlist=["revoke"]).revoke(__import__("agents.security",fromlist=["unseal"]).unseal(c.sealed)); } except Exception { cleanup_failed=True; }
+                try { __import__("agents.google",fromlist=["revoke"]).revoke(__import__("agents.security",fromlist=["unseal"]).unseal(c.sealed)); }
+                except Exception { return {"error":"Could not disconnect Google. Please retry account deletion."}; }
             }
         }
-        try { importlib.import_module("agents.worker").browser_call("purge",{"owner":owner}); } except Exception { cleanup_failed=True; }
+        if os.environ.get("STACK_BROWSER_URL","") {
+            try {
+                cleared=importlib.import_module("agents.worker").browser_call("purge",{"owner":owner});
+                if not cleared.get("purged") { return {"error":"Could not clear browser data. Please retry account deletion."}; }
+            }
+            except Exception { return {"error":"Could not clear browser data. Please retry account deletion."}; }
+        }
         for r in [root -->][?:Resume] { _cancel_resume_work(r);if r.file_key { _file_path(r.file_key).unlink(missing_ok=True); }_remove_template_files(r); }
         for x in [root -->][?:TailoredResume] {
             _file_path(x.pdf_key).unlink(missing_ok=True);
@@ -1326,21 +1663,31 @@ def _delete_verified_account(user_id: str) -> dict[str, any] {
         }
         for n in [root -->] { if jid(n)!=jid(m) { del n; } }
         TranscriptionStore().delete_owner(owner);
+        accounts.purge_files(owner);
         commit();
-        result=manager.delete_user(user_id);
-        if result.get("error") { return {"error":"Account cleanup could not finish. Please try again."}; }
+        try { accounts.delete_identity(manager,user_id,owner); }
+        except Exception { return {"error":"Account cleanup could not finish. Please try again."}; }
         return {"deleted":True};
     }
 }
 
 
-def:priv agent_resolve_event(id: str, application_id: str, status: str) -> dict[str, any] {
+def:priv agent_resolve_event(id: str, application_id: str, status: str, company: str = "", title: str = "") -> dict[str, any] {
     _agent_access();
-    if status not in ["Submitted","Assessment","Interview","Rejected"] { return {"error":"Choose the status confirmed by this message."}; }
-    with _write_lock {
+    if status not in mail_scan.STATUSES { return {"error":"Choose the status confirmed by this message."}; }
+    with locks.account() {
         _agent_fresh();events=[e for e in [root -->][?:AgentEvent] if jid(e)==id];
         applications=[a for a in [root -->][?:Application] if jid(a)==application_id and not a.demo];
-        if not events or not applications { return {"error":"This event or application was not found."}; }
+        if not events { return {"error":"This message was not found."}; }
+        if events[0].data.get("resolved") { return agent_events(); }
+        if not applications and not application_id and events[0].data.get("discovery") {
+            company=company.strip();title=title.strip();
+            if not company or not title or len(company)>200 or len(title)>300 { return {"error":"Enter the company and job title from this message."}; }
+            event={**events[0].data,"discovery":{**events[0].data["discovery"],"company":company,"title":title,"confirmed":True}};a=_mail_application(event);
+            if a is None { return {"error":"Choose which existing application this message belongs to."}; }
+            applications=[a];application_id=jid(a);
+        }
+        if not applications { return {"error":"This application was not found."}; }
         e=events[0];e.data={**e.data,"application_id":application_id,"status":status,"ambiguous":False,"resolved":True};
         _apply_confirmed_mail(e.data);commit();return agent_events();
     }
@@ -1377,7 +1724,7 @@ def _queue_resume(r: Resume, kind: str, key: str, fingerprint: str, transfer_ms:
 }
 def:priv retry_resume_processing(id: str, kind: str) -> dict[str, any] {
     _agent_access();
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_resume(id);
         if r is None or kind not in ["pdf","source","import"] { return _error("Resume processing not found."); }
         if kind=="pdf" { return _error("PDF detail extraction is temporarily unavailable."); }
@@ -1400,7 +1747,7 @@ def _resume_leased(id: str, owner: str, lease: str) -> ResumeTicket {
 }
 def:pub resume_processing_claim(token: str) -> dict[str, any] {
     if not _agent_system(token) { return _error("Worker authorization required."); }
-    with _write_lock {
+    with locks.sweep() {
         _agent_fresh();now=time.time();
         tickets=[t for t in [root.shared --> [?:ResumeTicket, created_at]] if t.status in ["queued","parsing","compiling"] and t.lease_until<=now];
         for t in tickets {
@@ -1427,7 +1774,7 @@ def:pub resume_processing_claim(token: str) -> dict[str, any] {
 }
 def:pub resume_processing_stage(token: str, id: str, owner: str, lease: str, parse_ms: float) -> dict[str, any] {
     if not _agent_system(token) { return _error("Worker authorization required."); }
-    with _write_lock {
+    with locks.account(owner) {
         _agent_fresh();
         try { t=_resume_leased(id,owner,lease); } except ValueError as e { return _error(str(e)); }
         if t.kind!="source" or t.status!="parsing" { return _error("Invalid processing stage."); }
@@ -1439,7 +1786,7 @@ def:pub resume_processing_stage(token: str, id: str, owner: str, lease: str, par
 }
 def:pub resume_processing_finish(token: str, id: str, owner: str, lease: str, result: dict[str, any]) -> dict[str, any] {
     if not _agent_system(token) { return _error("Worker authorization required."); }
-    with _write_lock {
+    with locks.account(owner) {
         _agent_fresh();
         try { t=_resume_leased(id,owner,lease); } except ValueError as e { return _error(str(e)); }
         r=_owned_resume(t.resume_id);
@@ -1475,7 +1822,7 @@ def:pub resume_processing_finish(token: str, id: str, owner: str, lease: str, re
 }
 def:priv resume_transfer_complete(id: str, job_id: str, elapsed_ms: float) -> dict[str, any] {
     _agent_access();
-    with _write_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_resume(id);t=_resume_ticket(job_id);
         if r is None or t is None or t.owner!=jid(root) or t.resume_id!=id { return _error("Resume processing not found."); }
         if r.processing.get(t.kind,{}).get("id")!=job_id { return _error("Upload was replaced."); }

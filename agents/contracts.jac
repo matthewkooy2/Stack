@@ -55,9 +55,21 @@ def digest(value: any) -> str {
 }
 """Deployment config is private, never accepted from a mobile client."""
 def config(selection: str = "") -> dict[(str, any)] {
-    path = Path(os.environ.get('STACK_AGENT_CONFIG', 'storage/agents/config.json'));
-    raw = json.loads(path.read_text()) if path.exists() else {};
     if selection not in ('', 'codex-cli', 'local') { raise ValueError('Choose Codex CLI or Local model.'); }
+    path = Path(os.environ.get('STACK_AGENT_CONFIG', 'storage/agents/config.json'));
+    try {
+        try { raw = json.loads(path.read_text()); }
+        except FileNotFoundError { raw = {}; }
+        if not isinstance(raw, `dict) { raise ValueError('Agent configuration must be a JSON object.'); }
+        return _read_config(raw, selection);
+    } except (OSError, ValueError, TypeError, AttributeError, OverflowError) {
+        raise ValueError('Agent configuration is invalid. Check STACK_AGENT_CONFIG for a readable JSON object and valid limits.') from None;
+    }
+}
+
+def _read_config(raw: dict[str, any], selection: str) -> dict[(str, any)] {
+    # Model overrides do not control admission. Only a JSON false in the deployment config opens it.
+    invite_only = raw.get('invite_only') is not False;
     if selection {
         chosen = raw.get('model_options', {}).get(selection, {});
         if selection == 'codex-cli' {
@@ -69,21 +81,27 @@ def config(selection: str = "") -> dict[(str, any)] {
             if raw.get('provider') not in LOCAL_PROVIDERS { raw = {**raw, 'provider': 'ollama', 'model': '', 'local_model_url': ''}; }
         }
     }
+    # Optional faster model for the coach step, per provider (#124). Present only when
+    # set, so deployments without it keep their configuration digest.
+    coach = raw.get('coach_models', {});
+    chosen_coach = {str(k): str(v).strip() for (k, v) in coach.items() if str(v).strip()} if isinstance(coach, `dict) else {};
+    extra = {'coach_models': chosen_coach} if chosen_coach else {};
     return {
+        **extra,
         'provider': str(raw.get('provider', 'openai')),
         'monthly_cents': int(raw.get('monthly_cents', 0)),
         'user_monthly_cents': int(raw.get('user_monthly_cents', 0)),
         'model': str(raw.get('model', '')),
         'local_model_url': str(raw.get('local_model_url', '')),
         'local_model_timeout': min(90, max(5, int(raw.get('local_model_timeout', 90)))),
-        'local_model_context_tokens': min(32768, max(1024, int(raw.get('local_model_context_tokens', 8192)))),
+        'local_model_context_tokens': min(262144, max(1024, int(raw.get('local_model_context_tokens', 8192)))),
         'input_cents_per_million': int(raw.get('input_cents_per_million', 0)),
         'output_cents_per_million': int(raw.get('output_cents_per_million', 0)),
         'max_output_tokens': min(
             12000, max(256, int(raw.get('max_output_tokens', 3000)))
         ),
         'action_daily_limits': raw.get('action_daily_limits', {}),
-        'invite_only': bool(raw.get('invite_only', False)),
+        'invite_only': invite_only,
         'web_url': str(raw.get('web_url', '')),
         'sandbox_available': (raw.get('sandbox_available') is True)
     };

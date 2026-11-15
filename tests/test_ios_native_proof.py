@@ -192,7 +192,10 @@ class ReleaseProof(unittest.TestCase):
                 self.api.side_effect = None
                 self.api.return_value = {'object': {'sha': 'new-main'}}
                 with self.assertRaisesRegex(ValueError, 'no longer current main'):
+                    proof.release(MACHINE, require_upload=True)
+                with patch.object(proof, 'output') as output:
                     proof.release(MACHINE)
+                    output.assert_called_once_with('upload', 'false')
 
 
 class LogTransport(unittest.TestCase):

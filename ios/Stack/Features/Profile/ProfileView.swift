@@ -28,6 +28,9 @@ struct ProfileView: View {
     @State private var modelSettings: JSON = .null
     @State private var modelBusy = false
     @State private var modelError = ""
+    @State private var nudges = NudgeSettings()
+    @State private var nudgeNote = ""
+    @State private var confirmDelete = false
 
     private var changed: Bool {
         let a = store.account
@@ -60,7 +63,15 @@ struct ProfileView: View {
         .task { await loadModel() }
         .sheet(isPresented: $showAgents) { AgentHubView().environment(store) }
         .sheet(isPresented: $showReminders) { RemindersView().environment(store) }
-        .sheet(isPresented: $showBank) { ExperienceBankView().environment(store) }
+        .fullScreenCover(isPresented: $showBank) { MemoryBankView().environment(store) }
+        .alert("Delete your account?", isPresented: $confirmDelete) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete account", role: .destructive) {
+                Task { if await store.deleteAccount() { dismiss() } }
+            }
+        } message: {
+            Text("Are you sure? Your account and all its data will be permanently deleted.")
+        }
     }
 
     private func go(_ next: Pane) {
@@ -87,7 +98,7 @@ struct ProfileView: View {
                 ListRow(label: "Job matching", icon: "jobs", detail: "Level, pay, work style, exclusions") { go(.matching) }.reveal(2)
                 ListRow(label: "Agents", icon: "sparkles", detail: agentSummary) { showAgents = true }.reveal(3)
                 ListRow(label: "Follow-up reminders", icon: "bell", detail: reminderSummary) { showReminders = true }.reveal(4)
-                ListRow(label: "Experience bank", icon: "resume", detail: "Confirmed facts for tailoring") { showBank = true }.reveal(5)
+                ListRow(label: "Memory bank", icon: "resume", detail: "Skills, projects and experience") { showBank = true }.reveal(5)
                 ListRow(label: "Account", icon: "shield", detail: "Sign-in, model, notifications") { go(.account) }.reveal(6)
             }
 
@@ -139,6 +150,7 @@ struct ProfileView: View {
             Text("Account").font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
             GoogleAccountCard()
             ToggleRow(label: "Reminder notifications", isOn: $notifications)
+            nudgeSection
             DisclosureSection("Agent model", detail: modelSummary) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Applies to new agent tasks. Live voice uses its own connection.")
@@ -182,6 +194,10 @@ struct ProfileView: View {
                 StackButton(label: "Sign out", icon: "logout", kind: .secondary, disabled: store.busy) {
                     Task { await store.signOut(); dismiss() }
                 }
+                Button("Delete account", role: .destructive) { confirmDelete = true }
+                    .font(Typeface.body)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .disabled(store.busy)
             }
             Text("Stack 0.2").font(Typeface.caption).foregroundStyle(Palette.muted).frame(maxWidth: .infinity)
         }
@@ -202,6 +218,69 @@ struct ProfileView: View {
         return "\(active) in progress · \(attention) need you"
     }
 
+    // MARK: Accountability reminders
+
+    private var nudgeSummary: String {
+        guard nudges.enabled else { return "Off" }
+        return "\(nudges.hours.count) a day, \(Self.hourLabel(nudges.startHour))–\(Self.hourLabel(nudges.endHour))"
+    }
+
+    nonisolated static func hourLabel(_ hour: Int) -> String {
+        let suffix = hour < 12 ? "am" : "pm"
+        let twelve = hour % 12 == 0 ? 12 : hour % 12
+        return "\(twelve)\(suffix)"
+    }
+
+    private var nudgeSection: some View {
+        DisclosureSection("Daily accountability", detail: nudgeSummary) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Short reminders through the day, each with one small step: a role, a follow-up, a practice answer or a message.")
+                    .font(Typeface.caption).foregroundStyle(Brand.muted)
+                ToggleRow(label: "Send reminders", isOn: nudgeBinding(\.enabled))
+                if nudges.enabled {
+                    Text("How often").font(.system(.subheadline).weight(.semibold)).foregroundStyle(Brand.muted)
+                    HStack(spacing: 8) {
+                        ForEach(NudgeSettings.frequencies, id: \.self) { hours in
+                            Chip(label: "Every \(hours)h", selected: nudges.everyHours == hours) { update { $0.everyHours = hours } }
+                        }
+                    }
+                    Stepper("From \(Self.hourLabel(nudges.startHour))", value: nudgeBinding(\.startHour), in: 5...(nudges.endHour))
+                        .font(Typeface.body).foregroundStyle(Brand.ink)
+                    Stepper("Until \(Self.hourLabel(nudges.endHour))", value: nudgeBinding(\.endHour), in: (nudges.startHour)...23)
+                        .font(Typeface.body).foregroundStyle(Brand.ink)
+                }
+                if !nudgeNote.isEmpty {
+                    Text(nudgeNote).font(Typeface.caption).foregroundStyle(Brand.muted)
+                }
+                if nudgeNote == Self.deniedNote {
+                    Button("Open iPhone Settings") {
+                        if let url = URL(string: UIApplication.openNotificationSettingsURLString) { openURL(url) }
+                    }
+                    .font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
+                }
+            }
+        }
+    }
+
+    static let deniedNote = "Notifications are off for Stack. Turn them on in iPhone Settings to get these reminders."
+
+    private func nudgeBinding<Value>(_ path: WritableKeyPath<NudgeSettings, Value>) -> Binding<Value> {
+        Binding(get: { nudges[keyPath: path] }, set: { value in update { $0[keyPath: path] = value } })
+    }
+
+    /// Reminders are local to this phone, so a change applies at once instead of waiting for Save.
+    private func update(_ change: (inout NudgeSettings) -> Void) {
+        change(&nudges)
+        nudges.save(for: store.account.userID)
+        Task {
+            switch await store.reconcileNudges(ask: true) {
+            case .scheduled(let count): nudgeNote = "\(count) reminder\(count == 1 ? "" : "s") a day, starting \(Self.hourLabel(nudges.hours.first ?? nudges.startHour))."
+            case .denied: nudgeNote = Self.deniedNote
+            case .off: nudgeNote = ""
+            }
+        }
+    }
+
     private var reminderSummary: String {
         let open = store.account.reminders.filter { !$0.done }.count
         return open == 0 ? "No open reminders" : "\(open) open"
@@ -213,6 +292,7 @@ struct ProfileView: View {
         name = a.name; role = a.role; location = a.location
         graduation = a.graduationMonth; availableFrom = a.availableFrom
         notifications = a.notificationsOn
+        nudges = NudgeSettings.load(for: a.userID)
         preferences = PreferenceForm(a.preferences)
         seeded = true
     }

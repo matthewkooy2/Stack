@@ -209,12 +209,12 @@ def doctor(root, running=False, api_port=8000, web_port=8080):
         raise RuntimeError('Doctor found problems. Follow the fixes above before starting Stack.')
 
 
-def rpc(url, name, args=None, token=None):
+def rpc(url, name, args=None, token=None, timeout=15):
     headers = {'Content-Type': 'application/json'}
     if token:
         headers['Authorization'] = 'Bearer ' + token
     request = Request(url + name, data=json.dumps(args or {}).encode(), headers=headers)
-    with urlopen(request, timeout=15) as response:
+    with urlopen(request, timeout=timeout) as response:
         result = json.load(response)
     if not result.get('ok'):
         raise RuntimeError('A local health check failed.')
@@ -288,7 +288,6 @@ def development(root, smoke=False, host='127.0.0.1', expose=False, api_port=8000
         wait(backend, api, True)
         gateway = start('web', ['--no-serve', 'scripts/gateway-service.jac'])
         wait(gateway, web + '/')
-        start('discovery', ['--no-serve', 'scripts/discovery-worker.jac'])
         start('agents', ['--no-serve', 'scripts/agent-worker.jac'])
         time.sleep(3)
         if any(process.poll() is not None for process in processes):
@@ -297,7 +296,8 @@ def development(root, smoke=False, host='127.0.0.1', expose=False, api_port=8000
         agent_token = env['STACK_AGENT_WORKER_TOKEN']
         rpc(api, '/function/agent_schedule', {'token': agent_token})
         discovery_token = (root / 'storage/discovery/worker-token').read_text().strip()
-        rpc(api, '/function/discovery_analyze', {'token': discovery_token})
+        # Verify worker authorization without materializing the entire catalog.
+        rpc(api, '/function/discovery_report', {'token': discovery_token, 'include_jobs': False}, timeout=120)
         print(f'Stack browser UI: http://{host}:{web_port}/\nBackend and workers ready. Logs are private under .jac/logs. Ctrl-C stops services.', flush=True)
         if smoke:
             # Keep only synthetic smoke credentials in ignored, private storage so
@@ -371,8 +371,6 @@ def tests(root):
                  'test_model_logs.py', 'test_stories.py', 'test_bullet_bank.py', 'test_interview_contract.py'):
         execute(root, [str(root / 'scripts/jac'), 'run', '--no-serve', 'tests/' + path], env)
     execute(root, [sys.executable, '-m', 'unittest', 'discover', '-s', 'deploy/startup', '-p', 'test_startup.py'], env)
-    for path in ('test_discovery_activation.py', 'test_discovery_lifecycle.py'):
-        execute(root, [sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', '-p', path], env)
     execute(root, [str(root / 'scripts/jac'), 'test', 'tests/provider_workflow_tests.jac', 'tests/provider_transport_tests.jac'], env)
     for path in ('google_signin_clients.cjs', 'auth-build-config.cjs', 'native-session.cjs', 'live-contract.cjs', 'live-mapping.cjs', 'prep-session-compat.cjs'):
         execute(root, ['node', 'tests/' + path], env)

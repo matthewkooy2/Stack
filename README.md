@@ -2,11 +2,60 @@
 
 An iPhone-first job-search application with real US job discovery across professions. Screens and application logic are Jac; a small JavaScript adapter provides native iOS capabilities.
 
-Five tabs, in order: sample **Network**, real **Applications** tracking, swipeable **Jobs**, private PDF **Resume** management, and interview **Prep**. Prep includes technical and behavioral practice prompts with revealable guides. Profile settings and sign-out are available through the top-right avatar. Accounts, saved data, PDFs, and local reminders are real. Jobs come from real sources. Right swipe saves a Ready to apply record, confirms it on screen, and offers optional agent help; it never starts an agent. Users complete the source application themselves and mark it submitted. Optional agent help provides job-fit analysis, resume tailoring, and interview preparation. The **Agents** header entry shows running and needs-you counts and opens the Agents center (features, tasks, rules, facts, email & calendar). Stack never sends email or follow-ups or changes a calendar without approval of the exact content; saving a contact never sends anything. See [agent experience](docs/AGENT_EXPERIENCE.md). Existing demo history, people, and tailoring previews remain labeled. Muse, ChatGPT, and Claude are planned integrations.
+Five tabs, in order: sample **Network**, real **Applications** tracking, swipeable **Jobs**, private PDF **Resume** management, and interview **Prep**. Prep includes technical and behavioral practice prompts with revealable guides. On iPhone, Prep → Practice interview keeps a library of recorded video answers per question, scored by the coach, with the best answer first; see [practice library](docs/PRACTICE_LIBRARY.md). Profile settings and sign-out are available through the top-right avatar. Accounts, saved data, PDFs, and local reminders are real. Jobs come from real sources. Right swipe saves a Ready to apply record, confirms it on screen, and offers optional agent help; it never starts an agent. Users complete the source application themselves and mark it submitted. Optional agent help provides job-fit analysis, resume tailoring, and interview preparation. The **Agents** header entry shows running and needs-you counts and opens the Agents center (features, tasks, rules, facts, email & calendar). Stack never sends email or follow-ups or changes a calendar without approval of the exact content; saving a contact never sends anything. See [agent experience](docs/AGENT_EXPERIENCE.md). Existing demo history, people, and tailoring previews remain labeled. Muse, ChatGPT, and Claude are planned integrations.
 
 LinkedIn profile review is available from Network: sign in through the browser handoff, then review recruiter-focused weaknesses and suggested rewrites. See [setup and current verification limits](docs/LINKEDIN_PROFILE_REVIEW.md).
 
-See [job-discovery setup, source coverage, and budget controls](docs/JOB_DISCOVERY.md). Provider credentials are optional for public feeds and required for Adzuna, TheirStack, and USAJOBS.
+See [job discovery](docs/JOB_DISCOVERY.md): jobs are collected once a day from public job boards, and each account's matches are stored for the app to read.
+
+## Outreach email templates
+
+Copy the subject and body, then replace the bracketed details with your own.
+
+### First note to a potential connection
+
+```text
+Subject: A question about your work at [Company]
+
+Hi [Name],
+
+I came across your work on [Project or topic] while exploring [Field].
+I'd like to hear how you got started in [Specific area]. Would you have
+15 minutes for a chat in the next couple of weeks?
+
+Thanks,
+[Your name]
+```
+
+### Follow-up after a networking meeting
+
+```text
+Subject: Thanks for meeting with me
+
+Hi [Name],
+
+Thanks for taking the time to chat. Your advice about [Specific takeaway]
+helped me decide to [Next step]. I appreciate your help and would love to
+stay in touch.
+
+Best,
+[Your name]
+```
+
+### Thank-you note to a recruiter
+
+```text
+Subject: Thank you for discussing the [Role] opening
+
+Hi [Name],
+
+Thanks for speaking with me about the [Role] opening at [Company].
+I enjoyed hearing about [Specific detail], and I'm interested in moving
+forward. Please let me know if I can share anything else for the next step.
+
+Best,
+[Your name]
+```
 
 ## MVP scope and planning
 
@@ -37,6 +86,9 @@ same Linux environment: `make login PROVIDER=codex` (or `PROVIDER=claude`).
 Model tasks then use that server login without a separate Stack permission,
 account binding, or request cap. External-action approvals still apply, and CLI
 failures never fall back to a paid API.
+
+For a shared team backend without teammate Tailscale installation, see
+[Cloudflare team development](docs/CLOUDFLARE_TEAM_DEVELOPMENT.md).
 
 See [local contributor development](docs/LOCAL_DEVELOPMENT.md) for Windows/WSL2
 machine prerequisites, Python command equivalents, optional integrations,

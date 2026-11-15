@@ -1,43 +1,30 @@
 # PC host source checkpoint
 
-## Production catalog collector
+## Daily jobs sweep
 
-After deploying the reviewed collector source and `deploy/stack-discovery.service`
-to `/opt/stack`, run `python3 deploy/pc-host/stack_discovery_activation.py` as root
-for read-only preflight. Add `--apply --source <existing-public-source-id>` to
-finish one bounded production batch and enable the persistent discovery service.
-The selected source must already be approved and use a public HTTP adapter.
-The installer requires positive listing output before enabling recurrence.
-It preserves existing environment files, tokens, and agent configuration, and
-does not activate or interrupt the separate agent worker or user services.
+Jobs are collected once a day by `stack-jobs-sweep.timer`, which starts the
+oneshot `stack-jobs-sweep.service` at 10:00 America/New_York (`Persistent=true`
+runs a missed sweep at the next boot). The sweep collects every source in
+`discovery/sources.json` plus the job boards its GitHub lists point to, closes
+listings a clean source stopped listing, then stores each account's matches.
+A failed or partial source keeps its previous listings. Nothing runs between sweeps.
 
-The API retains leases, provider quotas, checkpoints and exponential retries.
-The collector begins a daily refresh at 6:00 a.m. America/New_York, catching up
-after downtime. Once collection succeeds, it persists matched feeds for every
-account. Failed or partial refreshes retain the previous feeds. The service retries API connection failures and starts with the existing
-API on boot. Inspect `systemctl status stack-discovery.service`,
-`journalctl -u stack-discovery.service`, the authenticated `discovery_report`,
-and catalog freshness plus `search_jobs` results to verify ongoing collection.
-The reviewed `promote_backend.py` stops an enabled collector before replacing
-source and resumes it after the API; disabled or absent collectors stay off.
-The installed root-owned promotion helper must be updated separately from the
-application release to use this lifecycle behavior.
-Stop this collector with `systemctl disable --now stack-discovery.service`;
-catalog data and private configuration remain intact. Any subsequent backend
-deployment that changes collector code must include this unit in its stop/start
-lifecycle. Historical deployment scripts below are checkpoint-specific.
+The old always-on collector is retired. On the host, as root, after the reviewed
+source is installed:
 
-This directory captures the PC code that complements the Mac source checkpoint on
-`codex/mac-pc-source-checkpoint-20261001`. It records source for review and recovery;
-it does not install, update, or operate a host automatically. No CI or deployment
-automation was created.
+```sh
+systemctl disable --now stack-discovery.service
+rm /etc/systemd/system/stack-discovery.service
+install -m 0644 /opt/stack/deploy/stack-jobs-sweep.service /opt/stack/deploy/stack-jobs-sweep.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now stack-jobs-sweep.timer
+systemctl start stack-jobs-sweep.service   # optional first sweep now
+```
 
-The root `jac.toml` retains the Mac mobile app, iOS configuration, and resume-ticket
-indexes, with the PC Python/server-web dependencies added using the existing
-dependency tables. `server-web.jac.toml.example` records the deployed PC's
-server-only variant. Do not replace the Mac's root configuration with that example.
-`jac-server` records the PC's launcher; retain the SSD-aware root `scripts/jac` on
-the Mac. Runtime secrets and dependency environments must be supplied separately.
+`/etc/stack/discovery.env` needs only `STACK_WORKER_API` and an optional
+`GITHUB_TOKEN`; remove any Adzuna, TheirStack or USAJOBS values. Verify with
+`systemctl list-timers stack-jobs-sweep.timer`, `journalctl -u stack-jobs-sweep.service`,
+`python3 scripts/catalog.py report`, and `source_status` (its `sweep` field shows the last run).
 
 ## Captured source
 

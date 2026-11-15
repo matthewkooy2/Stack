@@ -6,9 +6,18 @@ const React=nativeRequire('react'),renderer=nativeRequire('react-test-renderer')
 const {act}=renderer;globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 const primitives=new Map();const primitive=name=>{if(!primitives.has(name))primitives.set(name,props=>name==='Modal'&&!props.visible?null:React.createElement(name,props,props.children));return primitives.get(name);};
 let listener;const RN=new Proxy({AppState:{addEventListener:(name,fn)=>{listener=fn;return{remove(){}};}},PanResponder:{create:handlers=>({panHandlers:handlers})}},{get:(target,key)=>target[key]||primitive(key)});
-const code=babel.transformSync(fs.readFileSync('native/browser-viewer.js','utf8'),{babelrc:false,configFile:false,plugins:[nativeRequire.resolve('@babel/plugin-transform-modules-commonjs')]}).code;
-const moduleFixture={exports:{}};vm.runInThisContext('(function(require,module,exports){'+code+'\n})')(name=>name==='react'?React:RN,moduleFixture,moduleFixture.exports);
-const {BrowserViewer,createBrowserStream,browserTaskStatus}=moduleFixture.exports;
+function load(file){
+ const code=babel.transformSync(fs.readFileSync(file,'utf8'),{babelrc:false,configFile:false,plugins:[nativeRequire.resolve('@babel/plugin-transform-modules-commonjs')]}).code;
+ const mod={exports:{}};
+ vm.runInThisContext('(function(require,module,exports){'+code+'\n})')(name=>{
+  if(name==='react')return React;
+  if(name==='react-native')return RN;
+  if(name==='expo-constants')return {};
+  return load(path.resolve(path.dirname(file),name));
+ },mod,mod.exports);
+ return mod.exports;
+}
+const {BrowserViewer,createBrowserStream,browserTaskStatus}=load('native/browser-viewer.js');
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
 async function streamTests(){
@@ -16,6 +25,7 @@ async function streamTests(){
  globalThis.XMLHttpRequest=class{constructor(){requests.push(this);this.headers={};this.responseText='';this.status=0;}open(method,url){this.method=method;this.url=url;}setRequestHeader(k,v){this.headers[k]=v;}send(body){this.body=JSON.parse(body);}abort(){this.aborted=true;this.onabort?.();}};
  const close=createBrowserStream({id:'synthetic-run',origin:'https://stack.example.test/',authorization:'Bearer synthetic',isCurrent:()=>true,onEvent:e=>events.push(e),onState:s=>states.push(s)});
  const r=requests[0];assert.equal(r.url,'https://stack.example.test/browser/stream');assert.equal(r.headers.Authorization,'Bearer synthetic');assert.deepEqual(r.body,{id:'synthetic-run'});
+ assert.match(r.headers['X-Request-Id'],/^[a-f0-9]{32}$/);
  const packet='data: '+JSON.stringify({control:{mode:'agent'},frame:{image:'synthetic'}})+'\n\n';
  r.status=200;r.responseText=packet.slice(0,13);r.onprogress();assert.equal(events.length,0);
  r.responseText=packet;r.onprogress();assert.equal(events.length,1);

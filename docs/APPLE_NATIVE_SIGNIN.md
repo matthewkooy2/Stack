@@ -4,7 +4,8 @@ Apple sign-in has three responsibilities:
 
 1. Verify Apple's identity proof, including its signature, app audience, expiry,
    issuer and the one-use sign-in challenge.
-2. Find the Stack account by Apple's stable subject, or create it on first sign-in.
+2. Find the Stack account by Apple's stable subject or normalized verified email,
+   or create it on first sign-in.
 3. Issue the same Stack session used by other sign-in methods.
 
 The iPhone uses Apple's official sign-in button and AuthenticationServices sheet.
@@ -21,12 +22,16 @@ signatures, audience and expiry. No Apple private key, client secret or stored
 Apple refresh grant is used. The native build needs the matching bundle ID and
 `Stack/StackApple.entitlements`, with `STACK_APPLE_SIGN_IN_ENABLED=YES`.
 
-Apple-specific account linking/deletion, refresh, revocation notifications,
-session versions, request preflights, persistent locks and crash recovery have
-been removed. Apple sessions now follow normal Stack session behavior. The
-Apple-specific account deletion control is removed; password-confirmed Stack
-account deletion is unchanged. Old Apple grant/state/lock rows are no longer read
-or written; this change does not delete stored account data.
+The native app requests email. Verified matching Apple and Google email addresses
+reuse one Stack account. Apple's private relay address remains a distinct email;
+Stack cannot infer the real address behind it. Existing provider subjects remain
+stable sign-in identifiers when no email is returned.
+
+Profile → Account → Delete account uses the current Stack session and one
+confirmation. It does not ask for a password or another Apple login. Deletion
+removes active account graph/identity data, queued work, uploads, recordings,
+saved sign-in state and this phone's drafts/cache. Failed cleanup is reported
+instead of returning success. Signing in again creates a fresh account.
 
 ## Verification
 
@@ -54,8 +59,10 @@ This evidence covers the local development build, not a TestFlight rollout.
 
 ## Browser Apple sign-in
 
-The web login includes **Continue with Apple**. It uses Apple's official JavaScript
-popup SDK without requesting email or name scopes. `auth_apple_web_begin` creates
+The web login includes **Continue with Apple**. Apple's official JavaScript popup
+SDK requests the email scope so new users meet Stack's verified-email requirement.
+Returning users can sign in with their existing Apple subject when Apple omits
+email. `auth_apple_web_begin` creates
 a five-minute challenge for the configured web Services ID; `auth_apple_finish`
 selects the expected audience from that stored challenge, verifies Apple's
 signature/issuer/expiry/nonce, and consumes the state once. Native challenges
@@ -70,8 +77,8 @@ grant, or extra JavaScript package is added.
 2. Create a **Services ID** for the website, for example `com.matthewkooy.stack.web`.
 3. Enable **Sign in with Apple** on that Services ID and configure its **Primary
    App ID** as the existing Stack iOS App ID (`com.matthewkooy.stack`). This grouping
-   is required for the website and iPhone to receive the same Apple subject. Do
-   not match accounts by email or create a separate ungrouped primary app.
+   is required for the website and iPhone to receive the same Apple subject. The
+   registered web service uses Stack's existing verified-email account policy.
 4. Register the website's exact domain and HTTPS return URL, ending in
    `/auth/apple`, then save. Apple does not accept localhost or an IP address as
    the return host. See [Apple's web configuration guide](https://developer.apple.com/help/account/capabilities/configure-sign-in-with-apple-for-the-web/).

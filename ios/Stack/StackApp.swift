@@ -56,6 +56,14 @@ final class StackAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        #if DEBUG
+        // A local receipt lets review installs with the same build number identify their exact source.
+        let keys = ["StackSourceCommit", "CFBundleVersion", "StackAPIBaseURL"]
+        let receipt = Dictionary(uniqueKeysWithValues: keys.map { ($0, Bundle.main.object(forInfoDictionaryKey: $0) as? String ?? "") })
+        if let data = try? JSONSerialization.data(withJSONObject: receipt, options: [.sortedKeys]) {
+            try? data.write(to: FileManager.default.temporaryDirectory.appendingPathComponent("stack-build-receipt.json"), options: .atomic)
+        }
+        #endif
         return true
     }
 

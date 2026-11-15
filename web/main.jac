@@ -3,6 +3,7 @@ import "./style.css";
 # Make the transport helper's relative dependency visible to Jac's asset staging.
 import "./google-auth.js";
 import "./apple-auth.js";
+import "./request-trace.js";
 import from "react" { useRef }
 import from .Feedback { AgentFeedback }
 import from .BulletBank { BulletBank }

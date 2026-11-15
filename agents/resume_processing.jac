@@ -1,4 +1,4 @@
-"""Dedicated resume lane. No model calls; all scratch files and caches live in this checkout."""
+"""Dedicated resume import and template processing lane."""
 import base64;
 import json;
 import logging;
@@ -15,12 +15,14 @@ def process(work: dict[str, any], token: str) -> dict[str, any] {
         if work["kind"]=="import" {
             import from agents.record_resume { import_records }
             import from agents.resume_details { parse as parse_details }
+            import from agents.resume_model { SCHEMA, SYSTEM, apply }
+            import from agents.contracts { config }
+            import agents.local_model as local_model;
             result["records"]=import_records(work["name"],raw);
-            # Structured details are best effort; the raw records above remain the dependable import.
-            try { result["details"]=parse_details(work["name"],raw); }
-            except Exception as e {
-                result["details_error"]=str(e)[:300] if isinstance(e,ValueError) else "Structured details could not be extracted from this resume.";
-            }
+            details=parse_details(work["name"],raw);
+            def received(raw: any, format: any) -> None { ; }
+            model=local_model.complete("resume",SYSTEM,str(details["text"]),SCHEMA as dict[str, any],config("local"),received);
+            result["details"]=apply(details,local_model.decode(model["text"]),model["model"]);
             result["parse_ms"]=(time.perf_counter()-start)*1000.0;
         } elif work["kind"]=="pdf" {
             raise ValueError("PDF detail extraction is temporarily unavailable.");

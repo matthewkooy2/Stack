@@ -67,7 +67,7 @@ export function Interview({applications}){
     data.pending?h('button',{disabled:busy,onClick:()=>action('next')},'Continue with typed role question'):h('button',{disabled:busy||!draft.trim(),onClick:()=>act('interview_answer',{id:current.id,revision:current.revision,answer:draft,client_id:answerId.current,recording_id:recording},true)},'Save reviewed answer and analyze')),
    turns.length>0&&!data.pending&&!analysis&&h('button',{disabled:busy,onClick:()=>action('analyze')},data.status==='finished'?'Get local Qwen coaching':'Analyze reviewed answer'),
    h('h3',{},'Reviewed transcript'),...turns.map((t,i)=>h('article',{key:i},h('h4',{},'Answer '+(i+1)),h('p',{},t.question.question),h('p',{},t.answer),t.original!==t.answer&&h('details',{},h('summary',{},'Original transcript'),h('p',{},t.original)),h('button',{disabled:busy,onClick:()=>{setCorrection(i);setEdited(t.answer);}},'Correct answer '+(i+1)),correction===i&&h('div',{},h('textarea',{'aria-label':'Corrected answer',value:edited,maxLength:4000,onChange:e=>setEdited(e.target.value)}),h('button',{disabled:busy||!edited.trim(),onClick:()=>act('interview_correct',{id:current.id,revision:current.revision,index:i,answer:edited},true)},'Save transcript correction')))),
-   data.status==='active'&&h('button',{disabled:busy||turns.length<2,onClick:()=>action('finish')},'Finish interview'),
+   data.status==='active'&&h('button',{disabled:busy||turns.length<1,onClick:()=>action('finish')},'Finish interview'),
    data.status==='finished'&&!data.pending&&h('button',{disabled:busy,onClick:()=>action('analyze')},'Get final coaching'),
    (data.coaching?.text||data.coaching?.summary)&&h('article',{},h('h3',{},'Final coaching'),h('pre',{},data.coaching.text||data.coaching.summary))
 

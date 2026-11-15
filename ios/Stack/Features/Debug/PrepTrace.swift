@@ -29,5 +29,13 @@ enum PrepTrace {
             try? data.write(to: url)
         }
     }
+
+    static func remove() throws {
+        guard let directory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        for name in ["prep-last-feedback.json", "prep-timing.log"] {
+            let url = directory.appendingPathComponent(name)
+            if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+        }
+    }
 }
 #endif

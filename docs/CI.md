@@ -62,8 +62,10 @@ existing suites. A routing error cannot turn missing output into a runtime skip.
 Native no-op runs publish no proof. An automatic TestFlight follow-up recognizes
 the successful GitHub-owned no-op marker with skipped tests/build/publication,
 or the successful no-upload marker, and returns `upload=false` before requesting
-proof. Upload eligibility keeps the existing native source/script/workflow/feature
-RPC path map, using the complete push range rather than only its last commit.
+proof. Swift main pushes use the existing native upload path map to compare
+against the last source confirmed in App Store Connect. Pending changes select
+native verification even after an unrelated push. The first confirmed upload
+establishes the baseline.
 Unavailable routing requires full verification and proof before any upload.
 Manual and relevant uploads
 still require the complete-tree proof, backend/security success, current main,
@@ -161,8 +163,10 @@ Swift TestFlight follows a successful native main-push workflow, checks out that
 exact commit and validates both native and backend/security results before signing.
 It waits at most ten minutes for the same-commit backend result, without delaying
 backend deployment. Missing, pending, failed or skipped required results prevent
-upload. The commit must still be current main. Automatic docs-only pushes do not
-upload; manual upload retains its explicit input. The upload script independently
+upload. The commit must still be current main. A superseded automatic candidate
+skips signing, and the current tip checks for pending native changes. Automatic
+docs-only pushes upload only when native changes are pending. Manual upload
+retains its explicit input. The upload script independently
 revalidates evidence for direct invocations. Archive identity, HTTPS configuration,
 manual signing, private-file cleanup, upload and exact Apple processing checks
 remain. Apple confirmation requires the exact unexpired build to be `VALID` and

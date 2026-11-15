@@ -1,4 +1,4 @@
-"""Three sign-in checks: native/web sessions, account continuity and invalid proofs."""
+"""Apple sign-in checks for native/web sessions, account continuity and invalid proofs."""
 import json
 import os
 from pathlib import Path
@@ -53,6 +53,8 @@ class AppleSignIn(unittest.TestCase):
         self.assertTrue(challenge["ok"], challenge)
         claims = dict(iss="https://appleid.apple.com", aud="com.fixture.stack.web" if mode == "web" else "com.fixture.stack", sub="fixture-apple-user",
                       nonce=challenge["nonce"], iat=int(time.time()), exp=int(time.time()) + 300)
+        if mode == "native":
+            claims.update(email="fixture@example.test", email_verified="true")
         claims.update(changes or {})
         token = jwt.encode(signer or self.signer, claims).decode()
         self.proof = dict(state=challenge["state"], identity_token=token)
@@ -63,7 +65,9 @@ class AppleSignIn(unittest.TestCase):
             with self.subTest(mode=mode):
                 self.client.clear_auth()
                 subject = "fixture-" + mode
-                result = self.sign_in({"sub": subject}, mode=mode)
+                result = self.sign_in({
+                    "sub": subject, "email": f"{subject}@example.test", "email_verified": "true",
+                }, mode=mode)
                 self.assertTrue(result["ok"], result)
                 manager, _ = self.client.server.module.apple_auth.runtime()
                 uid = manager.validate_jwt_token(result["token"])
@@ -73,6 +77,49 @@ class AppleSignIn(unittest.TestCase):
                 self.assertEqual(self.rpc("bootstrap")["user_id"], manager.get_root_id(uid))
                 # A proof cannot issue a second session after its state is consumed.
                 self.assertFalse(self.rpc("auth_apple_finish", self.proof)["ok"])
+
+    def test_verified_email_linking_and_account_deletion(self):
+        result = self.sign_in()
+        self.assertTrue(result["ok"], result)
+        manager, _ = self.client.server.module.apple_auth.runtime()
+        uid = manager.validate_jwt_token(result["token"])
+        self.assertTrue(uid)
+        self.assertEqual(manager.get_user_by_sso("apple", "fixture-apple-user")["user_id"], uid)
+        self.client.set_auth_token(result["token"])
+        owner = self.rpc("bootstrap")["user_id"]
+        self.assertEqual(owner, manager.get_root_id(uid))
+        self.assertEqual(manager.find_user_by_identity(" FIXTURE@example.test ")["user_id"], uid)
+        from jaclang.scale.sso.provider import SSOUserInfo
+        linked = self.client.server.module.accounts.complete_identity(
+            manager, SSOUserInfo(email="FIXTURE@example.test", external_id="fixture-google-user"), "google")
+        self.assertTrue(linked.ok)
+        self.assertEqual(manager.validate_jwt_token(linked.token), uid)
+        import hashlib
+        directory = ROOT / "storage/resumes" / hashlib.sha256(owner.encode()).hexdigest()
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "orphaned-upload.pdf").write_bytes(b"fictional-upload")
+        from jaclang.server.shared_store import shared_store
+        from uuid import uuid4
+        usage, global_usage = uuid4().hex, uuid4().hex
+        for ident, key in [(usage, "cost:fixture:" + owner), (global_usage, "cost:fixture")]:
+            shared_store().rows("INSERT INTO anchors (id,kind,arch_type,props) VALUES (:id,'NodeAnchor','AgentUsage',CAST(:p AS jsonb))",
+                                {"id": ident, "p": json.dumps({"archetype": {"key": key, "cents": 1, "actions": 0}})})
+        deleted = self.rpc("account_delete")
+        self.assertTrue(deleted.get("deleted"), deleted)
+        self.assertFalse(directory.exists())
+        self.assertIsNone(manager.get_user(uid))
+        self.assertIsNone(manager.find_user_by_identity("fixture@example.test"))
+        self.assertIsNone(manager.get_user_by_sso("apple", "fixture-apple-user"))
+        self.assertIsNone(manager.get_user_by_sso("google", "fixture-google-user"))
+        self.assertFalse(self.client.post("/function/bootstrap", json={}).ok)
+        self.assertEqual(shared_store().rows("SELECT count(*) FROM anchors WHERE replace(CAST(root_id AS text),'-','')=:o OR replace(CAST(id AS text),'-','')=:o OR COALESCE(props->'archetype'->>'owner',props->>'owner')=:o", {"o": owner.replace('-', '')})[0][0], 0)
+        self.assertEqual(shared_store().rows("SELECT count(*) FROM anchors WHERE id=:id", {"id": usage})[0][0], 0)
+        self.assertEqual(shared_store().rows("SELECT count(*) FROM anchors WHERE id=:id", {"id": global_usage})[0][0], 1)
+        self.client.clear_auth()
+        fresh = self.sign_in()
+        self.assertTrue(fresh["ok"], fresh)
+        self.client.set_auth_token(fresh["token"])
+        self.assertNotEqual(self.rpc("bootstrap")["user_id"], owner)
 
     def test_returning_signin_preserves_account_and_data(self):
         first = self.sign_in()
@@ -113,6 +160,9 @@ class AppleSignIn(unittest.TestCase):
         with patch.dict(os.environ, {"STACK_APPLE_WEB_CLIENT_ID": ""}):
             self.assertFalse(self.rpc("auth_apple_web_begin")["ok"])
             self.assertTrue(self.rpc("auth_apple_begin")["ok"])
+        without_email = self.sign_in(mode="web")
+        self.assertFalse(without_email["ok"])
+        self.assertNotIn("token", without_email)
         manager, _ = self.client.server.module.apple_auth.runtime()
         self.assertIsNone(manager.get_user_by_sso("apple", "fixture-apple-user"))
 

@@ -24,6 +24,7 @@ on:
 permissions:
   contents: read
   actions: read
+  deployments: read
 concurrency:
   group: ios-swift-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -45,13 +46,15 @@ jobs:
           fetch-depth: 0
       - name: Select affected checks
         id: affected
-        run: python3 scripts/ci/affected-checks.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/affected-checks.py --native-release
       - name: Report native checks not applicable
         if: steps.affected.outputs.native == 'false'
         run: echo 'No native runtime changes; no tests, build or release proof.'
       - name: Report native upload not applicable
         if: steps.affected.outputs.native_upload == 'false'
-        run: echo 'No automatic native upload changes in the complete event range.'
+        run: echo 'No pending automatic native upload.'
       - name: Install XcodeGen
         if: steps.affected.outputs.native != 'false'
         run: brew install xcodegen

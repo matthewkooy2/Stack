@@ -107,4 +107,11 @@ struct FileResumeDraftStore: ResumeDraftStoring {
     func removeAll() {
         try? FileManager.default.removeItem(at: root)
     }
+
+    func remove(userID: String) throws {
+        let directory = root.appendingPathComponent(Self.digest(userID), isDirectory: true)
+        if FileManager.default.fileExists(atPath: directory.path) {
+            try FileManager.default.removeItem(at: directory)
+        }
+    }
 }

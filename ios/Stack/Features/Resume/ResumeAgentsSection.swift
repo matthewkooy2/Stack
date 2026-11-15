@@ -1,124 +1,224 @@
 import SwiftUI
+import PDFKit
+import UniformTypeIdentifiers
 
-/// Resume-side agents: scoring and tailoring for a saved job, and profile suggestions.
 @MainActor
 struct ResumeAgentsSection: View {
-    /// Owned by the Resume tab so a closed Tailor screen keeps its choice and scores.
     @Binding var setupFor: String
     @Binding var scores: [String: JSON]
     let onOpenTask: (String) -> Void
     let onNavigate: (String) -> Void
-
+    var initialApplicationID = ""
     @Environment(AppStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.stackReduceMotion) private var reduceMotion
+    @State private var jobID = ""
+    @State private var resumeID = ""
+    @State private var showJobs = false
+    @State private var showResumes = false
+    @State private var showSetup = false
+    @State private var showProfile = false
+    @State private var profileMessage = ""
     @State private var working = false
-    @State private var scoring = ""
-    @State private var message = ""
     @State private var error = ""
+    @State private var pdf: PDFDocument?
+    @State private var startedTask = ""
+    @State private var importing = false
+    @State private var uploader = ResumeUploader()
+    @State private var uploadGeneration = -1
 
     private var applications: [Application] { store.account.applications.filter { !$0.isDemo } }
-    private var tailoring: AgentFeature? { store.account.feature("tailoring") }
-    private var profile: AgentFeature? { store.account.feature("profile") }
+    private var job: Application? { applications.first { $0.id == jobID } }
+    private var resume: ResumeItem? { store.account.resumes.first { $0.id == resumeID } }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-                GlyphView(name: "sparkles", size: 20)
-                Text("Resume agents").font(Typeface.title).foregroundStyle(Palette.ink)
+        ZStack {
+            Brand.page.ignoresSafeArea()
+            if !startedTask.isEmpty {
+                progressScreen.transition(.opacity)
+            } else {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack {
+                        BackButton(label: "Close") { dismiss() }
+                        Spacer()
+                        if store.account.feature("profile") != nil {
+                            Menu { Button("Profile suggestions") { showProfile = true } } label: {
+                                Image(systemName: "ellipsis").foregroundStyle(Brand.ink).frame(width: 44, height: 44).background(.white, in: Circle())
+                            }.accessibilityLabel("More options")
+                        }
+                    }.padding(.bottom, 32)
+                    Text("Tailor your resume").font(Typeface.display).tracking(-1.8).foregroundStyle(Brand.ink).reveal(0)
+                    if let pdf {
+                        PDFKitView(data: pdf.dataRepresentation() ?? Data())
+                            .frame(height: 260).frame(maxWidth: .infinity)
+                            .clipShape(RoundedRectangle(cornerRadius: 4)).padding(.vertical, 28)
+                            .allowsHitTesting(false).accessibilityLabel("Resume preview")
+                    } else {
+                        Image(systemName: "doc.text").font(.system(size: 56, weight: .light)).foregroundStyle(Brand.muted)
+                            .frame(maxWidth: .infinity).frame(height: 210).accessibilityHidden(true)
+                    }
+                    if store.account.resumes.isEmpty {
+                        StackButton(label: uploader.isBusy ? uploader.progress : "Upload a resume", disabled: uploader.isBusy) {
+                            if uploader.begin() { uploadGeneration = store.sessionGeneration; importing = true }
+                        }
+                        .accessibilityIdentifier("tailor-upload")
+                        if uploader.phase == .failed {
+                            MessageLine(text: uploader.message)
+                            if uploader.canRetry {
+                                QuietLinks(links: [ScreenLink("Try again · \(uploader.fileName)") {
+                                    if uploader.retry() { Task { await upload() } }
+                                }])
+                            }
+                        }
+                    } else {
+                        row(label: resume?.name ?? "Choose a resume", action: { showResumes = true })
+                    }
+                    row(label: job.map { "\($0.job.title) · \($0.job.company)" } ?? "Choose a saved job", action: { showJobs = true })
+                    if let job {
+                        if let score = scores[job.id] { JobScoreCardView(result: score["job_score"]) }
+                        Button("Check job fit") { Task { await score(job) } }
+                            .font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
+                            .frame(minHeight: 44).disabled(working || resume == nil)
+                    }
+                    MessageLine(text: error).fadeSwitch(!error.isEmpty)
+                }.padding(.horizontal, Spacing.page).padding(.top, 12).padding(.bottom, 24)
+            }.safeAreaInset(edge: .bottom) {
+                StackButton(label: working ? "Preparing…" : "Tailor resume", disabled: working || job == nil || resume == nil) {
+                    Task { await start() }
+                }.padding(.horizontal, Spacing.page).padding(.vertical, 12).background(Brand.page)
             }
-            if let tailoring {
-                FeatureCardView(feature: tailoring, onAction: onNavigate, compact: true)
-                ForEach(applications.prefix(5)) { app in applicationCard(app, unavailable: tailoring.state == "unavailable") }
-                if applications.isEmpty {
-                    Text("Save a real job from Jobs to tailor for it.").font(Typeface.caption).foregroundStyle(Palette.muted)
+            }
+        }
+        .replayable()
+        .onAppear {
+            if jobID.isEmpty { jobID = initialApplicationID.isEmpty ? applications.first?.id ?? "" : initialApplicationID }
+            if resumeID.isEmpty {
+                let suggested = job?.tailorResumeID ?? ""
+                resumeID = store.account.resume(store.account.selectedResumeID)?.id ?? store.account.resume(suggested)?.id ?? ""
+                if resumeID.isEmpty { resumeID = store.account.resumes.first?.id ?? "" }
+            }
+        }
+        .fileImporter(isPresented: $importing, allowedContentTypes: ResumeFiles.allowedTypes) { result in
+            guard uploadGeneration == store.sessionGeneration, store.phase == .ready, uploader.picked(result) else { return }
+            Task { await upload() }
+        }
+        .onChange(of: importing) { _, open in if !open { uploader.pickerClosed() } }
+        .onChange(of: store.sessionGeneration) { _, _ in importing = false; uploader.reset() }
+        .onChange(of: resumeID) { _, _ in scores.removeAll() }
+        .task(id: resumeID) { await loadPDF() }
+        .sheet(isPresented: $showJobs) {
+            SheetPage(title: "Choose a job") {
+                if applications.isEmpty { Text("Save a job first.").foregroundStyle(Brand.muted) }
+                ForEach(applications) { item in
+                    ListRow(label: item.job.title, icon: "briefcase", detail: item.job.company) { jobID = item.id; showJobs = false }
                 }
             }
-            if let profile {
-                FeatureCardView(feature: profile, onAction: onNavigate, compact: true)
-                ForEach(Array(runs(for: "self", kinds: ["profile"]).prefix(1).enumerated()), id: \.offset) { _, run in
-                    TaskRow(run: run) { onOpenTask(run["id"].string) }
-                }
-                StackButton(label: "Suggest headline & about", kind: .secondary, disabled: working || profile.state == "unavailable") {
-                    Task { await start(kind: "profile", target: "self", opens: false) }
+        }
+        .sheet(isPresented: $showResumes) {
+            SheetPage(title: "Choose a resume") {
+                ForEach(store.account.resumes) { item in
+                    ListRow(label: item.name, icon: "resume", detail: item.detailsStatus) { resumeID = item.id; showResumes = false }
                 }
             }
-            MessageLine(text: message, isError: false).fadeSwitch(!message.isEmpty)
-            MessageLine(text: error).fadeSwitch(!error.isEmpty)
+        }
+        .sheet(isPresented: $showProfile) {
+            SheetPage(title: "Profile suggestions") {
+                if let profile = store.account.feature("profile") {
+                    FeatureCardView(feature: profile, onAction: onNavigate, compact: true)
+                    ForEach(Array(store.account.runViews.filter { $0["target_id"].string == "self" && $0["kind"].string == "profile" }.prefix(1).enumerated()), id: \.offset) { _, run in
+                        TaskRow(run: run) { onOpenTask(run["id"].string) }
+                    }
+                    StackButton(label: "Suggest headline & about", kind: .secondary, disabled: working || profile.state == "unavailable") {
+                        Task {
+                            working = true; defer { working = false }
+                            do { let result = try await store.call("agent_start", ["kind": "profile", "target_id": "self"]); profileMessage = "\(result["title"].string) started." }
+                            catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
+                        }
+                    }
+                    MessageLine(text: profileMessage, isError: false).fadeSwitch(!profileMessage.isEmpty)
+                    MessageLine(text: error).fadeSwitch(!error.isEmpty)
+                }
+            }
+        }
+        .sheet(isPresented: $showSetup) {
+            if let resume {
+                SheetPage(title: "Prepare your resume") {
+                    TailorResumeSetup(resume: resume, others: store.account.resumes.filter { store.account.canTailor($0.id) && $0.id != resume.id }) { chosen in
+                        resumeID = chosen; showSetup = false; await start(prepared: true)
+                    }
+                }
+            }
         }
     }
 
-    private func applicationCard(_ app: Application, unavailable: Bool) -> some View {
-        Card(spacing: 10) {
-            Text(app.job.title).font(Typeface.option).foregroundStyle(Palette.icon)
-            Text(app.job.company).font(Typeface.caption).foregroundStyle(Palette.muted)
-            if !app.tailorResumeID.isEmpty {
-                Text("Resume: \(app.tailorResumeName)\(app.tailorReady ? " · LaTeX ready" : " · needs its LaTeX")")
-                    .font(Typeface.caption).foregroundStyle(Palette.text)
-            } else {
-                Text("Close this screen and upload a PDF resume first.").font(Typeface.caption).foregroundStyle(Palette.text)
-            }
-            ForEach(Array(runs(for: app.id, kinds: ["resume"]).enumerated()), id: \.offset) { _, run in
-                TaskRow(run: run) { onOpenTask(run["id"].string) }
-            }
-            if let score = scores[app.id] {
-                ScoreCardView(after: score["score"], title: "Score for this job · " + (score["source"].string == "latex" ? "your LaTeX" : "your PDF"))
-            }
-            if !app.tailorResumeID.isEmpty {
-                Chip(label: scoring == app.id ? "Scoring…" : (scores[app.id] != nil ? "Score again" : "Score my resume")) {
-                    Task { await score(app) }
-                }
-            }
-            if setupFor == app.id, let resume = store.account.resume(app.tailorResumeID) {
-                LatexSetupView(resume: resume,
-                               others: store.account.resumes.filter { store.account.hasLatex($0.id) && $0.id != resume.id }) { resumeID in
-                    await tailor(app, with: resumeID)
-                }
-            } else {
-                StackButton(label: "Tailor for this job", kind: .secondary,
-                            disabled: working || unavailable || app.tailorResumeID.isEmpty) {
-                    if app.tailorReady { Task { await start(kind: "resume", target: app.id, opens: true) } }
-                    else { setupFor = app.id }
-                }
-            }
-        }
+    private var progressScreen: some View {
+        // The task view polls the actual status and shows review/results when ready.
+        TaskDetailView(id: startedTask, onBack: {
+            withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { startedTask = "" }
+        }, onNavigate: onNavigate)
+        .id(startedTask)
     }
 
-    private func runs(for target: String, kinds: [String]) -> [JSON] {
-        store.account.runViews.filter { $0["target_id"].string == target && kinds.contains($0["kind"].string) }
+    private func row(label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(label).font(Typeface.section).foregroundStyle(Brand.ink).multilineTextAlignment(.leading)
+                Spacer()
+                Text("Change").font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
+            }.frame(minHeight: 72).contentShape(Rectangle())
+                .overlay(alignment: .bottom) { Rectangle().fill(Brand.rule).frame(height: 1) }
+        }.buttonStyle(.plain)
     }
 
-    private func start(kind: String, target: String, opens: Bool) async {
-        guard !working else { return }
-        working = true
-        error = ""
-        message = ""
-        defer { working = false }
+    private func loadPDF() async {
+        pdf = nil
+        guard !resumeID.isEmpty else { return }
+        let id = resumeID
         do {
-            let result = try await store.call("agent_start", ["kind": .string(kind), "target_id": .string(target)])
-            if opens { onOpenTask(result["id"].string) }
-            else { message = "\(result["title"].string) started. Follow it here or in Agents." }
+            let result = try await store.call("read_resume", ["id": .string(id)])
+            if id == resumeID, let data = Data(base64Encoded: result["content"].string) { pdf = PDFDocument(data: data) }
+        } catch { }
+    }
+    /// One request per attempt; a failure keeps the file for Try again (see `ResumeUploader`).
+    private func upload() async {
+        let generation = uploadGeneration
+        error = ""
+        let previous = Set(store.account.resumes.map(\.id))
+        let uploaded = await uploader.run { file in
+            guard generation == store.sessionGeneration, store.phase == .ready else { throw CancellationError() }
+            _ = try await store.callAccount("upload_resume", ["name": .string(file.name), "content": .string(file.content)], timeout: 90)
+        }
+        if uploaded { resumeID = store.account.resumes.first { !previous.contains($0.id) }?.id ?? store.account.selectedResumeID }
+    }
+    private func selectResume(for job: Application) async throws {
+        if resumeID != job.tailorResumeID {
+            try await store.callAccount("select_application_resume", ["id": .string(job.id), "resume_id": .string(resumeID)])
+        }
+    }
+    private func start(prepared: Bool = false) async {
+        guard let job, resume != nil, !working else { return }
+        working = true; error = ""; defer { working = false }
+        do {
+            try await selectResume(for: job)
+            // Details confirmed in another screen may not be in this snapshot yet; re-read once before asking.
+            if !tailorReady(job.id) { await store.refresh() }
+            if !prepared || !tailorReady(job.id) { showSetup = true; return }
+            let result = try await store.call("agent_start", ["kind": "resume", "target_id": .string(job.id)])
+            withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { startedTask = result["id"].string }
         } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
     }
-
-    private func score(_ app: Application) async {
-        guard scoring.isEmpty else { return }
-        scoring = app.id
-        error = ""
-        defer { scoring = "" }
-        do { scores[app.id] = try await store.call("score_resume", ["application_id": .string(app.id)]) }
-        catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
+    private func tailorReady(_ applicationID: String) -> Bool {
+        store.account.applications.first { $0.id == applicationID }?.tailorReady ?? false
     }
-
-    /// Tailor with this resume, attaching it to the job first when a different one was chosen.
-    private func tailor(_ app: Application, with resumeID: String) async {
-        error = ""
-        if resumeID != app.tailorResumeID {
-            do { try await store.callAccount("select_application_resume", ["id": .string(app.id), "resume_id": .string(resumeID)]) }
-            catch {
-                if !(error is CancellationError) { self.error = error.localizedDescription }
-                return
-            }
+    private func score(_ job: Application) async {
+        guard !working else { return }; working = true; error = ""; defer { working = false }
+        let scoredResumeID = resumeID
+        do {
+            try await selectResume(for: job)
+            let result = try await store.call("score_resume", ["application_id": .string(job.id)])
+            if resumeID == scoredResumeID { scores[job.id] = result }
         }
-        setupFor = ""
-        await start(kind: "resume", target: app.id, opens: true)
+        catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
     }
 }

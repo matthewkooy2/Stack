@@ -26,6 +26,16 @@ struct RootView: View {
     @Environment(AppStore.self) private var store
     @Environment(\.scenePhase) private var scenePhase
 
+    /// Existing accounts with saved activity keep their current experience; onboarding is for fresh accounts.
+    private var needsJobOnboarding: Bool {
+        let account = store.account
+        let saved = account.savedSearch
+        return !account.userID.isEmpty && !account.raw["profile"]["onboarded"].bool
+            && !UserDefaults.standard.bool(forKey: "job-onboarding." + account.userID)
+            && account.resumes.isEmpty && account.applications.isEmpty && account.decidedJobIDs.isEmpty
+            && account.role.isEmpty && saved["query"].string.isEmpty && saved["filters"].object.isEmpty
+    }
+
     var body: some View {
         LaunchSequence(isReady: store.phase != .starting) {
             ZStack {
@@ -33,25 +43,79 @@ struct RootView: View {
                 switch store.phase {
                 case .starting:
                     Color.clear
+                case .startupFailed:
+                    VStack(alignment: .leading, spacing: Spacing.stack) {
+                        Text("Stack couldn’t load your account").font(Typeface.display).foregroundStyle(Palette.ink)
+                            .accessibilityAddTraits(.isHeader)
+                        MessageLine(text: store.error)
+                        StackButton(label: store.restoringSession ? "Retrying…" : "Retry", disabled: store.restoringSession) {
+                            Task { await store.start() }
+                        }
+                    }
+                    .frame(maxWidth: 400)
+                    .padding(Spacing.page)
                 case .signedOut:
                     AccessView().replayable().transition(.opacity)
                 case .admission:
                     InvitationView().replayable().transition(.opacity)
                 case .ready:
-                    MainTabs().transition(.opacity)
+                    JobOnboardingGate(required: needsJobOnboarding)
+                        .id(store.account.userID).transition(.opacity)
                 }
             }
             .animation(reduceMotion ? nil : Motion.fadeAnimation, value: store.phase)
         }
         .transaction { if reduceMotion { $0.animation = nil; $0.disablesAnimations = true } }
+        .onOpenURL { url in
+            if let destination = StackAppLink.destination(url) { store.linkedDestination = destination }
+        }
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            if let url = activity.webpageURL, let destination = StackAppLink.destination(url) {
+                store.linkedDestination = destination
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await store.refresh() } }
         }
-        .task(id: store.phase) {
-            guard store.phase == .ready else { return }
-            while !Task.isCancelled {
+        // No timed refresh: the account is re-read on foreground and after each change. The one exception is a
+        // running agent task, checked until it finishes (until live task updates replace this).
+        .task(id: AgentWatch(phase: store.phase, active: store.account.activeRunCount > 0)) {
+            guard store.phase == .ready, store.account.activeRunCount > 0 else { return }
+            while !Task.isCancelled, store.account.activeRunCount > 0 {
                 try? await Task.sleep(for: .seconds(15))
                 if scenePhase == .active { await store.refresh() }
+            }
+        }
+    }
+}
+
+@MainActor
+struct JobOnboardingGate: View {
+    @Environment(AppStore.self) private var store
+    @Environment(\.stackReduceMotion) private var reduceMotion
+    @State private var showingOnboarding: Bool
+    @State private var preparingJobs: Bool
+
+    init(required: Bool) {
+        _showingOnboarding = State(initialValue: required)
+        _preparingJobs = State(initialValue: !required)
+    }
+
+    var body: some View {
+        ZStack {
+            if preparingJobs {
+                MainTabs()
+                    .opacity(showingOnboarding ? 0 : 1)
+                    .allowsHitTesting(!showingOnboarding)
+                    .accessibilityHidden(showingOnboarding)
+            }
+            if showingOnboarding {
+                JobOnboardingView(onPrepared: { preparingJobs = true }) {
+                    UserDefaults.standard.set(true, forKey: "job-onboarding." + store.account.userID)
+                    preparingJobs = true
+                    withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { showingOnboarding = false }
+                }
+                .transition(.opacity)
             }
         }
     }
@@ -83,6 +147,12 @@ struct MainTabs: View {
             TabBar(selection: $selection, namespace: highlight, resumeIsEmpty: store.account.resumes.isEmpty)
         }
         .onChange(of: selection) { _, tab in visited.insert(tab) }
+        .onChange(of: store.linkedDestination) { _, destination in
+            if let destination { go(to: destination); store.linkedDestination = nil }
+        }
+        .onAppear {
+            if let destination = store.linkedDestination { go(to: destination); store.linkedDestination = nil }
+        }
         .sheet(isPresented: $showProfile) {
             ProfileView().environment(store).replayable()
         }
@@ -131,6 +201,11 @@ struct MainTabs: View {
         case "contact":
             store.pendingOpen = ["target_type": "contact", "target_id": id]
             go(to: "network")
+        case "tab":
+            // An accountability reminder names the tab where its step happens.
+            showProfile = false
+            agentTask = nil
+            go(to: id)
         default:
             break
         }
@@ -207,4 +282,10 @@ private struct TabBar: View {
         .overlay(alignment: .top) { Rectangle().fill(brandedPage ? Brand.rule : Palette.rule).frame(height: 1) }
         .sensoryFeedback(.selection, trigger: selection)
     }
+}
+
+/// Restarts the agent check when the session changes or a task starts or finishes.
+private struct AgentWatch: Equatable {
+    let phase: AppStore.Phase
+    let active: Bool
 }

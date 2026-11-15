@@ -5,7 +5,7 @@ import time;
 import from pathlib { Path }
 import from unittest.mock { patch }
 import from jaclang.testing.testing { JacTestClient }
-import from agents { provider, local_cli, worker }
+import from agents { provider, local_cli, worker, coaching }
 import from agents.tracing { trace_data }
 
 def rpc(client: JacTestClient, name: str, args: dict[str, any] | None = None) -> dict[str, any] {
@@ -16,13 +16,13 @@ def rpc(client: JacTestClient, name: str, args: dict[str, any] | None = None) ->
 
 test "traces and feedback are persistent private and bound to reviewed output" {
     with tempfile.TemporaryDirectory(prefix="stack-traces-") as directory {
-        path=Path(directory)/"config.json";path.write_text("{}");
+        path=Path(directory)/"config.json";path.write_text('{"invite_only":false}');
         with patch.dict(os.environ,{"STACK_AGENT_CONFIG":str(path),"STACK_AGENT_WORKER_TOKEN":"trace-test-worker"}) {
             client=JacTestClient.from_file(str(Path("main.jac").resolve()),base_path=directory);
             try {
                 registered=client.register_user("trace-owner","Trace-password-123");assert registered.ok;
                 token=registered.data["token"];owner=rpc(client,"agent_settings")["account_id"];
-                path.write_text(json.dumps({"provider":"codex-cli","local_cli_owner":owner,"local_cli_daily_limit":10,"capture_agent_content":True}));
+                path.write_text(json.dumps({"invite_only":False,"provider":"codex-cli","local_cli_owner":owner,"local_cli_daily_limit":10,"capture_agent_content":True}));
                 rpc(client,"agent_save_policy",{"policy":{"enabled":True,"expires_at":time.time()+3600,"actions":["model"]}});
                 session=rpc(client,"prep_create",{"problem_id":"project"});
                 session=rpc(client,"prep_save",{"id":session["id"],"revision":session["revision"],"data":{**session["data"],"answer":"Synthetic project answer"}});
@@ -35,9 +35,9 @@ test "traces and feedback are persistent private and bound to reviewed output" {
                     result=rpc(client,"agent_trace",{**auth,"event":event,"data":trace_data(data)});
                     assert result.get("saved"),result;
                 }
-                artifact={"summary":"Specific ownership; add a tradeoff.","rubric":[{"criterion":"Structure","score":3,"feedback":"Clear."}],"next_exercises":[],"followup_questions":[],"evidence":[]};
-                def fake_cli(name: str, model: str, system: str, prompt: str, schema: dict[str, any], observe: any = None, record_response: any = None) -> dict[str, any] {
-                    assert "Synthetic project answer" in prompt;
+                artifact={"verdict":"Specific ownership; add a tradeoff.","scores":[{"name":"Structure","score":3,"why":"Clear."}],"work_on":"","follow_ups":[],"example":""};
+                def fake_cli(name: str, model: str, system: str, prompt: str, schema: dict[str, any], observe: any = None, record_response: any = None, lenient: bool = False) -> dict[str, any] {
+                    assert lenient;assert "Synthetic project answer" in prompt;
                     if record_response { record_response(json.dumps(artifact), "model_json"); }
                     observe("model_response",{"text":json.dumps(artifact),"exit_code":0});
                     return artifact;
@@ -70,7 +70,7 @@ test "traces and feedback are persistent private and bound to reviewed output" {
                 assert rpc(client,"agent_run",{"id":run["id"]})["feedback"][0]["note"]==feedback["note"];
                 assert len(rpc(client,"agent_traces",{"id":run["id"]})["events"])==5;
                 assert rpc(client,"prep_get",{"id":session["id"]})["feedback"][0]["run_id"]==run["id"];
-                exported=rpc(client,"agent_export");assert exported["feedback"][0]["snapshot"]["artifacts"]["coach"]==artifact,repr(exported["feedback"]);
+                exported=rpc(client,"agent_export");assert exported["feedback"][0]["snapshot"]["artifacts"]["coach"]==coaching.artifact(artifact),repr(exported["feedback"]);
                 other=client.register_user("trace-other","Trace-password-456");assert other.ok;
                 assert "error" in rpc(client,"agent_run",{"id":run["id"]});
                 assert "error" in rpc(client,"agent_traces",{"id":run["id"]});
@@ -78,7 +78,7 @@ test "traces and feedback are persistent private and bound to reviewed output" {
                 client.clear_auth();assert client.post("/function/agent_traces",json={"id":run["id"]}).status_code==401;
                 client.set_auth_token(token);
                 # Capture is deployment opt-in; metadata remains useful without prompts.
-                path.write_text(json.dumps({"provider":"codex-cli","local_cli_owner":owner,"local_cli_daily_limit":10}));
+                path.write_text(json.dumps({"invite_only":False,"provider":"codex-cli","local_cli_owner":owner,"local_cli_daily_limit":10}));
                 next_session=rpc(client,"prep_create",{"problem_id":"disagreement"});
                 next_run=rpc(client,"agent_start",{"kind":"prep","target_id":next_session["id"]});
                 client.clear_auth();next_work=rpc(client,"agent_claim",{"token":"trace-test-worker"});

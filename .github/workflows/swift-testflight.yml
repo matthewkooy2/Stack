@@ -13,6 +13,7 @@ on:
 permissions:
   contents: read
   actions: read
+  deployments: write
 jobs:
   native-upload:
     # Enabled main pushes release the Swift app; manual uploads remain explicit.
@@ -81,6 +82,16 @@ jobs:
       - name: Confirm exact native beta processing
         if: steps.verified.outputs.upload == 'true'
         run: node scripts/ci/ios-swift-processing.cjs
+      - name: Record confirmed TestFlight source
+        if: steps.verified.outputs.upload == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_COMMIT: ${{ steps.verified.outputs.release_commit }}
+        run: |
+          jq -n --arg ref "$RELEASE_COMMIT" '{
+            ref: $ref, environment: "stack-testflight", task: "stack-swift-testflight-confirmed",
+            description: "Confirmed in App Store Connect", auto_merge: false, required_contexts: []
+          }' | gh api --method POST "repos/$GITHUB_REPOSITORY/deployments" --input - --silent
       - name: Remove temporary signing assets
         if: always()
         run: python3 scripts/ci/ios-signing.py cleanup

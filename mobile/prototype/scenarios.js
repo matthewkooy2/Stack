@@ -13,7 +13,6 @@ export function useScenario(area,apply){useEffect(()=>{if(__DEV__&&current.area=
 const scenario=(area,label,params={})=>({id:area+'/'+label,area,label,...params});
 export const scenarios=[
  ...["Needs you","Activity","Features","Email & calendar","Rules","Facts"].map(page=>scenario("Agents",page,{page})),
- ...['deck','filters','details','menu','exhausted'].map(page=>scenario('Jobs',page,{page})),
  ...['list','search','filters','calendar','detail','Explain my fit','Tailor my resume','Prepare & apply','Follow-ups','Build interview plan'].map(page=>scenario('Applications',page,{page})),
  ...['queued','running','review','needs_input','blocked','failed','uncertain','cancelled','completed'].map(status=>scenario('Applications','Task · '+status,{page:'Prepare & apply',status,step:status==='uncertain'?'submit':'approve_resume'})),
  ...['fill','submit'].map(step=>scenario('Applications','Approval · '+step,{page:'Prepare & apply',status:'review',step})),
@@ -35,7 +34,7 @@ export const scenarios=[
  ...['ready','recording','evaluating','feedback','review'].map(phase=>scenario('Prep','Interview · '+phase,{track:'Behavioral',question:'project',phase})),
  scenario('Prep','Interview settings',{track:'Behavioral',question:'project',settings:true}),
  scenario('Prep','Job plan',{plan:true}),scenario('Prep','Job practice',{plan:true,practice:true}),
- ...['Jobs','Applications','Network','Resume','Prep','Profile','Edit profile','Agents'].map(area=>scenario(area,'Loading',{mode:'loading'}))
+ ...['Applications','Network','Resume','Prep','Profile','Edit profile','Agents'].map(area=>scenario(area,'Loading',{mode:'loading'}))
 ];
 export function selectScenario(value){
  if(!__DEV__)return;

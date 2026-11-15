@@ -22,19 +22,19 @@ def rpc(client: any, name: str, args: dict[str, any] = {}) -> dict[str, any] {
 def saved_job(client: any, user: str, url: str) -> str {
     marker=secrets.token_hex(5);source_url="https://example.com/autofill-"+marker;
     source="career:"+hashlib.sha256(source_url.encode()).hexdigest()[:32];
-    client.set_auth_token(user);rpc(client,"import_job_url",{"url":source_url});
-    client.clear_auth();claim=rpc(client,"discovery_claim",{"token":"autofill-discovery","preferred_id":source});
-    assert claim.get("id")==source,claim;
+    config={"id":source,"adapter":"career","name":"Test","url":source_url,"domain":"example.com","sector":"Technology","approved":True};
     job_id="job_"+hashlib.sha256((source_url+"/0").encode()).hexdigest()[:32];now=time.time();
     job={"id":job_id,"identity":source_url+"/0","canonical_url":source_url+"/0","url":url,"title":"Synthetic analyst","company":"Fixture","description":"Analyze data.","country":"US","location":"Detroit, MI","locations":["Detroit, MI"],"mode":"Remote","employment_type":"Full-time","seniority":"Entry-level","occupation":"Business","compensation":{},"salary":"Pay not listed","salary_note":"","source":"smartrecruiters","source_id":source,"source_name":"Test","source_job_id":"0","attribution":{},"posted":"Today","posted_at":now,"checked_at":now,"discovered_at":now,"expires_at":0,"snippet":False,"requirements":[],"qualifications":"","eligibility":"","remote_eligibility":"","initial":"F","color":"#EDF2FF","tags":[],"reason":"Test","demo":False};
-    rpc(client,"discovery_complete",{"token":"autofill-discovery","id":source,"lease":claim["lease"],"result":{"jobs":[job],"complete":True}});
+    client.clear_auth();
+    run=rpc(client,"jobs_sweep_begin",{"token":"autofill-discovery","only":[config]})["run"];
+    assert rpc(client,"jobs_sweep_source",{"token":"autofill-discovery","run":run,"id":source,"jobs":[job],"complete":True}).get("saved");
     client.set_auth_token(user);state=rpc(client,"swipe",{"job_id":job_id,"action":"apply"});
     return [a["id"] for a in state["applications"] if a["job_id"]==job_id][0];
 }
 
 test "autofill is model-free account-owned paused and resumable without submission" {
     with tempfile.TemporaryDirectory(prefix="stack-autofill-api-") as directory {
-        config=Path(directory)/"agents.json";config.write_text("{}");
+        config=Path(directory)/"agents.json";config.write_text('{"invite_only":false}');
         with patch.dict(os.environ,{"STACK_AGENT_CONFIG":str(config),"STACK_AGENT_WORKER_TOKEN":"autofill-worker","STACK_BROWSER_URL":"http://browser.invalid","STACK_BROWSER_TOKEN":"synthetic-browser-token"}) {
             client=JacTestClient.from_file(str(Path("main.jac").resolve()),base_path=directory);
             try {

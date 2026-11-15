@@ -145,22 +145,35 @@ final class ResumeReviewFlowUITests: XCTestCase {
     }
 
     private func openSection(_ app: XCUIApplication, _ key: String) {
+        if key == "original" {
+            let menu = app.buttons["More options"]
+            guard show(menu, app, "More options", fully: true) else { return }
+            menu.tap()
+            app.buttons.matching(identifier: "resume-review-section-original").firstMatch.tap()
+            XCTAssertTrue(element(app, id: "resume-review-all-sections").waitForExistence(timeout: 5))
+            return
+        }
         let row = element(app, id: "resume-review-section-\(key)")
         XCTAssertTrue(row.waitForExistence(timeout: 10), "the \(key) section row exists")
         guard show(row, app, "the \(key) row", fully: true) else { return }
         XCTAssertEqual(app.buttons.matching(identifier: "resume-review-section-\(key)").count, 1)
         captureNavigation(row, app, "\(key)-before-tap")
         XCTAssertTrue(fullyVisible(row, app), "the full section control is inside the measured viewport before tapping")
-        row.tap()
-        let opened = element(app, id: "resume-review-all-sections").waitForExistence(timeout: 5)
+        let edit = element(app, id: "resume-review-edit-\(key)")
+        if !edit.exists { row.tap() }
+        let opened = edit.waitForExistence(timeout: 5)
         if !opened { captureNavigation(row, app, "\(key)-failed-to-open") }
         XCTAssertTrue(opened, "the \(key) section opened")
+        guard opened, show(edit, app, "Edit \(key)", fully: true) else { return }
+        if edit.label == "Edit" { edit.tap() }
+        XCTAssertTrue(waitUntil { edit.label == "Done" }, "the \(key) section is editable inline")
     }
 
     private func backToSections(_ app: XCUIApplication) {
-        let back = element(app, id: "resume-review-all-sections")
-        guard show(back, app, "All sections", fully: true) else { return }
-        back.tap()
+        let done = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND label == %@", "resume-review-edit-", "Done")).firstMatch
+        XCTAssertTrue(done.exists)
+        guard show(done, app, "Done editing", fully: true) else { return }
+        done.tap()
         XCTAssertTrue(element(app, id: "resume-review-section-profile").waitForExistence(timeout: 5))
     }
 

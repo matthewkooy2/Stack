@@ -40,7 +40,7 @@ export async function beginApple(request) {
    throw new Error('Open ' + origin + ' to continue with Apple. Apple sign-in must start from the registered HTTPS Stack site.');
   }
   const apple = await loadSDK();
-  apple.auth.init({clientId: challenge.client_id, redirectURI, state: challenge.state, nonce: challenge.nonce, usePopup: true});
+  apple.auth.init({clientId: challenge.client_id, scope: 'email', redirectURI, state: challenge.state, nonce: challenge.nonce, usePopup: true});
   const response = await apple.auth.signIn();
   const proof = response?.authorization;
   if (proof?.state !== challenge.state || typeof proof?.id_token !== 'string' || !proof.id_token) {

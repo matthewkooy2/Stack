@@ -2,11 +2,13 @@
 import re;
 import from pathlib { Path }
 import from agents.latex { escape }
+import from agents.template_library { TEMPLATES as LIBRARY, fill as library_fill }
 with entry {
-    TEMPLATES = {'jake': "Jake's Resume", 'classic': 'Classic'};
+    TEMPLATES = {'jake': "Jake's Resume", 'classic': 'Classic', **LIBRARY};
     NAME_STYLE = {
         'jake': '\\textbf{\\Huge \\scshape {name}} \\\\ \\vspace{1pt}',
-        'classic': '{\\LARGE\\bfseries {name}} \\\\ \\vspace{3pt}'
+        'classic': '{\\LARGE\\bfseries {name}} \\\\ \\vspace{3pt}',
+        **{key: '\\stackname{{name}} \\\\ \\vspace{3pt}' for key in LIBRARY}
     };
 }
 def _items(value: any) -> any {
@@ -202,6 +204,7 @@ def fill(template: any, values: any) -> any {
             'Confirm your resume details first, so Stack can fill the template.'
         );
     }
+    if template in LIBRARY { return library_fill(template, body(template, values)); }
     base = (Path(__file__).parent / 'templates' / (template + '.tex')).read_text();
     return {
         'main': 'resume.tex',

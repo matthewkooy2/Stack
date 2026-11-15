@@ -33,6 +33,7 @@ final class AppleSignIn: NSObject, ASAuthorizationControllerDelegate, ASAuthoriz
 
     private func request(state: String, nonce: String, window: UIWindow) async throws -> Proof {
         let request = ASAuthorizationAppleIDProvider().createRequest()
+        request.requestedScopes = [.email]
         request.state = state
         request.nonce = nonce
         anchor = window

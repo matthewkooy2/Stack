@@ -53,8 +53,8 @@ Before committing, inspect the staged diff and use secret scanning as a separate
 complementary control: ignore rules do not protect already tracked files or detect
 secrets inside otherwise legitimate source files.
 
-Use `stack-api.service`, `stack-gateway.service`, `stack-discovery.service` and
-`stack-worker.service`. They listen/use private ports 8000 and 8080. Do not enable
+Use `stack-api.service`, `stack-gateway.service`, `stack-worker.service` and the
+`stack-jobs-sweep.timer` (daily at 10:00 New York). They listen/use private ports 8000 and 8080. Do not enable
 `stack-voice.service`, browser automation or the candidate-code sandbox initially.
 Leave browser/sandbox URLs and tokens empty and `certified_adapters` empty;
 keep external-action quotas zero. Docker is unnecessary for this core setup.

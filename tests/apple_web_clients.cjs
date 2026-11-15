@@ -13,10 +13,9 @@ async function main() {
  };
  const result = await beginApple(request);
  assert.equal(result.token, 'fixture-stack-session');
- assert.deepEqual(config, {clientId: challenge.client_id, redirectURI: challenge.redirect_uri, state: challenge.state, nonce: challenge.nonce, usePopup: true});
+ assert.deepEqual(config, {clientId: challenge.client_id, scope: 'email', redirectURI: challenge.redirect_uri, state: challenge.state, nonce: challenge.nonce, usePopup: true});
  assert.ok(calls.every(call => call.authenticated === false));
  assert.deepEqual(calls[1].body, {state: challenge.state, identity_token: 'fixture-apple-proof'});
- assert.equal(Object.hasOwn(config, 'scope'), false, 'Do not request email or profile access');
  // Mismatched callbacks never reach the session-issuing endpoint.
  calls = []; window.AppleID.auth.signIn = async () => ({authorization: {...proof.authorization, state: 'another-attempt'}});
  await assert.rejects(() => beginApple(request), /did not match/);

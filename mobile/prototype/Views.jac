@@ -1,4 +1,3 @@
-import from .jobs { jobs_2, jobs_3, jobs_5, jobs_6, jobs_7, jobs_8, jobs_4, jobs_9, jobs_10, jobs_12, jobs_11, jobs_15, jobs_16, jobs_14, jobs_17, jobs_19, jobs_20, jobs_21, jobs_18, jobs_13, jobs_1 }
 import from .applications { applications_1, applications_3, applications_4, applications_5, applications_7, applications_8, applications_9, applications_10, applications_11, applications_6, applications_13, applications_12, applications_14, applications_17, applications_16, applications_15, applications_2 }
 import from .application_detail { application_detail_2, application_detail_3, application_detail_4, application_detail_5, application_detail_6, application_detail_10, application_detail_9, application_detail_11, application_detail_12, application_detail_13, application_detail_14, application_detail_15, application_detail_16, application_detail_17, application_detail_18, application_detail_21, application_detail_20, application_detail_19, application_detail_22, application_detail_24, application_detail_23, application_detail_8, application_detail_26, application_detail_27, application_detail_28, application_detail_31, application_detail_32, application_detail_30, application_detail_33, application_detail_29, application_detail_25, application_detail_34, application_detail_36, application_detail_38, application_detail_37, application_detail_39, application_detail_35, application_detail_41, application_detail_43, application_detail_44, application_detail_42, application_detail_40, application_detail_7, application_detail_1 }
 import from .application_task { application_task_2, application_task_4, application_task_5, application_task_3, application_task_7, application_task_9, application_task_8, application_task_11, application_task_10, application_task_13, application_task_12, application_task_15, application_task_16, application_task_14, application_task_17, application_task_18, application_task_19, application_task_20, application_task_21, application_task_22, application_task_23, application_task_6, application_task_1 }
@@ -14,27 +13,6 @@ import from .mock_interview { mock_interview_1, mock_interview_2, mock_interview
 import from .interview_feedback { interview_feedback_2, interview_feedback_4, interview_feedback_3, interview_feedback_5, interview_feedback_1 }
 
 glob:pub templates = {
-    "jobs_2": jobs_2,
-    "jobs_3": jobs_3,
-    "jobs_5": jobs_5,
-    "jobs_6": jobs_6,
-    "jobs_7": jobs_7,
-    "jobs_8": jobs_8,
-    "jobs_4": jobs_4,
-    "jobs_9": jobs_9,
-    "jobs_10": jobs_10,
-    "jobs_12": jobs_12,
-    "jobs_11": jobs_11,
-    "jobs_15": jobs_15,
-    "jobs_16": jobs_16,
-    "jobs_14": jobs_14,
-    "jobs_17": jobs_17,
-    "jobs_19": jobs_19,
-    "jobs_20": jobs_20,
-    "jobs_21": jobs_21,
-    "jobs_18": jobs_18,
-    "jobs_13": jobs_13,
-    "jobs_1": jobs_1,
     "applications_1": applications_1,
     "applications_3": applications_3,
     "applications_4": applications_4,

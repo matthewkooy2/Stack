@@ -343,6 +343,8 @@ def check(structure: any, data: any, facts: any) -> any {
                     'kind': 'reorder',
                     'where': title,
                     'reason': '',
+                    'before_items': [{'id': e, 'text': entries[e]['heading'].replace('**', '')} for e in movable],
+                    'after_items': [{'id': e, 'text': entries[e]['heading'].replace('**', '')} for e in order],
                     'before': ' → '.join(
                         entries[e]['heading'].replace('**', '').split(' | ')[0]
                         for e in movable
@@ -372,6 +374,8 @@ def check(structure: any, data: any, facts: any) -> any {
                     'kind': 'reorder',
                     'where': _where(structure, `entry['id']),
                     'reason': 'Most relevant bullets first.',
+                    'before_items': [{'id': b, 'text': bullets[b]['text']} for b in owned_source],
+                    'after_items': [{'id': b, 'text': bullets[b]['text']} for b in order],
                     'before': '',
                     'after': 'Bullets reordered by relevance to this job.'
                 }

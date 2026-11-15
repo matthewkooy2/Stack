@@ -8,12 +8,14 @@ import UserNotifications
 @MainActor
 @Observable
 final class AppStore {
-    enum Phase { case starting, signedOut, admission, ready }
+    enum Phase { case starting, startupFailed, signedOut, admission, ready }
 
     let api: APIClient
     let prep: PrepTransport
     let google: GoogleSignIn
+    let googleConnection: GoogleConnection
     let apple: AppleSignIn
+    let googleBrowser = GoogleAuthSession()
     let jobFeedCache: JobFeedCache
 
     var phase: Phase = .starting
@@ -27,30 +29,39 @@ final class AppStore {
     var pendingInvite = ""
     /// A record a tapped notification asked to open; the owning tab consumes it.
     var pendingOpen: [String: String] = [:]
+    var linkedDestination: String?
     /// Session-only public-profile drafts; never written to an external profile.
     var profileDrafts: [String: String] = [:]
     var rewriteDrafts: [String: SavedRewriteReview] = [:]
-    /// Overridable so tests can drive the Google handoff without UIKit.
-    var openExternalURL: (URL) async -> Bool = { await UIApplication.shared.open($0) }
+    /// Tests substitute only the browser presentation; server session retrieval still executes.
+    var authenticateGoogle: ((URL) async throws -> Void)?
     var isForeground: () -> Bool = { UIApplication.shared.applicationState == .active }
 
     private var refreshing = false
+    private(set) var restoringSession = false
+    private var googleInfoTask: Task<Void, Never>?
     private var epoch = 0
     private(set) var sessionGeneration = 0
     private var swipeChain: Task<Void, Never>?
     private var pendingSwipes = 0
+    private var googleAttempt = UUID()
 
     init(api: APIClient = APIClient(origin: APIClient.configuredOrigin), jobFeedCache: JobFeedCache = JobFeedCache()) {
         self.api = api
         self.jobFeedCache = jobFeedCache
         self.prep = PrepTransport(api: api)
         self.google = GoogleSignIn(api: api)
+        self.googleConnection = GoogleConnection(api: api)
         self.apple = AppleSignIn(api: api)
     }
 
     // MARK: Session
 
     func start() async {
+        guard !restoringSession, phase == .starting || phase == .startupFailed else { return }
+        restoringSession = true
+        error = ""
+        defer { restoringSession = false }
         if let handoff = google.pending() {
             await finishGoogle(handoff)
             return
@@ -91,24 +102,36 @@ final class AppStore {
 
     private func completeLogin() async {
         let generation = sessionGeneration
+        let deadline = ProcessInfo.processInfo.systemUptime + 8
+        func remainingTime() throws -> TimeInterval {
+            let remaining = deadline - ProcessInfo.processInfo.systemUptime
+            guard remaining > 0 else {
+                throw APIError(message: "Stack took too long to load. Please retry.", failureCategory: "network timeout")
+            }
+            return remaining
+        }
         do {
-            googleInfo = (try? await api.call("auth_google_status")) ?? [:]
             if !pendingInvite.isEmpty {
                 let invite = pendingInvite
+                try await api.call("agent_accept_invite", ["invite": .string(invite)], timeout: remainingTime())
+                guard generation == sessionGeneration else { return }
                 pendingInvite = ""
-                try await api.call("agent_accept_invite", ["invite": .string(invite)])
             }
-            let admission = try await api.call("agent_admission")
+            startupTrace("requesting admission")
+            let admission = try await api.call("agent_admission", timeout: remainingTime())
             guard generation == sessionGeneration else { return }
-            guard admission["admitted"].bool else {
+            if admission["admitted"].bool {
+                startupTrace("requesting account")
+                let snapshot = try await api.call("bootstrap", timeout: remainingTime())
+                guard generation == sessionGeneration else { return }
+                account = AccountState(raw: snapshot)
+                phase = .ready
+                startupTrace("account ready")
+            } else {
                 phase = .admission
-                return
             }
-            let snapshot = try await api.call("bootstrap")
-            guard generation == sessionGeneration else { return }
-            account = AccountState(raw: snapshot)
-            phase = .ready
-            await reconcileReminders(ask: false)
+            refreshGoogleInfo()
+            if phase == .ready { await reconcileReminders(ask: false) }
         } catch let failure as APIError where failure.isUnauthorized && generation == sessionGeneration {
             await signOut()
             error = "Your session expired. Please sign in again."
@@ -116,7 +139,53 @@ final class AppStore {
         } catch {
             guard generation == sessionGeneration else { return }
             fail(error)
-            if phase == .starting { phase = .signedOut }
+            if phase == .starting || phase == .signedOut { phase = .startupFailed }
+            startupTrace("failed: " + ((error as? APIError)?.failureCategory ?? "request failed"))
+        }
+    }
+
+    private func startupTrace(_ event: String) {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--stack-startup-diagnostics") {
+            print("Stack startup: \(event)")
+        }
+        #endif
+    }
+
+    private func refreshGoogleInfo() {
+        let generation = sessionGeneration
+        googleInfoTask?.cancel()
+        googleInfoTask = Task { [weak self] in
+            guard let self, !Task.isCancelled, generation == self.sessionGeneration else { return }
+            if let info = try? await self.api.call("auth_google_status", timeout: 3),
+               !Task.isCancelled, generation == self.sessionGeneration {
+                self.googleInfo = info
+            }
+        }
+    }
+
+    func deleteAccount() async -> Bool {
+        guard !busy else { return false }
+        busy = true
+        error = ""
+        defer { busy = false }
+        do {
+            try FileResumeDraftStore.shared.remove(userID: account.userID)
+            try RecordingStore.remove(owner: account.userID)
+            try PrepDraftStore().remove(owner: account.userID)
+            try jobFeedCache.removeForAccountDeletion()
+            #if DEBUG
+            try PrepTrace.remove()
+            #endif
+            URLCache.shared.removeAllCachedResponses()
+            let deleted = try await api.call("account_delete", timeout: 110)
+            guard deleted["deleted"].bool else { throw APIError(message: "Account deletion did not finish. Please retry.") }
+            await signOut()
+            notice = "Your account and data were deleted."
+            return true
+        } catch {
+            fail(error)
+            return false
         }
     }
 
@@ -128,6 +197,11 @@ final class AppStore {
         pendingSwipes = 0
         busy = false
         google.cancel()
+        googleBrowser.cancel()
+        googleAttempt = UUID()
+        googleConnection.cancel()
+        googleInfoTask?.cancel()
+        googleInfoTask = nil
         apple.cancel()
         googlePending = false
         googleInfo = [:]
@@ -140,6 +214,7 @@ final class AppStore {
             UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
         }
         RecordingStore.removeAll()
+        VideoLibraryStore.removeAll()
         jobFeedCache.remove()
         api.forget()
         prep.resetCatalog()
@@ -245,31 +320,47 @@ final class AppStore {
         guard !googlePending, !busy else { return }
         if link { guard phase == .ready || phase == .admission else { return } }
         googlePending = true
+        let attempt = UUID()
+        googleAttempt = attempt
         error = ""
         notice = ""
         do {
-            let handoff = try await google.begin(invite: invite.trimmingCharacters(in: .whitespaces), link: link, open: openExternalURL)
+            let handoff = try await google.begin(invite: invite.trimmingCharacters(in: .whitespaces), link: link) { url in
+                if let authenticate = self.authenticateGoogle { try await authenticate(url) }
+                else { _ = try await self.googleBrowser.authenticate(provider: url, origin: self.api.origin) }
+                return true
+            }
+            guard googleAttempt == attempt else { return }
             await finishGoogle(handoff)
+        } catch is CancellationError {
+            guard googleAttempt == attempt else { return }
+            google.cancel()
+            googlePending = false
         } catch {
+            guard googleAttempt == attempt else { return }
+            google.cancel()
             googlePending = false
             fail(error)
         }
     }
 
     private func finishGoogle(_ handoff: GoogleHandoff) async {
+        let attempt = googleAttempt
         googlePending = true
-        defer { googlePending = false }
+        defer { if googleAttempt == attempt { googlePending = false } }
         do {
             let token = try await google.wait(for: handoff, isActive: isForeground)
-            guard !Task.isCancelled else { return }
+            guard googleAttempt == attempt, !Task.isCancelled else { return }
             api.adopt(token: token)
             sessionGeneration += 1
             pendingInvite = handoff.invite
             await completeLogin()
             if handoff.link, phase == .ready { notice = "Google sign-in is linked to this Stack account." }
         } catch is CancellationError {
+            guard googleAttempt == attempt else { return }
             if phase == .starting { phase = api.hasSession ? .starting : .signedOut }
         } catch {
+            guard googleAttempt == attempt else { return }
             fail(error)
             if phase == .starting { phase = api.hasSession ? .starting : .signedOut }
             if phase == .starting { await completeLogin() }
@@ -277,7 +368,9 @@ final class AppStore {
     }
 
     func cancelGoogle() {
+        googleAttempt = UUID()
         google.cancel()
+        googleBrowser.cancel()
         googlePending = false
         if phase == .starting { phase = api.hasSession ? .starting : .signedOut }
     }
@@ -345,11 +438,24 @@ final class AppStore {
 
     // MARK: Reminders
 
-    /// Schedules a local alert for each open reminder.
+    /// Schedules follow-up alerts and the daily accountability reminders.
     func reconcileReminders(ask: Bool) async {
+        await reconcileFollowUps(ask: ask)
+        _ = await reconcileNudges(ask: false)
+    }
+
+    /// Removes this device's pending follow-up alerts, leaving accountability reminders in place.
+    private func removeFollowUps(_ center: UNUserNotificationCenter) async {
+        let ids = await center.pendingNotificationRequests().map(\.identifier)
+            .filter { $0.hasPrefix("stack-") && !$0.hasPrefix(Nudge.prefix) }
+        center.removePendingNotificationRequests(withIdentifiers: ids)
+    }
+
+    /// Schedules a local alert for each open reminder.
+    private func reconcileFollowUps(ask: Bool) async {
         let generation = sessionGeneration
         guard account.notificationsOn || ask else {
-            UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+            await removeFollowUps(UNUserNotificationCenter.current())
             return
         }
         let center = UNUserNotificationCenter.current()
@@ -364,7 +470,7 @@ final class AppStore {
             if ask { notice = "Reminder saved. Enable notifications in iPhone Settings to receive alerts." }
             return
         }
-        center.removeAllPendingNotificationRequests()
+        await removeFollowUps(center)
         let now = Date().timeIntervalSince1970
         for reminder in account.reminders where !reminder.done && reminder.dueAt > now {
             let content = UNMutableNotificationContent()
@@ -380,5 +486,39 @@ final class AppStore {
                 return
             }
         }
+    }
+
+    // MARK: Accountability reminders
+
+    enum NudgeOutcome: Equatable { case scheduled(Int), off, denied }
+
+    /// Replaces the accountability reminders with the saved settings and current counts. With `ask`, a first
+    /// enable asks for notification permission; a denial is reported so the screen can point to Settings.
+    func reconcileNudges(ask: Bool) async -> NudgeOutcome {
+        let generation = sessionGeneration
+        let owner = account.userID
+        let center = UNUserNotificationCenter.current()
+        let stale = await center.pendingNotificationRequests().map(\.identifier).filter { $0.hasPrefix(Nudge.prefix) }
+        center.removePendingNotificationRequests(withIdentifiers: stale)
+        let settings = NudgeSettings.load(for: owner)
+        guard settings.enabled, !owner.isEmpty, phase == .ready else { return .off }
+        var status = await center.notificationSettings().authorizationStatus
+        if ask, status == .notDetermined {
+            _ = try? await center.requestAuthorization(options: [.alert, .sound])
+            status = await center.notificationSettings().authorizationStatus
+        }
+        guard generation == sessionGeneration else { return .off }
+        guard status == .authorized || status == .provisional else { return .denied }
+        let now = Date().timeIntervalSince1970
+        let due = account.reminders.filter { !$0.done && $0.dueAt <= now + 86_400 }.count
+        let plan = Nudge.plan(settings, followUpsDue: due, applications: account.applications.count)
+        for nudge in plan {
+            try? await center.add(nudge.request(owner: owner))
+            if generation != sessionGeneration {
+                center.removePendingNotificationRequests(withIdentifiers: plan.map { $0.request(owner: owner).identifier })
+                return .off
+            }
+        }
+        return .scheduled(plan.count)
     }
 }

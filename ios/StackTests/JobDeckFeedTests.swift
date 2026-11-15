@@ -1,7 +1,7 @@
 import XCTest
 @testable import Stack
 
-/// Holds every `search_jobs` request until the test answers it, so slow, failing and stale pages are deterministic.
+/// Holds every `job_feed` request until the test answers it, so slow, failing and stale pages are deterministic.
 /// Cancellation is recorded; by default a cancelled request still waits for an answer, like a response that was
 /// already on the wire. `releaseAll` ends whatever the test left open.
 @MainActor
@@ -119,6 +119,23 @@ final class JobDeckFeedTests: XCTestCase {
         return parse("{\"jobs\":[\(jobs)],\"next_cursor\":\"\(next)\"}")
     }
 
+    func testExhaustedDeckReloadsAfterReturningEvenAfterTodaysSweepStarted() {
+        let now = Date()
+        XCTAssertTrue(JobSweep.needsReload(computedAt: now.timeIntervalSince1970, hasReviewableJobs: false, now: now))
+        XCTAssertFalse(JobSweep.needsReload(computedAt: now.timeIntervalSince1970, hasReviewableJobs: true, now: now))
+        XCTAssertTrue(JobSweep.needsReload(computedAt: 0, hasReviewableJobs: true, now: now))
+    }
+
+    func testMalformedSuccessfulResponseIsAnErrorRatherThanAnEmptyDeck() async {
+        let load = start()
+        await desk.requested(1)
+        desk.answer(0, [:])
+        await load.value
+        XCTAssertFalse(feed.loadError.isEmpty)
+        XCTAssertTrue(feed.jobs.isEmpty)
+        XCTAssertEqual(screen.received, 0)
+    }
+
     private func makeSource() -> JobDeckSource {
         let feed = feed!, desk = desk!, screen = screen!
         return JobDeckSource(
@@ -223,12 +240,27 @@ final class JobDeckFeedTests: XCTestCase {
 
     func testFailingFirstPageEndsLoadingWithAnError() async {
         let load = start()
-        await desk.requested(1)
-        desk.fail(0)
+        for attempt in 0..<3 {
+            await desk.requested(attempt + 1)
+            desk.fail(attempt)
+        }
         await load.value
+        XCTAssertEqual(desk.requests.count, 3, "startup recovery is bounded")
         XCTAssertTrue(feed.loaded)
         XCTAssertTrue(feed.jobs.isEmpty)
         XCTAssertFalse(feed.loadError.isEmpty)
+    }
+
+    func testTransientStartupFailureRecoversWithoutManualReload() async {
+        let load = start()
+        await desk.requested(1)
+        desk.fail(0)
+        await desk.requested(2)
+        XCTAssertFalse(feed.loaded, "keep loading while the connection recovers")
+        desk.answer(1, page(["recovered"]))
+        await load.value
+        XCTAssertEqual(ids, ["recovered"])
+        XCTAssertTrue(feed.loadError.isEmpty)
     }
 
     func testBackgroundPagingStopsOnceTheDeckHasFiveCards() async {
@@ -553,5 +585,20 @@ final class JobDeckFeedTests: XCTestCase {
         await change.value
         XCTAssertFalse(screen.log.contains("accepted filters"))
         XCTAssertFalse(feed.busy)
+    }
+}
+
+final class JobSweepTests: XCTestCase {
+    private func date(_ text: String) -> Date { ISO8601DateFormatter().date(from: text)! }
+
+    func testOnlyMatchesFromBeforeTheLatestTenAMSweepAreStale() {
+        // 09:59 New York (EDT) is still yesterday's sweep; 10:00 starts today's.
+        let before = date("2026-10-27T13:59:00Z"), after = date("2026-10-27T14:01:00Z")
+        XCTAssertEqual(JobSweep.latest(before: before), date("2026-10-26T14:00:00Z"))
+        XCTAssertEqual(JobSweep.latest(before: after), date("2026-10-27T14:00:00Z"))
+        let rankedThisMorning = date("2026-10-27T14:05:00Z").timeIntervalSince1970
+        XCTAssertFalse(JobSweep.isNewer(than: rankedThisMorning, now: date("2026-10-27T20:00:00Z")))
+        XCTAssertTrue(JobSweep.isNewer(than: rankedThisMorning, now: date("2026-10-28T14:30:00Z")))
+        XCTAssertTrue(JobSweep.isNewer(than: 0, now: after))
     }
 }

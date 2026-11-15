@@ -1,0 +1,111 @@
+{
+  "awesome-cv": {
+    "repository": "https://github.com/posquit0/Awesome-CV",
+    "revision": "add5bc0473b6fe385e1b46e09a8d3e9c55387d67",
+    "source": "awesome-cv.cls",
+    "imported_files": [
+      "awesome-cv.cls"
+    ],
+    "bundled_files": [
+      "LICENSE.txt",
+      "awesome-cv.cls"
+    ]
+  },
+  "bill-ryan": {
+    "repository": "https://github.com/billryan/resume",
+    "revision": "eadc3955cf006254dc8f2419e971fbe3f5bab413",
+    "source": "resume.cls",
+    "imported_files": [
+      "resume.cls",
+      "LICENSE",
+      "fonts/Main/Fontin-SmallCaps.otf",
+      "fonts/Main/texgyretermes-bold.otf",
+      "fonts/Main/texgyretermes-bolditalic.otf",
+      "fonts/Main/texgyretermes-italic.otf",
+      "fonts/Main/texgyretermes-regular.otf",
+      "fonts/fontawesome-webfont.ttf",
+      "fonts/fontawesome/opentype/FontAwesome.otf"
+    ],
+    "bundled_files": [
+      "LICENSE",
+      "fonts/Main/GUST-FONT-LICENSE.txt",
+      "fonts/Main/README-TeX-Gyre-Termes.txt",
+      "fonts/Main/texgyretermes-bold.otf",
+      "fonts/Main/texgyretermes-bolditalic.otf",
+      "fonts/Main/texgyretermes-italic.otf",
+      "fonts/Main/texgyretermes-regular.otf",
+      "resume.cls"
+    ],
+    "adaptation": "SmallCapsFont uses TeX Gyre Termes instead of the unbundled Fontin face."
+  },
+  "sb2nov": {
+    "repository": "https://github.com/sb2nov/resume",
+    "revision": "7b70fe14876f97180034787f2a7f661597416a17",
+    "source": "sourabh_bajaj_resume.tex",
+    "imported_files": [
+      "sourabh_bajaj_resume.tex",
+      "LICENSE"
+    ],
+    "bundled_files": [
+      "LICENSE"
+    ]
+  },
+  "deedy": {
+    "repository": "https://github.com/deedy/Deedy-Resume",
+    "revision": "6d06ba7d8eee5fb8870bb00cb13a777f2083aa18",
+    "source": "OpenFonts/deedy-resume-openfont.cls",
+    "imported_files": [
+      "OpenFonts/deedy-resume-openfont.cls",
+      "LICENSE",
+      "OpenFonts/fonts/lato/Lato-Bla.ttf",
+      "OpenFonts/fonts/lato/Lato-BlaIta.ttf",
+      "OpenFonts/fonts/lato/Lato-Bol.ttf",
+      "OpenFonts/fonts/lato/Lato-BolIta.ttf",
+      "OpenFonts/fonts/lato/Lato-Hai.ttf",
+      "OpenFonts/fonts/lato/Lato-HaiIta.ttf",
+      "OpenFonts/fonts/lato/Lato-Lig.ttf",
+      "OpenFonts/fonts/lato/Lato-LigIta.ttf",
+      "OpenFonts/fonts/lato/Lato-Reg.ttf",
+      "OpenFonts/fonts/lato/Lato-RegIta.ttf",
+      "OpenFonts/fonts/raleway/Raleway-Bold.otf",
+      "OpenFonts/fonts/raleway/Raleway-ExtraBold.otf",
+      "OpenFonts/fonts/raleway/Raleway-ExtraLight.otf",
+      "OpenFonts/fonts/raleway/Raleway-Heavy.otf",
+      "OpenFonts/fonts/raleway/Raleway-Light.otf",
+      "OpenFonts/fonts/raleway/Raleway-Medium.otf",
+      "OpenFonts/fonts/raleway/Raleway-Regular.otf",
+      "OpenFonts/fonts/raleway/Raleway-SemiBold.otf",
+      "OpenFonts/fonts/raleway/Raleway-Thin.otf"
+    ],
+    "bundled_files": [
+      "LICENSE",
+      "deedy-resume-openfont.cls",
+      "fonts/lato/Lato-Bol.ttf",
+      "fonts/lato/Lato-Hai.ttf",
+      "fonts/lato/Lato-Lig.ttf",
+      "fonts/lato/Lato-LigIta.ttf",
+      "fonts/lato/Lato-Reg.ttf",
+      "fonts/lato/Lato-RegIta.ttf",
+      "fonts/lato/OFL.txt",
+      "fonts/raleway/OFL.txt",
+      "fonts/raleway/Raleway-ExtraLight.otf",
+      "fonts/raleway/Raleway-Medium.otf"
+    ]
+  },
+  "jan-kuster": {
+    "repository": "https://github.com/jankapunkt/latexcv",
+    "revision": "c4284b2ac9d20ba751e272fc805bb00accc6f1a8",
+    "source": "classic/main.tex",
+    "imported_files": [
+      "classic/main.tex",
+      "LICENSE"
+    ],
+    "bundled_files": [
+      "LICENSE",
+      "fonts/OFL.txt",
+      "fonts/Raleway-Bold.otf",
+      "fonts/Raleway-Regular.otf"
+    ],
+    "font_source": "https://github.com/deedy/Deedy-Resume/tree/6d06ba7d8eee5fb8870bb00cb13a777f2083aa18/OpenFonts/fonts/raleway"
+  }
+}

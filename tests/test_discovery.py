@@ -80,14 +80,54 @@ class DiscoveryContracts(unittest.TestCase):
   def reply(url,**kwargs):
    if 'content=true' in url:raise ValueError('Source response exceeds the configured body limit.')
    if url.endswith('/jobs'):return {'jobs':[{'id':i} for i in range(11)]}
-   n=url.rsplit('/',1)[-1];return {'id':n,'title':'Nurse','absolute_url':'https://example.com/jobs/'+n,'content':'Valid','location':{'name':'Detroit, MI'},'requisition_id':'See Opening ID'}
+   n=url.rsplit('/',1)[-1].split('?')[0];return {'id':n,'title':'Nurse','absolute_url':'https://example.com/jobs/'+n,'content':'Valid','location':{'name':'Detroit, MI'},'requisition_id':'See Opening ID'}
   with patch.object(s,'json_fetch',side_effect=reply):
    r=s.collect({**SOURCE,'adapter':'greenhouse','board':'test'},{});self.assertFalse(r['complete']);self.assertEqual(len(r['jobs']),10);self.assertEqual(len(set(j['id'] for j in r['jobs'])),10)
    r2=s.collect({**SOURCE,'adapter':'greenhouse','board':'test'},r['checkpoint']);self.assertTrue(r2['complete']);self.assertEqual(len(r2['jobs']),1)
+ def test_greenhouse_publication_and_scoped_employer_detail(self):
+  board={**SOURCE,'id':'greenhouse:test','adapter':'greenhouse','board':'test','posting_schema_host':'example.com','posting_body_selector':'.listing-body'}
+  item={'id':15,'title':'Analyst','absolute_url':'https://example.com/jobs/15','location':{'name':'US'},
+        'first_published':'2025-02-01','updated_at':'2026-05-02','content':'Board description',
+        'metadata':[{'name':'Time Type','value':'Full time'}]}
+  schema={'@type':'JobPosting','identifier':{'value':'15'},'title':'Analyst','description':'Employer description',
+          'jobLocation':{'address':{'addressCountry':'US','addressLocality':'Chicago'}},
+          'baseSalary':{'currency':'USD','value':{'minValue':'90,000','maxValue':120000,'unitText':'YEAR'}}}
+  import json
+  def read(detail):
+   page={'text':'<script type="application/ld+json">'+json.dumps(detail)+'</script><div class="listing-body"><p>US base salary: $90,000 to $120,000.</p></div><footer>Salary: $5.</footer>','url':item['absolute_url']}
+   with patch.object(s,'json_fetch',side_effect=[{'jobs':[{'id':15}]},item]),patch.object(s,'page_fetch',return_value=page) as fetch:
+    result=s.collect(board,{})['jobs'][0]
+    fetch.assert_called_once_with(item['absolute_url'],allowed_hosts={'example.com'})
+    return result
+  enriched=read(schema);other=read({**schema,'identifier':{'value':'16'}})
+  self.assertEqual(enriched['id'],other['id']);self.assertEqual(enriched['posted_at'],1738368000)
+  self.assertEqual(enriched['salary'],'USD 90000–120000 / year');self.assertEqual(other['salary'],'Pay not listed')
+  self.assertEqual(enriched['locations'],['Chicago, US']);self.assertEqual(other['employment_type'],'Full-time')
+  self.assertEqual(other['description'],'Board description')
+  self.assertIn('US base salary',enriched['pay_text']);self.assertNotIn('$5',enriched['pay_text'])
+  self.assertFalse(other['pay_text'])
+  with patch.object(s,'json_fetch',return_value=item),patch.object(s,'page_fetch',side_effect=ValueError('Page blocked')):
+   fallback=s.collect(board,{'ids':['15']})['jobs'][0]
+   self.assertEqual(fallback['id'],enriched['id']);self.assertEqual(fallback['description'],'Board description')
+   self.assertEqual(fallback['attribution']['employer_details_status'],'unavailable')
+ def test_greenhouse_pay_period_and_regional_ranges(self):
+  band={'title':'Hourly Base Pay Range:','min_cents':1850,'max_cents':2500,'currency_type':'USD'}
+  self.assertEqual(s.greenhouse_pay({'pay_input_ranges':[band]})['min'],18.5)
+  self.assertEqual(s.greenhouse_pay({'pay_input_ranges':[band]})['unit'],'hour')
+  self.assertIsNone(s.greenhouse_pay({'pay_input_ranges':[{**band,'title':'Base Salary'}]})['unit'])
+  self.assertFalse(s.greenhouse_pay({'pay_input_ranges':[band,band]}))
  def test_ashby_unlisted_and_multiple_locations(self):
   payload={'jobs':[{'title':'Nurse','isListed':False},{'title':'Nurse','jobUrl':'https://example.com/jobs/1','location':'Detroit','secondaryLocations':[{'location':'Chicago'}],'address':{'postalAddress':{'addressCountry':'USA'}},'employmentType':'FullTime'}]}
   with patch.object(s,'json_fetch',return_value=payload):
    r=s.collect({**SOURCE,'adapter':'ashby','board':'test'},{});self.assertEqual(len(r['jobs']),1);self.assertEqual(r['jobs'][0]['locations'],['Detroit','Chicago']);self.assertEqual(r['jobs'][0]['country'],'US')
+ def test_explicit_secondary_us_address_and_eligible_remote_region(self):
+  data={'title':'Analyst','jobUrl':'https://example.com/job/1','location':'Toronto',
+        'address':{'postalAddress':{'addressCountry':'CA'}},
+        'secondaryLocations':[{'location':'Portland','address':{'addressCountry':'US'}}]}
+  with patch.object(s,'json_fetch',return_value={'jobs':[data]}):
+   observed=s.collect({**SOURCE,'adapter':'ashby','board':'test'}, {})['jobs'][0]
+   self.assertEqual(observed['country'],'US')
+  self.assertEqual(s.country('Remote US'),'US');self.assertEqual(s.country('New Zealand'),'Unknown')
  def test_lever_pagination(self):
   payload=[{'id':str(i),'text':'Nurse','hostedUrl':'https://example.com/jobs/'+str(i),'categories':{'location':'Detroit, MI'}} for i in range(100)]
   with patch.object(s,'json_fetch',return_value=payload):
@@ -95,16 +135,8 @@ class DiscoveryContracts(unittest.TestCase):
  def test_smartrecruiters_details_and_completion(self):
   with patch.object(s,'json_fetch',side_effect=[{'content':[{'id':'1'}],'totalFound':1},{'id':'1','name':'Chef','location':{'country':'us','city':'Detroit'},'jobAd':{'sections':{'jobDescription':{'text':'Cook meals'}}}}]):
    r=s.collect({**SOURCE,'adapter':'smartrecruiters','board':'test'},{});self.assertTrue(r['complete']);self.assertEqual(r['jobs'][0]['description'],'Cook meals')
- def test_adzuna_redirect_snippet_estimate(self):
-  with patch.dict('os.environ',{'ADZUNA_APP_ID':'x','ADZUNA_APP_KEY':'y'}),patch.object(s,'json_fetch',return_value={'results':[{'id':'1','title':'Nurse','redirect_url':'https://adzuna.com/redirect/1','company':{'display_name':'Example'},'salary_is_predicted':'1','salary_min':100000}]}):
-   j=s.collect({**SOURCE,'adapter':'adzuna'}, {})['jobs'][0];self.assertTrue(j['snippet']);self.assertEqual(j['url'],'https://adzuna.com/redirect/1');self.assertEqual(j['salary'],'Pay not listed');self.assertEqual(j['attribution']['label'],'Jobs by Adzuna')
- def test_theirstack_excludes_previously_purchased(self):
-  with patch.dict('os.environ',{'THEIRSTACK_API_KEY':'test'}),patch.object(s,'json_fetch',return_value={'data':[]}) as fetch:
-   s.collect({**SOURCE,'adapter':'theirstack','excluded_ids':[123],'allowance':7},{});body=fetch.call_args.kwargs['body'];self.assertEqual(body['limit'],7);self.assertEqual(body['job_id_not'],[123])
- def test_usajobs_eligibility_expiry(self):
-  payload={'SearchResult':{'SearchResultItems':[{'MatchedObjectId':'1','MatchedObjectDescriptor':{'PositionTitle':'Nurse','OrganizationName':'VA','PositionURI':'https://usajobs.gov/job/1','PositionID':'VA1','ApplicationCloseDate':'2027-01-01','UserArea':{'Details':{'WhoMayApply':{'Name':'Veterans'}}}}}]}}
-  with patch.dict('os.environ',{'USAJOBS_API_KEY':'x','USAJOBS_EMAIL':'test@example.com'}),patch.object(s,'json_fetch',return_value=payload):
-   j=s.collect({**SOURCE,'adapter':'usajobs'}, {})['jobs'][0];self.assertIn('Veterans',j['eligibility']);self.assertGreater(j['expires_at'],0)
+ def test_paid_providers_are_not_adapters(self):
+  for adapter in ('adzuna','theirstack','usajobs'):self.assertNotIn(adapter,s.ADAPTERS)
  def test_jsonld_graph_remote_geography(self):
   import json
   data={'@graph':[{'@type':'JobPosting','title':'Nurse','hiringOrganization':{'name':'Example'},'description':'Care','jobLocationType':'TELECOMMUTE','applicantLocationRequirements':{'name':'United States'},'baseSalary':{'currency':'USD','value':{'minValue':30,'maxValue':40,'unitText':'HOUR'}}}]}

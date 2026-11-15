@@ -41,7 +41,7 @@ struct PrepView: View {
                                     .font(Typeface.caption).foregroundStyle(Palette.muted)
                             }
                             Text("Saving…").font(Typeface.caption).foregroundStyle(Palette.muted)
-                                .fadeSwitch(model.busy || model.saving)
+                                .fadeSwitch(model.busy || model.coaching)
                         }
                     }
                     .padding(.horizontal, Spacing.page)
@@ -66,15 +66,16 @@ struct PrepView: View {
         .sheet(isPresented: $showTopics, onDismiss: {
             if let next = pendingTool { pendingTool = nil; tool = next }
         }) {
-            PrepTopicSheet(selected: model.focus, onFocus: { model.choose($0) }, onInterview: { pendingTool = .interview })
+            PrepTopicSheet(selected: model.focus, onFocus: { model.choose($0) }, onInterview: { pendingTool = .interview },
+                           onPractice: { pendingTool = .library })
         }
-        .fullScreenCover(item: $tool) { _ in MockInterviewFlow().environment(store) }
+        .fullScreenCover(item: $tool) { value in
+            switch value {
+            case .interview: MockInterviewFlow().environment(store)
+            case .library: LibraryView().environment(store)
+            }
+        }
         .onDisappear { model.suspendCapture() }
-        .task(id: model.autosaveToken) {
-            guard [.answer, .review].contains(model.page) else { return }
-            try? await Task.sleep(for: .milliseconds(900))
-            if !Task.isCancelled { await model.autoSave() }
-        }
         .task(id: model.needsPolling) {
             guard model.needsPolling else { return }
             while !Task.isCancelled {
@@ -150,7 +151,7 @@ struct PrepView: View {
             Text(model.question?.prompt ?? "").font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink).reveal(0)
             AnswerEditor(text: Binding(get: { model.draft }, set: { model.edited($0) }),
                          placeholder: "Your answer…", label: "Your answer", disabled: model.busy)
-            PrimaryPill(title: "Get coaching", disabled: model.busy || model.saving || model.draft.isBlank) {
+            PrimaryPill(title: "Get coaching", disabled: model.busy || model.coaching || model.draft.isBlank) {
                 Task { await model.coach() }
             }
         }
@@ -186,15 +187,23 @@ struct PrepView: View {
             if model.localURL != nil, model.recording.object.isEmpty {
                 StackButton(label: "Upload saved answer", disabled: model.busy) { Task { await model.retryUpload() } }.reveal()
             }
-            AnswerEditor(text: Binding(get: { model.draft }, set: { model.edited($0) }),
-                         placeholder: "Type or fix your answer before coaching", label: "Your answer",
-                         disabled: model.busy && !model.canReviewPhoneText)
-            if !model.feedback.object.isEmpty { coachingDetails }
-            VStack(spacing: 6) {
-                PrimaryPill(title: model.feedback.object.isEmpty ? "Get coaching" : "Update coaching",
-                            disabled: model.busy || model.saving || model.draft.isBlank) { Task { await model.coach() } }
-                QuietLinks(links: [ScreenLink("Record again") { Task { await model.recordAnswer() } }]
-                           + (model.feedback.object.isEmpty ? [] : [ScreenLink("Back to coaching") { model.go(.coaching) }]))
+            if !model.feedback.object.isEmpty {
+                Text(model.submitted["data"]["answer"].string).font(Typeface.body).foregroundStyle(Brand.ink)
+                coachingDetails
+                if model.hasUnsavedCoaching {
+                    StackButton(label: "Save coaching", disabled: model.coaching) { Task { await model.retryCoachingSave() } }
+                }
+                QuietLinks(links: [ScreenLink("Back to coaching") { model.go(.coaching) }])
+            } else {
+                AnswerEditor(text: Binding(get: { model.draft }, set: { model.edited($0) }),
+                             placeholder: "Type or fix your answer before coaching", label: "Your answer",
+                             disabled: model.coaching || (model.busy && !model.canReviewPhoneText))
+                VStack(spacing: 6) {
+                    PrimaryPill(title: "Get coaching", disabled: model.busy || model.coaching || model.draft.isBlank) { Task { await model.coach() } }
+                    if !model.coaching {
+                        QuietLinks(links: [ScreenLink("Record again") { Task { await model.recordAnswer() } }])
+                    }
+                }
             }
         }
     }
@@ -240,23 +249,7 @@ struct PrepView: View {
     @ViewBuilder
     private var processing: some View {
         let progress = "\(model.index + 1) of \(model.plan.count)"
-        let state = model.run["status"].string
-        let stalled = ["needs_input", "blocked", "failed", "cancelled"].contains(state)
-        let unreadable = model.run.object.isEmpty && model.draft.isBlank
-            && (["failed", "cancelled"].contains(model.recording["status"].string) || model.transcriptionUnavailable)
-        if stalled {
-            PrepWorkingScreen(progress: progress, message: "We couldn’t finish your coaching.",
-                              detail: model.run["message"].string, stalled: true,
-                              primary: "Try again", busy: model.busy, onPrimary: { Task { await model.retryCoach() } },
-                              links: [ScreenLink("Your answer") { model.go(.review) }])
-        } else if unreadable {
-            PrepWorkingScreen(progress: progress, message: "We couldn’t read your recording.",
-                              detail: "Your audio is saved. You can type your answer instead.", stalled: true,
-                              primary: "Type your answer", onPrimary: { model.go(.review) },
-                              links: [ScreenLink("Try reading it again") { Task { await model.retryTranscription() } }])
-        } else {
-            PrepWorkingScreen(progress: progress, links: [ScreenLink("Your answer") { model.go(.review) }])
-        }
+        PrepWorkingScreen(progress: progress, links: [ScreenLink("Your answer") { model.go(.review) }])
     }
 
     private var coaching: some View {
@@ -264,12 +257,13 @@ struct PrepView: View {
         return PrepCoachingScreen(progress: "\(model.index + 1) of \(model.plan.count)",
                                   verdict: shown.verdict.isBlank ? "Here’s how that went." : shown.verdict,
                                   criteria: shown.criteria, focus: shown.focus,
-                                  worked: model.strengths.first?["feedback"].string ?? "",
+                                  worked: model.worked,
+                                  fullText: CoachingPresentation.fullText(from: model.feedback),
                                   primary: model.isLastQuestion ? "Finish" : "Next question",
-                                  busy: model.busy || model.workflow["complete"].bool, message: screenMessage,
+                                  busy: model.busy || model.coaching || model.workflow["complete"].bool, message: screenMessage,
                                   onAnswer: { model.go(.review) },
                                   onPrimary: { Task { await model.nextAnswer() } },
-                                  onAgain: { model.tryAgain() })
+                                  onAgain: {}, secondary: nil)
     }
 
     private var complete: some View {
@@ -321,6 +315,7 @@ struct PrepView: View {
         return PrepSavedAnswerScreen(heading: "Question \(model.archived["index"].int + 1)", prompt: prompt,
                                      answer: model.archived["answer"].string, verdict: shown.verdict,
                                      criteria: shown.criteria, focus: shown.focus,
+                                     fullText: CoachingPresentation.fullText(from: model.archived["feedback"]),
                                      onBack: { Task { await model.back() } }) {
             if let url = model.archivedURL { AnswerPlayback(url: url, isActive: isActive) }
         }
@@ -337,7 +332,8 @@ struct AnswerEditor: View {
 
     var body: some View {
         TextField(placeholder, text: $text, axis: .vertical)
-            .lineLimit(6...16)
+            .keyboardDismissControl()
+            .lineLimit(6...)
             .font(Typeface.body)
             .foregroundStyle(Brand.ink)
             .tint(Brand.accent)
@@ -351,6 +347,6 @@ struct AnswerEditor: View {
 }
 
 enum PrepTool: String, Identifiable {
-    case interview
+    case interview, library
     var id: String { rawValue }
 }

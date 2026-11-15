@@ -1,7 +1,7 @@
 import Foundation
 
 /// The Jac OAuthSession handoff used by the existing clients. The server creates provider PKCE and a
-/// separate one-time poll capability; Safari completes authorization and this app retrieves its Stack
+/// separate one-time poll capability; the system browser completes authorization and this app retrieves its Stack
 /// session by polling. No Stack session or Google token passes through a browser redirect.
 struct GoogleHandoff: Codable, Equatable {
     var poll: String
@@ -14,7 +14,6 @@ enum GoogleSignInError: LocalizedError {
     case invalidURL
     case invalidPermissions
     case unavailable
-    case cancelled
     case openFailed
     case failed
     case expired
@@ -24,7 +23,6 @@ enum GoogleSignInError: LocalizedError {
         case .invalidURL: return "Google sign-in URL is invalid."
         case .invalidPermissions: return "Google sign-in permissions are invalid."
         case .unavailable: return "Google sign-in is unavailable."
-        case .cancelled: return "Google sign-in was cancelled."
         case .openFailed: return "Could not open Google sign-in."
         case .failed: return "Google sign-in was cancelled or could not finish. Try again."
         case .expired: return "Google sign-in expired. Please try again."
@@ -84,8 +82,8 @@ final class GoogleSignIn {
         }
     }
 
-    /// Starts authorization: asks the server for the provider URL, persists the poll capability, opens Safari.
-    func begin(invite: String, link: Bool, open: (URL) async -> Bool) async throws -> GoogleHandoff {
+    /// Prepares the provider URL and one-use capability, then presents the system authentication session.
+    func begin(invite: String, link: Bool, open: (URL) async throws -> Bool) async throws -> GoogleHandoff {
         attempt += 1
         let observed = attempt
         let data = try await api.post(
@@ -93,14 +91,14 @@ final class GoogleSignIn {
             ["challenge": .string(String(repeating: "A", count: 43)), "mode": "native"],
             authenticated: link
         )
-        guard observed == attempt else { throw GoogleSignInError.cancelled }
+        guard observed == attempt else { throw CancellationError() }
         guard data["ok"].bool, !data["poll"].string.isEmpty else { throw GoogleSignInError.unavailable }
         let url = try Self.validate(data["url"].string)
         let handoff = GoogleHandoff(poll: data["poll"].string, invite: invite, link: link, at: Date().timeIntervalSince1970)
         store(handoff)
-        guard observed == attempt else { clearPending(); throw GoogleSignInError.cancelled }
-        guard await open(url) else { clearPending(); throw GoogleSignInError.openFailed }
-        guard observed == attempt else { clearPending(); throw GoogleSignInError.cancelled }
+        guard observed == attempt else { throw CancellationError() }
+        guard try await open(url) else { clearPending(); throw GoogleSignInError.openFailed }
+        guard observed == attempt else { throw CancellationError() }
         return handoff
     }
 
@@ -109,11 +107,11 @@ final class GoogleSignIn {
     func wait(for handoff: GoogleHandoff, isActive: () -> Bool) async throws -> String {
         let observed = attempt
         while Date().timeIntervalSince1970 - handoff.at < Self.lifetime {
-            guard observed == attempt, !Task.isCancelled else { throw GoogleSignInError.cancelled }
+            guard observed == attempt, !Task.isCancelled else { throw CancellationError() }
             if isActive() {
                 do {
                     let result = try await api.post("/sso/google/poll", ["poll": .string(handoff.poll)], authenticated: false)
-                    guard observed == attempt else { throw GoogleSignInError.cancelled }
+                    guard observed == attempt else { throw CancellationError() }
                     if result["ok"].bool, !result["token"].string.isEmpty {
                         clearPending()
                         return result["token"].string

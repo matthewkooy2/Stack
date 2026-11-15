@@ -6,7 +6,7 @@ import {Prep} from '../components/Prep';
 import {Reveal} from '../prep-motion';
 import {useLive} from './live-store';
 import {PrepPreview as ExistingPrep} from './prep-controller';
-const tabs=[['Network',Users],['Applications',BriefcaseBusiness],['Jobs',Layers],['Resume',FileText],['Prep',GraduationCap]];
+const tabs=[['Network',Users],['Applications',BriefcaseBusiness],['Resume',FileText],['Prep',GraduationCap]];
 export function PrepPreview({onNavigate,onProfile}){
  const {boot}=useLive();const [stage,setStage]=useState('home'),[height,setHeight]=useState(0),scroller=useRef(null);
  // Each step starts at the top instead of inheriting the previous step's scroll position.

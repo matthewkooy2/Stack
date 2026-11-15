@@ -122,7 +122,10 @@ def review_summary(
             'pages': tailored.get('pdf', {}).get('pages', 0),
             'notes': `list(tailored.get('notes', [])),
             'score': tailored.get('score', {}),
-            'consequence': 'Stack keeps the changes you accept, rebuilds the PDF in your format, and fits it to one page. Nothing is shared.'
+            'memory_coverage': tailored.get('memory_coverage', {}),
+            'consequence': 'Stack keeps the changes you accept, rebuilds the PDF and DOCX from your confirmed sources, and saves them under Tailored resumes. Nothing is shared.'
+                if tailored.get('mode') == 'memory'
+                else 'Stack keeps the changes you accept, rebuilds the PDF in your format, and fits it to one page. Nothing is shared.'
         };
     }
     if (step == 'send') {
@@ -321,8 +324,8 @@ with entry {
             'kinds': ['sync'],
             'title': 'Email tracking',
             'where': 'Applications',
-            'summary': 'Checks Gmail every few minutes for application replies, assessments, interviews, and rejections, and updates status.',
-            'input': 'Gmail read access and the Gmail tracking permission.',
+            'summary': 'Scan Gmail for applications from any job search, then track replies, assessments, interviews, offers, and rejections.',
+            'input': 'Connect Gmail in Applications, then choose how far back to scan.',
             'review': 'Unclear messages wait for you to confirm the application and status.',
             'alternative': 'Update application status yourself after reading your email.'
         },
@@ -374,7 +377,7 @@ def feature_status(facts: dict[(str, any)]) -> list[dict[(str, any)]] {
             'rules',
             'Standing permissions on',
             rules_on,
-            'Turn on standing permissions in Agents → Rules. They expire after 30 days.',
+            'Enable sending permissions in your email settings. They expire after 30 days.',
             'rules'
         );
     }
@@ -393,7 +396,7 @@ def feature_status(facts: dict[(str, any)]) -> list[dict[(str, any)]] {
             (
                 'Allow “'
                 + ACTION_NAMES[action]
-                + '” with a daily limit in Agents → Rules.'
+                + '” with a daily limit in your email settings.'
             ),
             'rules',
             optional=optional
@@ -428,7 +431,7 @@ def feature_status(facts: dict[(str, any)]) -> list[dict[(str, any)]] {
             user=False
         );
     }
-    def google(scope: any, label: any, optional: any = False) -> any {
+    def google(scope: any, label: any, optional: any = False, active: any = True) -> any {
         if not facts.get('google_client') {
             return check(
                 ('google:' + scope),
@@ -443,8 +446,8 @@ def feature_status(facts: dict[(str, any)]) -> list[dict[(str, any)]] {
         return check(
             ('google:' + scope),
             label,
-            (scope in scopes),
-            'Connect Google in Agents → Rules.',
+            (scope in scopes) and active,
+            'Connect Gmail to track application updates automatically.' if scope=='read' else 'Connect Google in Email & calendar.',
             ('connect:' + scope),
             optional=optional
         );
@@ -574,9 +577,7 @@ def feature_status(facts: dict[(str, any)]) -> list[dict[(str, any)]] {
             provider()
         ],
         'email': [
-            rules(),
-            permission('gmail_read'),
-            google('read', 'Gmail tracking connected')
+            google('read', 'Gmail tracking connected', active=facts.get('google_tracking',False) or (rules_on and 'gmail_read' in policy.get('actions',[])))
         ],
         'calendar': [
             rules(),

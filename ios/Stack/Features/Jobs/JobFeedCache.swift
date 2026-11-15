@@ -66,7 +66,13 @@ final class JobFeedCache {
     func write(_ result: JSON, jobs: [Job], for context: JobFeedContext) {
         guard !context.userID.isEmpty else { return }
         var compact = result
-        compact["jobs"] = .array(Array(jobs.prefix(Self.limit)).map(\.raw))
+        let kept = jobs.prefix(Self.limit)
+        compact["jobs"] = .array(kept.map(\.raw))
+        var logos: [String: JSON] = [:]
+        for job in kept where !job.logoPNG.isEmpty {
+            logos[job.raw["employer_brand"].string] = .string(job.logoPNG)
+        }
+        compact["employer_logos"] = .object(logos)
         compact["next_cursor"] = .string("")
         let entry = Entry(version: 1, context: context, savedAt: now(), result: compact)
         guard let data = try? JSONEncoder().encode(entry), data.count <= 1_000_000 else { return }
@@ -75,4 +81,8 @@ final class JobFeedCache {
     }
 
     func remove() { try? FileManager.default.removeItem(at: file) }
+
+    func removeForAccountDeletion() throws {
+        if FileManager.default.fileExists(atPath: file.path) { try FileManager.default.removeItem(at: file) }
+    }
 }

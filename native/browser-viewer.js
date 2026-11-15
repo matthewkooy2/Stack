@@ -1,6 +1,8 @@
 // Shared remote browser surface. Control authority lives on the server.
 import React,{useEffect,useRef,useState} from 'react';
 import {AppState,View,Text,Pressable,Image,Modal,TextInput,PanResponder} from 'react-native';
+import {startRequestTrace} from '../web/request-trace.js';
+import {expoContext} from '../mobile/request-context.js';
 
 export function createBrowserStream({id,origin,authorization,isCurrent,onEvent,onState}) {
   let xhr=null,timer=null,closed=false,attempt=0;
@@ -9,6 +11,7 @@ export function createBrowserStream({id,origin,authorization,isCurrent,onEvent,o
     onState(attempt?'reconnecting':'connecting');attempt++;
     const request=new XMLHttpRequest();xhr=request;let cursor=0,tail='';
     request.open('POST',origin.replace(/\/$/,'')+'/browser/stream');
+    const trace=startRequestTrace('/browser/stream',expoContext);trace.apply(request);
     request.setRequestHeader('Content-Type','application/json');
     request.setRequestHeader('Authorization',authorization);
     request.timeout=35000;
@@ -27,6 +30,7 @@ export function createBrowserStream({id,origin,authorization,isCurrent,onEvent,o
       }
     };
     const finish=()=>{
+      trace.finish(request,request.status?'response':'interrupted');
       if(closed||xhr!==request)return;
       if(request.status===401||request.status===403){onState('unavailable');closed=true;return;}
       onState('reconnecting');timer=setTimeout(connect,request.status===200?150:Math.min(5000,500*attempt));

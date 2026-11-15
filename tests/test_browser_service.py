@@ -140,6 +140,13 @@ class BrowserService(unittest.TestCase):
         self.assertEqual(result['browser_diagnostic']['stage'],'navigate_profile')
         self.assertNotIn('private',json.dumps(result));self.assertNotIn('secret',json.dumps(result))
 
+    def test_linkedin_without_configured_origin_never_contacts_a_default_browser(self):
+        with patch.dict(os.environ, {'STACK_BROWSER_URL': ''}), \
+             patch('urllib.request.urlopen') as transport:
+            with self.assertRaisesRegex(ValueError, 'unavailable'):
+                worker.browser_call('linkedin_scan', {'owner': 'owner', 'id': 'run'})
+        transport.assert_not_called()
+
     def test_linkedin_transport_has_no_result_validation_or_timeout(self):
         remote = {'artifact': 'raw-result'}
         with patch.dict(os.environ, {'STACK_BROWSER_URL': 'http://browser.invalid', 'STACK_BROWSER_TOKEN': ''}), \

@@ -41,6 +41,10 @@ enum Glyph {
         case "star": return "star"
         case "trash": return "trash"
         case "details": return "info.circle"
+        case "video": return "video.fill"
+        case "industry": return "building.2"
+        case "library": return "rectangle.stack.badge.play"
+        case "speaker": return "speaker.wave.2"
         default: return "circle"
         }
     }
@@ -274,6 +278,7 @@ struct StackField: View {
                     TextField(placeholder, text: $text)
                 }
             }
+            .keyboardDismissControl()
             .font(Typeface.body)
             .accessibilityLabel(label)
             .foregroundStyle(Palette.text)
@@ -288,6 +293,30 @@ struct StackField: View {
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Palette.rule, lineWidth: 1))
         }
     }
+}
+
+/// Places a dismissal action above the keyboard for the currently focused field.
+@MainActor
+private struct KeyboardDismissControl: ViewModifier {
+    @FocusState private var focused: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .focused($focused)
+            .toolbar {
+                if focused {
+                    ToolbarItemGroup(placement: .keyboard) {
+                        Spacer()
+                        Button { focused = false } label: { Image(systemName: "keyboard.chevron.compact.down") }
+                            .accessibilityLabel("Hide keyboard")
+                    }
+                }
+            }
+    }
+}
+
+extension View {
+    func keyboardDismissControl() -> some View { modifier(KeyboardDismissControl()) }
 }
 
 /// A calm inline message for errors and notices; fades rather than snaps.

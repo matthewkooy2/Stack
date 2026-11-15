@@ -16,7 +16,13 @@ final class JobsDeckFlowUITests: XCTestCase {
         XCTAssertTrue(app.buttons["job-card-job-alpha"].waitForExistence(timeout: 10), "the deck loads its first card")
         XCTAssertEqual(app.buttons.matching(identifier: "job-card-job-alpha").count, 1,
                        "decorative swipe stamps must not create a second accessible card")
+        XCTAssertEqual(app.buttons.matching(identifier: "job-requirements").count, 1)
         return app
+    }
+
+    private func swipe(_ app: XCUIApplication, save: Bool) {
+        let top = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "job-card-")).firstMatch
+        if save { top.swipeRight() } else { top.swipeLeft() }
     }
 
     private func capture(_ name: String) {
@@ -57,14 +63,14 @@ final class JobsDeckFlowUITests: XCTestCase {
         XCTAssertEqual(listingURL(app), "https://example.invalid/jobs/alpha")
         closeListing(app)
 
-        app.buttons["Pass"].tap()
+        swipe(app, save: false)
         XCTAssertTrue(card(app, "job-bravo").waitForExistence(timeout: 5), "the deck advanced in order")
         card(app, "job-bravo").tap()
         XCTAssertEqual(listingURL(app), "https://example.invalid/jobs/bravo")
         closeListing(app)
 
         // The third job's link is not http(s): the tap opens its details with a note, never a browser.
-        app.buttons["Pass"].tap()
+        swipe(app, save: false)
         XCTAssertTrue(card(app, "job-charlie").waitForExistence(timeout: 5))
         card(app, "job-charlie").tap()
         let note = app.staticTexts["This listing's link can't be opened safely in the app."]
@@ -78,7 +84,7 @@ final class JobsDeckFlowUITests: XCTestCase {
 
     func testPendingUndoSurvivesOpeningAndClosingTheBrowser() {
         let app = launch()
-        app.buttons["Save"].tap()
+        swipe(app, save: true)
         XCTAssertTrue(app.staticTexts["Saved Platform Analyst"].waitForExistence(timeout: 5))
         XCTAssertTrue(card(app, "job-bravo").waitForExistence(timeout: 5), "the next card is on top")
 
@@ -122,20 +128,50 @@ final class JobsDeckFlowUITests: XCTestCase {
         XCTAssertFalse(entry.isSelected)
     }
 
-    func testDetailsButtonKeepsDetailsAndActionsReachableAroundTheBrowser() {
+    func testCardUsesGesturesAndTapWithoutVisibleDecisionButtons() {
         let app = launch()
-        app.buttons["Job details"].tap()
-        let apply = app.buttons["Open application page"]
-        XCTAssertTrue(apply.waitForExistence(timeout: 10))
-        apply.tap()
+        XCTAssertFalse(app.buttons["Save"].exists)
+        XCTAssertFalse(app.buttons["Pass"].exists)
+        XCTAssertFalse(app.buttons["Job details"].exists)
+        card(app, "job-alpha").tap()
         XCTAssertEqual(listingURL(app), "https://example.invalid/jobs/alpha")
         closeListing(app)
-        XCTAssertTrue(apply.exists, "details are still showing after the browser closes")
-        app.buttons["Close"].tap()
-        XCTAssertTrue(card(app, "job-alpha").waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Save"].isHittable, "Save and Pass are reachable again")
-        app.buttons["Save"].tap()
+        swipe(app, save: true)
         XCTAssertTrue(card(app, "job-bravo").waitForExistence(timeout: 5))
+    }
+
+    func testReferenceCardFillsTheSpaceAboveNavigationAndHandlesLongAndInvalidMedia() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--screen-flow=deck-reference", "--stub-listing-browser"]
+        app.launch()
+        let first = card(app, "job-alpha")
+        XCTAssertTrue(first.waitForExistence(timeout: 10))
+        let jobsTab = app.buttons["Jobs"]
+        XCTAssertTrue(jobsTab.exists)
+        XCTAssertLessThan(abs(first.frame.maxY - jobsTab.frame.minY), 24)
+        XCTAssertGreaterThan(first.frame.width, app.frame.width - 24)
+        XCTAssertTrue(app.buttons["job-requirements"].isHittable)
+        capture("jobs-photo-reference")
+        first.swipeRight()
+        XCTAssertTrue(card(app, "job-bravo").waitForExistence(timeout: 5))
+        capture("jobs-photo-swipe-arrival")
+        app.terminate()
+        app.launchArguments += ["--job-card-long-content", "--job-card-invalid-media"]
+        app.launch()
+        XCTAssertTrue(first.waitForExistence(timeout: 10))
+        first.swipeUp()
+        XCTAssertTrue(first.exists)
+        XCTAssertTrue(app.buttons["job-requirements"].isHittable)
+        XCTAssertFalse(app.staticTexts["stub-browser-url"].exists)
+        capture("jobs-long-content-media-fallback")
+        app.terminate()
+        app.launchArguments += ["--reduced-card-motion", "-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
+        app.launch()
+        XCTAssertTrue(first.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["job-requirements"].isHittable)
+        first.swipeRight()
+        XCTAssertTrue(card(app, "job-bravo").waitForExistence(timeout: 5))
+        capture("jobs-accessibility-reduced-motion")
     }
 
     /// The second page is answered 3s after the first card is on screen, so the browser is open when it is due.
@@ -150,7 +186,7 @@ final class JobsDeckFlowUITests: XCTestCase {
         closeListing(app)
         XCTAssertTrue(card(app, "job-alpha").exists)
         capture("deck-paging-after-browser")
-        app.buttons["Pass"].tap()
+        swipe(app, save: false)
         XCTAssertTrue(card(app, "job-bravo").waitForExistence(timeout: 15), "the deferred page filled the deck")
     }
 
@@ -178,9 +214,10 @@ final class JobsDeckFlowUITests: XCTestCase {
 
     func testRequirementsAreInsideTheCardAndOpeningThemDoesNotOpenAListing() {
         let app = launch()
-        XCTAssertFalse(app.staticTexts["Jobs"].exists, "there is no Jobs heading above the card")
+        XCTAssertTrue(app.buttons["Jobs"].exists, "the existing bottom navigation is retained")
         XCTAssertFalse(app.buttons["Entry-level software"].exists, "quick picks live behind the card control")
         let requirements = app.buttons["job-requirements"]
+        XCTAssertTrue(requirements.isEnabled)
         XCTAssertTrue(requirements.isHittable)
         requirements.tap()
         XCTAssertTrue(app.staticTexts["Requirements"].waitForExistence(timeout: 5))

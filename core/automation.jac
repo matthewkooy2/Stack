@@ -4,11 +4,13 @@ import time;
 import json;
 import agents.worker as browser_worker;
 import agents.linkedin as linkedin;
+import agents.provider as coaching_provider;
 import secrets;
 import from uuid { uuid4, UUID }
 import from pathlib { Path }
 import from jaclang.runtime.runtime { JacRuntime }
-import from core.catalog { _catalog_lock }
+import from jaclang.server.session { Session }
+import core.locks as locks;
 import from agents.contracts { VERSION, STEPS, workflow_steps, PAID, EXTERNAL, TERMINAL, CLI_PROVIDERS, LOCAL_PROVIDERS, config, model_access, model_status, digest, default_policy, validate_policy, validate_facts, context_facts, authorize, reserve_cents, validate_contact }
 import from agents.voice { voice_settings, voice_reservation, SECONDS }
 import from agents.prep { catalog, problem, validate_session }
@@ -21,6 +23,7 @@ import from agents.google { authorization_url, exchange, refreshed, SCOPES }
 import from agents.tracing { capture_enabled, trace_data }
 import from agents.browser_control { BROWSER_ERROR_MESSAGE, sanitize_browser_diagnostic }
 import agents.interview as interview;
+import agents.coaching as coaching;
 import from jaclang.server.identity.app_tokens { token_create, token_peek, token_consume }
 
 node AgentMemory { has facts: list[dict[str, any]] = [], policy: dict[str, any] = {}, revision: int = 0, admitted: bool = False, deleted: bool = False, model_selection: str = ""; }
@@ -42,7 +45,15 @@ node AgentTicket { has owner: str, run_id: str, state: str = "queued", due_at: f
 node AgentAction { has run_id: str, step: str, key: str, payload_hash: str, policy_revision: int, created_at: float, status: str = "intent", receipt: dict[str, any] = {}; }
 node AgentUsage { has key: str, cents: int = 0, actions: int = 0; }
 node AgentContact { has data: dict[str, any], created_at: float, followups: int = 0, next_at: float = 0.0, thread_id: str = ""; }
-node AgentConnection { has provider: str, sealed: str, scopes: list[str], state: str = "connected", checkpoint: str = "", updated_at: float = 0.0, calendar_id: str = ""; }
+node AgentConnection {
+    has provider: str, sealed: str, scopes: list[str], state: str = "connected", checkpoint: str = "", updated_at: float = 0.0, calendar_id: str = "", tracking: bool = False, generation: str = "";
+
+    def tracks_mail(policy: dict[str, any]) -> bool {
+        # Existing, unexpired read permissions continue to work until reconnected.
+        legacy=policy.get("enabled",False) and policy.get("expires_at",0)>time.time() and "gmail_read" in policy.get("actions",[]);
+        return self.provider=="google" and self.state=="connected" and SCOPES["read"] in self.scopes and (self.tracking or bool(legacy));
+    }
+}
 node AgentInterview { has key: str, application_id: str, event: dict[str, any], updated_at: float, calendar_receipt: str = "", study_plan: list[dict[str, any]] = []; }
 node AgentEvent { has key: str, data: dict[str, any], created_at: float; }
 node PrepSession { has data: dict[str, any], created_at: float, updated_at: float, revision: int = 0, results: list[dict[str, any]] = [], feedback: list[dict[str, any]] = [], recordings: list[dict[str, any]] = []; }
@@ -61,7 +72,7 @@ def _agent_memory() -> AgentMemory {
     # Existing accounts are reads: discovery must not block admission on its write lock.
     values=[root -->][?:AgentMemory];
     if values { return values[0]; }
-    with _catalog_lock {
+    with locks.account() {
         values=[root -->][?:AgentMemory];
         if values { return values[0]; }
         _agent_fresh();values=[root -->][?:AgentMemory];
@@ -117,7 +128,7 @@ def _upgrade_legacy_runs() -> int {
     # Most bootstraps have nothing to migrate and need no catalog write turn.
     if not any(_pause_legacy(r,True) for r in [root -->][?:AgentRun]) { return 0; }
     changed=0;
-    with _catalog_lock {
+    with locks.account() {
         for r in [root -->][?:AgentRun] { if _pause_legacy(r) { changed+=1; } }
         if changed { commit(); }
     }
@@ -148,6 +159,7 @@ def _run_view(r: AgentRun, detail: bool = False) -> dict[str, any] {
     out["needs_resume_review"]=r.status=="needs_input" and out["step"]=="tailor" and not _tailor_ready(r.context);
     out["has_requests"]=len(r.requests)>0;
     out["retry_at"]=r.next_at if r.status=="queued" and r.attempts>0 else 0.0;
+    if r.context.get("manual_scan") { out["scan"]={k:r.context.get(k,0) for k in ["since","until","scanned","imported","updated","to_review"]}; }
     if r.status=="review" { out["review"]=r.review; }
     if detail { out.update({"requests":r.requests,"artifacts":r.artifacts,"resume_id":r.context.get("resume_id",""),"resume_name":r.context.get("resume_name","")}); }
     if detail { out.update({"output_version":digest(r.artifacts),"feedback":[{"id":jid(f),"rating":f.rating,"note":f.note,"at":f.at,"output_version":f.output_version} for f in [root --> [?:AgentFeedback, run_id==jid(r), -at]][:50]]}); }
@@ -167,12 +179,12 @@ def:priv agent_admission() -> dict[str, any] {
 }
 def:priv agent_settings() -> dict[str, any] {
     _agent_access();m=_agent_memory();
-    return {"account_id":jid(root),"model_selection":m.model_selection or ("local" if config()["provider"] in LOCAL_PROVIDERS else "codex-cli" if config()["provider"]=="codex-cli" else ""),"model_options":[{"selection":choice,**model_status(jid(root),choice)} for choice in ["codex-cli","local"]],"facts":m.facts,"policy":m.policy,"revision":m.revision,"connections":[{"id":jid(c),"provider":c.provider,"state":c.state,"scopes":c.scopes} for c in [root -->][?:AgentConnection]],"web_url":config()["web_url"],"activity":_agent_summary()};
+    return {"account_id":jid(root),"model_selection":m.model_selection or ("local" if config()["provider"] in LOCAL_PROVIDERS else "codex-cli" if config()["provider"]=="codex-cli" else ""),"model_options":[{"selection":choice,**model_status(jid(root),choice)} for choice in ["codex-cli","local"]],"facts":m.facts,"policy":m.policy,"revision":m.revision,"connections":[{"id":jid(c),"provider":c.provider,"state":c.state,"scopes":c.scopes,"tracking":c.tracks_mail(m.policy)} for c in [root -->][?:AgentConnection]],"web_url":config()["web_url"],"activity":_agent_summary()};
 }
 def:priv agent_save_model(selection: str) -> dict[str, any] {
     _agent_access();
     if selection not in ["codex-cli","local"] { return {"error":"Choose Codex CLI or Local model."}; }
-    with _catalog_lock {
+    with locks.account() {
         _agent_fresh();m=_agent_memory();m.model_selection=selection;commit();
     }
     return agent_settings();
@@ -181,7 +193,7 @@ def:priv agent_save_model(selection: str) -> dict[str, any] {
 def:priv agent_save_facts(facts: list[dict[str, any]]) -> dict[str, any] {
     _agent_access();
     try { validated=validate_facts(facts); } except ValueError as e { return {"error":str(e)}; }
-    with _catalog_lock {
+    with locks.account() {
         _agent_fresh();m=_agent_memory();keys=[f["key"] for f in validated];
         m.facts=[f for f in m.facts if f["key"] not in keys]+validated;m.revision+=1;commit();
     }
@@ -190,11 +202,11 @@ def:priv agent_save_facts(facts: list[dict[str, any]]) -> dict[str, any] {
 def:priv agent_save_policy(policy: dict[str, any]) -> dict[str, any] {
     _agent_access();
     try { validated=validate_policy(policy); } except ValueError as e { return {"error":str(e)}; }
-    with _catalog_lock { _agent_fresh();m=_agent_memory();m.policy=validated;m.revision+=1;commit(); }
+    with locks.account() { _agent_fresh();m=_agent_memory();m.policy=validated;m.revision+=1;commit(); }
     return agent_settings();
 }
 def:priv agent_activity() -> dict[str, any] { _agent_access();return _agent_summary(); }
-def:priv agent_events() -> dict[str, any] { _agent_access();return {"events":[{"id":jid(e),**e.data} for e in [root --> [?:AgentEvent, -created_at]][:100]],"interviews":[{"id":jid(i),"application_id":i.application_id,"study_plan":i.study_plan,**i.event} for i in [root -->][?:AgentInterview]]}; }
+def:priv agent_events() -> dict[str, any] { _agent_access();return {"events":[{"id":jid(e),**e.data} for e in [root --> [?:AgentEvent, -created_at]] if not e.data.get("dismissed")][:100],"interviews":[{"id":jid(i),"application_id":i.application_id,"study_plan":i.study_plan,**i.event} for i in [root -->][?:AgentInterview]]}; }
 def:priv agent_run(id: str) -> dict[str, any] {
     r=_owned_run(id);
     if r is not None and r.kind=="linkedin" { return _run_view(r,True); }
@@ -206,7 +218,7 @@ def _trace(r: AgentRun, event: str, data: dict[str, any]) -> None {
 def:pub agent_trace(token: str, id: str, owner: str, lease: str, event: str, data: dict[str, any]) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
     if event not in ["model_request","model_response","model_validation"] { return {"error":"Unsupported trace event."}; }
-    with _catalog_lock {
+    with locks.account(owner) {
         _agent_fresh();
         try { r=_agent_leased(id,owner,lease);_agent_access(); }
         except ValueError as e { return {"error":str(e)}; }
@@ -223,7 +235,7 @@ def:priv agent_feedback(id: str, output_version: str, rating: str, note: str) ->
     _agent_access();note=note.strip();
     if rating not in ["good","mixed","bad"] or not note or len(note)>4000 { return {"error":"Choose a rating and enter feedback (1-4,000 characters)."}; }
     note=str(trace_data({"note":note})["note"]);
-    with _catalog_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_run(id);
         if r is None { return {"error":"Run not found."}; }
         if not r.artifacts or digest(r.artifacts)!=output_version { return {"error":"The output changed. Refresh the task before leaving feedback."}; }
@@ -251,7 +263,7 @@ def _agent_start(kind: str, target_id: str, context: dict[str, any], nonce: str 
 def:priv agent_cancel(id: str) -> dict[str, any] {
     selected=_owned_run(id);
     if selected is not None and selected.kind=="linkedin" {
-        with _catalog_lock {
+        with locks.account() {
             _agent_fresh();linkedin_run=_owned_run(id) as AgentRun;
             linkedin_run.status="cancelled";linkedin_run.message="Cancelled";commit();out=_run_view(linkedin_run,True);
         }
@@ -259,7 +271,7 @@ def:priv agent_cancel(id: str) -> dict[str, any] {
         return out;
     }
     _agent_access();
-    with _catalog_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_run(id);
         if r is None { return {"error":"Run not found."}; }
         if r.status in TERMINAL { return _run_view(r,True); }
@@ -279,7 +291,7 @@ def:priv agent_cancel(id: str) -> dict[str, any] {
 }
 def _linkedin_execute(id: str) -> dict[str, any] {
     # Execute in the authenticated request; LinkedIn has no worker ticket or lease.
-    with _catalog_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_run(id) as AgentRun;
         owner=jid(root);context=r.context;selection=r.model_selection;
         capture=r.artifacts.get("linkedin_scan");
@@ -290,7 +302,7 @@ def _linkedin_execute(id: str) -> dict[str, any] {
         if capture is None {
             result=browser_worker.browser_call("linkedin_scan",{"owner":owner,"id":id,"context":context,"linkedin":True});
             if result.get("needs_input") or result.get("interrupted") or result.get("error") {
-                with _catalog_lock {
+                with locks.account() {
                     _agent_fresh();r=_owned_run(id) as AgentRun;
                     r.status="failed" if result.get("error") else "paused" if result.get("interrupted") else "needs_input";
                     r.message=str(result.get("error",result.get("message","Browser paused")));r.requests=result.get("requests",[]);
@@ -298,19 +310,19 @@ def _linkedin_execute(id: str) -> dict[str, any] {
                 }
             }
             capture=result["artifact"];
-            with _catalog_lock {
+            with locks.account() {
                 _agent_fresh();r=_owned_run(id) as AgentRun;
                 r.artifacts["linkedin_scan"]=capture;r.index=1;commit();
             }
         }
         output=linkedin.review(capture,context,linkedin.model_config(selection))["artifact"];
-        with _catalog_lock {
+        with locks.account() {
             _agent_fresh();r=_owned_run(id) as AgentRun;
             r.artifacts["linkedin_review"]=output;r.index=2;r.status="completed";r.message="Profile analysis complete";
             r.updated_at=time.time();commit();return _run_view(r,True);
         }
     } except Exception as exc {
-        with _catalog_lock {
+        with locks.account() {
             _agent_fresh();r=_owned_run(id) as AgentRun;
             r.status="failed";r.message=str(exc);r.updated_at=time.time();commit();return _run_view(r,True);
         }
@@ -320,7 +332,7 @@ def:priv agent_respond(id: str, values: list[dict[str, any]] = [], reuse: bool =
     r=_owned_run(id);
     if r is not None and r.kind=="linkedin" {
         if target_role is not None and target_role!="None" {
-            with _catalog_lock {
+            with locks.account() {
                 _agent_fresh();r=_owned_run(id) as AgentRun;
                 r.context["target_role"]=target_role;commit();
             }
@@ -329,7 +341,7 @@ def:priv agent_respond(id: str, values: list[dict[str, any]] = [], reuse: bool =
     }
     _agent_access();
     try { validated=validate_facts(values); } except ValueError as e { return {"error":str(e)}; }
-    with _catalog_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_run(id);
         if r is None or r.status not in ["needs_input","blocked"] { return {"error":"This run is not waiting for input."}; }
         if r.kind=="application" { return {"error":"The application assistant has been retired."}; }
@@ -353,9 +365,9 @@ def _usage(key: str) -> AgentUsage {
 }
 def:pub agent_claim(token: str) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
-    with _catalog_lock {
+    with locks.sweep() {
         _agent_fresh();now=time.time();
-        tickets=[t for t in [root.shared -->][?:AgentTicket] if t.state in ["queued","running"] and t.due_at<=now];
+        tickets=sorted([t for t in [root.shared -->][?:AgentTicket] if t.state in ["queued","running"] and t.due_at<=now],key=lambda (t: AgentTicket) { t.due_at; });
         for t in tickets {
             commit();_agent_owner(t.owner);r=_owned_run(t.run_id);
             if r is None { t.state="cancelled";continue; }
@@ -375,14 +387,14 @@ def:pub agent_claim(token: str) -> dict[str, any] {
                 r.index=0;r.artifacts={};step=_steps(r)[0];
             }
             r.context["facts"]=current_facts;
-            reservation=0;c=config(r.model_selection);
+            reservation=0;
             if step=="tailor" and not _tailor_ready(r.context) {
                 r.status="needs_input";r.requests=[];r.updated_at=now;t.state="needs_input";
                 r.message="Upload a resume before tailoring." if not r.context.get("resume_id") else "Review and confirm this resume's imported records or add its LaTeX before tailoring.";
                 continue;
             }
             try {
-                _agent_access();
+                _agent_access();c=config(r.model_selection);
                 if step in REVIEWED {
                     # Surface missing permissions before asking for review; agent_authorize rechecks at dispatch.
                     if step in EXTERNAL { authorize(m.policy,EXTERNAL[step],r.context.get("contact",{}).get("email","") if step=="send" else ""); }
@@ -408,8 +420,11 @@ def:pub agent_claim(token: str) -> dict[str, any] {
                     r.provider=c["provider"];
                 }
             } except ValueError as e { _agent_owner(t.owner);r.status="blocked";r.message=str(e);t.state="blocked";_trace(r,"blocked",{"message":str(e)});continue; }
-            r.status="running";r.lease=secrets.token_urlsafe(32);r.lease_until=now+180;r.attempts+=1;r.updated_at=now;r.message="Working on "+step;t.state="running";
-            r.trace_attempt=str(uuid4());r.requested_model=c["model"] or "provider default";r.stage_started_at=time.time();
+            # A manual email page can include Gmail reads, an invite attachment and local inference.
+            # Memory tailoring can screen, compose and verify in several model calls.
+            lease_seconds=300 if r.context.get("manual_scan") else 900 if step=="tailor" else 180;
+            r.status="running";r.lease=secrets.token_urlsafe(32);r.lease_until=now+lease_seconds;r.attempts+=1;r.updated_at=now;r.message="Working on "+step;t.state="running";
+            r.trace_attempt=str(uuid4());r.requested_model=(c.get("coach_models",{}).get(c["provider"],"") if step=="coach" else "") or c["model"] or "provider default";r.stage_started_at=time.time();
             _trace(r,"stage_start",{"provider":c["provider"],"requested_model":r.requested_model,"attempt_number":r.attempts,"prompt_version":r.context.get("prompt_version"),"context":r.context if capture_enabled() else {"content_capture":False}});
             commit();return {"id":jid(r),"owner":t.owner,"lease":r.lease,"step":step,"context":r.context,"artifacts":r.artifacts,"reservation_cents":reservation,"provider_config_hash":digest(c),"model_selection":r.model_selection};
         }
@@ -419,11 +434,12 @@ def:pub agent_claim(token: str) -> dict[str, any] {
 def _agent_leased(id: str, owner: str, lease: str) -> AgentRun {
     _agent_owner(owner);r=_owned_run(id);
     if r is None or r.kind=="application" or not lease or r.lease!=lease or r.lease_until<time.time() or r.status!="running" { raise ValueError("Run lease expired or cancelled."); }
+    _agent_access();
     return r;
 }
 def:pub agent_model_log(token: str, id: str, owner: str, lease: str, record: dict[str, any]) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
-    with _catalog_lock {
+    with locks.account(owner) {
         _agent_fresh();
         try { r=_agent_leased(id,owner,lease); } except ValueError as e { return {"error":str(e)}; }
         step=_steps(r)[r.index];
@@ -453,7 +469,7 @@ def:priv agent_model_logs(id: str) -> dict[str, any] {
 }
 def:pub agent_authorize(token: str, id: str, owner: str, lease: str, payload_hash: str) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
-    with _catalog_lock {
+    with locks.account(owner) {
         _agent_fresh();
         try {
             r=_agent_leased(id,owner,lease);step=_steps(r)[r.index];m=_agent_memory();
@@ -480,7 +496,7 @@ def:pub agent_authorize(token: str, id: str, owner: str, lease: str, payload_has
 }
 def _agent_complete(token: str, id: str, owner: str, lease: str, result: dict[str, any]) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
-    with _catalog_lock {
+    with locks.account(owner) {
         _agent_fresh();
         try { r=_agent_leased(id,owner,lease); } except ValueError as e { return {"error":str(e)}; }
         step=_steps(r)[r.index];
@@ -530,12 +546,23 @@ def _agent_complete(token: str, id: str, owner: str, lease: str, result: dict[st
                     sessions=[p for p in [root -->][?:PrepSession] if jid(p)==r.target_id and p.data.get("mode")=="interview"];
                     try {
                         if not sessions { raise ValueError("Interview session not found."); }
+                        # A worker result is untrusted: re-check structured coaching before storing it.
+                        artifact=coaching.stored(artifact);
                         p=sessions[0];p.data=interview.apply(p.data,p.revision,step,artifact,r.context);p.updated_at=time.time();
+                        # Final coaching requested while this answer was being coached starts now (#133).
+                        if step=="interview_turn" and p.data.get("final_after") and p.data["status"]=="finished" and not p.data.get("pending") {
+                            attempt=int(p.data.get("model_attempt",0))+1;
+                            final=_agent_start("interview_coach",jid(p),interview.context(p.data,p.revision,True),str(p.revision)+":"+str(attempt),False);
+                            p.data={**p.data,"pending":final.get("id",""),"model_attempt":attempt,"final_after":False};
+                        }
                     } except ValueError as exc { r.status="needs_input";r.message=str(exc);commit();return _run_view(r,True); }
                 }
                 if step=="coach" {
                     sessions=[p for p in [root -->][?:PrepSession] if jid(p)==r.target_id];
                     if not sessions or sessions[0].revision!=r.context.get("session_revision",0) { r.status="needs_input";r.message="Practice changed while coaching was running. Request coaching again for your saved answer.";commit();return _run_view(r,True); }
+                    # A worker result is untrusted: re-check structured coaching before storing it.
+                    try { artifact=coaching.stored(artifact); }
+                    except ValueError as exc { r.status="needs_input";r.message=str(exc);commit();return _run_view(r,True); }
                 }
                 r.artifacts[step]=artifact;
                 for a in intents { a.status="confirmed";a.receipt=artifact; }
@@ -559,7 +586,7 @@ def _agent_complete(token: str, id: str, owner: str, lease: str, result: dict[st
 def:priv agent_reconcile(id: str, outcome: str, evidence: str) -> dict[str, any] {
     _agent_access();
     if outcome not in ["confirmed","not_sent"] or len(evidence.strip())<10 { return {"error":"Provide the confirmation or evidence that nothing was sent."}; }
-    with _catalog_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_run(id);
         if r is None or r.status!="uncertain" { return {"error":"This run does not need reconciliation."}; }
         step=_steps(r)[r.index];
@@ -581,12 +608,12 @@ def _google_missing(step: str) -> str {
     if step not in ["send","calendar"] { return ""; }
     scope=str(SCOPES["send" if step=="send" else "calendar"]);
     if [c for c in [root -->][?:AgentConnection] if c.provider=="google" and c.state=="connected" and scope in c.scopes] { return ""; }
-    if step=="send" { return "Gmail sending is not connected. Connect it in Agents → Rules to send from Stack, or copy this draft into your own email and cancel the task."; }
-    return "Google Calendar is not connected. Connect it in Agents → Rules, or add the event yourself and cancel the task.";
+    if step=="send" { return "Gmail sending is not connected. Connect it in your email settings to send from Stack, or copy this draft into your own email and cancel the task."; }
+    return "Google Calendar is not connected. Connect it in your email settings, or add the event yourself and cancel the task.";
 }
 def:priv agent_approve(id: str, step: str, review_hash: str, edits: dict[str, any] | None = None) -> dict[str, any] {
     _agent_access();
-    with _catalog_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_run(id);
         if r is None or r.status!="review" { return {"error":"This task is not waiting for your review."}; }
         if r.kind=="application" { return {"error":"The application assistant has been retired."}; }
@@ -619,7 +646,7 @@ def:priv agent_retry(id: str) -> dict[str, any] {
         return _linkedin_execute(id);
     }
     _agent_access();
-    with _catalog_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_run(id);
         if r is None { return {"error":"Run not found."}; }
         if r.kind=="application" { return {"error":"The application assistant has been retired."}; }
@@ -635,7 +662,7 @@ def:priv agent_retry(id: str) -> dict[str, any] {
 }
 def:priv agent_dismiss(id: str) -> dict[str, any] {
     _agent_access();
-    with _catalog_lock {
+    with locks.account() {
         _agent_fresh();r=_owned_run(id);
         if r is None { return {"error":"Run not found."}; }
         if r.status not in TERMINAL { return {"error":"Cancel or finish this task before dismissing it."}; }
@@ -646,7 +673,7 @@ def:priv agent_contacts() -> dict[str, any] { _agent_access();return {"contacts"
 def:priv agent_save_contact(data: dict[str, any], id: str = "") -> dict[str, any] {
     _agent_access();
     try { validated=validate_contact(data); } except ValueError as e { return {"error":str(e)}; }
-    with _catalog_lock {
+    with locks.account() {
         _agent_fresh();
         if id {
             items=[c for c in [root -->][?:AgentContact] if jid(c)==id];
@@ -659,7 +686,7 @@ def:priv agent_save_contact(data: dict[str, any], id: str = "") -> dict[str, any
 }
 def:priv agent_stop_contact(id: str) -> dict[str, any] {
     _agent_access();
-    with _catalog_lock {
+    with locks.account() {
         _agent_fresh();
         for c in [root -->][?:AgentContact] { if jid(c)==id { c.data["stopped"]=True;c.next_at=0;commit();return agent_contacts(); } }
     }
@@ -668,7 +695,7 @@ def:priv agent_stop_contact(id: str) -> dict[str, any] {
 def:priv prep_catalog() -> dict[str, any] { _agent_access();return {"problems":catalog()}; }
 def:priv prep_sessions() -> dict[str, any] {
     _agent_access();
-    sessions=[p for p in [root --> [?:PrepSession, -updated_at]] if p.data.get("mode")!="interview"];
+    sessions=[p for p in [root --> [?:PrepSession, -updated_at]] if p.data.get("mode") not in ["interview","library"]];
     return {"sessions":[{"id":jid(p),"data":p.data,"revision":p.revision,"updated_at":p.updated_at} for p in sessions[:50]]};
 }
 def:priv prep_create(problem_id: str, language: str = "", application_id: str = "") -> dict[str, any] {
@@ -683,14 +710,61 @@ def:priv prep_get(id: str) -> dict[str, any] {
     for p in [root -->][?:PrepSession] { if jid(p)==id { return {"id":jid(p),"data":p.data,"revision":p.revision,"results":p.results,"feedback":p.feedback,"recordings":p.recordings}; } }
     return {"error":"Practice session not found."};
 }
+# Coaching consumes the submitted snapshot directly. Draft/session writes are separate.
+def:priv prep_coach(id: str, data: dict[str, any]) -> dict[str, any] {
+    _agent_access();
+    try { snapshot=validate_session(data); }
+    except ValueError as exc { return {"error":str(exc)}; }
+    if not snapshot["answer"].strip() { return {"error":"Type or transcribe your answer first."}; }
+    sessions=[p for p in [root -->][?:PrepSession] if jid(p)==id and p.data.get("mode")!="interview"];
+    if not sessions { return {"error":"Practice session not found."}; }
+    p=sessions[0];snapshot["application_id"]=p.data.get("application_id","");revision=p.revision;
+    c=config(_agent_memory().model_selection);
+    try {
+        model_access(c,jid(root));
+        if c["provider"] not in LOCAL_PROVIDERS { raise ValueError("Practice coaching requires the configured local model."); }
+        question=problem(snapshot["problem_id"]);workflow=snapshot["canvas"].get("stack_prep_workflow_v1",{});
+        question={**question,"prompt":workflow.get("prompt",question["prompt"])};
+        result=coaching_provider.generate("coach",{"session":{"answer":snapshot["answer"]},"problem":question},c);
+    } except Exception as exc { return {"error":str(exc)}; }
+    return {"id":id,"data":snapshot,"revision":revision,"feedback":result["artifact"]};
+}
+
+# Persist one answer/feedback pair atomically; never replace newer session edits.
+def:priv prep_save_coaching(id: str, submission: dict[str, any]) -> dict[str, any] {
+    _agent_access();
+    try {
+        snapshot=validate_session(submission["data"]);feedback=submission["feedback"];key=str(submission["key"]);
+        if not key or len(key)>100 or not isinstance(feedback,dict) or len(json.dumps(feedback))>50000 { raise ValueError("Invalid coaching result."); }
+    } except (ValueError,KeyError) as exc { return {"error":str(exc)}; }
+    with locks.account() {
+        _agent_fresh();
+        for p in [root -->][?:PrepSession] {
+            if jid(p)==id and p.data.get("mode")!="interview" {
+                snapshot["application_id"]=p.data.get("application_id","");
+                for f in p.feedback {
+                    if f.get("submission_id")==key {
+                        if f["session"]!=snapshot or f["data"]!=feedback { return {"error":"This coaching result was already saved with different content."}; }
+                        return prep_get(id);
+                    }
+                }
+                if p.revision==submission.get("revision") { p.data=snapshot;p.revision+=1; }
+                p.feedback=p.feedback+[{"at":time.time(),"revision":p.revision,"submission_id":key,"session":snapshot,"answer":snapshot["answer"],"data":feedback}];p.updated_at=time.time();commit();return prep_get(id);
+            }
+        }
+    }
+    return {"error":"Practice session not found."};
+}
+
 def:priv prep_save(id: str, revision: int, data: dict[str, any]) -> dict[str, any] {
     _agent_access();
     try { validated=validate_session(data); } except ValueError as e { return {"error":str(e)}; }
-    with _catalog_lock {
+    with locks.account() {
         _agent_fresh();
         for p in [root -->][?:PrepSession] {
             if jid(p)==id {
                 if p.data.get("mode")=="interview" { return {"error":"Use interview controls to preserve the conversation."}; }
+                if p.data.get("mode")=="library" { return {"error":"Practice library answers are saved as attempts. Record a new attempt instead."}; }
                 if p.revision!=revision { return {"error":"This session changed on another device. Reload before saving."}; }
                 validated["application_id"]=p.data.get("application_id","");p.data=validated;p.revision+=1;p.updated_at=time.time();commit();return prep_get(id);
             }
@@ -704,57 +778,80 @@ def:pub agent_invite(token: str) -> dict[str, any] {
     return {"invite":token_create("stack-beta",subject="operator",ttl_seconds=604800,payload={"admitted":True})};
 }
 def:priv agent_accept_invite(invite: str) -> dict[str, any] {
-    with _catalog_lock {
+    with locks.account() {
         _agent_fresh();if _agent_memory().deleted { return {"error":"This account was deleted."}; }
+        # The read-tier retry must happen before this one-time token is consumed.
+        session=JacRuntime.get_context().mem;
+        if isinstance(session,Session) { session.ensure_writable_txn(); }
         accepted=token_consume("stack-beta",invite);
         if accepted is None { return {"error":"Invitation is invalid, expired, or already used."}; }
         _agent_memory().admitted=True;commit();return {"admitted":True};
     }
 }
-def:priv agent_google_start(capabilities: list[str]) -> dict[str, any] {
+def _google_start(capabilities: list[str], native: bool) -> dict[str, any] {
     _agent_access();verifier=secrets.token_urlsafe(48);
     try {
         encrypted=seal({"verifier":verifier});
-        state=token_create("stack-google",subject=jid(root),ttl_seconds=600,payload={"owner":jid(root),"sealed":encrypted});
+        state=token_create("stack-google",subject=jid(root),ttl_seconds=600,payload={"owner":jid(root),"sealed":encrypted,"native":native,"capabilities":capabilities});
+        if native { state="native."+state; }
         return {"url":authorization_url(state,verifier,capabilities)};
     } except ValueError as e { return {"error":str(e)}; }
 }
+
+def:priv agent_google_start(capabilities: list[str]) -> dict[str, any] {
+    return _google_start(capabilities,False);
+}
+
+def:priv agent_google_start_native(capabilities: list[str]) -> dict[str, any] {
+    return _google_start(capabilities,True);
+}
 def:priv agent_google_finish(state: str, code: str) -> dict[str, any] {
     _agent_access();
+    native=state.startswith("native.");state=state.removeprefix("native.");
     pending=token_peek("stack-google",state);
-    if pending is None or pending["payload"]["owner"]!=jid(root) { return {"error":"Google connection belongs to another account or has expired."}; }
-    consumed=token_consume("stack-google",state);
-    if consumed is None { return {"error":"This authorization was already used."}; }
-    try { tokens=exchange(code,str(unseal(str(consumed["payload"]["sealed"]))["verifier"]));encrypted=seal(tokens); }
-    except Exception { return {"error":"Google authorization failed. Start a new connection."}; }
-    with _catalog_lock {
-        _agent_fresh();items=[root -->][?:AgentConnection];
-        for old in items { if old.provider=="google" { old.sealed=encrypted;old.scopes=str(tokens.get("scope","")).split();old.state="connected";commit();return agent_settings(); } }
-        root ++> AgentConnection(provider="google",sealed=encrypted,scopes=str(tokens.get("scope","")).split(),updated_at=time.time());commit();
+    if pending is None or pending["payload"]["owner"]!=jid(root) or pending["payload"].get("native",False)!=native { return {"error":"Google connection belongs to another account or has expired."}; }
+    with locks.account() {
+        _agent_fresh();_agent_access();items=[root -->][?:AgentConnection];
+        # Refresh first: aborting after this boundary would reopen the read-only tier.
+        # Any retry must happen before consuming state or exchanging Google's one-time code.
+        session=JacRuntime.get_context().mem;
+        if isinstance(session,Session) { session.ensure_writable_txn(); }
+        consumed=token_consume("stack-google",state);
+        if consumed is None { return {"error":"This authorization was already used."}; }
+        try { tokens=exchange(code,str(unseal(str(consumed["payload"]["sealed"]))["verifier"]));encrypted=seal(tokens); }
+        except Exception { return {"error":"Google authorization failed. Start a new connection."}; }
+        capabilities=consumed["payload"].get("capabilities",[]);scopes=str(tokens.get("scope","")).split();
+        if any(SCOPES[cap] not in scopes for cap in capabilities) { return {"error":"Google did not grant the requested access. Connect again and allow access to continue."}; }
+        tracking="read" in capabilities;
+        for old in items { if old.provider=="google" { old.sealed=encrypted;old.scopes=scopes;old.state="connected";old.tracking=old.tracking or tracking;old.updated_at=time.time();old.generation=str(uuid4());commit();return agent_settings(); } }
+        root ++> AgentConnection(provider="google",sealed=encrypted,scopes=scopes,tracking=tracking,generation=str(uuid4()),updated_at=time.time());commit();
     }
     return agent_settings();
 }
 def:priv agent_disconnect(id: str) -> dict[str, any] {
     _agent_access();
-    with _catalog_lock {
+    with locks.account() {
         _agent_fresh();
         for c in [root -->][?:AgentConnection] {
-            if jid(c)==id { c.state="revoked";c.sealed="";c.checkpoint="";commit();return agent_settings(); }
+            if jid(c)==id { c.state="revoked";c.sealed="";c.checkpoint="";c.tracking=False;commit();return agent_settings(); }
         }
     }
     return {"error":"Connection not found."};
 }
 def:pub agent_worker_connection(token: str, id: str, owner: str, lease: str) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
-    with _catalog_lock {
+    with locks.account(owner) {
         _agent_fresh();
         try {
             r=_agent_leased(id,owner,lease);step=_steps(r)[r.index];
             if step not in ["send","sync","calendar"] { return {"error":"This step cannot access Google."}; }
-            authorize(_agent_memory().policy,"gmail_read" if step=="sync" else ("calendar_write" if step=="calendar" else "send_email"));
             for c in [root -->][?:AgentConnection] {
                 scope=str(SCOPES["read" if step=="sync" else ("calendar" if step=="calendar" else "send")]);
                 if c.provider=="google" and c.state=="connected" and scope in c.scopes {
+                    if step=="sync" {
+                        if not c.tracks_mail(_agent_memory().policy) { return {"error":"Connect Gmail to turn on application tracking."}; }
+                        if r.context.get("manual_scan") and (r.context.get("connection_id")!=jid(c) or r.context.get("connection_generation")!=c.generation) { return {"error":"Gmail changed during this scan. Start a new scan."}; }
+                    } else { authorize(_agent_memory().policy,"calendar_write" if step=="calendar" else "send_email"); }
                     tokens=refreshed(unseal(c.sealed));c.sealed=seal(tokens);c.updated_at=time.time();commit();
                     return {"tokens":{"access_token":tokens["access_token"],"expires_at":tokens.get("expires_at",0)},"checkpoint":json.loads(c.checkpoint) if c.checkpoint else {},"calendar_id":c.calendar_id};
                 }
@@ -771,7 +868,7 @@ def:priv agent_export() -> dict[str, any] {
 def:priv agent_import_contacts(content: str) -> dict[str, any] {
     _agent_access();
     try { values=parse_contacts(content); } except ValueError as e { return {"error":str(e)}; }
-    with _catalog_lock {
+    with locks.account() {
         _agent_fresh();known=[c.data.get("email") for c in [root -->][?:AgentContact]];
         for data in values {
             if data.get("email") and data["email"] in known { continue; }
@@ -787,14 +884,14 @@ def:priv agent_register_push(device_token: str) -> dict[str, any] {
     if not device_token.startswith("ExponentPushToken[") and not device_token.startswith("ExpoPushToken[") { return {"error":"Unsupported push token."}; }
     if len(device_token)>200 { return {"error":"Invalid push token."}; }
     try { encrypted=seal({"token":device_token}); } except ValueError as e { return {"error":str(e)}; }
-    with _catalog_lock {
+    with locks.account() {
         _agent_fresh();key=digest(device_token);
         for d in [root -->][?:AgentPushDevice] { if d.key==key { return {"registered":True}; } }
         root ++> AgentPushDevice(key=key,sealed=encrypted);commit();return {"registered":True};
     }
 }
 def:priv agent_remove_push(device_token: str) -> dict[str, any] {
-    with _catalog_lock {
+    with locks.account() {
         _agent_fresh();key=digest(device_token);
         for d in [root -->][?:AgentPushDevice] { if d.key==key { del d; } }
         commit();return {"removed":True};
@@ -845,7 +942,7 @@ def:priv agent_notification_status(id: str = "") -> dict[str, any] {
 
 def:pub agent_notification_claim(token: str) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
-    with _catalog_lock {
+    with locks.sweep() {
         _agent_fresh();owners=[a.owner for a in [root.shared -->][?:AgentAdmission]];now=time.time();
         for owner in owners {
             _agent_owner(owner);
@@ -878,7 +975,7 @@ def:pub agent_notification_claim(token: str) -> dict[str, any] {
 
 def:pub agent_notification_begin(token: str, owner: str, id: str, key: str, lease: str) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
-    with _catalog_lock {
+    with locks.account(owner) {
         _agent_fresh();_agent_owner(owner);n=_notification_owned(id);now=time.time();
         if n is None or n.state=="cancelled" { return {"error":"Notification not found."}; }
         for index in range(len(n.deliveries)) {
@@ -900,7 +997,7 @@ def:pub agent_notification_begin(token: str, owner: str, id: str, key: str, leas
 
 def:pub agent_notification_finish(token: str, owner: str, id: str, key: str, lease: str, result: dict[str, any]) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
-    with _catalog_lock {
+    with locks.account(owner) {
         _agent_fresh();_agent_owner(owner);n=_notification_owned(id);now=time.time();
         if n is None or n.state=="cancelled" { return {"error":"Notification not found."}; }
         if set(result)-{"state","error","ticket"} { return {"error":"Invalid notification result."}; }
@@ -926,7 +1023,7 @@ def:pub agent_notification_finish(token: str, owner: str, id: str, key: str, lea
 
 def:pub agent_report(token: str) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Operator authorization required."}; }
-    with _catalog_lock {
+    with locks.sweep() {
         _agent_fresh();return {"usage":[{"key":u.key,"cents":u.cents,"actions":u.actions} for u in [root.shared -->][?:AgentUsage]],"queue":[{"state":t.state,"due_at":t.due_at} for t in [root.shared -->][?:AgentTicket]]};
     }
 }
@@ -934,7 +1031,7 @@ def:pub agent_report(token: str) -> dict[str, any] {
 
 def:priv prep_live(id: str) -> dict[str, any] {
     _agent_access();
-    with _catalog_lock {
+    with locks.account() {
         _agent_fresh();owner=jid(root);m=_agent_memory();
         sessions=[p for p in [root -->][?:PrepSession] if jid(p)==id];
         if not sessions { return {"error":"Practice session not found."}; }
@@ -960,7 +1057,7 @@ def:priv prep_live(id: str) -> dict[str, any] {
 }
 def:pub agent_live_claim(token: str, owner: str, id: str, ticket: str) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Voice service authorization required."}; }
-    with _catalog_lock {
+    with locks.account(owner) {
         _agent_fresh();_agent_owner(owner);_agent_access();r=_owned_run(id);
         if r is None or r.kind!="live" or r.status!="waiting" or r.lease_until<time.time() or not secrets.compare_digest(r.ticket_hash,digest(ticket)) { return {"error":"This live ticket expired or was already used."}; }
         try {
@@ -973,13 +1070,13 @@ def:pub agent_live_claim(token: str, owner: str, id: str, ticket: str) -> dict[s
 def:pub agent_live_check(token: str, owner: str, id: str, lease: str) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Voice service authorization required."}; }
     try {
-        r=_agent_leased(id,owner,lease);_agent_access();
+        r=_agent_leased(id,owner,lease);
         return {"active":True,"practice":prep_get(r.target_id)};
     } except ValueError as e { return {"error":str(e)}; }
 }
 def:pub agent_live_finish(token: str, owner: str, id: str, lease: str, transcript: str, usage: list[dict[str, any]]) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Voice service authorization required."}; }
-    with _catalog_lock {
+    with locks.account(owner) {
         _agent_fresh();_agent_owner(owner);r=_owned_run(id);
         if r is None or r.kind!="live" or r.status!="running" or r.lease!=lease { return {"error":"Live session ended or was cancelled."}; }
         r.status="completed";r.lease="";r.message="Interview saved. Review your transcript before coaching.";r.artifacts={"interview":{"transcript":transcript[:30000],"usage":usage[:8]}};

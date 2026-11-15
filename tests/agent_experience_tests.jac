@@ -62,22 +62,22 @@ def finish(client: any, claim: dict[str, any], result: dict[str, any]) -> dict[s
 def authorize(client: any, claim: dict[str, any], payload_hash: str) -> dict[str, any] {
     return work(client,"agent_authorize",{"id":claim["id"],"owner":claim["owner"],"lease":claim["lease"],"payload_hash":payload_hash});
 }
-"""Publish one active Lever-hosted catalog job through the real discovery endpoints."""
+"""Publish one active Lever-hosted catalog job through the real sweep endpoints."""
 def lever_job(client: any, token: str, discovery: str) -> str {
     marker="ExperienceTest"+secrets.token_hex(4);url="https://example.com/"+marker;
     source="career:"+hashlib.sha256(url.encode()).hexdigest()[:32];
-    client.set_auth_token(token);rpc(client,"import_job_url",{"url":url});
-    client.clear_auth();claim=rpc(client,"discovery_claim",{"token":discovery,"preferred_id":source});
-    assert claim["id"]==source, claim;
+    config={"id":source,"adapter":"career","name":"Test","url":url,"domain":"example.com","sector":"Technology","approved":True};
     job_id="job_"+hashlib.sha256((url+"/0").encode()).hexdigest()[:32];now=time.time();
     job={"id":job_id,"identity":url+"/0","canonical_url":url+"/0","url":"https://jobs.lever.co/stacktest/"+marker,"title":marker+" Analyst","company":"Review Test Co","description":"Analyze data.","country":"US","location":"Detroit, MI","locations":["Detroit, MI"],"mode":"Remote","employment_type":"Full-time","seniority":"Entry-level","occupation":"Business","compensation":{},"salary":"Pay not listed","salary_note":"","source":"smartrecruiters","source_id":source,"source_name":"Test","source_job_id":"0","attribution":{},"posted":"Today","posted_at":now,"checked_at":now,"discovered_at":now,"expires_at":0,"snippet":False,"requirements":[],"qualifications":"","eligibility":"","remote_eligibility":"","initial":"R","color":"#EDF2FF","tags":[],"reason":"Test","demo":False};
-    rpc(client,"discovery_complete",{"token":discovery,"id":source,"lease":claim["lease"],"result":{"jobs":[job],"complete":True}});
+    client.clear_auth();
+    run=rpc(client,"jobs_sweep_begin",{"token":discovery,"only":[config]})["run"];
+    assert rpc(client,"jobs_sweep_source",{"token":discovery,"run":run,"id":source,"jobs":[job],"complete":True}).get("saved");
     return job_id;
 }
 
 test "agents never launch implicitly and outbound steps wait for review of the exact payload" {
     with tempfile.TemporaryDirectory(prefix="stack-experience-test-") as directory {
-        path=Path(directory)/"agents.json";path.write_text(json.dumps({}));
+        path=Path(directory)/"agents.json";path.write_text(json.dumps({"invite_only":False}));
         discovery_file=Path("storage/discovery/worker-token");discovery_file.parent.mkdir(parents=True,exist_ok=True);
         if not discovery_file.exists() { discovery_file.write_text(secrets.token_urlsafe(32)); }
         discovery=discovery_file.read_text().strip();
@@ -93,7 +93,7 @@ test "agents never launch implicitly and outbound steps wait for review of the e
                 assert [c["key"] for c in features["coaching"]["checks"]]==["model"];
                 assert features["code"]["alternative"] and "applications" not in features;
                 assert state["agents"]["active"]==0 and state["agents"]["attention"]==0;
-                path.write_text(json.dumps({"provider":"codex-cli","action_daily_limits":{"send_email":5}}));
+                path.write_text(json.dumps({"invite_only":False,"provider":"codex-cli","action_daily_limits":{"send_email":5}}));
                 limits={"send_email":5,"calendar_write":5};
                 policy={"enabled":True,"expires_at":time.time()+3600,"actions":["model","send_email","gmail_read","calendar_write"],"domains":["jobs.lever.co","example.com"],"daily_limits":limits,"followup_limit":1};
                 assert not rpc(client,"agent_save_policy",{"policy":policy}).get("error");
@@ -175,14 +175,14 @@ test "agents never launch implicitly and outbound steps wait for review of the e
 
 test "an uploaded LaTeX source is checked, compiled, and tailored without confirmed details" {
     with tempfile.TemporaryDirectory(prefix="stack-latex-test-") as directory {
-        path=Path(directory)/"agents.json";path.write_text(json.dumps({}));
+        path=Path(directory)/"agents.json";path.write_text(json.dumps({"invite_only":False}));
         discovery=Path("storage/discovery/worker-token").read_text().strip();
         with patch.dict(os.environ,{"STACK_AGENT_CONFIG":str(path),"STACK_AGENT_WORKER_TOKEN":WORKER}) {
             client=JacTestClient.from_file(str(Path("main.jac").resolve()),base_path=directory);resume_id="";
             try {
                 signed=client.register_user("latex-owner","Latex-test-password-1");assert signed.ok,signed.text;
                 token=signed.data["token"];owner=rpc(client,"bootstrap")["user_id"];
-                path.write_text(json.dumps({"provider":"codex-cli"}));
+                path.write_text(json.dumps({"invite_only":False,"provider":"codex-cli"}));
                 rpc(client,"agent_save_policy",{"policy":{"enabled":True,"expires_at":time.time()+3600,"actions":["model"]}});
                 # The job is saved before any resume exists, so it has no resume of its own.
                 job=lever_job(client,token,discovery);client.set_auth_token(token);
@@ -194,9 +194,9 @@ test "an uploaded LaTeX source is checked, compiled, and tailored without confir
                 # The job now uses the default resume, but it is only a PDF: tailoring is refused and readiness says why.
                 assert "Review and confirm the imported records for Candidate.pdf" in rpc(client,"agent_start",{"kind":"resume","target_id":application["id"]}).get("error","");
                 assert rpc(client,"agent_activity")["runs"]==[];
-                # PDF-only scoring is paused while LaTeX scoring remains available.
+                # The job score reads only confirmed details; an unreviewed import is not evidence.
                 pdf_score=rpc(client,"score_resume",{"application_id":application["id"]});
-                assert "PDF-only scoring is temporarily unavailable" in pdf_score.get("error",""), pdf_score;
+                assert "Confirm your details for Candidate.pdf" in pdf_score.get("error",""), pdf_score;
                 readiness=[c for f in rpc(client,"agent_features")["features"] if f["key"]=="tailoring" for c in f["checks"] if c["key"]=="facts"][0];
                 assert not readiness["ok"] and "Candidate.pdf" in readiness["fix"], readiness;
                 # Built-in templates need confirmed details; unsafe or broken sources are refused.
@@ -214,8 +214,9 @@ test "an uploaded LaTeX source is checked, compiled, and tailored without confir
                 exported=rpc(client,"account_export")["resumes"][0];
                 assert exported["id"]==resume_id and exported["source"]["files"],exported;
                 assert [c for f in rpc(client,"agent_features")["features"] if f["key"]=="tailoring" for c in f["checks"] if c["key"]=="facts"][0]["ok"];
+                # Uploaded LaTeX can be tailored, but it is not confirmed information, so it is not scored.
                 latex_score=rpc(client,"score_resume",{"application_id":application["id"]});
-                assert latex_score["source"]=="latex" and latex_score["score"]["match"] is not None and latex_score["score"]["match_components"], latex_score;
+                assert "Confirm your details for Candidate.pdf" in latex_score.get("error",""), latex_score;
                 # The user's own LaTeX needs no parsed-details confirmation.
                 run=rpc(client,"agent_start",{"kind":"resume","target_id":application["id"]});
                 assert [a for a in rpc(client,"bootstrap")["applications"] if a["id"]==application["id"]][0]["resume_id"]==resume_id;

@@ -77,7 +77,7 @@ try {
 } catch {}
 ;
 records = records.map(migrateApplication);
-const tabs = [['Network', Users], ['Applications', BriefcaseBusiness], ['Jobs', Layers], ['Resume', FileText], ['Prep', GraduationCap]];
+const tabs = [['Network', Users], ['Applications', BriefcaseBusiness], ['Resume', FileText], ['Prep', GraduationCap]];
 export function ApplicationsPreview({
   onNavigate,
   onProfile
@@ -250,11 +250,11 @@ export function ApplicationsPreview({
         "s2": {},
         "s3": real && account.status === 'error' ? 'Could not load your applications.' : query ? 'No matches here.' : `Nothing ${filter.toLowerCase()} yet.`,
         "s4": {},
-        "s5": real && account.status === 'error' ? account.error : query ? 'Try another role or company.' : 'Your next opportunity is waiting in Jobs.',
+        "s5": real && account.status === 'error' ? account.error : query ? 'Try another role or company.' : 'Jobs you save in Stack appear here.',
         "s6": {
-          "onClick": () => real && account.status === 'error' ? account.retry() : query ? setQuery('') : onNavigate('Jobs')
+          "onClick": () => real && account.status === 'error' ? account.retry() : query ? setQuery('') : onNavigate('Resume')
         },
-        "s7": real && account.status === 'error' ? 'Try again' : query ? 'Clear search' : 'Explore jobs'
+        "s7": real && account.status === 'error' ? 'Try again' : query ? 'Clear search' : 'Open Resume'
       })
     }),
     "s8": {

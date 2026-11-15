@@ -247,10 +247,10 @@ private struct NetworkToolSheet: View {
         switch action {
         case "rules", "facts", "features":
             hubAction = ""
-            hubPage = action == "facts" ? .facts : (action == "features" ? .features : .rules)
+            hubPage = action == "facts" ? .facts : (action == "features" ? .features : .email)
         case _ where action.hasPrefix("connect:"):
             hubAction = action
-            hubPage = .rules
+            hubPage = .email
         default:
             dismiss()
             NotificationCenter.default.post(name: .stackNavigate, object: nil, userInfo: ["destination": action])

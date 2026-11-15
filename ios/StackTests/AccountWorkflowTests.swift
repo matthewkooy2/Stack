@@ -65,6 +65,12 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(result["answer"].int, 42)
         XCTAssertEqual(StubProtocol.seen.last?.url?.path, "/function/bootstrap")
         XCTAssertEqual(StubProtocol.seen.last?.value(forHTTPHeaderField: "Authorization"), "Bearer token-1")
+        let request = try XCTUnwrap(StubProtocol.seen.last)
+        let id = try XCTUnwrap(request.value(forHTTPHeaderField: "X-Request-Id"))
+        XCTAssertNotNil(id.range(of: "^[a-f0-9]{32}$", options: .regularExpression))
+        let client = try XCTUnwrap(request.value(forHTTPHeaderField: "X-Stack-Client"))
+        XCTAssertEqual(parse(client)["platform"].string, "swiftui-ios")
+        XCTAssertFalse(parse(client)["os"].string.isEmpty)
     }
 
     func testServerErrorStringBecomesAnError() async {
@@ -254,8 +260,34 @@ final class AccountStateTests: XCTestCase {
         XCTAssertEqual(account.activeRunCount, 1)
         XCTAssertEqual(account.attentionRunCount, 2)
         XCTAssertEqual(account.feature(forKind: "resume")?.missingRequired.first?.action, "resume")
-        XCTAssertTrue(account.hasLatex("r1"))
+        XCTAssertTrue(account.canTailor("r1"))
         XCTAssertEqual(account.tailored.first?.jobTitle, "Engineer")
+    }
+
+    /// Mirrors the server's `_tailor_source`: a PDF or DOCX is ready once its details are confirmed, in any
+    /// built-in design; an older uploaded source file stays ready; nothing else is.
+    func testTailorReadinessFollowsConfirmedDetailsNotUploadedSource() {
+        let account = AccountState(raw: parse("""
+        {"resumes": [
+          {"id": "pdf", "name": "Resume.pdf", "details_status": "Review", "format": {"kind": "records", "template": "classic"}},
+          {"id": "docx", "name": "Resume.docx", "details_status": "Confirmed", "format": {"kind": "records", "template": "deedy"}},
+          {"id": "built", "name": "Built.pdf", "details_status": "Confirmed", "format": {"kind": "builtin", "template": "jake"}},
+          {"id": "source", "name": "Old.pdf", "details_status": "Review", "format": {"kind": "upload"}},
+          {"id": "new", "name": "New.pdf", "details_status": "Processing", "format": {"kind": ""}}
+        ]}
+        """))
+        XCTAssertFalse(account.canTailor("pdf"))
+        XCTAssertTrue(account.canTailor("docx"))
+        XCTAssertTrue(account.canTailor("built"))
+        XCTAssertTrue(account.canTailor("source"))
+        XCTAssertFalse(account.canTailor("new"))
+        XCTAssertFalse(account.canTailor("missing"))
+    }
+
+    /// The picker keeps Jake and offers the five requested designs, with the server's template keys.
+    func testDesignPickerOffersTheSixBuiltInTemplates() {
+        XCTAssertEqual(ResumeTemplate.all.map(\.key), ["jake", "awesome-cv", "bill-ryan", "sb2nov", "deedy", "jan-kuster"])
+        XCTAssertFalse(ResumeTemplate.all.contains { $0.label.localizedCaseInsensitiveContains("latex") })
     }
 
     func testPreferenceFormRoundTripsForTheServer() {
@@ -282,7 +314,7 @@ final class AgentLabelTests: XCTestCase {
     func testStoppedTaskWithNothingToAnswerSaysTryAgain() {
         XCTAssertEqual(AgentLabels.runLabel(["status": "needs_input", "has_requests": false]), "Stopped · try again")
         XCTAssertEqual(AgentLabels.runLabel(["status": "needs_input", "has_requests": true]), "Needs your answers")
-        XCTAssertEqual(AgentLabels.runLabel(["status": "blocked", "needs_resume_review": true]), "Needs your LaTeX")
+        XCTAssertEqual(AgentLabels.runLabel(["status": "blocked", "needs_resume_review": true]), "Needs your resume")
     }
 }
 
@@ -346,9 +378,59 @@ final class AppStoreSessionTests: XCTestCase {
         let api = APIClient(origin: origin, session: stubSession())
         api.forget()
         let store = AppStore(api: api)
-        store.openExternalURL = { _ in true }
+        store.authenticateGoogle = { _ in }
         store.isForeground = { true }
         return store
+    }
+
+    private func waitForGoogleInfo(_ store: AppStore) async {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while store.googleInfo["username"].string.isEmpty && ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
+    func testRestoredSessionReachesTheAppBeforeReadingOptionalGoogleStatus() async {
+        let store = store()
+        store.api.adopt(token: "saved-session")
+        StubProtocol.handler = { request in
+            switch request.url?.path {
+            case "/function/agent_admission": return (200, envelope(["admitted": true]))
+            case "/function/bootstrap": return (200, envelope(["user_id": "existing-root"]))
+            default: return (404, Data())
+            }
+        }
+        await store.start()
+        XCTAssertEqual(store.phase, .ready)
+        XCTAssertEqual(store.account.userID, "existing-root")
+        XCTAssertEqual(StubProtocol.seen.prefix(2).compactMap { $0.url?.path },
+                       ["/function/agent_admission", "/function/bootstrap"])
+        await store.signOut()
+    }
+
+    func testFailedStartupCanRetryWithTheSameSession() async {
+        let store = store()
+        store.api.adopt(token: "saved-session")
+        StubProtocol.handler = { _ in throw URLError(.timedOut) }
+        await store.start()
+        XCTAssertEqual(store.phase, .startupFailed)
+        XCTAssertEqual(store.api.token, "saved-session")
+        XCTAssertFalse(store.restoringSession)
+        XCTAssertFalse(store.error.isEmpty)
+
+        StubProtocol.handler = { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer saved-session")
+            switch request.url?.path {
+            case "/function/agent_admission": return (200, envelope(["admitted": true]))
+            case "/function/bootstrap": return (200, envelope(["user_id": "existing-root"]))
+            default: return (404, Data())
+            }
+        }
+        await store.start()
+        XCTAssertEqual(store.phase, .ready)
+        XCTAssertEqual(store.account.userID, "existing-root")
+        XCTAssertTrue(store.error.isEmpty)
+        await store.signOut()
     }
 
     func testSignInLoadsTheAccountAndSignOutClearsIt() async {
@@ -368,6 +450,7 @@ final class AppStoreSessionTests: XCTestCase {
         await store.signIn(username: "sam", password: "password1", signUp: false)
         XCTAssertEqual(store.phase, .ready)
         XCTAssertEqual(store.account.name, "Sam")
+        await waitForGoogleInfo(store)
         XCTAssertEqual(store.googleInfo["username"].string, "sam")
 
         await store.signOut()
@@ -397,10 +480,9 @@ final class AppStoreSessionTests: XCTestCase {
         let url = "https://accounts.google.com/o/oauth2/v2/auth?scope=openid+email+profile&code_challenge_method=S256&state=fixture"
         var polls = 0
         var opened = false
-        store.openExternalURL = { provider in
+        store.authenticateGoogle = { provider in
             XCTAssertEqual(provider.absoluteString, url)
             opened = true
-            return true
         }
         StubProtocol.handler = { request in
             let path = request.url?.path ?? ""
@@ -429,6 +511,7 @@ final class AppStoreSessionTests: XCTestCase {
         XCTAssertEqual(store.api.token, "google-session")
         XCTAssertEqual(store.phase, .ready)
         XCTAssertEqual(store.account.userID, "existing-root")
+        await waitForGoogleInfo(store)
         XCTAssertTrue(store.googleInfo["google"].bool)
         XCTAssertFalse(store.googlePending)
         XCTAssertTrue(store.error.isEmpty)
@@ -445,6 +528,63 @@ final class AppStoreSessionTests: XCTestCase {
             XCTAssertTrue(error is CancellationError)
         }
         XCTAssertTrue(StubProtocol.seen.isEmpty)
+    }
+
+    func testGoogleSheetCancellationIsQuietAndAllowsRetry() async {
+        let store = store()
+        store.phase = .signedOut
+        store.authenticateGoogle = { _ in throw CancellationError() }
+        StubProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/sso/google/begin")
+            let url = "https://accounts.google.com/o/oauth2/v2/auth?scope=openid+email+profile&code_challenge_method=S256&state=fixture"
+            return (200, try JSONEncoder().encode(JSON.object(["ok": true, "data": ["ok": true, "poll": "fixture-poll", "url": .string(url)]])))
+        }
+        await store.signInWithGoogle()
+        XCTAssertEqual(store.phase, .signedOut)
+        XCTAssertFalse(store.googlePending)
+        XCTAssertTrue(store.error.isEmpty)
+        XCTAssertFalse(store.api.hasSession)
+        XCTAssertNil(store.google.pending())
+        await store.signInWithGoogle()
+        XCTAssertEqual(StubProtocol.seen.count, 2)
+        XCTAssertTrue(store.error.isEmpty)
+        StubProtocol.handler = nil
+    }
+
+    func testCancelledGoogleSheetCannotFinishOrResetANewerAttempt() async {
+        let store = store()
+        store.phase = .signedOut
+        StubProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/sso/google/begin", "a cancelled browser must never poll or adopt a session")
+            let url = "https://accounts.google.com/o/oauth2/v2/auth?scope=openid+email+profile&code_challenge_method=S256&state=fixture"
+            return (200, try JSONEncoder().encode(JSON.object(["ok": true, "data": ["ok": true, "poll": "fixture-poll", "url": .string(url)]])))
+        }
+        let firstOpened = expectation(description: "first sheet opened")
+        let secondOpened = expectation(description: "second sheet opened")
+        var firstResume: CheckedContinuation<Void, Never>?
+        var secondResume: CheckedContinuation<Void, Never>?
+        store.authenticateGoogle = { _ in
+            await withCheckedContinuation { firstResume = $0; firstOpened.fulfill() }
+        }
+        let first = Task { await store.signInWithGoogle() }
+        await fulfillment(of: [firstOpened], timeout: 2)
+        store.cancelGoogle()
+        store.authenticateGoogle = { _ in
+            await withCheckedContinuation { secondResume = $0; secondOpened.fulfill() }
+        }
+        let second = Task { await store.signInWithGoogle() }
+        await fulfillment(of: [secondOpened], timeout: 2)
+        firstResume?.resume()
+        await first.value
+        XCTAssertTrue(store.googlePending)
+        XCTAssertFalse(store.api.hasSession)
+        XCTAssertTrue(store.error.isEmpty)
+        store.cancelGoogle()
+        secondResume?.resume()
+        await second.value
+        XCTAssertFalse(store.googlePending)
+        XCTAssertTrue(store.error.isEmpty)
+        StubProtocol.handler = nil
     }
 
     func testLateAnswerAfterSignOutIsDropped() async {

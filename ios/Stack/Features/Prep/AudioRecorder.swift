@@ -156,6 +156,11 @@ enum RecordingStore {
     }
 
     /// Everything this phone kept for every account; used on sign-out.
+    static func remove(owner: String) throws {
+        let directory = try directory(owner: owner)
+        try FileManager.default.removeItem(at: directory)
+    }
+
     static func removeAll() {
         guard let base = try? FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: false) else { return }
         try? FileManager.default.removeItem(at: base.appendingPathComponent("Recordings", isDirectory: true))

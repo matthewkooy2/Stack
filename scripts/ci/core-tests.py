@@ -38,9 +38,9 @@ SUITES = {
     ],
     'transcription-api': ['tests.test_transcription_api'],
     'resume': [
-        'tests.test_resume_processing.ResumeProcessing.test_pdf_import_is_reviewable_without_confirming_facts_implicitly',
-        'tests.test_resume_processing.ResumeProcessing.test_details_persist_reorder_delete_and_enforce_owner_revision',
-        'tests.test_resume_processing.ResumeProcessing.test_replacement_deletion_and_ownership_reject_stale_work',
+        'tests.test_resume_processing.ResumeProcessing.test_import_creates_unconfirmed_model_draft_and_preserves_original',
+        'tests.test_resume_processing.ResumeProcessing.test_failed_source_retry_reopen_compile_and_original_preserved',
+        'tests.test_resume_processing.ResumeProcessing.test_expired_worker_reclaimed_and_stale_result_refused',
     ],
 }
 JAC_SUITES = [

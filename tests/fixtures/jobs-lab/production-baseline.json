@@ -1,0 +1,20 @@
+{
+  "snapshot_at_utc": "2026-11-02T01:27:34.055717+00:00",
+  "source": "Read-only PC Stack task 01a199da-b765-7791-8860-71422c0fc9bc; Ryans-Desktop /opt/stack; release 6ae25b816096e0185dba0116f4c969b3417ef3ec",
+  "catalog_jobs": 12840,
+  "fresh_active_jobs": 9544,
+  "distinct_titles": 9979,
+  "fresh_distinct_titles": 8009,
+  "distinct_locations": 1715,
+  "graph_rows": 67885,
+  "database_bytes": 354901015,
+  "description_chars_avg": 6249.02,
+  "description_chars_p95": 9912.05,
+  "data_json_bytes_avg": 9239.42,
+  "postgres_version": "16.15",
+  "jac_version": "0.37.21",
+  "cpu": "AMD Ryzen 5 2600",
+  "logical_cpus": 12,
+  "memory_bytes": 8286683136,
+  "note": "Aggregate metadata only. Synthetic lab exceeds catalog/title/graph counts; distribution and hardware are not exact copies."
+}

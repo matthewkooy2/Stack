@@ -49,7 +49,8 @@ final class MockInterviewModel {
     var analysis: JSON { data["analysis"][String(turns.count)] }
     var coaching: JSON { data["coaching"] }
     var run: JSON { session["run"] }
-    var canFinish: Bool { turns.count >= 2 }
+    /// One reviewed answer is enough for a shortened interview; the backend refuses to assess an empty one.
+    var canFinish: Bool { turns.count >= 1 }
     var runStalled: Bool { ["needs_input", "blocked", "failed", "cancelled"].contains(run["status"].string) }
 
     /// The answer's coaching, read into one line of what worked and one thing to work on.
@@ -279,11 +280,13 @@ struct MockInterviewFlow: View {
         case .working:
             working(message: "Reading your answer…")
         case .finishing:
-            working(message: "Writing your final coaching…")
+            working(message: "Writing your final coaching…", spinner: true)
         case .coaching:
             PrepCoachingScreen(progress: "\(model.turns.count) of \(model.total)",
-                               verdict: model.note.strength.isBlank ? "Here’s how that went." : model.note.strength,
-                               criteria: [], focus: model.note.improvement,
+                               verdict: !model.analysis["verdict"].string.isBlank ? model.analysis["verdict"].string
+                                   : model.note.strength.isBlank ? "Here’s how that went." : model.note.strength,
+                               criteria: CoachingPresentation.criteria(from: model.analysis),
+                               focus: model.analysis["work_on"].string.isBlank ? model.note.improvement : model.analysis["work_on"].string,
                                primary: model.turns.count >= model.total ? "Finish" : "Next question",
                                busy: model.busy, message: model.error,
                                onAnswer: {}, onPrimary: { model.next() }, onAgain: { Task { await model.finish() } },
@@ -293,11 +296,11 @@ struct MockInterviewFlow: View {
         }
     }
 
-    private func working(message: String) -> some View {
+    private func working(message: String, spinner: Bool = false) -> some View {
         PrepWorkingScreen(progress: model.progress, message: model.runStalled ? "We couldn’t finish your coaching." : message,
                           detail: model.runStalled ? model.run["message"].string : model.error, stalled: model.runStalled,
                           primary: model.runStalled ? "Try again" : nil, busy: model.busy,
-                          onPrimary: { Task { await model.retry() } })
+                          onPrimary: { Task { await model.retry() } }, spinner: spinner)
     }
 
     private var typing: some View {
@@ -317,12 +320,17 @@ struct MockInterviewFlow: View {
     }
 
     private var finalScreen: some View {
-        let shown = CoachingPresentation.make(from: ["text": .string(model.finalText)])
-        return VStack(spacing: 0) {
+        VStack(spacing: 0) {
             ScrollView {
-                PrepSavedAnswerScreen(heading: "Interview coaching", prompt: model.role.map { "\($0.job.title) · \($0.job.company)" } ?? "",
-                                      answer: "", verdict: shown.verdict, criteria: shown.criteria, focus: shown.focus,
-                                      onBack: { dismiss() }) { EmptyView() }
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack { BrandBackButton(action: { dismiss() }); Spacer() }
+                    Text("Interview coaching").font(.system(size: 36, weight: .heavy)).tracking(-1.8).foregroundStyle(Brand.ink)
+                        .padding(.top, 18)
+                    if let role = model.role {
+                        Text("\(role.job.title) · \(role.job.company)").font(Typeface.caption).foregroundStyle(Brand.muted).padding(.top, 6)
+                    }
+                    InterviewCoachingView(coaching: model.coaching).padding(.top, 22)
+                }
             }
             .scrollIndicators(.hidden)
             PrimaryPill(title: "Done") { dismiss() }

@@ -3,6 +3,7 @@ import SwiftUI
 /// The editable form of saved matching preferences. Text fields stay strings; the server validates
 /// every value, exactly as it does for the other clients.
 struct PreferenceForm: Equatable {
+    static let careerStages = ["Student", "Recent graduate", "Early career", "Experienced", "Career changer"]
     var stage = ""
     var years = ""
     var education = ""
@@ -91,7 +92,7 @@ struct MatchInputsView: View {
         VStack(alignment: .leading, spacing: 18) {
             if showStage {
                 group("Career stage") {
-                    ChoiceChips(options: ["Student", "Recent graduate", "Early career", "Experienced", "Career changer"],
+                    ChoiceChips(options: PreferenceForm.careerStages,
                                 isSelected: { form.stage == $0 }, onTap: { form.stage = form.stage == $0 ? "" : $0 })
                 }
             }

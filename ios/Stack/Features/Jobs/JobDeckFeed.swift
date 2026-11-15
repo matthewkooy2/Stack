@@ -91,7 +91,7 @@ final class JobDeckFeed {
     /// Restores server-matched cards before starting network work. A cached cursor is never reused.
     func restore(_ result: JSON) {
         guard !busy, jobs.isEmpty else { return }
-        jobs = result["jobs"].array.map(Job.init)
+        jobs = Job.feedPage(result)
         loaded = !jobs.isEmpty
         nextCursor = ""
         computedAt = result["computed_at"].double
@@ -230,7 +230,7 @@ final class JobDeckFeed {
             guard case .array = result["jobs"] else {
                 throw APIError(message: "Stack returned an invalid jobs feed. Please retry.")
             }
-            let incoming = result["jobs"].array.map(Job.init)
+            let incoming = Job.feedPage(result)
             source.animate {
                 if continuing {
                     let known = Set(jobs.map(\.id))

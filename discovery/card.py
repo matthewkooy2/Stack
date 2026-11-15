@@ -2,6 +2,7 @@
 import re
 from functools import lru_cache
 from discovery.normalize import plain
+from discovery.photos import posting_photo
 
 # Quote the employer's range (including geography, currency and any stated
 # period). A dollar amount alone could be a benefit, budget or funding figure.
@@ -116,7 +117,7 @@ def excerpts(description: str, qualifications: str, duties: str = '') -> dict:
     return result
 
 
-def card_view(job: dict) -> dict:
+def card_view(job: dict, preferred_location: str = '') -> dict:
     result=dict(job)
     highlights = dict(excerpts(job.get('description') or '', job.get('qualifications') or '', job.get('responsibilities') or ''))
     explicit = [r for r in job.get('requirements') or [] if isinstance(r, str) and r.strip()]
@@ -129,6 +130,7 @@ def card_view(job: dict) -> dict:
         if job.get('salary') and job['salary'] != 'Pay not listed':
             highlights['pay_context'] = supplied
     location = highlights.get('location_excerpt', '')
+    result['photo_id'] = posting_photo(job, location, preferred_location)
     label = job.get('location') or ''
     if location and location.casefold() not in label.casefold():
         # Keep the original scope (including remote alternatives) beside the employer's wording.

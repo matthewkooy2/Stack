@@ -10,7 +10,7 @@ import SwiftUI
 /// add a case to `LabScreen`.
 enum LabScreen: String, CaseIterable, Identifiable {
     case jobsDeck = "Jobs deck", network = "Network", applications = "Applications", resume = "Resume", profile = "Profile"
-    case resumeUpload = "Resume upload"
+    case resumeUpload = "Resume upload", jobOnboarding = "Job onboarding", jobFilters = "Job filters"
     case gmailTracking = "Gmail tracking"
     case gmailScan = "Gmail scan"
     case prepQuestion = "Prep question", prepWorking = "Prep reading", prepCoaching = "Prep coaching", prepDone = "Prep done", prepSaved = "Prep saved answer", prepCoachingA = "Coaching: real reply A", prepCoachingB = "Coaching: real reply B", logo = "Logo marks", launch = "Launch to login", login = "Login screen", signIn = "Sign-in form", signUp = "Create-account form"
@@ -65,6 +65,10 @@ private struct MotionLabPreview: View {
             LabFlow(flow: "settings") { ProfileView() }
         case .resumeUpload:
             ResumeUploadScreen(onUpload: { take += 1 })
+        case .jobOnboarding:
+            LabFlow(flow: "job-onboarding-preview") { JobOnboardingGate(required: true) }
+        case .jobFilters:
+            JobFiltersSheet(search: JobSearch()) { _, _ in { take += 1 } }
         case .gmailTracking:
             ZStack {
                 Brand.page.ignoresSafeArea()

@@ -106,7 +106,7 @@ struct JobsView: View {
         }
         .sheet(item: $detail) { job in JobDetailView(job: job).environment(store) }
         .jobListingBrowser(item: $listing)
-        .sheet(item: $sheet, onDismiss: {
+        .fullScreenCover(item: $sheet, onDismiss: {
             if showProfileAfterDismiss {
                 showProfileAfterDismiss = false
                 onProfile()

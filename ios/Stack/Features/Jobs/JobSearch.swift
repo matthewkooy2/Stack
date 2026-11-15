@@ -397,7 +397,9 @@ struct JobFiltersSheet: View {
 
     @State private var draft: JobFilterDraft
     @State private var working = false
-    @State private var showMore = false
+    @State private var pane = ""
+    @Environment(\.stackReduceMotion) private var reduceMotion
+    @Environment(\.dismiss) private var dismiss
 
     init(search: JobSearch, title: String = "Filters", disabled: Bool = false, error: String = "",
          onQuickChange: ((String, JSON) -> Void)? = nil, onReset: (() -> Void)? = nil,
@@ -415,65 +417,109 @@ struct JobFiltersSheet: View {
         let start = JobFilterDraft(search: search)
         baseline = start
         _draft = State(initialValue: start)
-        // An active advanced requirement should not disappear behind a disclosure on first open.
-        _showMore = State(initialValue: !start.minimum.isEmpty || start.occupation != "Any" || start.confirmedOnly
-                         || start.timeline != "compatible" || start.datedOnly || start.age != "Any")
     }
 
     private var edited: Bool { draft != baseline }
     private var immediateActionsDisabled: Bool { disabled || working || edited }
-    private var hasImmediateActions: Bool { onQuickChange != nil || onReset != nil || onTool != nil || onProfile != nil }
 
     var body: some View {
-        SheetPage(title: title) {
-            VStack(alignment: .leading, spacing: 20) {
-                if hasImmediateActions { searchTools }
-                StackField(label: "Role or job title",
-                           text: Binding(get: { draft.query }, set: { draft.query = $0; draft.anyRole = false }),
-                           placeholder: "Nurse, electrician, software engineer…")
-                ToggleRow(label: "Search all professions", isOn: $draft.anyRole)
-                group("Level") {
-                    ChoiceChips(options: ["Any level", "Internship", "Entry-level", "Mid-level", "Senior", "Leadership"],
-                                isSelected: { $0 == "Any level" ? draft.levels.isEmpty : draft.levels.contains($0) },
-                                onTap: { $0 == "Any level" ? (draft.levels = []) : (draft.levels = draft.levels.toggled($0)) })
-                    if !draft.levels.isEmpty {
-                        ToggleRow(label: "Only listings that state their level", isOn: $draft.confirmedLevel)
+        ZStack {
+            Brand.page.ignoresSafeArea()
+            if pane == "role" {
+                RoleChoiceView(current: draft.anyRole ? "" : draft.query, onSelect: { value in
+                    draft.query = value; draft.anyRole = value.isEmpty; go("")
+                }, onBack: { go("") })
+            } else if pane == "location" {
+                LocationChoiceView(onSelect: { value in draft.location = value.isEmpty ? "United States" : value; go("") }, onBack: { go("") })
+            } else {
+                SheetPage(title: pane.isEmpty ? "Filters" : pane, onClose: { if pane.isEmpty { dismiss() } else { go("") } }) {
+                    if pane.isEmpty {
+                        Text("Adjust this search while keeping your profile defaults.")
+                            .font(Typeface.caption).foregroundStyle(Brand.muted)
+                        VStack(spacing: 0) {
+                            filterRow("Role", value: draft.anyRole ? "All professions" : (draft.query.isEmpty ? "Any role" : draft.query)) { go("role") }
+                            filterRow("Location", value: draft.location.isEmpty ? "Anywhere in the US" : draft.location) { go("location") }
+                            filterRow("Work arrangement", value: display(draft.modes, empty: "Any")) { go("Work arrangement") }
+                            filterRow("Level", value: display(draft.levels, empty: "Any")) { go("Level") }
+                            filterRow("Employment", value: display(draft.types, empty: "Any")) { go("Employment") }
+                            filterRow("Pay and dates", value: draft.minimum.isEmpty ? "Any" : "$\(draft.minimum) / \(draft.period)") { go("Pay and dates") }
+                            filterRow("Matching", value: draft.confirmedOnly ? "Confirmed matches only" : "Profile defaults") { go("Matching") }
+                            filterRow("More", value: "Timeline, sorting and search tools") { go("More") }
+                        }
+                        MessageLine(text: error).fadeSwitch(!error.isEmpty)
+                        StoreMessages()
+                    } else {
+                        filterEditor
                     }
                 }
-                group("Employment") {
-                    ChoiceChips(options: ["Any type", "Full-time", "Part-time", "Contract", "Temporary", "Internship"],
-                                isSelected: { $0 == "Any type" ? draft.types.isEmpty : draft.types.contains($0) },
-                                onTap: { $0 == "Any type" ? (draft.types = []) : (draft.types = draft.types.toggled($0)) })
-                }
-                group("Work arrangement") {
-                    ChoiceChips(options: ["Any", "Remote", "Hybrid", "On-site"],
-                                isSelected: { $0 == "Any" ? draft.modes.isEmpty : draft.modes.contains($0) },
-                                onTap: { $0 == "Any" ? (draft.modes = []) : (draft.modes = draft.modes.toggled($0)) })
-                }
-                StackField(label: "City or state", text: $draft.location, placeholder: "United States")
-                Button {
-                    withAnimation(Motion.fadeAnimation) { showMore.toggle() }
-                } label: {
-                    Text(showMore ? "Fewer filters" : "More filters")
-                        .font(Typeface.caption.weight(.semibold)).foregroundStyle(Palette.dark)
-                }
-                .accessibilityLabel(showMore ? "Fewer filters" : "More filters")
-                if showMore { more }
-                MessageLine(text: error).fadeSwitch(!error.isEmpty)
-                StoreMessages()
-                StackButton(label: "Show opportunities", disabled: working || disabled) {
-                    working = true
-                    let apply = onApply(draft.anyRole ? "" : draft.query, draft.filters(over: search.filters, from: baseline))
-                    Task {
-                        await apply()
-                        working = false
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    VStack(spacing: 4) {
+                        if pane.isEmpty {
+                            StackButton(label: "Show opportunities", disabled: working || disabled) {
+                                working = true
+                                let apply = onApply(draft.anyRole ? "" : draft.query, draft.filters(over: search.filters, from: baseline))
+                                Task { await apply(); working = false }
+                            }
+                            if let onReset {
+                                Button("Reset to profile", action: onReset).font(Typeface.caption.weight(.semibold))
+                                    .foregroundStyle(Brand.muted).frame(maxWidth: .infinity, minHeight: 44)
+                                    .disabled(immediateActionsDisabled)
+                            }
+                        } else {
+                            StackButton(label: "Done") { go("") }
+                        }
                     }
+                    .padding(.horizontal, Spacing.page).padding(.vertical, 12)
+                    .background(Brand.page)
                 }
-                profileRequirements
-                Text("Search choices override your profile for this search only. Reset returns to your profile. Title aliases use O*NET 31.0 data · CC BY 4.0 · U.S. Department of Labor.")
-                    .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
-            .disabled(working || disabled)
+        }.animation(reduceMotion ? nil : Motion.fadeAnimation, value: pane).replayable()
+    }
+
+    private func go(_ destination: String) { withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { pane = destination } }
+    private func display(_ values: [String], empty: String) -> String { values.isEmpty ? empty : values.joined(separator: ", ") }
+    private func filterRow(_ title: String, value: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Text(title).font(Typeface.option.weight(.semibold)).foregroundStyle(Brand.ink)
+                Spacer()
+                Text(value).font(Typeface.caption).foregroundStyle(Brand.muted).lineLimit(1)
+                Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(Brand.muted)
+            }.frame(minHeight: 56).contentShape(Rectangle())
+                .overlay(alignment: .bottom) { Rectangle().fill(Brand.rule).frame(height: 1) }
+        }.buttonStyle(.plain)
+    }
+    private func option(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack { Text(title).foregroundStyle(Brand.ink); Spacer(); if selected { Image(systemName: "checkmark").foregroundStyle(Brand.accent) } }
+                .frame(minHeight: 56).contentShape(Rectangle())
+                .overlay(alignment: .bottom) { Rectangle().fill(Brand.rule).frame(height: 1) }
+        }.buttonStyle(.plain).accessibilityAddTraits(selected ? .isSelected : [])
+    }
+    @ViewBuilder private var filterEditor: some View {
+        if pane == "Work arrangement" {
+            Text("Choose one or more.").font(Typeface.caption).foregroundStyle(Brand.muted)
+            option("Any", selected: draft.modes.isEmpty) { draft.modes = [] }
+            ForEach(["Remote", "Hybrid", "On-site"], id: \.self) { value in
+                option(value, selected: draft.modes.contains(value)) { draft.modes = draft.modes.toggled(value) }
+            }
+        } else if pane == "Level" {
+            option("Any level", selected: draft.levels.isEmpty) { draft.levels = [] }
+            ForEach(["Internship", "Entry-level", "Mid-level", "Senior", "Leadership"], id: \.self) { value in
+                option(value, selected: draft.levels.contains(value)) { draft.levels = draft.levels.toggled(value) }
+            }
+            if !draft.levels.isEmpty { ToggleRow(label: "Only listings that state their level", isOn: $draft.confirmedLevel) }
+        } else if pane == "Employment" {
+            option("Any type", selected: draft.types.isEmpty) { draft.types = [] }
+            ForEach(["Full-time", "Part-time", "Contract", "Temporary", "Internship"], id: \.self) { value in
+                option(value, selected: draft.types.contains(value)) { draft.types = draft.types.toggled(value) }
+            }
+        } else if pane == "Pay and dates" || pane == "Matching" {
+            more
+        } else {
+            searchTools
+            profileRequirements
+            more
         }
     }
 

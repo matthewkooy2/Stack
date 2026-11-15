@@ -122,6 +122,28 @@ class GitRanges(unittest.TestCase):
         event['pull_request']['base']['sha'] = self.base
         self.assertEqual(affected.selection(event, 'pull_request'), affected.ALL)
 
+    def test_pending_native_changes_survive_a_separate_push_until_confirmed(self):
+        self.write('ios/Feature.swift', 'source')
+        native = self.commit()
+        self.write('README.md', 'unrelated push')
+        head = self.commit()
+        event = {'before': native, 'after': head, 'ref': 'refs/heads/main'}
+        check_output = subprocess.check_output
+        records = [{'sha': self.base}]
+
+        def command(args, **kwargs):
+            if args[0] == 'gh':
+                return json.dumps(records).encode()
+            return check_output(args, **kwargs)
+
+        with patch.dict(os.environ, GITHUB_REPOSITORY='example/stack'), \
+                patch.object(affected.subprocess, 'check_output', side_effect=command):
+            self.assertEqual(affected.selection(event, 'push', True, native_release=True),
+                             {'backend': False, 'native': True, 'native_upload': True})
+            records[0]['sha'] = native
+            self.assertEqual(affected.selection(event, 'push', True, native_release=True),
+                             {'backend': False, 'native': False, 'native_upload': False})
+
     def test_prose_only_merge_can_skip_runtime(self):
         self.git('switch', '-c', 'docs')
         self.write('README.md', 'docs')

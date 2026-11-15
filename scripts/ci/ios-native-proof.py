@@ -167,6 +167,16 @@ def reuse(machine):
     print('No reusable native result: execute the selected cases on actual main.')
 
 
+def superseded(commit, source, require_upload):
+    if api('git/ref/heads/main')['object']['sha'] == commit:
+        return False
+    if not source or require_upload:
+        raise ValueError('Release candidate is no longer current main')
+    print('Release candidate was superseded; current main will check for pending native changes.')
+    output('upload', 'false')
+    return True
+
+
 def release(machine, require_upload=False):
     event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
     source = event.get('workflow_run')
@@ -178,8 +188,8 @@ def release(machine, require_upload=False):
         if os.environ['GITHUB_REF'] != 'refs/heads/main':
             raise ValueError('Manual release requires main')
         commit = os.environ['GITHUB_SHA']
-    if api('git/ref/heads/main')['object']['sha'] != commit:
-        raise ValueError('Release candidate is no longer current main')
+    if superseded(commit, source, require_upload):
+        return
     if source and native_not_applicable(source):
         if require_upload:
             raise ValueError('This event does not authorize native upload')
@@ -210,10 +220,10 @@ def release(machine, require_upload=False):
         time.sleep(15)
     # Automatic no-upload events returned before proof lookup. Every remaining
     # upload, including manual dispatch, has the full exact-source proof above.
+    if superseded(commit, source, require_upload):
+        return
     output('upload', 'true')
     output('release_commit', commit)
-    if api('git/ref/heads/main')['object']['sha'] != commit:
-        raise ValueError('Main advanced while waiting for verification')
     record(machine)
 
 

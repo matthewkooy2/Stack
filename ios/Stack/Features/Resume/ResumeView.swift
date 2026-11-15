@@ -8,8 +8,8 @@ struct ResumeView: View {
     var onProfile: () -> Void
 
     @State var importing = false
-    @State var uploading = false
-    @State private var uploadName = ""
+    @State private var uploader = ResumeUploader()
+    @State private var uploadGeneration = -1
     /// Set when an upload starts from the first-use screen, so the list fades in over it instead of rising a beat later.
     @State private var cameFromUpload = false
     @Environment(\.stackReduceMotion) private var reduceMotion
@@ -31,9 +31,10 @@ struct ResumeView: View {
     var body: some View {
         Group {
             if store.account.resumes.isEmpty {
-                ResumeUploadScreen(uploading: uploading, fileName: uploadName, disabled: store.busy, error: store.error,
-                                   attentionCount: store.account.attentionRunCount,
-                                   onUpload: { importing = true }, onProfile: onProfile)
+                ResumeUploadScreen(uploading: uploader.isBusy, fileName: uploader.fileName, disabled: false,
+                                   error: uploader.phase == .failed ? uploader.message : store.error,
+                                   attentionCount: store.account.attentionRunCount, progress: uploader.progress,
+                                   onUpload: { chooseFile() }, onProfile: onProfile, onRetry: retryAction)
                     .transition(.opacity)
             } else {
                 library.transition(.opacity)
@@ -42,17 +43,14 @@ struct ResumeView: View {
         .animation(reduceMotion ? nil : Motion.fadeAnimation, value: store.account.resumes.isEmpty)
         .refreshable { await store.refresh() }
         .pollsWhileProcessing(processingActive)
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf]) { result in
-            // Show progress in this turn of the run loop; the read and the request happen after it.
-            guard case .success(let url) = result, store.phase == .ready else { return }
-            uploading = true
-            uploadName = url.lastPathComponent
-            if store.account.resumes.isEmpty { cameFromUpload = true }
-            store.error = ""
-            Task { await upload(url) }
+        .fileImporter(isPresented: $importing, allowedContentTypes: ResumeFiles.allowedTypes) { result in
+            // Progress shows in this turn of the run loop; the read and the request happen after it.
+            guard store.phase == .ready, uploadGeneration == store.sessionGeneration, uploader.picked(result) else { return }
+            startUpload()
         }
+        .onChange(of: importing) { _, open in if !open { uploader.pickerClosed() } }
         .sheet(item: $managing) { resume in ManageResumeSheet(resume: resume).environment(store) }
-        .onChange(of: store.sessionGeneration) { _, _ in setupFor = ""; scores = [:] }
+        .onChange(of: store.sessionGeneration) { _, _ in setupFor = ""; scores = [:]; importing = false; uploader.reset() }
         .fullScreenCover(isPresented: $showTailor) { ResumeTailorSheet(setupFor: $setupFor, scores: $scores).environment(store) }
         .sheet(isPresented: $showTailored) {
             SheetPage(title: "Tailored resumes") { TailoredResumesSection() }.environment(store)
@@ -63,10 +61,19 @@ struct ResumeView: View {
     private var library: some View {
         Page {
             entrance(ScreenHeader(title: "Resume", onProfile: onProfile), 0)
-            StackButton(label: uploading ? "Uploading \(uploadName)" : "Upload a PDF resume", icon: "upload", disabled: uploading || store.busy) {
-                importing = true
+            StackButton(label: uploader.isBusy ? uploader.progress : "Upload a resume", icon: "upload", disabled: uploader.isBusy) {
+                chooseFile()
             }
             .modifier(Entrance(index: 1, skipped: cameFromUpload))
+            .accessibilityIdentifier("resume-upload")
+
+            if uploader.phase == .failed {
+                MessageLine(text: uploader.message).accessibilityIdentifier("resume-upload-error")
+                if uploader.canRetry {
+                    QuietLinks(links: [ScreenLink("Try again · \(uploader.fileName)") { retryUpload() }])
+                        .accessibilityIdentifier("resume-upload-retry")
+                }
+            }
 
             StoreMessages()
 
@@ -116,18 +123,36 @@ struct ResumeView: View {
         }
     }
 
-    private func upload(_ url: URL) async {
-        let generation = store.sessionGeneration
-        defer { uploading = false; uploadName = "" }
-        do {
-            let file = try await readPickedFileInBackground(url, limit: 10 * 1024 * 1024, tooLarge: "PDF must be 10 MB or smaller.")
-            await store.mutate(
-                "upload_resume",
-                ["name": .string(file.name), "content": .string(file.content)],
-                notice: "Your resume is saved privately.",
-                timeout: 90
-            )
-        } catch { if generation == store.sessionGeneration { store.fail(error) } }
+    /// The upload tap: shows "Opening files…" at once and opens the picker only if no upload is open or running.
+    private func chooseFile() {
+        guard uploader.begin() else { return }
+        uploadGeneration = store.sessionGeneration
+        importing = true
+    }
+
+    private var retryAction: (() -> Void)? { uploader.canRetry ? { retryUpload() } : nil }
+
+    private func retryUpload() {
+        guard uploader.retry() else { return }
+        startUpload()
+    }
+
+    private func startUpload() {
+        if store.account.resumes.isEmpty { cameFromUpload = true }
+        store.error = ""
+        store.notice = ""
+        Task { await upload() }
+    }
+
+    /// One request per attempt. `callAccount` drops answers for an ended session and reports a busy account
+    /// instead of silently skipping the upload; a failure keeps the file for Try again.
+    private func upload() async {
+        let generation = uploadGeneration
+        let uploaded = await uploader.run { file in
+            guard generation == store.sessionGeneration, store.phase == .ready else { throw CancellationError() }
+            _ = try await store.callAccount("upload_resume", ["name": .string(file.name), "content": .string(file.content)], timeout: 90)
+        }
+        if uploaded { store.notice = "Your resume is saved privately." }
     }
 }
 

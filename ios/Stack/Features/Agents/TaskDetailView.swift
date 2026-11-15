@@ -26,7 +26,40 @@ struct TaskDetailView: View {
     private var requests: [JSON] { run["requests"].array }
     private var feature: AgentFeature? { store.account.feature(forKind: kind) }
 
+    private var isResumeReview: Bool { status == "review" && review["step"].string == "approve_resume" }
+
     var body: some View {
+        Group {
+            if isResumeReview {
+                TailoringReviewScreen(review: review, rejected: draft.rejected, busy: busy,
+                                      reviewed: draft.reviewed,
+                                      error: error, context: run["context_label"].string,
+                                      hasPreview: !run["artifacts"]["tailor"]["pdf"]["content"].string.isEmpty,
+                                      onBack: onBack,
+                                      onPreview: { showPDF(run["artifacts"]["tailor"]["pdf"]) },
+                                      onSetRejected: setRejected,
+                                      onApply: { Task { await approve() } },
+                                      onCancel: { confirmCancel = true })
+            } else {
+                Page { taskContent }
+            }
+        }
+        .background(Brand.page.ignoresSafeArea())
+        .task(id: id) { await start() }
+        .task(id: id + ":poll") {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(3))
+                if Task.isCancelled { break }
+                if run.object.isEmpty || !AgentLabels.terminal.contains(status) { await load() }
+            }
+        }
+        .sheet(item: $preview) { PDFSheet(preview: $0) }
+        .confirmationDialog("Cancel this task?", isPresented: $confirmCancel, titleVisibility: .visible) {
+            Button("Cancel task", role: .destructive) { Task { await perform("agent_cancel", ["id": .string(id)], done: "Cancelled.") } }
+        }
+    }
+
+    private var taskContent: some View {
         VStack(alignment: .leading, spacing: 16) {
             StackButton(label: "Back to tasks", icon: "return", kind: .secondary, action: onBack)
             if run.object.isEmpty, error.isEmpty { Text("Loading task…").font(Typeface.body).foregroundStyle(Palette.muted) }
@@ -67,18 +100,6 @@ struct TaskDetailView: View {
                 }
                 footer
             }
-        }
-        .task(id: id) { await start() }
-        .task(id: id + ":poll") {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(3))
-                if Task.isCancelled { break }
-                if run.object.isEmpty || !AgentLabels.terminal.contains(status) { await load() }
-            }
-        }
-        .sheet(item: $preview) { PDFSheet(preview: $0) }
-        .confirmationDialog("Cancel this task?", isPresented: $confirmCancel, titleVisibility: .visible) {
-            Button("Cancel task", role: .destructive) { Task { await perform("agent_cancel", ["id": .string(id)], done: "Cancelled.") } }
         }
     }
 
@@ -125,31 +146,9 @@ struct TaskDetailView: View {
 
     private var reviewBox: some View {
         let step = review["step"].string
-        let changes = review["changes"].array
-        let kept = changes.count - changes.filter { draft.rejected.contains($0["id"].string) }.count
         return Card(tint: Palette.surfaceRaised, spacing: 12) {
             SectionLabel(text: "Nothing is shared until you approve")
             Text(review["title"].string).font(Typeface.title).foregroundStyle(Palette.ink)
-            if step == "approve_resume" {
-                if !review["summary"].string.isEmpty { Text(review["summary"].string).font(Typeface.body).foregroundStyle(Palette.text) }
-                if !review["score"]["after"].isNull {
-                    ScoreCardView(after: review["score"]["after"], before: review["score"]["before"],
-                                  title: "Score for this job · with every change")
-                }
-                if !run["artifacts"]["tailor"]["pdf"]["content"].string.isEmpty {
-                    StackButton(label: "Preview proposed resume", icon: "resume", kind: .secondary) {
-                        showPDF(run["artifacts"]["tailor"]["pdf"])
-                    }
-                }
-                Text("The preview includes every change. Rejected changes go back to your original wording when Stack rebuilds · \(review["pages"].int) page")
-                    .font(Typeface.caption).foregroundStyle(Palette.muted)
-                SectionLabel(text: "Changes · \(kept) of \(changes.count) kept")
-                ForEach(Array(changes.enumerated()), id: \.offset) { _, change in
-                    ChangeRow(change: change, rejected: draft.rejected.contains(change["id"].string)) { toggle(change["id"].string) }
-                }
-                if changes.isEmpty { Text("No wording or order changes were suggested.").font(Typeface.body).foregroundStyle(Palette.text) }
-                if !review["dropped"].array.isEmpty { DroppedList(dropped: review["dropped"].array) }
-            }
             if step == "send" {
                 Text("To: \(review["to"].string)").font(Typeface.body).foregroundStyle(Palette.text)
                 StackField(label: "Email subject", text: Binding(get: { draft.subject }, set: { draft.subject = $0; remember() }))
@@ -347,6 +346,14 @@ struct TaskDetailView: View {
         remember()
     }
 
+    private func setRejected(_ ids: [String], _ rejected: Bool) {
+        guard !busy else { return }
+        draft.rejected.removeAll { ids.contains($0) }
+        if rejected { draft.rejected.append(contentsOf: ids) }
+        draft.reviewed = Array(Set(draft.reviewed + ids))
+        remember()
+    }
+
     private func approveLabel(_ step: String) -> String {
         ["approve_resume": "Apply the changes I kept", "send": "Approve and send", "calendar": "Approve calendar change"][step] ?? "Approve"
     }
@@ -375,6 +382,7 @@ struct TaskDetailView: View {
             }
             if step == "approve_resume", hash != draft.rejectFor {
                 draft.rejected = latest["review"]["rejected"].strings
+                draft.reviewed = []
                 draft.rejectFor = hash
                 remember()
             }
@@ -672,7 +680,8 @@ struct TailoredResultView: View {
     }
 }
 
-/// A task paused before tailoring because its resume has no LaTeX. The fix happens here, then it continues.
+/// A task paused before tailoring because its resume is not ready (details not confirmed). The fix happens here:
+/// confirm the details, choose a design, then it continues.
 @MainActor
 struct TailorBlocker: View {
     let run: JSON
@@ -687,9 +696,6 @@ struct TailorBlocker: View {
     var body: some View {
         let resumes = store.account.resumes
         let current = resumes.first { $0.id == run["resume_id"].string }
-        // Started before any resume existed, or its resume was deleted: continuing attaches the default resume.
-        let stale = current == nil && !resumes.isEmpty
-        let fixed = stale || (current.map { store.account.hasLatex($0.id) } ?? false)
         Card(tint: Palette.surfaceRaised, spacing: 12) {
             SectionLabel(text: "One step before tailoring")
             if resumes.isEmpty {
@@ -697,16 +703,9 @@ struct TailorBlocker: View {
                 Text("Stack tailors a resume you have uploaded, and you have none yet. Nothing has been generated.")
                     .font(Typeface.body).foregroundStyle(Palette.text)
                 StackButton(label: "Go to the Resume tab", icon: "resume", disabled: busy) { onNavigate("resume") }
-            } else if fixed {
-                Text(stale ? "Your resume is uploaded" : "\(current?.name ?? "Your resume") has its LaTeX")
-                    .font(Typeface.title).foregroundStyle(Palette.ink)
-                Text(stale ? "This task started before you uploaded it. Continue, and Stack uses your default resume."
-                           : "Continue to generate your tailored resume.")
-                    .font(Typeface.body).foregroundStyle(Palette.text)
-                StackButton(label: "Continue tailoring", icon: "check", disabled: busy) { Task { await continueWith("") } }
-            } else if let current {
+            } else if let current = current ?? store.account.resume(store.account.selectedResumeID) ?? resumes.first {
                 Text("Nothing has been generated yet.").font(Typeface.body).foregroundStyle(Palette.text)
-                LatexSetupView(resume: current, others: resumes.filter { store.account.hasLatex($0.id) && $0.id != current.id }) { id in
+                TailorResumeSetup(resume: current, others: resumes.filter { store.account.canTailor($0.id) && $0.id != current.id }) { id in
                     await continueWith(id)
                 }
             }
@@ -716,6 +715,7 @@ struct TailorBlocker: View {
     }
 
     private func continueWith(_ resumeID: String) async {
+        guard !busy else { return }
         busy = true
         error = ""
         working = "Starting tailoring…"

@@ -43,13 +43,14 @@ struct ResumeFormatView: View {
                     Text("Not used from your .zip: \(format["skipped"].strings.prefix(5).joined(separator: ", "))")
                         .font(Typeface.caption).foregroundStyle(Palette.muted)
                 }
-                Text(!["builtin", "records"].contains(kind)
-                     ? "Stack edits only the content of your LaTeX (bullets, their order, skill lists) and keeps your layout. In Overleaf: Menu → Download → Source."
-                     : "Built from your confirmed resume details. Upload your own LaTeX to keep your exact layout.")
+                Text(kind == "upload"
+                     ? "Stack edits the content of your uploaded source and keeps its layout."
+                     : "Built from your confirmed resume details. Confirm those details before choosing a template.")
                     .font(Typeface.caption).foregroundStyle(Palette.text)
             }
-            StackButton(label: kind == "upload" ? "Replace LaTeX source" : "Upload LaTeX (.tex or Overleaf .zip)", icon: "upload",
-                        kind: kind == "upload" ? .secondary : .primary, disabled: working) { importing = true }
+            if kind == "upload" {
+                StackButton(label: "Replace LaTeX source", icon: "upload", kind: .secondary, disabled: working) { importing = true }
+            }
             SectionLabel(text: "Built-in templates")
             FlowLayout(spacing: 8) {
                 ForEach(templates, id: \.0) { key, label in
@@ -57,11 +58,12 @@ struct ResumeFormatView: View {
                         change("use_resume_template", ["id": .string(resume.id), "template": .string(key)],
                                done: "Template saved.")
                     }
+                    .disabled(working || (store.account.resume(resume.id) ?? resume).detailsStatus != "Confirmed")
                 }
                 if !kind.isEmpty && kind != "records" {
                     Chip(label: "Remove format") {
                         change("use_resume_template", ["id": .string(resume.id), "template": ""],
-                               done: "Removed. Upload LaTeX or choose a template to tailor this resume again.")
+                               done: "Removed. Choose a template to tailor this resume again.")
                     }
                 }
             }

@@ -15,7 +15,8 @@ struct JobOnboardingView: View {
     @State private var finished = false
     @State private var working = false
     @State private var importing = false
-    @State private var uploadName = ""
+    @State private var uploader = ResumeUploader()
+    @State private var uploadGeneration = -1
     @State private var error = ""
 
     var body: some View {
@@ -43,38 +44,41 @@ struct JobOnboardingView: View {
                     Button("Skip for now") { stage = ""; picker = "" }
                         .font(Typeface.caption).foregroundStyle(Brand.muted).frame(minHeight: 44)
                 }
+            } else if finished {
+                ResumeUploadScreen(uploading: uploader.isBusy, fileName: uploader.fileName, disabled: store.busy,
+                                   error: uploader.phase == .failed ? uploader.message : error,
+                                   progress: uploader.progress, onUpload: chooseResume,
+                                   onRetry: uploader.canRetry ? { retryUpload() } : nil)
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        Button("Skip for now", action: onDone)
+                            .font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.muted)
+                            .frame(maxWidth: .infinity, minHeight: 44).disabled(uploader.isBusy)
+                            .padding(.horizontal, Spacing.page).padding(.bottom, 16)
+                            .background(Brand.page)
+                    }
             } else {
                 VStack(spacing: 0) {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 0) {
-                            Text(finished ? "Add your\nresume." : "A little about\nyour search.")
+                            Text("A little about\nyour search.")
                                 .font(Typeface.display).tracking(-1.8).foregroundStyle(Brand.ink).reveal(0)
-                            Text(finished ? "We’re finding jobs for you. Add your resume while we look." : "This helps us get started.")
+                            Text("This helps us get started.")
                                 .font(Typeface.body).foregroundStyle(Brand.muted).padding(.top, 12).reveal(1)
-                            if finished {
-                                ResumeStackMark().frame(maxWidth: .infinity).padding(.top, 28)
-                                Text("We’ll start reading it as soon as it uploads.")
-                                    .font(Typeface.caption).foregroundStyle(Brand.muted).padding(.top, 12)
-                                Text(uploadName.isEmpty ? "PDF · Up to 10 MB" : uploadName)
-                                    .font(Typeface.caption).foregroundStyle(Brand.muted)
-                                    .lineLimit(1).truncationMode(.middle).padding(.top, 8)
-                            } else {
-                                VStack(alignment: .leading, spacing: 24) {
-                                    selection("Role or job title", value: role.isEmpty ? "Choose a role" : role) { picker = "role" }
-                                    selection("City or state", value: location.isEmpty ? "Choose a location" : location) { picker = "location" }
-                                    selection("Career stage", value: stage.isEmpty ? "Choose your stage" : stage) { picker = "stage" }
-                                }.padding(.top, 36).reveal(2)
-                            }
+                            VStack(alignment: .leading, spacing: 24) {
+                                selection("Role or job title", value: role.isEmpty ? "Choose a role" : role) { picker = "role" }
+                                selection("City or state", value: location.isEmpty ? "Choose a location" : location) { picker = "location" }
+                                selection("Career stage", value: stage.isEmpty ? "Choose your stage" : stage) { picker = "stage" }
+                            }.padding(.top, 36).reveal(2)
                         }
                         .padding(.horizontal, Spacing.page).padding(.top, 40).padding(.bottom, 24)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }.scrollIndicators(.hidden)
                     VStack(spacing: 4) {
                         MessageLine(text: error).fadeSwitch(!error.isEmpty)
-                        StackButton(label: working ? (finished ? "Uploading…" : "Saving…") : (finished ? "Upload resume" : "Continue"), disabled: working) {
-                            if finished { importing = true } else { Task { await save() } }
+                        StackButton(label: working ? "Saving…" : "Continue", disabled: working) {
+                            Task { await save() }
                         }
-                        Button("Skip for now") { if finished { onDone() } else { showResume() } }
+                        Button("Skip for now", action: showResume)
                             .font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.muted)
                             .frame(maxWidth: .infinity, minHeight: 44).disabled(working)
                     }
@@ -82,15 +86,12 @@ struct JobOnboardingView: View {
                 }
             }
         }
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf]) { result in
-            switch result {
-            case .success(let url):
-                working = true; error = ""; uploadName = url.lastPathComponent
-                Task { await upload(url) }
-            case .failure(let failure):
-                error = failure.localizedDescription
-            }
+        .fileImporter(isPresented: $importing, allowedContentTypes: ResumeFiles.allowedTypes) { result in
+            guard uploadGeneration == store.sessionGeneration, store.phase == .ready, uploader.picked(result) else { return }
+            Task { await upload() }
         }
+        .onChange(of: importing) { _, open in if !open { uploader.pickerClosed() } }
+        .onChange(of: store.sessionGeneration) { _, _ in importing = false; uploader.reset() }
         .replayable()
     }
 
@@ -131,14 +132,24 @@ struct JobOnboardingView: View {
         } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
     }
 
-    private func upload(_ url: URL) async {
-        let generation = store.sessionGeneration
-        defer { working = false; uploadName = "" }
-        do {
-            let file = try await readPickedFileInBackground(url, limit: 10 * 1024 * 1024, tooLarge: "PDF must be 10 MB or smaller.")
-            guard generation == store.sessionGeneration else { return }
-            try await store.callAccount("upload_resume", ["name": .string(file.name), "content": .string(file.content)], timeout: 90)
-            onDone()
-        } catch { if generation == store.sessionGeneration, !(error is CancellationError) { self.error = error.localizedDescription } }
+    private func chooseResume() {
+        guard uploader.begin() else { return }
+        uploadGeneration = store.sessionGeneration
+        error = ""
+        importing = true
+    }
+
+    private func retryUpload() {
+        guard uploader.retry() else { return }
+        Task { await upload() }
+    }
+
+    private func upload() async {
+        let generation = uploadGeneration
+        let uploaded = await uploader.run { file in
+            guard generation == store.sessionGeneration, store.phase == .ready else { throw CancellationError() }
+            _ = try await store.callAccount("upload_resume", ["name": .string(file.name), "content": .string(file.content)], timeout: 90)
+        }
+        if uploaded { onDone() }
     }
 }

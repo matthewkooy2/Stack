@@ -27,8 +27,9 @@ struct JobsView: View {
     @GestureState private var dragging = false
     @State private var cardWidth: CGFloat = 390
     @State private var swipeReady = false
-    @State private var savedForTailoring: Application?
-    @State private var latestSavedJobID = ""
+    @State private var savedJob: Job?
+    @State private var saveTask: Task<Bool, Never>?
+    @State private var preparingTailor = false
     @State private var tailoring: Application?
     @State private var tailorSetup = ""
     @State private var tailorScores: [String: JSON] = [:]
@@ -40,6 +41,12 @@ struct JobsView: View {
         guard displayedContext == accountContext else { return [] }
         let decided = store.account.decidedJobIDs
         return feed.jobs.filter { !decided.contains($0.id) && !hidden.contains($0.id) }
+    }
+
+    private var needsMoreJobs: Bool {
+        feed.loaded && !feed.busy && feed.loadError.isEmpty && !feed.nextCursor.isEmpty
+            && deck.count < JobDeckFeed.targetDeck && scenePhase == .active
+            && listing == nil && detail == nil && sheet == nil && tailoring == nil
     }
 
     var body: some View {
@@ -57,6 +64,13 @@ struct JobsView: View {
         .padding(.vertical, 6)
         .clipped()
         .background(Brand.page.ignoresSafeArea())
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if savedJob != nil || pendingDecision != nil {
+                decisionBanner
+                    .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(reduceMotion ? nil : Motion.ease(0.28), value: savedJob != nil || pendingDecision != nil)
         .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.4), trigger: swipeReady) { _, ready in ready }
         .onChange(of: dragging) { _, active in
             if !active {
@@ -65,6 +79,9 @@ struct JobsView: View {
             }
         }
         .task { await start() }
+        .onChange(of: needsMoreJobs) { _, needed in
+            if needed { Task { await load(refresh: false, more: true) } }
+        }
         .onDisappear {
             // A full-screen cover reports the screen underneath as disappeared. It is still the same visit:
             // keep the pending Undo and the paging in flight until the browser or sheet closes.
@@ -144,7 +161,7 @@ struct JobsView: View {
 
     @ViewBuilder
     private var content: some View {
-        if !feed.loaded {
+        if !feed.loaded || (deck.isEmpty && feed.loadError.isEmpty && !feed.nextCursor.isEmpty) {
             VStack {
                 HStack { Spacer(); requirementsButton }
                 Spacer()
@@ -222,31 +239,75 @@ struct JobsView: View {
         .accessibilityIdentifier("job-requirements")
     }
 
+    /// Outside the moving deck: the next card stays swipeable while this offers help for the saved job.
+    private var decisionBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: savedJob == nil ? "arrow.left.circle" : "checkmark.circle.fill")
+                .font(.system(size: 25, weight: .medium))
+                .foregroundStyle(savedJob == nil ? Brand.muted : Brand.accent)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(savedJob == nil ? "Job passed" : "Job saved")
+                    .font(.system(.subheadline, weight: .semibold)).foregroundStyle(Brand.ink)
+                Text(savedJob == nil ? "Keep exploring" : "Ready to tailor when you are")
+                    .font(.system(.caption)).foregroundStyle(Brand.muted)
+                    .lineLimit(2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if let job = savedJob {
+                Button { openTailor(for: job) } label: {
+                    HStack(spacing: 5) {
+                        if preparingTailor { ProgressView().controlSize(.small) }
+                        Text(preparingTailor ? "Opening…" : "Tailor")
+                        if !preparingTailor { Image(systemName: "arrow.right") }
+                    }
+                    .font(.system(.subheadline, weight: .semibold))
+                    .foregroundStyle(Brand.accent)
+                    .padding(.horizontal, 13).frame(minHeight: 44)
+                    .background(Brand.accent.opacity(0.12), in: Capsule())
+                }
+                .buttonStyle(.tap(scale: 0.96))
+                .disabled(preparingTailor || leavingID != nil)
+                .accessibilityLabel("Tailor resume for \(job.title) at \(job.company)")
+                .accessibilityIdentifier("saved-job-tailor")
+            }
+            if pendingDecision != nil {
+                Button("Undo") { undoDecision() }
+                    .font(.system(.subheadline, weight: .medium)).foregroundStyle(Brand.muted)
+                    .frame(minWidth: 44, minHeight: 44)
+                    .buttonStyle(.tap(scale: 0.96))
+                    .transition(.opacity)
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(.white)
+        .overlay(alignment: .top) { Brand.rule.frame(height: 0.5) }
+        .animation(reduceMotion ? nil : Motion.fadeAnimation, value: pendingDecision != nil)
+        .accessibilityElement(children: .contain)
+    }
+
+    private func openTailor(for job: Job) {
+        guard !preparingTailor, leavingID == nil else { return }
+        let generation = store.sessionGeneration
+        let saving = commitDecision() ?? saveTask
+        preparingTailor = true
+        Task {
+            defer { preparingTailor = false }
+            let saved = await saving?.value ?? true
+            guard saved, isCurrent(generation), savedJob?.id == job.id else { return }
+            guard let application = store.account.applications.first(where: { !$0.isDemo && $0.job.id == job.id }) else {
+                feed.loadError = "Could not open this saved job. Try saving it again."
+                return
+            }
+            tailoring = application
+        }
+    }
+
     /// Exceptional state stays inside the card, never as a permanent header above it.
     @ViewBuilder
     private var feedback: some View {
-        if pendingDecision != nil || savedForTailoring != nil || !feed.loadError.isEmpty || !banner.isEmpty || !search.notices.isEmpty {
+        if !feed.loadError.isEmpty || !banner.isEmpty || !search.notices.isEmpty {
             VStack(alignment: .leading, spacing: 6) {
-                if let pending = pendingDecision {
-                    HStack {
-                        Text(pending.save ? "Saved \(pending.job.title)" : "Passed \(pending.job.title)")
-                            .font(Typeface.caption).foregroundStyle(Brand.muted).lineLimit(2)
-                        Spacer(minLength: 8)
-                        Button("Undo") { undoDecision() }
-                            .font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
-                            .frame(minWidth: 44, minHeight: 44)
-                    }
-                }
-                if let saved = savedForTailoring {
-                    HStack(spacing: 12) {
-                        Text("Saved · \(saved.job.company)")
-                            .font(Typeface.caption).foregroundStyle(Brand.muted).lineLimit(1)
-                        Spacer(minLength: 0)
-                        Button("Tailor resume") { tailoring = saved }
-                            .font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
-                            .frame(minHeight: 44)
-                    }
-                }
                 if !feed.loadError.isEmpty, !deck.isEmpty {
                     Text(feed.loadError).font(Typeface.caption).foregroundStyle(Palette.danger)
                 }
@@ -323,6 +384,7 @@ struct JobsView: View {
         guard !hidden.contains(job.id), leavingID == nil, listing == nil, detail == nil, sheet == nil,
               deck.first?.id == job.id else { return }
         commitDecision()
+        saveTask = nil
         leavingID = job.id
         let generation = store.sessionGeneration
         withAnimation(reduceMotion ? nil : Motion.ease(0.30), completionCriteria: .logicallyComplete) {
@@ -343,8 +405,7 @@ struct JobsView: View {
             leavingID = nil
         }
         guard current else { return }
-        savedForTailoring = nil
-        latestSavedJobID = save ? job.id : ""
+        savedJob = save ? job : nil
         pendingDecision = (job, save, generation)
         if scenePhase != .active { commitDecision(); return }
         undoTimer = Task {
@@ -359,7 +420,7 @@ struct JobsView: View {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("--long-undo-window") { return .seconds(60) }
         #endif
-        return .milliseconds(2400)
+        return .seconds(6)
     }
 
     private func undoDecision() {
@@ -367,25 +428,30 @@ struct JobsView: View {
         undoTimer?.cancel()
         undoTimer = nil
         pendingDecision = nil
+        savedJob = nil
+        saveTask = nil
         withAnimation(reduceMotion ? nil : Motion.release) { _ = hidden.remove(pending.job.id) }
     }
 
-    private func commitDecision() {
-        guard let pending = pendingDecision else { return }
+    @discardableResult
+    private func commitDecision() -> Task<Bool, Never>? {
+        guard let pending = pendingDecision else { return nil }
         pendingDecision = nil
         undoTimer?.cancel()
         undoTimer = nil
-        guard pending.generation == store.sessionGeneration, store.phase == .ready else { return }
-        Task {
+        guard pending.generation == store.sessionGeneration, store.phase == .ready else { return nil }
+        let task = Task {
             let saved = await store.swipe(jobID: pending.job.id, save: pending.save)
-            guard pending.generation == store.sessionGeneration else { return }
+            guard pending.generation == store.sessionGeneration else { return false }
             if !saved {
+                if savedJob?.id == pending.job.id { savedJob = nil }
                 withAnimation(reduceMotion ? nil : Motion.release) { _ = hidden.remove(pending.job.id) }
                 feed.loadError = store.error.isEmpty ? "This decision was not saved. Please try again." : store.error
-            } else if pending.save, latestSavedJobID == pending.job.id {
-                savedForTailoring = store.account.applications.first { $0.job.id == pending.job.id && !$0.isDemo }
             }
+            return saved
         }
+        if pending.save { saveTask = task }
+        return task
     }
 
     /// Restores the prepared feed for the saved search before checking the server.
@@ -428,8 +494,8 @@ struct JobsView: View {
         listing = nil
         detail = nil
         sheet = nil
-        savedForTailoring = nil
-        latestSavedJobID = ""
+        savedJob = nil
+        saveTask = nil
         tailoring = nil
         tailorSetup = ""
         tailorScores = [:]

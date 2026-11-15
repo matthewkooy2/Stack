@@ -57,9 +57,12 @@ import agents.accounts as accounts;
 
 with entry { accounts.install(); }
 
-# Native Apple identity becomes an ordinary Stack session.
+# Native and browser Apple identity become ordinary Stack sessions.
 def:pub auth_apple_begin() -> dict[str, any] {
     return apple_auth.begin();
+}
+def:pub auth_apple_web_begin() -> dict[str, any] {
+    return apple_auth.begin("web");
 }
 def:pub auth_apple_finish(state: str, identity_token: str, authorization_code: str = "", name: str = "") -> dict[str, any] {
     return apple_auth.finish(state,identity_token);

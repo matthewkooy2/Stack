@@ -33,7 +33,7 @@ agent_register_push agent_remove_push agent_notification_status agent_admission 
     );
     IDENTITY = {'/user/register', '/user/login'};
     SSO = {'/sso/google/begin', '/sso/google/finish', '/sso/google/poll'};
-    APPLE_PUBLIC = {'auth_apple_begin','auth_apple_finish'};
+    APPLE_PUBLIC = {'auth_apple_begin','auth_apple_web_begin','auth_apple_finish'};
     BASE = os.environ.get('STACK_WORKER_API', 'http://127.0.0.1:8000');
     _rate_lock = threading.Lock();
     _rates = {};
@@ -115,7 +115,7 @@ class Handler(SimpleHTTPRequestHandler) {
         self.send_header('Referrer-Policy', 'no-referrer');
         self.send_header(
             'Content-Security-Policy',
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"
+            "default-src 'self'; script-src 'self' https://appleid.cdn-apple.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://appleid.apple.com; frame-src https://appleid.apple.com; frame-ancestors 'none'; base-uri 'none'"
         );
         super.end_headers();
     }
@@ -141,7 +141,7 @@ class Handler(SimpleHTTPRequestHandler) {
             self.app_page(app_links.page(destination=path.removeprefix('/open/')));return;
         }
         if (
-            (path not in ('/', '/index.html', '/oauth/google', '/auth/google', '/sso/google/callback'))
+            (path not in ('/', '/index.html', '/oauth/google', '/auth/google', '/auth/apple', '/sso/google/callback'))
             and not (
                 path.startswith('/client.')
                 and path.endswith('.js')
@@ -167,7 +167,7 @@ class Handler(SimpleHTTPRequestHandler) {
             self.path = '/index.html';
         }
         if path == '/sso/google/callback' { self.sso_callback();return; }
-        if path == '/auth/google' { self.path='/index.html'; }
+        if path in ['/auth/google','/auth/apple'] { self.path='/index.html'; }
         if urlsplit(self.path).path in ['/', '/index.html'] and app_links.banner() {
             index=Path(os.environ.get('STACK_WEB_DIST','.jac/client/workspace/dist'),'index.html');
             if index.is_file() {

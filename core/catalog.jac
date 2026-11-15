@@ -10,6 +10,7 @@ import from urllib.parse { urlsplit, urlunsplit, parse_qsl, urlencode }
 import from jaclang.runtime.runtime { JacRuntime }
 import from discovery.normalize { digest, canonical, validate_filters, taxonomy, classify, dedupe_bucket, same_opening }
 import from discovery.card { card_view }
+import from discovery.branding { employer_logos }
 import from discovery.matching { facts, current_facts, criteria, evaluate, role_match, codes_for, tokens, FACTS_VERSION, ROLES_VERSION }
 import from core.preferences { _match_preferences }
 import from discovery.ranking { rank, encode_cursor, decode_cursor, posting_label }
@@ -273,9 +274,10 @@ def _feed_page(search: dict[str, any], cursor: str) -> dict[str, any] {
         j=jobs.get(row["id"]);
         # Stored matches name listings; a listing that closed or expired since then is left out.
         view=_job_view(j) if j is not None else {};
-        if view and view["active"] { cards.append(card_view({**view,"match":row["match"],"timeline":row["timeline"]})); }
+        if view and view["active"] { cards.append(card_view({**view,"match":row["match"],"timeline":row["timeline"]},str(result["meta"].get("criteria",{}).get("location","")))); }
     }
-    return {**result["meta"],"jobs":cards,"next_cursor":next_cursor,"sources":[],"occupations":[x["name"] for x in taxonomy()],"checked_at":result["computed_at"],"computed_at":result["computed_at"]};
+    logos=employer_logos(JacRuntime.get_context().mem.store,cards);
+    return {**result["meta"],"employer_logos":logos,"jobs":cards,"next_cursor":next_cursor,"sources":[],"occupations":[x["name"] for x in taxonomy()],"checked_at":result["computed_at"],"computed_at":result["computed_at"]};
 }
 
 """The signed-in account's matches for its saved search, one page at a time. Never collects listings."""

@@ -26,6 +26,25 @@ For an isolated Mac browser workflow and measured production sizing, see [the jo
 
 Importing a job link is not available yet. `import_job_url` answers with that message.
 
+## Employer logos on job cards
+
+The Jobs feed resolves each page against two shared Postgres tables. `stack_employer_brand` holds one reviewed PNG, display name, and artwork source per employer. `stack_employer_brand_key` connects exact domains and hiring-board identifiers to that employer. A board can identify a posting with a blank domain. An unrecognized explicit domain or a conflict between two identified employers leaves the card unbranded. The iPhone then shows the company initial. Logos travel with the feed once per employer per page and the iPhone can restore them with its cached cards.
+
+From a checkout of the matching revision, install the directory into each catalog database using its database owner's connection. For example, with the catalog connection configured in `PGHOST`, `PGDATABASE`, and `PGUSER`, run:
+
+```sh
+set -o pipefail
+python3 scripts/sync-employer-brands.py | psql -X
+```
+
+To add or change a logo, review the employer's own artwork at 40 pixels. Save a crisp 120 x 120 PNG smaller than 32 KiB in `discovery/brand_logos` and record the source URL and verified domain or board identifiers in `discovery/employer_brands.json`. Run the same sync after editing. The manifest is authoritative for these two tables, including removals. The sync is atomic and safe to repeat. Current and future postings pick up changes on the next feed request. This works without rewriting postings or running a collector sweep.
+
+## Card media
+
+Reserve a square for the employer mark (all reviewed PNGs are 120 x 120) and a 5:2 rectangle for the posting photograph (all JPEGs are 1050 x 420). The feed returns a `photo_id` on each job. On iOS it identifies the bundled resource `job-photo-<photo_id>.jpg`; the Jobs lab serves the same bytes at `/job-photos/<photo_id>.jpg`. Old cached cards without a photo ID can use `job-photo-forest.jpg`. Neither the size nor the aspect ratio depends on the posting.
+
+The photo directory in `discovery/job_photos.json` records the original Pexels page and reviewed location names. Matching uses the posting's location labels or explicit role-location statement. Ambiguous bare names need supporting geography or a reviewed employer-board alias. A multi-location card can use its matching search city. Otherwise ambiguous, remote-only and unmapped locations use a nature photo chosen from the posting ID. Assignment happens at feed read time, including for older database rows. To extend the directory, add an identically cropped JPEG to `ios/Stack/Resources/JobPhotos` and its source and geographic identity to the manifest.
+
 ## Running a sweep
 
 ```sh

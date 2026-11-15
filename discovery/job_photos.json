@@ -1,0 +1,798 @@
+{
+  "amsterdam": {
+    "names": [
+      "Amsterdam"
+    ],
+    "regions": [
+      "North Holland"
+    ],
+    "countries": [
+      "Netherlands",
+      "The Netherlands",
+      "NL"
+    ],
+    "source": "https://www.pexels.com/photo/charming-amsterdam-canal-houses-and-bridges-33093591/",
+    "board_names": {
+      "greenhouse:stripe": [
+        "amsterdam"
+      ]
+    }
+  },
+  "atlanta": {
+    "names": [
+      "Atlanta"
+    ],
+    "regions": [
+      "GA",
+      "Georgia"
+    ],
+    "countries": [
+      "US"
+    ],
+    "source": "https://www.pexels.com/photo/atlanta-skyline-from-jackson-street-bridge-35420341/"
+  },
+  "austin": {
+    "names": [
+      "Austin"
+    ],
+    "regions": [
+      "TX",
+      "Texas"
+    ],
+    "countries": [
+      "US"
+    ],
+    "source": "https://www.pexels.com/photo/austin-skyline-at-dusk-with-kayakers-on-the-river-38789412/"
+  },
+  "bengaluru": {
+    "names": [
+      "Bengaluru",
+      "Bangalore"
+    ],
+    "regions": [
+      "Karnataka"
+    ],
+    "countries": [
+      "India",
+      "IN"
+    ],
+    "source": "https://www.pexels.com/photo/vidhana-soudha-in-bengaluru-at-sunset-40535410/",
+    "board_names": {
+      "greenhouse:stripe": [
+        "bangalore",
+        "bengaluru"
+      ]
+    }
+  },
+  "berlin": {
+    "names": [
+      "Berlin"
+    ],
+    "regions": [],
+    "countries": [
+      "Germany",
+      "DE"
+    ],
+    "source": "https://www.pexels.com/photo/brandenburg-gate-in-berlin-germany-35404607/",
+    "board_names": {
+      "greenhouse:stripe": [
+        "berlin"
+      ]
+    }
+  },
+  "boston": {
+    "names": [
+      "Boston"
+    ],
+    "regions": [
+      "MA",
+      "Massachusetts"
+    ],
+    "countries": [
+      "US"
+    ],
+    "source": "https://www.pexels.com/photo/boston-harbor-waterfront-with-city-skyline-33743802/",
+    "board_names": {
+      "greenhouse:mongodb": [
+        "boston"
+      ]
+    }
+  },
+  "bristol": {
+    "names": [
+      "Bristol"
+    ],
+    "regions": [
+      "England"
+    ],
+    "countries": [
+      "United Kingdom",
+      "UK",
+      "GB"
+    ],
+    "source": "https://www.pexels.com/photo/clifton-suspension-bridge-in-bristol-24880409/"
+  },
+  "chicago": {
+    "names": [
+      "Chicago"
+    ],
+    "regions": [
+      "IL",
+      "Illinois"
+    ],
+    "countries": [
+      "US"
+    ],
+    "source": "https://www.pexels.com/photo/chicago-skyline-with-river-and-industrial-bridge-at-dusk-39960897/",
+    "board_names": {
+      "greenhouse:mongodb": [
+        "chicago"
+      ],
+      "greenhouse:stripe": [
+        "chicago"
+      ]
+    }
+  },
+  "coast": {
+    "source": "https://www.pexels.com/photo/waves-crashing-on-rocks-11948783/"
+  },
+  "dallas": {
+    "names": [
+      "Dallas"
+    ],
+    "regions": [
+      "TX",
+      "Texas"
+    ],
+    "countries": [
+      "US"
+    ],
+    "source": "https://www.pexels.com/photo/reunion-tower-in-dallas-11926780/"
+  },
+  "denver": {
+    "names": [
+      "Denver"
+    ],
+    "regions": [
+      "CO",
+      "Colorado"
+    ],
+    "countries": [
+      "US"
+    ],
+    "source": "https://www.pexels.com/photo/aerial-view-of-downtown-denver-skyline-33258091/",
+    "board_names": {
+      "greenhouse:mongodb": [
+        "denver"
+      ]
+    }
+  },
+  "desert": {
+    "source": "https://www.pexels.com/photo/golden-sand-dunes-in-desert-landscape-36014244/"
+  },
+  "detroit": {
+    "names": [
+      "Detroit"
+    ],
+    "regions": [
+      "MI",
+      "Michigan"
+    ],
+    "countries": [
+      "US"
+    ],
+    "source": "https://www.pexels.com/photo/detroit-skyline-across-the-detroit-river-39854896/"
+  },
+  "dubai": {
+    "names": [
+      "Dubai"
+    ],
+    "regions": [],
+    "countries": [
+      "United Arab Emirates",
+      "UAE",
+      "AE"
+    ],
+    "source": "https://www.pexels.com/photo/aerial-view-of-dubai-skyline-with-burj-khalifa-37419266/"
+  },
+  "dublin": {
+    "names": [
+      "Dublin"
+    ],
+    "regions": [
+      "County Dublin"
+    ],
+    "countries": [
+      "IE",
+      "Ireland"
+    ],
+    "source": "https://www.pexels.com/photo/samuel-beckett-bridge-in-dublin-ireland-34016390/"
+  },
+  "forest": {
+    "source": "https://www.pexels.com/photo/sunlight-through-misty-forest-pines-37268255/"
+  },
+  "gurugram": {
+    "names": [
+      "Gurugram",
+      "Gurgaon"
+    ],
+    "regions": [
+      "HR",
+      "Haryana"
+    ],
+    "countries": [
+      "India",
+      "IN"
+    ],
+    "source": "https://www.pexels.com/photo/aerial-view-of-city-buildings-7104647/"
+  },
+  "honolulu": {
+    "names": [
+      "Honolulu"
+    ],
+    "regions": [
+      "HI",
+      "Hawaii"
+    ],
+    "countries": [
+      "US"
+    ],
+    "source": "https://www.pexels.com/photo/waikiki-beach-with-diamond-head-in-honolulu-36072131/"
+  },
+  "houston": {
+    "names": [
+      "Houston"
+    ],
+    "regions": [
+      "TX",
+      "Texas"
+    ],
+    "countries": [
+      "US"
+    ],
+    "source": "https://www.pexels.com/photo/skyline-view-of-downtown-houston-cityscape-29604620/"
+  },
+  "indianapolis": {
+    "names": [
+      "Indianapolis"
+    ],
+    "regions": [
+      "IN",
+      "Indiana"
+    ],
+    "countries": [
+      "US"
+    ],
+    "source": "https://www.pexels.com/photo/aerial-view-of-city-buildings-4372118/"
+  },
+  "lisbon": {
+    "names": [
+      "Lisbon",
+      "Lisboa"
+    ],
+    "regions": [],
+    "countries": [
+      "Portugal",
+      "PT"
+    ],
+    "source": "https://www.pexels.com/photo/lisbon-27832064/",
+    "board_names": {
+      "greenhouse:cloudflare": [
+        "lisbon"
+      ]
+    }
+  },
+  "london": {
+    "names": [
+      "London"
+    ],
+    "regions": [
+      "England"
+    ],
+    "countries": [
+      "UK",
+      "United Kingdom",
+      "GB"
+    ],
+    "source": "https://www.pexels.com/photo/aerial-view-of-tower-bridge-and-thames-river-in-london-36100306/",
+    "board_names": {
+      "greenhouse:asana": [
+        "london"
+      ],
+      "greenhouse:mongodb": [
+        "london"
+      ]
+    }
+  },
+  "los-angeles": {
+    "names": [
+      "Los Angeles"
+    ],
+    "regions": [
+      "CA",
+      "California"
+    ],
+    "countries": [
+      "US"
+    ],
+    "source": "https://www.pexels.com/photo/panoramic-view-of-downtown-los-angeles-skyline-33280808/",
+    "board_names": {
+      "greenhouse:mongodb": [
+        "los angeles"
+      ]
+    }
+  },
+  "madrid": {
+    "names": [
+      "Madrid"
+    ],
+    "regions": [],
+    "countries": [
+      "Spain",
+      "ES"
+    ],
+    "source": "https://www.pexels.com/photo/gran-via-street-view-in-madrid-city-center-38710519/",
+    "board_names": {
+      "greenhouse:mongodb": [
+        "madrid"
+      ]
+    }
+  },
+  "melbourne": {
+    "names": [
+      "Melbourne"
+    ],
+    "regions": [
+      "VIC",
+      "Victoria"
+    ],
+    "countries": [
+      "Australia",
+      "AU"
+    ],
+    "source": "https://www.pexels.com/photo/melbourne-skyline-and-yarra-river-reflections-33269066/"
+  },
+  "mexico-city": {
+    "names": [
+      "Mexico City",
+      "CDMX"
+    ],
+    "regions": [],
+    "countries": [
+      "Mexico",
+      "MX"
+    ],
+    "source": "https://www.pexels.com/photo/aerial-shot-of-palace-and-town-square-at-sunset-12630077/",
+    "board_names": {
+      "greenhouse:stripe": [
+        "mexico city",
+        "cdmx"
+      ]
+    }
+  },
+  "miami": {
+    "names": [
+      "Miami"
+    ],
+    "regions": [
+      "FL",
+      "Florida"
+    ],
+    "countries": [
+      "US"
+    ],
+    "source": "https://www.pexels.com/photo/stunning-night-skyline-of-miami-downtown-37698538/"
+  },
+  "miami-beach": {
+    "names": [
+      "Miami Beach"
+    ],
+    "regions": [
+      "FL",
+      "Florida"
+    ],
+    "countries": [
+      "US"
+    ],
+    "source": "https://www.pexels.com/photo/art-deco-architecture-on-ocean-drive-miami-beach-33536120/"
+  },
+  "mountain-lake": {
+    "source": "https://www.pexels.com/photo/tranquil-alpine-lake-reflection-in-mountains-28794205/"
+  },
+  "munich": {
+    "names": [
+      "Munich",
+      "München"
+    ],
+    "regions": [
+      "Bavaria"
+    ],
+    "countries": [
+      "Germany",
+      "DE"
+    ],
+    "source": "https://www.pexels.com/photo/aerial-view-of-marienplatz-and-neues-rathaus-in-munich-37984039/"
+  },
+  "nashville": {
+    "names": [
+      "Nashville"
+    ],
+    "regions": [
+      "TN",
+      "Tennessee"
+    ],
+    "countries": [
+      "US"
+    ],
+    "source": "https://www.pexels.com/photo/nashville-skyline-overlooking-cumberland-river-31112644/"
+  },
+  "new-orleans": {
+    "names": [
+      "New Orleans"
+    ],
+    "regions": [
+      "LA",
+      "Louisiana"
+    ],
+    "countries": [
+      "US"
+    ],
+    "source": "https://www.pexels.com/photo/sunlight-over-cathedral-in-garden-10595356/"
+  },
+  "new-york": {
+    "names": [
+      "New York City",
+      "New York",
+      "NYC"
+    ],
+    "regions": [
+      "NY",
+      "New York"
+    ],
+    "countries": [
+      "US"
+    ],
+    "source": "https://www.pexels.com/photo/brooklyn-bridge-and-manhattan-skyline-view-30552272/",
+    "board_names": {
+      "greenhouse:stripe": [
+        "new york city",
+        "nyc"
+      ]
+    }
+  },
+  "paris": {
+    "names": [
+      "Paris"
+    ],
+    "regions": [
+      "Île-de-France"
+    ],
+    "countries": [
+      "France",
+      "FR"
+    ],
+    "source": "https://www.pexels.com/photo/aerial-view-of-paris-skyline-with-eiffel-tower-36642307/",
+    "board_names": {
+      "greenhouse:stripe": [
+        "paris"
+      ]
+    }
+  },
+  "philadelphia": {
+    "names": [
+      "Philadelphia"
+    ],
+    "regions": [
+      "PA",
+      "Pennsylvania"
+    ],
+    "countries": [
+      "US"
+    ],
+    "source": "https://www.pexels.com/photo/philadelphia-skyline-overlooking-schuylkill-river-39737892/"
+  },
+  "phoenix": {
+    "names": [
+      "Phoenix"
+    ],
+    "regions": [
+      "AZ",
+      "Arizona"
+    ],
+    "countries": [
+      "US"
+    ],
+    "source": "https://www.pexels.com/photo/luhrs-building-in-phoenix-23191463/"
+  },
+  "pittsburgh": {
+    "names": [
+      "Pittsburgh"
+    ],
+    "regions": [
+      "PA",
+      "Pennsylvania"
+    ],
+    "countries": [
+      "US"
+    ],
+    "source": "https://www.pexels.com/photo/pittsburgh-skyline-and-suspension-bridge-view-31620250/"
+  },
+  "rome": {
+    "names": [
+      "Rome",
+      "Roma"
+    ],
+    "regions": [
+      "Lazio"
+    ],
+    "countries": [
+      "Italy",
+      "IT"
+    ],
+    "source": "https://www.pexels.com/photo/historic-view-of-the-colosseum-in-rome-italy-36457898/"
+  },
+  "san-antonio": {
+    "names": [
+      "San Antonio"
+    ],
+    "regions": [
+      "TX",
+      "Texas"
+    ],
+    "countries": [
+      "US"
+    ],
+    "source": "https://www.pexels.com/photo/the-san-antonio-river-walk-19421896/"
+  },
+  "san-diego": {
+    "names": [
+      "San Diego"
+    ],
+    "regions": [
+      "CA",
+      "California"
+    ],
+    "countries": [
+      "US"
+    ],
+    "source": "https://www.pexels.com/photo/downtown-san-diego-skyline-on-a-clear-day-32816481/"
+  },
+  "san-francisco": {
+    "names": [
+      "San Francisco",
+      "SF"
+    ],
+    "regions": [
+      "CA",
+      "California"
+    ],
+    "countries": [
+      "US"
+    ],
+    "source": "https://www.pexels.com/photo/san-francisco-skyline-with-golden-gate-bridge-36661881/",
+    "board_names": {
+      "greenhouse:stripe": [
+        "san francisco",
+        "sf"
+      ]
+    }
+  },
+  "sao-paulo": {
+    "names": [
+      "São Paulo",
+      "Sao Paulo"
+    ],
+    "regions": [
+      "SP"
+    ],
+    "countries": [
+      "Brazil",
+      "BR"
+    ],
+    "source": "https://www.pexels.com/photo/paulista-avenue-in-sao-paulo-15536927/",
+    "board_names": {
+      "greenhouse:stripe": [
+        "sao paulo"
+      ]
+    }
+  },
+  "seattle": {
+    "names": [
+      "Seattle"
+    ],
+    "regions": [
+      "WA",
+      "Washington"
+    ],
+    "countries": [
+      "US"
+    ],
+    "source": "https://www.pexels.com/photo/seattle-skyline-with-space-needle-in-daylight-30314947/",
+    "board_names": {
+      "greenhouse:stripe": [
+        "seattle"
+      ]
+    }
+  },
+  "seoul": {
+    "names": [
+      "Seoul"
+    ],
+    "regions": [],
+    "countries": [
+      "South Korea",
+      "KR"
+    ],
+    "source": "https://www.pexels.com/photo/seoul-skyline-at-night-with-namsan-tower-31414677/",
+    "board_names": {
+      "greenhouse:mongodb": [
+        "seoul"
+      ]
+    }
+  },
+  "singapore": {
+    "names": [
+      "Singapore"
+    ],
+    "regions": [],
+    "countries": [
+      "Singapore",
+      "SG"
+    ],
+    "source": "https://www.pexels.com/photo/view-of-the-marina-bay-sands-in-singapore-8176859/",
+    "board_names": {
+      "greenhouse:pinterest": [
+        "singapore"
+      ]
+    }
+  },
+  "st-louis": {
+    "names": [
+      "St. Louis",
+      "Saint Louis",
+      "St Louis"
+    ],
+    "regions": [
+      "MO",
+      "Missouri"
+    ],
+    "countries": [
+      "US"
+    ],
+    "source": "https://www.pexels.com/photo/gateway-arch-in-st-louis-on-a-sunny-day-40468017/"
+  },
+  "stockholm": {
+    "names": [
+      "Stockholm"
+    ],
+    "regions": [],
+    "countries": [
+      "Sweden",
+      "SE"
+    ],
+    "source": "https://www.pexels.com/photo/m-s-teaterskeppet-in-stockholm-sweden-10743762/"
+  },
+  "sydney": {
+    "names": [
+      "Sydney"
+    ],
+    "regions": [
+      "NSW",
+      "New South Wales"
+    ],
+    "countries": [
+      "Australia",
+      "AU"
+    ],
+    "source": "https://www.pexels.com/photo/sydney-opera-house-view-from-harbor-40285235/",
+    "board_names": {
+      "greenhouse:mongodb": [
+        "sydney"
+      ],
+      "greenhouse:stripe": [
+        "sydney"
+      ]
+    }
+  },
+  "taipei": {
+    "names": [
+      "Taipei",
+      "Taipei City"
+    ],
+    "regions": [],
+    "countries": [
+      "Taiwan",
+      "TW"
+    ],
+    "source": "https://www.pexels.com/photo/majestic-skyline-of-taipei-with-iconic-taipei-101-32277904/",
+    "board_names": {
+      "greenhouse:stripe": [
+        "taipei city"
+      ]
+    }
+  },
+  "tokyo": {
+    "names": [
+      "Tokyo"
+    ],
+    "regions": [],
+    "countries": [
+      "Japan",
+      "JP"
+    ],
+    "source": "https://www.pexels.com/photo/tokyo-skyline-at-twilight-with-tokyo-tower-32970325/",
+    "board_names": {
+      "greenhouse:mongodb": [
+        "tokyo"
+      ],
+      "greenhouse:stripe": [
+        "tokyo"
+      ]
+    }
+  },
+  "toronto": {
+    "names": [
+      "Toronto"
+    ],
+    "regions": [
+      "ON",
+      "Ontario"
+    ],
+    "countries": [
+      "Canada",
+      "CA"
+    ],
+    "source": "https://www.pexels.com/photo/toronto-skyline-featuring-the-cn-tower-39985846/"
+  },
+  "vancouver": {
+    "names": [
+      "Vancouver"
+    ],
+    "regions": [
+      "BC",
+      "British Columbia"
+    ],
+    "countries": [
+      "Canada",
+      "CA"
+    ],
+    "source": "https://www.pexels.com/photo/stunning-vancouver-skyline-and-waterfront-view-40300185/"
+  },
+  "warsaw": {
+    "names": [
+      "Warsaw"
+    ],
+    "regions": [],
+    "countries": [
+      "Poland",
+      "PL"
+    ],
+    "source": "https://www.pexels.com/photo/warsaw-skyline-with-palace-of-culture-and-science-36608529/"
+  },
+  "washington-dc": {
+    "names": [
+      "Washington, DC",
+      "Washington DC",
+      "Washington, D.C.",
+      "Washington D.C.",
+      "Washington, District of Columbia"
+    ],
+    "regions": [],
+    "countries": [
+      "US"
+    ],
+    "source": "https://www.pexels.com/photo/capitol-in-washington-dc-26292613/"
+  },
+  "zurich": {
+    "names": [
+      "Zurich",
+      "Zürich"
+    ],
+    "regions": [],
+    "countries": [
+      "Switzerland",
+      "CH"
+    ],
+    "source": "https://www.pexels.com/photo/historic-grossmunster-in-zurich-by-the-limmat-river-35975317/"
+  }
+}

@@ -351,6 +351,56 @@ final class AppStoreSessionTests: XCTestCase {
         return store
     }
 
+    private func waitForGoogleInfo(_ store: AppStore) async {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while store.googleInfo["username"].string.isEmpty && ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
+    func testRestoredSessionReachesTheAppBeforeReadingOptionalGoogleStatus() async {
+        let store = store()
+        store.api.adopt(token: "saved-session")
+        StubProtocol.handler = { request in
+            switch request.url?.path {
+            case "/function/agent_admission": return (200, envelope(["admitted": true]))
+            case "/function/bootstrap": return (200, envelope(["user_id": "existing-root"]))
+            default: return (404, Data())
+            }
+        }
+        await store.start()
+        XCTAssertEqual(store.phase, .ready)
+        XCTAssertEqual(store.account.userID, "existing-root")
+        XCTAssertEqual(StubProtocol.seen.prefix(2).compactMap { $0.url?.path },
+                       ["/function/agent_admission", "/function/bootstrap"])
+        await store.signOut()
+    }
+
+    func testFailedStartupCanRetryWithTheSameSession() async {
+        let store = store()
+        store.api.adopt(token: "saved-session")
+        StubProtocol.handler = { _ in throw URLError(.timedOut) }
+        await store.start()
+        XCTAssertEqual(store.phase, .startupFailed)
+        XCTAssertEqual(store.api.token, "saved-session")
+        XCTAssertFalse(store.restoringSession)
+        XCTAssertFalse(store.error.isEmpty)
+
+        StubProtocol.handler = { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer saved-session")
+            switch request.url?.path {
+            case "/function/agent_admission": return (200, envelope(["admitted": true]))
+            case "/function/bootstrap": return (200, envelope(["user_id": "existing-root"]))
+            default: return (404, Data())
+            }
+        }
+        await store.start()
+        XCTAssertEqual(store.phase, .ready)
+        XCTAssertEqual(store.account.userID, "existing-root")
+        XCTAssertTrue(store.error.isEmpty)
+        await store.signOut()
+    }
+
     func testSignInLoadsTheAccountAndSignOutClearsIt() async {
         let store = store()
         StubProtocol.handler = { request in
@@ -368,6 +418,7 @@ final class AppStoreSessionTests: XCTestCase {
         await store.signIn(username: "sam", password: "password1", signUp: false)
         XCTAssertEqual(store.phase, .ready)
         XCTAssertEqual(store.account.name, "Sam")
+        await waitForGoogleInfo(store)
         XCTAssertEqual(store.googleInfo["username"].string, "sam")
 
         await store.signOut()
@@ -428,6 +479,7 @@ final class AppStoreSessionTests: XCTestCase {
         XCTAssertEqual(store.api.token, "google-session")
         XCTAssertEqual(store.phase, .ready)
         XCTAssertEqual(store.account.userID, "existing-root")
+        await waitForGoogleInfo(store)
         XCTAssertTrue(store.googleInfo["google"].bool)
         XCTAssertFalse(store.googlePending)
         XCTAssertTrue(store.error.isEmpty)

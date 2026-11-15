@@ -252,6 +252,7 @@ struct PrepView: View {
                                   verdict: shown.verdict.isBlank ? "Here’s how that went." : shown.verdict,
                                   criteria: shown.criteria, focus: shown.focus,
                                   worked: model.worked,
+                                  fullText: CoachingPresentation.fullText(from: model.feedback),
                                   primary: model.isLastQuestion ? "Finish" : "Next question",
                                   busy: model.busy || model.coaching || model.workflow["complete"].bool, message: screenMessage,
                                   onAnswer: { model.go(.review) },
@@ -308,6 +309,7 @@ struct PrepView: View {
         return PrepSavedAnswerScreen(heading: "Question \(model.archived["index"].int + 1)", prompt: prompt,
                                      answer: model.archived["answer"].string, verdict: shown.verdict,
                                      criteria: shown.criteria, focus: shown.focus,
+                                     fullText: CoachingPresentation.fullText(from: model.archived["feedback"]),
                                      onBack: { Task { await model.back() } }) {
             if let url = model.archivedURL { AnswerPlayback(url: url, isActive: isActive) }
         }

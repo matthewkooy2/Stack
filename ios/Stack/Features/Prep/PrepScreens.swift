@@ -350,6 +350,7 @@ struct PrepCoachingScreen: View {
     let criteria: [CoachCriterion]
     let focus: String
     var worked = ""
+    var fullText = ""
     let primary: String
     var busy = false
     var message = ""
@@ -397,6 +398,13 @@ struct PrepCoachingScreen: View {
                         .reveal(2)
                     }
                     if !focus.isBlank { block("Work on", focus).padding(.top, 28).reveal(3) }
+                    if !fullText.isBlank {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Full coaching").font(.system(.subheadline).weight(.semibold)).foregroundStyle(Brand.accent)
+                            Text(fullText).font(Typeface.body).foregroundStyle(Brand.ink)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }.padding(.top, 28)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.bottom, 16)
@@ -576,6 +584,7 @@ struct PrepSavedAnswerScreen<Playback: View>: View {
     let verdict: String
     let criteria: [CoachCriterion]
     let focus: String
+    var fullText = ""
     let onBack: () -> Void
     @ViewBuilder var playback: () -> Playback
 
@@ -611,6 +620,11 @@ struct PrepSavedAnswerScreen<Playback: View>: View {
             if !focus.isBlank {
                 label("Work on").padding(.top, 22)
                 Text(focus).font(.system(size: 20, weight: .bold)).tracking(-0.5).foregroundStyle(Brand.ink).padding(.top, 6)
+            }
+            if !fullText.isBlank {
+                label("Full coaching").padding(.top, 22)
+                Text(fullText).font(Typeface.body).foregroundStyle(Brand.ink)
+                    .fixedSize(horizontal: false, vertical: true).padding(.top, 6)
             }
         }
     }

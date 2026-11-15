@@ -155,6 +155,12 @@ final class CoachingTextTests: XCTestCase {
         XCTAssertEqual(CoachingPresentation.make(from: missingFocus).focus, "No lesson.")
     }
 
+    func testFullCoachingPreservesUnrecognizedProseAndFallsBackToSummary() {
+        let text = "Here is your coaching feedback.\n\nOwnership: 3/4. You described your role.\n\nTry adding the outcome."
+        XCTAssertEqual(CoachingPresentation.fullText(from: ["text": .string(text), "summary": "Short summary"]), text)
+        XCTAssertEqual(CoachingPresentation.fullText(from: ["text": "  ", "summary": "Saved coaching"]), "Saved coaching")
+    }
+
     func testStructuredCoachingStillWorks() {
         let feedback: JSON = ["summary": "Specific ownership; add a tradeoff.",
                               "rubric": [["criterion": "ownership", "score": 4, "feedback": "Clear."]],

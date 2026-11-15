@@ -17,6 +17,12 @@ enum JobSweep {
     static func isNewer(than computedAt: Double, now: Date = Date()) -> Bool {
         computedAt < latest(before: now).timeIntervalSince1970
     }
+
+    /// A sweep may finish after this visit's first request. Recheck an exhausted
+    /// deck when returning instead of waiting until tomorrow's sweep starts.
+    static func needsReload(computedAt: Double, hasReviewableJobs: Bool, now: Date = Date()) -> Bool {
+        !hasReviewableJobs || isNewer(than: computedAt, now: now)
+    }
 }
 
 /// Everything the feed needs from its screen, so paging can be tested without a view or a network.
@@ -198,12 +204,32 @@ final class JobDeckFeed {
     private func fetchPage(continuing: Bool, refresh: Bool, mine: Int, source: JobDeckSource) async -> Step {
         guard mine == token, source.isCurrent(), !Task.isCancelled else { return .stale }
         let cursor = continuing ? nextCursor : ""
-        let request = Task { try await source.fetch(cursor, refresh) }
+        let request = Task {
+            var retries = 0
+            while true {
+                do { return try await source.fetch(cursor, refresh) }
+                catch {
+                    let apiError = error as? APIError
+                    let networkFailure = (error as? URLError).map { $0.code != .cancelled }
+                        ?? (apiError?.failureCategory != nil && apiError?.failureCategory != "Stack API response")
+                    // A cold/returning connection gets two chances to recover before showing Retry.
+                    // Cached cards stay visible; paging, invalid data and account errors are not retried.
+                    guard retries < 2, !continuing, source.deckCount() == 0,
+                          networkFailure || (apiError?.status ?? 0) >= 500 else { throw error }
+                    retries += 1
+                    try await Task.sleep(for: .milliseconds(500 * retries))
+                    guard mine == token, source.isCurrent(), !Task.isCancelled else { throw CancellationError() }
+                }
+            }
+        }
         inFlight = request
         do {
             let result = try await withTaskCancellationHandler { try await request.value } onCancel: { request.cancel() }
             guard mine == token, source.isCurrent(), !Task.isCancelled else { return .stale }
             inFlight = nil
+            guard case .array = result["jobs"] else {
+                throw APIError(message: "Stack returned an invalid jobs feed. Please retry.")
+            }
             let incoming = result["jobs"].array.map(Job.init)
             source.animate {
                 if continuing {

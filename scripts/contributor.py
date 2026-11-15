@@ -209,12 +209,12 @@ def doctor(root, running=False, api_port=8000, web_port=8080):
         raise RuntimeError('Doctor found problems. Follow the fixes above before starting Stack.')
 
 
-def rpc(url, name, args=None, token=None):
+def rpc(url, name, args=None, token=None, timeout=15):
     headers = {'Content-Type': 'application/json'}
     if token:
         headers['Authorization'] = 'Bearer ' + token
     request = Request(url + name, data=json.dumps(args or {}).encode(), headers=headers)
-    with urlopen(request, timeout=15) as response:
+    with urlopen(request, timeout=timeout) as response:
         result = json.load(response)
     if not result.get('ok'):
         raise RuntimeError('A local health check failed.')
@@ -296,7 +296,8 @@ def development(root, smoke=False, host='127.0.0.1', expose=False, api_port=8000
         agent_token = env['STACK_AGENT_WORKER_TOKEN']
         rpc(api, '/function/agent_schedule', {'token': agent_token})
         discovery_token = (root / 'storage/discovery/worker-token').read_text().strip()
-        rpc(api, '/function/discovery_report', {'token': discovery_token})
+        # Verify worker authorization without materializing the entire catalog.
+        rpc(api, '/function/discovery_report', {'token': discovery_token, 'include_jobs': False}, timeout=120)
         print(f'Stack browser UI: http://{host}:{web_port}/\nBackend and workers ready. Logs are private under .jac/logs. Ctrl-C stops services.', flush=True)
         if smoke:
             # Keep only synthetic smoke credentials in ignored, private storage so

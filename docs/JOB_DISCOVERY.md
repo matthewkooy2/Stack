@@ -10,7 +10,13 @@ Listings are collected **once a day**. `stack-jobs-sweep.timer` starts `scripts/
 2. Adds or updates each listing. A listing that a **cleanly collected** source no longer lists is closed. A source that fails, has unreadable listings, or suddenly lists nothing keeps its previous listings; they drop out of matching once unconfirmed for seven days.
 3. Ranks every account's matches for its saved search and stores them.
 
-Then it exits. Nothing collects between sweeps, and no request from the app ever triggers collection.
+For the configured Stripe board, the collector also reads the employer page linked by Greenhouse, in batches of ten openings. It uses structured fields only when the title and posting ID agree, and records the employer page URL in the attribution. If that page is unavailable the collector uses the board record. Other boards use their public provider payloads.
+
+Cards also show locations explicitly assigned to the role in the stored posting text. For example, a Greenhouse headline may say only “Hybrid” while an “Available Locations” section lists multiple offices. Remote options and regional scope are preserved.
+
+Card excerpts are computed when a feed page is read, so existing descriptions can supply pay and qualifications after a backend update. Fields previously discarded by a source adapter, including Greenhouse publication dates and Lever's additional text, require the updated collector to finish a sweep. The sweep rebuilds the search index and account matches. Allow cached phone feeds to reload after the sweep. A board that no longer publishes an opening cannot supply its missing fields.
+
+Nothing collects between sweeps, and no request from the app ever triggers collection.
 
 **In the app**, opening Jobs shows the phone's cached cards immediately and reads the stored matches (`job_feed`), 25 at a time. Coming back to the app reloads only if a newer sweep could have run. Changing filters or a profile input saves the search and ranks that one account again from the existing catalog (`save_search` returns the first page). The account refresh (`bootstrap`) no longer carries jobs, and the app has no timed refresh; it rechecks the account only while an agent task is running.
 
@@ -37,7 +43,7 @@ The local API must be running. The worker token is generated into private `stora
 - **Missing information.** Unknown facts never hide a job by default. The card says "Some requirements unconfirmed" and lists them. **Confirmed matches only** hides these jobs.
 - **Related titles.** A title matches when it contains the role's words, or shares an O*NET occupation with the role (e.g. Charge Nurse for Registered Nurse). Ambiguous single words such as "nurse" never drive expansion, and "Teacher Recruitment Specialist" does not match "Teacher". Every other input still applies to expanded titles.
 - **Precedence.** Saved searches store only the values that differ from the profile, and the Jobs screen names them ("This search changes your profile's location"). **Use profile** clears them. Editing a profile field removes any older search override of that field.
-- **Pay** compares hourly and yearly pay at 2,080 hours/year. Provider estimates and non-USD pay count as unknown. Pay text such as "the salary range is:" followed by "$150,000—$200,000" is read; funding amounts and 401(k) mentions are not.
+- **Pay** compares hourly and yearly pay at 2,080 hours/year. Provider estimates and non-USD pay count as unknown. Pay text such as "the annual salary range is:" followed by "$150,000—$200,000" is read; funding amounts and 401(k) mentions are not.
 
 Check matching behavior against independently labeled synthetic examples:
 

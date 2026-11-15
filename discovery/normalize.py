@@ -15,8 +15,9 @@ class Text(HTMLParser):
     def __init__(self): super().__init__(); self.parts=[]; self.hidden=0
     def handle_starttag(self,tag,attrs):
         if tag in ('script','style'): self.hidden+=1
-        if tag in ('p','li','br','div'): self.parts.append('\n')
+        if tag in ('p','li','br','div','h1','h2','h3','h4','h5','h6','tr'): self.parts.append('\n')
     def handle_endtag(self,tag):
+        if tag in ('p','li','div','h1','h2','h3','h4','h5','h6','tr'): self.parts.append('\n')
         if tag in ('script','style'): self.hidden=max(0,self.hidden-1)
     def handle_data(self,data):
         if not self.hidden:self.parts.append(data)
@@ -73,14 +74,20 @@ def classify(title):
     code=occupation_code(title)[:2]
     return next((f['name'] for f in taxonomy() if f['code']==code),'Uncategorized')
 
+def pay_amount(value):
+    if isinstance(value, str) and re.fullmatch(r'(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d+)?', value.strip()):
+        value = float(value.replace(',', ''))
+    return value if type(value) in (int, float) and math.isfinite(value) and value >= 0 else None
+
+
 def normalize(raw, source):
     title=plain(raw.get('title'));company=plain(raw.get('company'))
     url=str(raw.get('url',''))
     if not title or not company or not url.startswith(('https://','http://')):raise ValueError('Listing lacks title, employer, or public application URL.')
     locations=raw.get('locations') or ([raw['location']] if raw.get('location') else [])
     locations=[plain(x) for x in locations if x]
-    mode=raw.get('mode') or 'Unknown'
-    if mode not in ('Remote','Hybrid','On-site'):mode='Unknown'
+    mode={'remote':'Remote','hybrid':'Hybrid','on-site':'On-site','onsite':'On-site','on site':'On-site'}.get(
+        str(raw.get('mode') or '').strip().lower(), 'Unknown')
     kind=str(raw.get('employment_type') or 'Unknown').replace('_',' ').title()
     # Providers spell these many ways ("Full-Time", "FULL_TIME", "full time").
     kind={'fulltime':'Full-time','parttime':'Part-time','contractor':'Contract','contract':'Contract','intern':'Internship','internship':'Internship','temporary':'Temporary'}.get(re.sub(r'[\s_-]+','',kind.lower()),kind)
@@ -88,11 +95,16 @@ def normalize(raw, source):
     if seniority=='Unknown':
         from discovery.matching import _level_facts
         seniority=_level_facts({'title':title,'employment_type':kind})['level'] or 'Unknown'
-    salary=raw.get('compensation') or {}; low=salary.get('min');high=salary.get('max');unit=str(salary.get('unit') or 'unknown').lower()
-    unit={'yearly':'year','annual':'year','annually':'year','hourly':'hour','per year':'year','per hour':'hour','per month':'month','per annum':'year','pa':'year','ph':'hour'}.get(unit,unit)
+    salary=raw.get('compensation') or {}; low=pay_amount(salary.get('min'));high=pay_amount(salary.get('max'));unit=str(salary.get('unit') or 'unknown').lower()
+    unit={'per-year-salary':'year','per-hour-wage':'hour','monthly':'month','weekly':'week','yearly':'year','annual':'year','annually':'year','hourly':'hour','per year':'year','per hour':'hour','per month':'month','per annum':'year','pa':'year','ph':'hour'}.get(unit,unit)
     salary={**salary,'min':low,'max':high,'unit':unit,'currency':salary.get('currency') or 'Unknown','estimated':bool(salary.get('estimated'))}
-    amounts='–'.join(str(int(x)) if float(x).is_integer() else str(x) for x in (low,high) if isinstance(x,(int,float)))
-    salary_label=f"{salary['currency']} {amounts} / {unit}" if amounts else 'Pay not listed'
+    amounts='–'.join(str(int(x)) if float(x).is_integer() else str(x) for x in dict.fromkeys((low,high)) if isinstance(x,(int,float)))
+    salary_label='Pay not listed'
+    if amounts:
+        salary_label=f"{salary['currency']} {amounts}" if salary['currency'] != 'Unknown' else f'{amounts} (currency not stated)'
+        if low is None: salary_label='Up to '+salary_label
+        if high is None: salary_label='From '+salary_label
+        if unit != 'unknown': salary_label+=' / '+unit
     now=time.time();posted_at=stamp(raw.get('posted_at'));expires_at=stamp(raw.get('expires_at'))
     employer_domain=(raw.get('employer_domain') or '').lower()
     requisition=str(raw.get('requisition') or '')
@@ -103,7 +115,8 @@ def normalize(raw, source):
       'requisition':requisition,'employer_domain':employer_domain,'description':plain(raw.get('description')),'snippet':bool(raw.get('snippet')),
       'locations':locations,'location':', '.join(locations) or 'Location not listed','country':raw.get('country') or 'Unknown','remote_eligibility':plain(raw.get('remote_eligibility')),
       'mode':mode,'employment_type':kind,'seniority':seniority,'occupation':raw.get('occupation') or classify(title),'compensation':salary,
-      'salary':salary_label,'salary_note':'Estimated pay' if salary['estimated'] else ('Employer-provided pay' if amounts else 'Pay period and amount unknown'),
+      'salary':salary_label,'pay_text':plain(raw.get('pay_text')),'salary_note':'Estimated pay' if salary['estimated'] else ('Employer-provided pay' if amounts else 'Pay period and amount unknown'),
+      'responsibilities':plain(raw.get('responsibilities')),
       'requirements':[plain(x) for x in raw.get('requirements',[]) if x],'qualifications':plain(raw.get('qualifications')),'eligibility':plain(raw.get('eligibility')),
       'posted_at':posted_at,'expires_at':expires_at,'discovered_at':now,'checked_at':now,'posted':datetime.fromtimestamp(posted_at,timezone.utc).strftime('%b %d') if posted_at else 'Posting date unknown',
       'source':source['adapter'],'source_name':source['name'],'source_id':source['id'],'source_job_id':str(raw.get('source_job_id') or requisition or canonical(url)),

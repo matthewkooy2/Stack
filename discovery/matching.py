@@ -152,7 +152,7 @@ ABBREVIATION = re.compile(r'\b(?:' + '|'.join(sorted(ROLE_ABBREVIATIONS, key=len
 
 
 def expand_abbreviations(text: str) -> str:
-    return ABBREVIATION.sub(lambda m: ROLE_ABBREVIATIONS[m.group(0).lower()], str(text or ''))
+    return ABBREVIATION.sub(lambda m: ROLE_ABBREVIATIONS[m.group(0).casefold()], str(text or ''))
 
 
 STOP = {'a', 'an','the', 'and', 'of', 'for', 'in', 'at', 'to', 'with', 'job', 'jobs', 'role', 'roles', 'position', 'positions', 'opening', 'work'}

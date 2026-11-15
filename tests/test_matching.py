@@ -56,6 +56,8 @@ class Roles(unittest.TestCase):
         self.assertTrue(self.matched('Software Engineer Intern', 'SWE'))
         self.assertTrue(self.matched('Software Engineer, New Grad', 'swe'))
         self.assertTrue(self.matched('SWE Intern', 'Software engineer'))
+        self.assertTrue(self.matched('Software Engineer Intern', 'ſwe'))
+        self.assertTrue(self.matched('ſwe Intern', 'Software engineer'))
         self.assertTrue(self.matched('Software Development Engineer I', 'SDE'))
         self.assertTrue(self.matched('Site Reliability Engineer II', 'SRE'))
         self.assertFalse(self.matched('Software Engineer Recruiter', 'SWE'))

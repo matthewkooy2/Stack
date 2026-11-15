@@ -1,6 +1,33 @@
 Third-party notices: LaTeX resume templates
 ==========================================
 
+Additional built-in designs
+---------------------------
+The following imports are pinned in agents/templates/upstream.json. Their main
+.tex files contain the upstream license text, and each asset directory retains
+its own license. Stack's adapters remove the upstream personal sample content.
+
+- Awesome-CV: Claud D. Park, LPPL 1.3c. The unmodified v1.6.1 class is distributed
+  as agents/templates/awesome-cv/awesome-cv.cls; Stack's main document is separate.
+  Source: https://github.com/posquit0/Awesome-CV
+- Bill Ryan resume: MIT; see agents/templates/bill-ryan/LICENSE. The class's
+  small-caps font reference is adapted to TeX Gyre Termes. TeX Gyre Termes fonts
+  retain the GUST Font License and README in that directory's fonts/Main folder.
+  Source: https://github.com/billryan/resume
+- Sourabh Bajaj resume: MIT; see agents/templates/sb2nov/LICENSE and sb2nov.tex.
+  Source: https://github.com/sb2nov/resume
+- Deedy OpenFonts resume: Debarghya Das, Apache 2.0; see
+  agents/templates/deedy/LICENSE. Lato and Raleway retain their separate SIL
+  Open Font License 1.1 notices in the corresponding fonts directories.
+  Source: https://github.com/deedy/Deedy-Resume
+- Jan Kuster latexcv Classic: MIT; see agents/templates/jan-kuster/LICENSE and
+  jan-kuster.tex. Stack adapts the header, margins and editable entry helpers.
+  Source: https://github.com/jankapunkt/latexcv
+
+The licenses for bundled fonts are separate from the template licenses. Fontin,
+Adobe fonts, Deedy's MacFonts and sample personal photos are not bundled.
+See docs/RESUME_TEMPLATES.md for the compilation and export behavior.
+
 Other data and assets
 ---------------------
 O*NET occupation and skills data retain their attribution and CC BY 4.0 terms
@@ -17,6 +44,11 @@ in the following files, and copies of those portions in exported .tex source:
 
 - agents/templates/jake.tex
 - agents/templates/classic.tex
+- agents/templates/awesome-cv.tex and agents/templates/awesome-cv/
+- agents/templates/bill-ryan.tex and agents/templates/bill-ryan/
+- agents/templates/sb2nov.tex and agents/templates/sb2nov/
+- agents/templates/deedy.tex and agents/templates/deedy/
+- agents/templates/jan-kuster.tex and agents/templates/jan-kuster/
 - tests/fixtures/jake-resume.tex
 - tests/fixtures/linebreak-skills-resume.tex
 

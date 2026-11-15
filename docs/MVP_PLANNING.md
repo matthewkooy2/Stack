@@ -4,6 +4,28 @@ Backend audit against [MVP scope](MVP_SCOPE.md). Production: `8cc6d80`, November
 
 ## Backend features and functionality
 
+### Six-template library candidate (November 2, 2026)
+
+Branch `codex/resume-template-library-20261102`, based on `25c81f1`. The native
+format picker offers Jake plus the five requested upstream designs: Awesome-CV,
+Bill Ryan, Sourabh Bajaj, Deedy OpenFonts and Jan Kuster Classic. Legacy Classic
+remains readable for saved documents and older clients. Pinned sources, fonts,
+licenses, reviewed-record PDF rendering and record previews are included; see
+[template behavior and provenance](RESUME_TEMPLATES.md). DOCX retains the existing
+editable paragraph layout.
+
+Verified locally: 14 existing loading/structure/edit/record-document tests pass
+(9.1 seconds), and the existing uploaded-source/built-in compilation regression
+passes (152.0 seconds), including every new design. Five structured samples and
+five reviewed-record samples compile; exact PDF/DOCX text checks preserve curly
+quotes, punctuation, symbols, literal Markdown and ASCII hyphens. A Deedy sample
+with 80 additional bullets spans three pages without losing records. Rendered
+samples and continuation pages were visually inspected. `jac check` passes for
+the template module and API; the existing Swift structural check passes for 113
+source files. No new tests or CI gates were added. This Windows host cannot run
+Xcode: native build, device selection/save/reopen/preview acceptance and backend
+deployment remain outstanding. The candidate is local and unmerged.
+
 ### Locked scope
 
 | Area | Implemented | Partial / missing |

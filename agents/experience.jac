@@ -122,7 +122,10 @@ def review_summary(
             'pages': tailored.get('pdf', {}).get('pages', 0),
             'notes': `list(tailored.get('notes', [])),
             'score': tailored.get('score', {}),
-            'consequence': 'Stack keeps the changes you accept, rebuilds the PDF in your format, and fits it to one page. Nothing is shared.'
+            'memory_coverage': tailored.get('memory_coverage', {}),
+            'consequence': 'Stack keeps the changes you accept, rebuilds the PDF and DOCX from your confirmed sources, and saves them under Tailored resumes. Nothing is shared.'
+                if tailored.get('mode') == 'memory'
+                else 'Stack keeps the changes you accept, rebuilds the PDF in your format, and fits it to one page. Nothing is shared.'
         };
     }
     if (step == 'send') {

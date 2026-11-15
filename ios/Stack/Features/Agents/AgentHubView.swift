@@ -61,12 +61,12 @@ struct AgentHubView: View {
     var body: some View {
         ZStack {
             Palette.page.ignoresSafeArea()
-            Page {
-                HStack { BackButton(label: "Close") { dismiss() }; Spacer() }
-                if !taskID.isEmpty {
-                    TaskDetailView(id: taskID, webURL: settings["web_url"].string, onBack: { taskID = "" }, onNavigate: go)
-                        .id(taskID)
-                } else {
+            if !taskID.isEmpty {
+                TaskDetailView(id: taskID, webURL: settings["web_url"].string, onBack: { taskID = "" }, onNavigate: go)
+                    .id(taskID)
+            } else {
+                Page {
+                    HStack { BackButton(label: "Close") { dismiss() }; Spacer() }
                     hub
                 }
             }
@@ -427,15 +427,13 @@ struct AgentTaskSheet: View {
     @State private var hubAction = ""
 
     var body: some View {
-        SheetPage(title: "Task") {
-            TaskDetailView(id: taskID, onBack: { dismiss() }) { destination in
-                if destination == "rules" || destination == "facts" || destination == "features" || destination.hasPrefix("connect:") {
-                    hubAction = destination.hasPrefix("connect:") ? destination : ""
-                    hubPage = destination == "facts" ? .facts : (destination == "features" ? .features : .email)
-                } else {
-                    NotificationCenter.default.post(name: .stackNavigate, object: nil, userInfo: ["destination": destination])
-                    dismiss()
-                }
+        TaskDetailView(id: taskID, onBack: { dismiss() }) { destination in
+            if destination == "rules" || destination == "facts" || destination == "features" || destination.hasPrefix("connect:") {
+                hubAction = destination.hasPrefix("connect:") ? destination : ""
+                hubPage = destination == "facts" ? .facts : (destination == "features" ? .features : .email)
+            } else {
+                NotificationCenter.default.post(name: .stackNavigate, object: nil, userInfo: ["destination": destination])
+                dismiss()
             }
         }
         .sheet(item: $hubPage) { page in

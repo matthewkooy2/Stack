@@ -120,6 +120,19 @@ final class JobFilterTests: XCTestCase {
         XCTAssertFalse(search().missingGraduation)
     }
 
+    func testAnEmptyFeedWithNoOtherExclusionsIsBlamedOnTheRole() {
+        var value = search()
+        XCTAssertFalse(value.noRoleMatches)
+        value.apply(["criteria": ["roles": "SWE"], "total": 0, "excluded": []])
+        XCTAssertTrue(value.noRoleMatches)
+        value.apply(["criteria": ["roles": "SWE"], "total": 0, "excluded": [["reason": "Location", "count": 4]]])
+        XCTAssertFalse(value.noRoleMatches)
+        value.apply(["criteria": ["roles": "Software engineer"], "total": 12, "excluded": []])
+        XCTAssertFalse(value.noRoleMatches)
+        value.apply(["criteria": ["roles": ""], "total": 0, "excluded": []])
+        XCTAssertFalse(value.noRoleMatches)
+    }
+
     func testSavedCriteriaTimelineAlsoCountsWhenFiltersOmitIt() {
         XCTAssertTrue(search(criteria: ["timeline": "confirmed"]).missingGraduation)
     }

@@ -38,7 +38,7 @@ class API(unittest.TestCase):
         scratch=ROOT/'.jac/practice-api-tests';scratch.mkdir(parents=True,exist_ok=True)
         self.tmp=tempfile.TemporaryDirectory(dir=scratch);self.addCleanup(self.tmp.cleanup)
         config=Path(self.tmp.name)/'config.json'
-        config.write_text(json.dumps({'provider':'ollama','model':'qwen3:4b-instruct','local_model_url':'http://127.0.0.1:11434',
+        config.write_text(json.dumps({'invite_only':False,'provider':'ollama','model':'qwen3:4b-instruct','local_model_url':'http://127.0.0.1:11434',
             'max_output_tokens':1800,'local_model_timeout':90}))
         env=patch.dict(os.environ,{'STACK_AGENT_CONFIG':str(config),'STACK_AGENT_WORKER_TOKEN':TOKEN,
             'STACK_TRANSCRIPTION_STORAGE':str(Path(self.tmp.name)/'audio')})

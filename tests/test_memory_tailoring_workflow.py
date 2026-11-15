@@ -39,7 +39,7 @@ class MemoryWorkflow(unittest.TestCase):
         record_cases.RecordWorkflow.setUp(self)
         raw = json.loads(self.config.read_text())
         # Room for whole-bank tailoring; the worker also respects what the server reports.
-        raw.update(local_model_context_tokens=int(os.environ.get('STACK_TEST_CONTEXT', '65536')), local_model_timeout=90)
+        raw.update(invite_only=False, local_model_context_tokens=int(os.environ.get('STACK_TEST_CONTEXT', '65536')), local_model_timeout=90)
         self.config.write_text(json.dumps(raw))
         self.prompts = []
 

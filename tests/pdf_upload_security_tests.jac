@@ -18,7 +18,7 @@ def pdf_input(pages: int, encrypted: bool = False) -> bytes {
 test "unsafe uploads do not create resume records or files" {
     scratch=Path(".jac/pdf-security-tests");scratch.mkdir(parents=True,exist_ok=True);
     with tempfile.TemporaryDirectory(dir=scratch) as directory {
-        settings=Path(directory)/"config.json";settings.write_text("{}");
+        settings=Path(directory)/"config.json";settings.write_text('{"invite_only":false}');
         with patch.dict(os.environ,{"STACK_AGENT_CONFIG":str(settings.resolve())}) {
             client=JacTestClient.from_file("main.jac",base_path=directory);
             try {
@@ -43,7 +43,7 @@ test "unsafe uploads do not create resume records or files" {
 test "safe uploads preserve idempotency previews and owner isolation" {
     scratch=Path(".jac/pdf-security-tests");scratch.mkdir(parents=True,exist_ok=True);
     with tempfile.TemporaryDirectory(dir=scratch) as directory {
-        settings=Path(directory)/"config.json";settings.write_text("{}");
+        settings=Path(directory)/"config.json";settings.write_text('{"invite_only":false}');
         with patch.dict(os.environ,{"STACK_AGENT_CONFIG":str(settings.resolve())}) {
             client=JacTestClient.from_file("main.jac",base_path=directory);
             id="";token="";

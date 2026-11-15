@@ -91,7 +91,7 @@ class PushNotifications(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory(prefix='stack-push-')
         self.addCleanup(self.directory.cleanup)
         config = Path(self.directory.name) / 'agents.json'
-        config.write_text(json.dumps({'provider': 'ollama', 'model': 'synthetic'}))
+        config.write_text(json.dumps({'invite_only': False, 'provider': 'ollama', 'model': 'synthetic'}))
         from cryptography.fernet import Fernet
         env = patch.dict(os.environ, {'STACK_AGENT_CONFIG': str(config), 'STACK_AGENT_WORKER_TOKEN': WORKER,
             'STACK_CONNECTION_KEY': Fernet.generate_key().decode(), 'EXPO_ACCESS_TOKEN': 'synthetic-expo-secret'})

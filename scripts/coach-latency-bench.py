@@ -92,7 +92,7 @@ def workflow(provider_name, model, answers, repeat, coach_model=''):
     rows = []
     with tempfile.TemporaryDirectory(prefix='stack-coach-bench-') as directory:
         path = Path(directory) / 'config.json'
-        path.write_text(json.dumps({'provider': provider_name, 'model': model, **({'coach_models': {provider_name: coach_model}} if coach_model else {})}))
+        path.write_text(json.dumps({'invite_only': False, 'provider': provider_name, 'model': model, **({'coach_models': {provider_name: coach_model}} if coach_model else {})}))
         with patch.dict(os.environ, {'STACK_AGENT_CONFIG': str(path), 'STACK_AGENT_WORKER_TOKEN': 'coach-bench-worker'}):
             client = JacTestClient.from_file(str(Path('main.jac').resolve()), base_path=directory)
 

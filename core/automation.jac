@@ -387,14 +387,14 @@ def:pub agent_claim(token: str) -> dict[str, any] {
                 r.index=0;r.artifacts={};step=_steps(r)[0];
             }
             r.context["facts"]=current_facts;
-            reservation=0;c=config(r.model_selection);
+            reservation=0;
             if step=="tailor" and not _tailor_ready(r.context) {
                 r.status="needs_input";r.requests=[];r.updated_at=now;t.state="needs_input";
                 r.message="Upload a resume before tailoring." if not r.context.get("resume_id") else "Review and confirm this resume's imported records or add its LaTeX before tailoring.";
                 continue;
             }
             try {
-                _agent_access();
+                _agent_access();c=config(r.model_selection);
                 if step in REVIEWED {
                     # Surface missing permissions before asking for review; agent_authorize rechecks at dispatch.
                     if step in EXTERNAL { authorize(m.policy,EXTERNAL[step],r.context.get("contact",{}).get("email","") if step=="send" else ""); }
@@ -434,6 +434,7 @@ def:pub agent_claim(token: str) -> dict[str, any] {
 def _agent_leased(id: str, owner: str, lease: str) -> AgentRun {
     _agent_owner(owner);r=_owned_run(id);
     if r is None or r.kind=="application" or not lease or r.lease!=lease or r.lease_until<time.time() or r.status!="running" { raise ValueError("Run lease expired or cancelled."); }
+    _agent_access();
     return r;
 }
 def:pub agent_model_log(token: str, id: str, owner: str, lease: str, record: dict[str, any]) -> dict[str, any] {
@@ -1069,7 +1070,7 @@ def:pub agent_live_claim(token: str, owner: str, id: str, ticket: str) -> dict[s
 def:pub agent_live_check(token: str, owner: str, id: str, lease: str) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Voice service authorization required."}; }
     try {
-        r=_agent_leased(id,owner,lease);_agent_access();
+        r=_agent_leased(id,owner,lease);
         return {"active":True,"practice":prep_get(r.target_id)};
     } except ValueError as e { return {"error":str(e)}; }
 }

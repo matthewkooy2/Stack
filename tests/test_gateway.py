@@ -1,13 +1,65 @@
 """Real HTTP boundary checks with a fixture upstream and no account data."""
 import json
+import io
 import threading
 import unittest
+from contextlib import redirect_stdout
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from unittest.mock import patch
 from agents import gateway
 
 class Gateway(unittest.TestCase):
+    def test_failed_request_correlates_with_backend_and_cloudflare(self):
+        request_id = "0123456789abcdef" * 2
+        ray = "0123456789abcdef-ORD"
+        observed = {}
+
+        class Backend(gateway.SimpleHTTPRequestHandler):
+            def do_POST(self):
+                observed["id"] = self.headers.get("X-Request-Id")
+                self.send_response(401)
+                self.send_header("X-Trace-Id", observed["id"])
+                self.end_headers()
+
+            def log_message(self, *_):
+                pass
+
+        backend = gateway.ThreadingHTTPServer(("127.0.0.1", 0), Backend)
+        proxy = gateway.ThreadingHTTPServer(("127.0.0.1", 0), gateway.Handler)
+        threads = [threading.Thread(target=server.serve_forever, daemon=True) for server in (backend, proxy)]
+        for thread in threads:
+            thread.start()
+        output = io.StringIO()
+        try:
+            with redirect_stdout(output), patch.object(gateway, "BASE", f"http://127.0.0.1:{backend.server_port}"):
+                request = Request(f"http://127.0.0.1:{proxy.server_port}/function/agent_admission", data=b'{}', headers={
+                    "X-Request-Id": request_id, "CF-Ray": ray,
+                    "X-Stack-Client": json.dumps({"platform": "swiftui-ios", "build": "2026.11.16",
+                                                "device": "iPhone", "token": "secret-sentinel"}),
+                    "Authorization": "Bearer secret-sentinel",
+                })
+                with self.assertRaises(HTTPError) as caught:
+                    urlopen(request, timeout=5)
+                with caught.exception as error:
+                    self.assertEqual(error.code, 401)
+                    self.assertEqual(error.headers["X-Request-Id"], request_id)
+                    self.assertEqual(error.headers["X-Trace-Id"], request_id)
+                proxy.shutdown()
+            self.assertEqual(observed["id"], request_id)
+            self.assertNotIn("secret-sentinel", output.getvalue())
+            events = [json.loads(line) for line in output.getvalue().splitlines()]
+            self.assertEqual([event["event"] for event in events],
+                             ["received", "upstream_started", "upstream_response", "completed"])
+            self.assertTrue(all(event["request_id"] == request_id and event["cf_ray"] == ray for event in events))
+            self.assertEqual(events[0]["client"], {"platform": "swiftui-ios", "build": "2026.11.16", "device": "iPhone"})
+            self.assertEqual(events[-1]["status"], 401)
+        finally:
+            for server, thread in zip((backend, proxy), threads):
+                server.shutdown()
+                server.server_close()
+                thread.join()
+
     def test_all_user_routes_require_admission_and_worker_routes_stay_private(self):
         calls = []
         def upstream(path, body, authorization='', **kwargs):

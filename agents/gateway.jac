@@ -11,6 +11,7 @@ import time;
 import from agents.browser_stream { relay }
 import from agents.transcription_readiness { public_status }
 import agents.app_links as app_links;
+import agents.request_trace as request_trace;
 import urllib.error;
 import urllib.request;
 import from urllib.parse { urlsplit, parse_qs, urlencode }
@@ -50,6 +51,11 @@ def linkedin_request(function: str, path: str, body: bytes, authorization: str) 
 }
 def upstream(path: any, body: any, authorization: any = '', timeout: any = 110) -> any {
     headers = {'Content-Type': 'application/json'};
+    trace = request_trace.current.get();
+    if trace {
+        headers['X-Request-Id'] = trace.id;
+        trace.log('upstream_started', upstream_route=path);
+    }
     if authorization {
         headers['Authorization'] = authorization;
     }
@@ -60,6 +66,7 @@ def upstream(path: any, body: any, authorization: any = '', timeout: any = 110) 
         response = exc;
     }
     with response {
+        if trace { trace.upstream_response(path, response); }
         return (response.status, response.read() if timeout is None else response.read((32 * 1024 * 1024)));
     }
 }
@@ -85,8 +92,17 @@ class Handler(SimpleHTTPRequestHandler) {
     def log_message(self: Handler, *_: any) -> any {
         ;
     }
+    def log_request(self: Handler, code: any = '-', size: any = '-') -> any {
+        trace = request_trace.current.get();
+        if trace { trace.status = code; }
+    }
     def list_directory(self: Handler, path: any) -> any { self.send_error(503,'Stack is starting');return None; }
     def end_headers(self: Handler) -> any {
+        trace = request_trace.current.get();
+        if trace {
+            self.send_header('X-Request-Id', trace.id);
+            if trace.backend_id { self.send_header('X-Trace-Id', trace.backend_id); }
+        }
         if urlsplit(self.path).path in ['/', '/index.html'] {
             audio=public_status();
             self.send_header('X-Stack-Transcription-State',audio['state']);
@@ -199,17 +215,19 @@ class Handler(SimpleHTTPRequestHandler) {
         function = path.removeprefix('/function/')
             if path.startswith('/function/')
             else '';
-        if (
-            (path not in IDENTITY)
-            and (path not in SSO)
-            and path != '/browser/stream'
-            and (function not in PERSONAL)
-            and (function not in APPLE_PUBLIC)
-            and (function != 'agent_accept_invite')
-        ) {
-            self.send_error(404);
-            return;
+        allowed = path in IDENTITY or path in SSO or path == '/browser/stream' or function in PERSONAL or function in APPLE_PUBLIC or function == 'agent_accept_invite';
+        trace = request_trace.RequestTrace(self.headers, path if allowed else 'unrecognized');
+        context = request_trace.current.set(trace);
+        try {
+            trace.log('received', client=trace.client);
+            if allowed { self.post(path, function); }
+            else { self.send_error(404); }
+        } finally {
+            request_trace.current.reset(context);
+            trace.log('completed', status=trace.status);
         }
+    }
+    def post(self: Handler, path: str, function: str) -> any {
         try {
             length = int(self.headers.get('Content-Length', 0));
             body = self.rfile.read(length);
@@ -269,7 +287,9 @@ class Handler(SimpleHTTPRequestHandler) {
             self.send_header('Content-Length', str(len(raw)));
             self.end_headers();
             self.wfile.write(raw);
-        } except Exception {
+        } except Exception as error {
+            trace = request_trace.current.get();
+            if trace { trace.log('error', error_type=type(error).__name__); }
             self.send_error(503, 'Stack is temporarily unavailable');
         }
     }

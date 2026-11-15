@@ -103,6 +103,8 @@ final class RemoteBrowserModel {
                 self.connection = attempt == 0 ? "connecting" : "reconnecting"
                 attempt += 1
                 var request = URLRequest(url: origin.appendingPathComponent("browser/stream"))
+                let trace = StackRequestTrace(route: "/browser/stream")
+                trace.apply(to: &request)
                 request.httpMethod = "POST"
                 request.timeoutInterval = self.relaxed ? .greatestFiniteMagnitude : 35
                 request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -112,6 +114,7 @@ final class RemoteBrowserModel {
                 do {
                     let (bytes, response) = try await (self.relaxed ? store.api.linkedinSession : URLSession.shared).bytes(for: request)
                     status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                    trace.finish(response)
                     if !self.relaxed && (status == 401 || status == 403) {
                         self.connection = "unavailable"
                         return
@@ -128,6 +131,7 @@ final class RemoteBrowserModel {
                         }
                     }
                 } catch {
+                    if status == 0 { trace.finish(outcome: Task.isCancelled ? "cancelled" : "stream_connection_failed") }
                     if Task.isCancelled { return }
                 }
                 self.connection = "reconnecting"

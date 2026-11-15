@@ -1,4 +1,51 @@
 import Foundation
+import OSLog
+import UIKit
+
+struct StackRequestTrace {
+    private static let log = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Stack", category: "HTTP")
+    private let id: String
+    private let route: String
+    private let started = ProcessInfo.processInfo.systemUptime
+    private let client: String
+
+    @MainActor
+    init(route: String) {
+        let requestID = UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        id = requestID
+        self.route = route
+        let info = Bundle.main.infoDictionary ?? [:]
+        let metadata = [
+            "platform": "swiftui-ios",
+            "device": UIDevice.current.model,
+            "os": "iOS " + UIDevice.current.systemVersion,
+            "version": info["CFBundleShortVersionString"] as? String ?? "",
+            "build": info["CFBundleVersion"] as? String ?? "",
+        ]
+        let encoded = try? JSONEncoder().encode(metadata)
+        let metadataJSON = encoded.map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+        client = metadataJSON
+        Self.log.debug("Stack request started id=\(requestID, privacy: .public) route=\(route, privacy: .public) client=\(metadataJSON, privacy: .public)")
+    }
+
+    func apply(to request: inout URLRequest) {
+        request.setValue(id, forHTTPHeaderField: "X-Request-Id")
+        request.setValue(client, forHTTPHeaderField: "X-Stack-Client")
+    }
+
+    func finish(_ response: URLResponse? = nil, outcome: String = "response") {
+        let http = response as? HTTPURLResponse
+        let status = http?.statusCode ?? 0
+        let ray = http?.value(forHTTPHeaderField: "CF-Ray") ?? ""
+        let cfRay = ray.range(of: #"^[a-f0-9]{16,32}(?:-[A-Z]{3})?$"#, options: .regularExpression) == nil ? "" : ray
+        let ms = Int((ProcessInfo.processInfo.systemUptime - started) * 1000)
+        if status >= 400 || outcome != "response" {
+            Self.log.error("Stack request failed id=\(id, privacy: .public) route=\(route, privacy: .public) status=\(status) outcome=\(outcome, privacy: .public) cf_ray=\(cfRay, privacy: .public) elapsed_ms=\(ms) client=\(client, privacy: .public)")
+        } else {
+            Self.log.debug("Stack request finished id=\(id, privacy: .public) route=\(route, privacy: .public) status=\(status) cf_ray=\(cfRay, privacy: .public) elapsed_ms=\(ms)")
+        }
+    }
+}
 
 struct APIError: LocalizedError {
     let message: String
@@ -55,7 +102,13 @@ final class APIClient {
     /// Raw request. Returns the envelope's `data`.
     func post(_ path: String, _ body: JSON, authenticated: Bool = true, timeout: TimeInterval = 25, linkedin: Bool = false) async throws -> JSON {
         let generation = sessionGeneration
+        let trace = await StackRequestTrace(route: path)
+        guard linkedin || (generation == sessionGeneration && !Task.isCancelled) else {
+            trace.finish(outcome: "cancelled")
+            throw CancellationError()
+        }
         var request = URLRequest(url: origin.appendingPathComponent(path))
+        trace.apply(to: &request)
         request.httpMethod = "POST"
         request.timeoutInterval = linkedin ? .greatestFiniteMagnitude : timeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -64,29 +117,37 @@ final class APIClient {
         let data: Data
         let response: URLResponse
         do { (data, response) = try await (linkedin ? linkedinSession : session).data(for: request) }
-        catch is CancellationError { throw CancellationError() }
-        catch let error as URLError where error.code == .cancelled { throw CancellationError() }
+        catch is CancellationError { trace.finish(outcome: "cancelled"); throw CancellationError() }
+        catch let error as URLError where error.code == .cancelled { trace.finish(outcome: "cancelled"); throw CancellationError() }
         catch let error as URLError {
+            trace.finish(outcome: Self.safeNetworkCategory(error.code))
             guard linkedin || generation == sessionGeneration else { throw CancellationError() }
             throw APIError(message: "Cannot reach Stack. Check your connection and retry.",
                            failureCategory: Self.safeNetworkCategory(error.code))
         }
         catch {
+            trace.finish(outcome: "network transport")
             guard linkedin || generation == sessionGeneration else { throw CancellationError() }
             throw APIError(message: "Cannot reach Stack. Check your connection and retry.",
                            failureCategory: "network transport")
         }
-        guard linkedin || (generation == sessionGeneration && !Task.isCancelled) else { throw CancellationError() }
+        guard linkedin || (generation == sessionGeneration && !Task.isCancelled) else {
+            trace.finish(response, outcome: "cancelled")
+            throw CancellationError()
+        }
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard let json = try? JSONDecoder().decode(JSON.self, from: data) else {
+            trace.finish(response, outcome: "invalid_response")
             throw APIError(message: "Stack returned an invalid response. Please retry.", status: status)
         }
         if !(200..<300).contains(status) || json["ok"] == .bool(false) {
+            trace.finish(response, outcome: "request_failed")
             var message = json["error"]["message"].string
             if message.isEmpty { message = json["detail"].string }
             if message.isEmpty { message = "Request failed. Please try again." }
             throw APIError(message: message, status: status)
         }
+        trace.finish(response, outcome: json["data"]["result"]["error"].string.isEmpty ? "response" : "application_error")
         return json["data"]
     }
 

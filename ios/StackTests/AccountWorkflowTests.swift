@@ -65,6 +65,12 @@ final class APIClientTests: XCTestCase {
         XCTAssertEqual(result["answer"].int, 42)
         XCTAssertEqual(StubProtocol.seen.last?.url?.path, "/function/bootstrap")
         XCTAssertEqual(StubProtocol.seen.last?.value(forHTTPHeaderField: "Authorization"), "Bearer token-1")
+        let request = try XCTUnwrap(StubProtocol.seen.last)
+        let id = try XCTUnwrap(request.value(forHTTPHeaderField: "X-Request-Id"))
+        XCTAssertNotNil(id.range(of: "^[a-f0-9]{32}$", options: .regularExpression))
+        let client = try XCTUnwrap(request.value(forHTTPHeaderField: "X-Stack-Client"))
+        XCTAssertEqual(parse(client)["platform"].string, "swiftui-ios")
+        XCTAssertFalse(parse(client)["os"].string.isEmpty)
     }
 
     func testServerErrorStringBecomesAnError() async {

@@ -1,15 +1,24 @@
 // Browser capabilities only. Session tokens stay in memory; reload signs out.
 import React, {useRef, useState, useEffect} from 'react';
 import {beginGoogle,finishGoogle} from './google-auth.js';
+import {browserContext,startRequestTrace} from './request-trace.js';
+const entryScript = globalThis.document?.querySelector?.('script[type="module"][src*="client."]');
+const webBuild = entryScript?.src.match(/\/client\.([A-Za-z0-9_-]+)\.js(?:[?#]|$)/)?.[1] ?? 'development';
+const traceContext = browserContext(webBuild);
 let token = '', epoch = 0;
 const browserStreams=new Set();
 export async function request(path, body, authenticated=true) {
   const observed=epoch;
-  const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json',...(authenticated?{Authorization:'Bearer '+token}:{})},body:JSON.stringify(body),signal:AbortSignal.timeout(25000)});
-  const result=await response.json();
-  if(observed!==epoch)throw new Error('Session changed.');
-  if(!response.ok||result.ok===false)throw new Error(result.error?.message||'Request failed.');
-  return result.data;
+  const trace=startRequestTrace(path,traceContext);
+  let response;
+  try {
+    response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json',...trace.headers,...(authenticated?{Authorization:'Bearer '+token}:{})},body:JSON.stringify(body),signal:AbortSignal.timeout(25000)});
+    const result=await response.json();
+    if(observed!==epoch)throw new Error('Session changed.');
+    if(!response.ok||result.ok===false)throw new Error(result.error?.message||'Request failed.');
+    trace.finish(response,result.data?.result?.error?'application_error':'response');
+    return result.data;
+  } catch(error) { throw trace.fail(error,response); }
 }
 export async function rpc(name,args={}){const result=(await request('/function/'+name,args)).result;if(result?.error)throw new Error(result.error);return result;}
 export async function login(username,password,signup=false){
@@ -52,8 +61,9 @@ export function BrowserView({image,onEvent,sessionId,onFrame}){
   const connect=()=>{
    if(closed||observed!==epoch)return;setConnection('connecting');
    const r=new XMLHttpRequest();xhr=r;let cursor=0,tail='';r.open('POST','/browser/stream');r.setRequestHeader('Content-Type','application/json');r.setRequestHeader('Authorization','Bearer '+token);r.timeout=35000;
+   const trace=startRequestTrace('/browser/stream',traceContext);trace.apply(r);
    const read=()=>{if(closed||observed!==epoch)return;if(r.status!==200)return;tail+=(r.responseText||'').slice(cursor);cursor=(r.responseText||'').length;if(tail.length>1024*1024){r.abort();return;}let end;while((end=tail.indexOf('\n\n'))>=0){const chunk=tail.slice(0,end);tail=tail.slice(end+2);try{if(chunk.startsWith('data: ')){const event=JSON.parse(chunk.slice(6));if(event.control.instance===control.current.instance&&event.control.generation<control.current.generation)continue;if(event.control.instance!==control.current.instance)sequence.current=0;control.current=event.control;sequence.current=Math.max(sequence.current,event.control.sequence||0);receipt.current={at:Date.now(),age:Math.max(0,(event.server_time-(event.observed_at||0))*1000)};setAge(receipt.current.age);setConnection('connected');frameCallback.current?.({...(event.frame||{}),control:event.control});}}catch{setConnection('unavailable');r.abort();}}};
-   const finish=()=>{if(closed)return;if(r.status===401||r.status===403){setConnection('unavailable');return;}setConnection('reconnecting');timer=setTimeout(connect,500);};
+   const finish=()=>{trace.finish(r,r.status?'response':'interrupted');if(closed)return;if(r.status===401||r.status===403){setConnection('unavailable');return;}setConnection('reconnecting');timer=setTimeout(connect,500);};
    r.onprogress=read;r.onload=()=>{read();finish();};r.onerror=r.ontimeout=finish;r.send(JSON.stringify({id:sessionId}));
   };
   const clock=setInterval(()=>setAge(receipt.current?receipt.current.age+Date.now()-receipt.current.at:Infinity),500);const close=()=>{closed=true;clearTimeout(timer);clearInterval(clock);xhr?.abort();};browserStreams.add(close);connect();return()=>{close();browserStreams.delete(close);};

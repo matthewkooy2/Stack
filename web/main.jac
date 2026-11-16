@@ -45,13 +45,18 @@ def:pub app -> JsxElement {
         } except Exception as e { error=errorText(e); }
         busy=False;starting=False;
     }
-    async def refresh -> None {
+    async def refresh(initializeLinkedIn: bool = False) -> None {
         epoch=practice.current["epoch"];
         result=await rpc("agent_settings",{});if epoch!=practice.current["epoch"] { return; }settings=result;activity=settings["activity"];
         result=await rpc("prep_catalog",{});if epoch!=practice.current["epoch"] { return; }problems=result["problems"];
         result=await rpc("prep_sessions",{});if epoch!=practice.current["epoch"] { return; }sessions=result["sessions"];
         result=await rpc("agent_events",{});if epoch!=practice.current["epoch"] { return; }mail=result["events"];interviews=result["interviews"];
         result=await rpc("bootstrap",{});if epoch!=practice.current["epoch"] { return; }adoptSnapshot(result);
+        if initializeLinkedIn {
+            profile=result["profile"];
+            linkedinUrl=profile.get("linkedin_url","");
+            targetRole=profile.get("linkedin_target_role","");
+        }
     }
     """Keep progress current without replacing answers or email edits being typed."""
     async def poll -> None {
@@ -174,8 +179,7 @@ def:pub app -> JsxElement {
         if selectedInvite { await rpc("agent_accept_invite",{"invite":selectedInvite});invite=""; }
         admitted=await rpc("agent_admission",{});
         if not admitted.get("admitted") { error="Enter your beta invitation to continue.";return; }
-        saved=await rpc("agent_linkedin_profile",{});linkedinUrl=saved["url"];targetRole=saved.get("target_role","");
-        await refresh();logged=True;signup=False;
+        await refresh(initializeLinkedIn=True);logged=True;signup=False;
     }
     async def acceptInvitation -> None {
         busy=True;error="";

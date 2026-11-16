@@ -107,6 +107,27 @@ class RecordDocuments(unittest.TestCase):
             self.assertEqual([r['text'] for r in records], [r['text'] for r in RECORDS])
             self.assertEqual(len(records), len(RECORDS))
 
+    def test_import_groups_pdf_word_fragments_into_visible_rows(self):
+        from agents.pdf_safety import inspect_pdf
+
+        output = io.BytesIO()
+        canvas = Canvas(output, pagesize=(612, 792))
+        canvas.setFont('Helvetica', 10)
+        expected = []
+        for index in range(42):
+            line = f'Built report {index} and validated metrics before release.'
+            expected.append(line)
+            left = 40
+            for word in ('- ' + line).split():
+                canvas.drawString(left, 740 - index * 15, word)
+                left += canvas.stringWidth(word + ' ') + 1
+        canvas.save()
+        raw = output.getvalue()
+        self.assertGreater(len(inspect_pdf(raw, True)['text'].splitlines()), rr.MAX_RECORDS)
+        records = rr.import_records('Fragmented.pdf', raw)
+        self.assertEqual([record['text'] for record in records], expected)
+        self.assertTrue(all(record['kind'] == 'bullet' for record in records))
+
     def test_supported_changes_rejections_and_independent_extraction(self):
         source = prepared()
         p = rr.tailor(source, proposal()['artifact'])

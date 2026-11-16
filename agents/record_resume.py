@@ -11,6 +11,7 @@ import io
 import json
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 from xml.etree import ElementTree as ET
 from xml.sax.saxutils import escape
@@ -101,15 +102,26 @@ def import_records(name, raw):
     if Path(name).suffix.lower() == '.docx':
         lines = inspect_docx(raw)
     else:
-        from agents.pdf_safety import inspect_pdf
+        from agents.pdf_safety import inspect_pdf, inspect_spans
         lines = inspect_pdf(raw, True, MAX_TEXT)['text'].splitlines()
+        if sum(bool(line.strip()) for line in lines) > MAX_RECORDS:
+            # Some PDF exporters write each word as its own text object. Recover
+            # the visible rows before counting records, while checking text coverage.
+            from agents.resume_details import spans_from_layout
+            from agents.resume_parser.structure import page_lines
+            pages = spans_from_layout(inspect_spans(raw, MAX_TEXT)['layout'])['pages']
+            grouped = [row['text'] for page in pages for row in page_lines(page)[0]]
+            source_chars = Counter(re.sub(r'\s+', '', ''.join(lines)))
+            grouped_chars = Counter(re.sub(r'\s+', '', ''.join(grouped)))
+            if source_chars == grouped_chars:
+                lines = grouped
     records = []
     for line in lines:
         text = line.strip()
         if not text:
             continue
         kind = 'paragraph'
-        if re.match(r'^[•\-*] ', text):
+        if re.match(r'^[•●\-*] ', text):
             kind, text = 'bullet', text[2:]
         records.append({'id': 'r' + str(len(records)), 'kind': kind, 'text': text})
     if not records:

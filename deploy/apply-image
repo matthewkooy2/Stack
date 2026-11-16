@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# Root-owned on each VM. A restricted SSH key may pass only the image digest.
+set -euo pipefail
+umask 077
+
+[[ $# == 1 && $1 =~ ^sha256:[a-f0-9]{64}$ ]] || { echo 'Expected a Stack image digest' >&2; exit 2; }
+ref="ghcr.io/matthewkooy2/stack-runtime@$1"
+state=/opt/stack-deploy
+environment=/etc/stack/compose.env
+install -d -m 0700 "$state/releases"
+exec 9>"$state/deploy.lock"
+flock 9
+
+work=$(mktemp -d "$state/release.XXXXXXXX")
+container=
+cleanup() {
+    if [[ -n $container ]]; then docker rm "$container" >/dev/null 2>&1 || true; fi
+    rm -rf -- "$work"
+}
+trap cleanup EXIT
+
+# The short-lived workflow token is passed over SSH, with its configuration
+# restricted to this invocation. An operator may pull a public image without it.
+if IFS= read -r user; then
+    IFS= read -r token
+    [[ $user =~ ^[a-zA-Z0-9-]+(\[bot\])?$ && -n $token ]]
+    export DOCKER_CONFIG="$work/docker"
+    mkdir -m 0700 "$DOCKER_CONFIG"
+    printf '%s\n' "$token" | docker login ghcr.io --username "$user" --password-stdin >/dev/null
+    unset token
+fi
+
+docker pull "$ref"
+container=$(docker create "$ref")
+docker cp "$container:/opt/stack-release/compose.yaml" "$work/compose.yaml"
+
+apply() {
+    STACK_IMAGE="$1" docker compose --project-name stack --project-directory "$state" \
+        --env-file "$environment" --file "$2" up --detach --wait --wait-timeout 300 --remove-orphans
+}
+
+if ! apply "$ref" "$work/compose.yaml"; then
+    if [[ -r $state/current/image ]]; then
+        echo 'Deployment failed, restoring the previous Stack image' >&2
+        apply "$(cat "$state/current/image")" "$state/current/compose.yaml"
+    fi
+    exit 1
+fi
+
+release="$state/releases/${1#sha256:}"
+install -d -m 0700 "$release"
+install -m 0600 "$work/compose.yaml" "$release/compose.yaml"
+printf '%s\n' "$ref" > "$release/image"
+ln -s "$release" "$work/current"
+mv -Tf "$work/current" "$state/current"
+printf 'Stack is healthy on %s\n' "$ref"

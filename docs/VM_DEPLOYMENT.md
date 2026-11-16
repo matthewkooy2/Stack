@@ -95,6 +95,26 @@ destination. A restore drill needs a separate environment and the relevant
 runtime configuration, credentials, and encryption keys.
 
 
+## Request traces in Grafana
+
+On the Stack monitoring host, update the existing log collector and provisioned
+dashboard after testing the candidate on staging. The existing Stack Logs
+data source, timer, and cursor files can be reused.
+
+```sh
+sudo install -m 0750 deploy/monitoring/read-stack-logs.py /opt/stack-monitoring/logging/read-stack-logs.py
+sudo install -m 0644 deploy/monitoring/stack-application-logs.json /opt/stack-monitoring/dashboards/stack-application-logs.json
+sudo systemctl start stack-monitoring-logs.service
+```
+
+Open **Stack Application Logs** and search for the client's `X-Request-Id`.
+The gateway forwards it to Jac, so the API access event shares that ID.
+Search `application_error` for explicit failures in successful HTTP envelopes.
+Gateway response inspection is bounded to 2 MiB of JSON and marks larger or
+invalid JSON as `inspection_skipped`. OAuth popup requests made directly to a
+provider are visible in the browser's Network tab. Only allowlisted metadata
+is stored in Loki. Collection resumes from the current cursors.
+
 ## Initial data transfer
 
 Use `deploy/remap-stack-namespace.sql` only on a restored database while the

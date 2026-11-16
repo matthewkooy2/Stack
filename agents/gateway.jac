@@ -66,8 +66,9 @@ def upstream(path: any, body: any, authorization: any = '', timeout: any = 110) 
         response = exc;
     }
     with response {
-        if trace { trace.upstream_response(path, response); }
-        return (response.status, response.read() if timeout is None else response.read((32 * 1024 * 1024)));
+        raw = response.read() if timeout is None else response.read((32 * 1024 * 1024));
+        if trace { trace.upstream_response(path, response, raw); }
+        return (response.status, raw);
     }
 }
 
@@ -76,10 +77,18 @@ class NoRedirect(urllib.request.HTTPRedirectHandler) {
 }
 
 def sso_callback_upstream(query: dict[str, str]) -> any {
-    request=urllib.request.Request(BASE+'/sso/google/callback?'+urlencode(query));
+    path = '/sso/google/callback';
+    trace = request_trace.current.get();
+    headers = {'X-Request-Id': trace.id} if trace else {};
+    if trace { trace.log('upstream_started', upstream_route=path); }
+    request=urllib.request.Request(BASE+path+'?'+urlencode(query), headers=headers);
     try { response=urllib.request.build_opener(NoRedirect()).open(request,timeout=30); }
     except urllib.error.HTTPError as error { response=error; }
-    with response { return (response.status,response.read(65536),response.headers.get('Location','')); }
+    with response {
+        raw = response.read(65536);
+        if trace { trace.upstream_response(path, response, raw); }
+        return (response.status, raw, response.headers.get('Location',''));
+    }
 }
 class Handler(SimpleHTTPRequestHandler) {
     def init(self: Handler, *args: any, **kwargs: any) -> any {
@@ -169,7 +178,18 @@ class Handler(SimpleHTTPRequestHandler) {
             } except ValueError { self.send_error(400);return; }
             self.path = '/index.html';
         }
-        if path == '/sso/google/callback' { self.sso_callback();return; }
+        if path == '/sso/google/callback' {
+            trace = request_trace.RequestTrace(self.headers, path);
+            context = request_trace.current.set(trace);
+            try {
+                trace.log('received', client=trace.client);
+                self.sso_callback();
+            } finally {
+                request_trace.current.reset(context);
+                trace.log('completed', status=trace.status);
+            }
+            return;
+        }
         if path in ['/auth/google','/auth/apple'] { self.path='/index.html'; }
         if urlsplit(self.path).path in ['/', '/index.html'] and app_links.banner() {
             index=Path(os.environ.get('STACK_WEB_DIST','.jac/client/workspace/dist'),'index.html');
@@ -211,7 +231,11 @@ class Handler(SimpleHTTPRequestHandler) {
                 self.end_headers();return;
             }
             self.app_page(app_links.page(success=status==200 and b'Sign-in completed.' in raw,callback_state=state));
-        } except Exception { self.send_error(400,'Google sign-in could not finish'); }
+        } except Exception as error {
+            trace = request_trace.current.get();
+            if trace { trace.log('error', error_type=type(error).__name__); }
+            self.send_error(400,'Google sign-in could not finish');
+        }
     }
     def do_POST(self: Handler) -> any {
         path = urlsplit(self.path).path;

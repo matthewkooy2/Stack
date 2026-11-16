@@ -1,0 +1,68 @@
+name: Apply a Stack image
+description: Transfer a job-scoped registry token and deploy an immutable image to the selected Stack VM
+inputs:
+  digest:
+    description: Staged image digest
+    required: true
+  user:
+    description: Fixed SSH relay account for this VM
+    required: true
+  ssh_key:
+    description: Environment-specific SSH key
+    required: true
+  known_hosts:
+    description: Pinned SSH host key
+    required: true
+  host:
+    description: Tailscale host
+    required: true
+  port:
+    description: SSH port
+    required: true
+  ts_client:
+    description: Tailscale federated identity client
+    required: true
+  ts_audience:
+    description: Tailscale federated identity audience
+    required: true
+  registry_token:
+    description: Job-scoped GitHub registry token
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Join the deployment tailnet
+      uses: tailscale/github-action@d1b6cd204f8dceda5b3eaad7f1f767be390056cd
+      with:
+        oauth-client-id: ${{ inputs.ts_client }}
+        audience: ${{ inputs.ts_audience }}
+        tags: tag:stack-deploy
+        version: '1.94.2'
+        use-cache: 'false'
+    - name: Apply the image and wait for readiness
+      shell: bash
+      env:
+        DIGEST: ${{ inputs.digest }}
+        SSH_USER: ${{ inputs.user }}
+        DEPLOY_KEY: ${{ inputs.ssh_key }}
+        KNOWN_HOSTS: ${{ inputs.known_hosts }}
+        DEPLOY_HOST: ${{ inputs.host }}
+        DEPLOY_PORT: ${{ inputs.port }}
+        REGISTRY_TOKEN: ${{ inputs.registry_token }}
+      run: |
+        set -euo pipefail
+        umask 077
+        [[ "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+        [[ "$SSH_USER" =~ ^stack-(stage|prod)-release$ ]]
+        [[ "$DEPLOY_HOST" =~ ^[a-zA-Z0-9.-]+$ && "$DEPLOY_PORT" =~ ^[0-9]+$ ]]
+        test -n "$DEPLOY_KEY" && test -n "$KNOWN_HOSTS" && test -n "$REGISTRY_TOKEN"
+        printf '::add-mask::%s\n' "${DEPLOY_HOST%%.*}"
+        key="$RUNNER_TEMP/stack-deploy-key"
+        hosts="$RUNNER_TEMP/stack-known-hosts"
+        trap 'rm -f "$key" "$hosts"' EXIT
+        printf '%s\n' "$DEPLOY_KEY" > "$key"
+        printf '%s\n' "$KNOWN_HOSTS" > "$hosts"
+        printf '%s\n%s\n' "$GITHUB_ACTOR" "$REGISTRY_TOKEN" |
+          timeout 12m ssh -4 -T -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$hosts" \
+            -o IdentitiesOnly=yes -o ConnectTimeout=15 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+            -i "$key" -p "$DEPLOY_PORT" "$SSH_USER@$DEPLOY_HOST" "stack-image-release $DIGEST"

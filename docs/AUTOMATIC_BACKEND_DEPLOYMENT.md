@@ -1,3 +1,5 @@
+For the containerized staging and production VMs, see [Stack VM deployment](VM_DEPLOYMENT.md) and release format 4.
+
 # Release format 3 migration required
 
 Automatic deployments are paused unless the repository variable

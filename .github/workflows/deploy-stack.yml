@@ -1,0 +1,201 @@
+name: Release Stack VM image
+on:
+  pull_request:
+    paths:
+      - '.dockerignore'
+      - '.github/actions/apply-stack-image/**'
+      - '.github/workflows/deploy-stack.yml'
+      - 'deploy/**'
+      - 'dependencies/**'
+      - 'main.jac'
+      - 'jac.toml'
+      - 'agents/**'
+      - 'core/**'
+      - 'discovery/**'
+      - 'mobile/**'
+      - 'native/**'
+      - 'scripts/**'
+      - 'web/**'
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Deploy current CI-passing main to staging or promote a staged release
+        type: choice
+        options: [staging, production]
+        default: staging
+      staging_run:
+        description: Successful staging workflow run ID (required for production)
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Stack runtime
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository) ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.target == 'staging')
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.release.outputs.digest }}
+      commit: ${{ steps.release.outputs.commit }}
+    env:
+      IMAGE: ghcr.io/matthewkooy2/stack-runtime
+      COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - name: Verify CI passed for a manual staging release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          total=$(gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+            -f branch=main -f event=push -f status=success -f head_sha="$COMMIT" --jq '.total_count')
+          test "$total" -ge 1
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.COMMIT }}
+          persist-credentials: false
+      - name: Assemble the runtime image for review
+        if: github.event_name == 'pull_request'
+        run: docker buildx build --file deploy/stack.Dockerfile --platform linux/amd64 --output type=cacheonly .
+      - name: Publish the release image
+        if: github.event_name != 'pull_request'
+        id: release
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker buildx build --file deploy/stack.Dockerfile --platform linux/amd64 \
+            --label "org.opencontainers.image.revision=$COMMIT" --tag "$IMAGE:git-$COMMIT" \
+            --push --metadata-file "$RUNNER_TEMP/image.json" .
+          digest=$(jq -er '."containerimage.digest" | select(test("^sha256:[a-f0-9]{64}$"))' "$RUNNER_TEMP/image.json")
+          printf 'digest=%s\ncommit=%s\n' "$digest" "$COMMIT" >> "$GITHUB_OUTPUT"
+
+  staging:
+    name: Deploy staging
+    needs: build
+    if: >-
+      github.event_name != 'pull_request' && github.ref == 'refs/heads/main' &&
+      vars.STACK_RELEASE_FORMAT == '4'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    environment:
+      name: stack-production
+      url: https://dev.stackmvp.top
+    concurrency:
+      group: stack-vm-staging
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+      packages: read
+    steps:
+      - name: Verify staging release is still current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ needs.build.outputs.commit }}
+          ENABLED: ${{ vars.STACK_DEPLOY_ENABLED }}
+        run: |
+          set -euo pipefail
+          test "$ENABLED" = true
+          main=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          test "$main" = "$COMMIT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Deploy the staged digest
+        uses: ./.github/actions/apply-stack-image
+        with:
+          digest: ${{ needs.build.outputs.digest }}
+          user: stack-stage-release
+          ssh_key: ${{ secrets.STACK_STAGING_VM_SSH_KEY }}
+          known_hosts: ${{ secrets.STACK_DEPLOY_KNOWN_HOSTS }}
+          host: ${{ secrets.STACK_DEPLOY_HOST }}
+          port: ${{ vars.STACK_DEPLOY_PORT }}
+          ts_client: ${{ secrets.STACK_TS_CLIENT_ID }}
+          ts_audience: ${{ secrets.STACK_TS_AUDIENCE }}
+          registry_token: ${{ github.token }}
+      - name: Record the release verified in staging
+        env:
+          DIGEST: ${{ needs.build.outputs.digest }}
+          COMMIT: ${{ needs.build.outputs.commit }}
+        run: |
+          jq -n --arg digest "$DIGEST" --arg commit "$COMMIT" --argjson run "$GITHUB_RUN_ID" \
+            '{digest:$digest,commit:$commit,run:$run}' > "$RUNNER_TEMP/stack-staging-release.json"
+          printf 'Staging run ID: `%s`\n\nImage digest: `%s`\n' "$GITHUB_RUN_ID" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: stack-staging-release
+          path: ${{ runner.temp }}/stack-staging-release.json
+          if-no-files-found: error
+          overwrite: true
+
+  production:
+    name: Promote verified staging release to production
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+      inputs.target == 'production' && vars.STACK_RELEASE_FORMAT == '4' &&
+      github.actor == github.repository_owner && github.triggering_actor == github.repository_owner
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    environment:
+      name: stack-production
+      url: https://stackmvp.top
+    concurrency:
+      group: stack-vm-production
+      cancel-in-progress: false
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+    steps:
+      - name: Read evidence from the successful staging run
+        id: staging
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STAGING_RUN: ${{ inputs.staging_run }}
+          ENABLED: ${{ vars.STACK_DEPLOY_ENABLED }}
+        run: |
+          set -euo pipefail
+          test "$ENABLED" = true
+          [[ "$STAGING_RUN" =~ ^[0-9]+$ ]]
+          workflow=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/deploy-stack.yml" --jq '.id')
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$STAGING_RUN" |
+            jq -e --argjson workflow "$workflow" --arg repo "$GITHUB_REPOSITORY" '
+              .workflow_id == $workflow and .head_branch == "main" and .conclusion == "success"
+              and .head_repository.full_name == $repo and (.event == "workflow_run" or .event == "workflow_dispatch")
+            ' >/dev/null
+          gh run download "$STAGING_RUN" --repo "$GITHUB_REPOSITORY" --name stack-staging-release --dir "$RUNNER_TEMP/staged"
+          digest=$(jq -er --argjson run "$STAGING_RUN" '
+            select(.run == $run and (.commit | test("^[a-f0-9]{40}$")))
+            | .digest | select(test("^sha256:[a-f0-9]{64}$"))' "$RUNNER_TEMP/staged/stack-staging-release.json")
+          printf 'digest=%s\n' "$digest" >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Promote the exact staged digest
+        uses: ./.github/actions/apply-stack-image
+        with:
+          digest: ${{ steps.staging.outputs.digest }}
+          user: stack-prod-release
+          ssh_key: ${{ secrets.STACK_PRODUCTION_VM_SSH_KEY }}
+          known_hosts: ${{ secrets.STACK_DEPLOY_KNOWN_HOSTS }}
+          host: ${{ secrets.STACK_DEPLOY_HOST }}
+          port: ${{ vars.STACK_DEPLOY_PORT }}
+          ts_client: ${{ secrets.STACK_TS_CLIENT_ID }}
+          ts_audience: ${{ secrets.STACK_TS_AUDIENCE }}
+          registry_token: ${{ github.token }}

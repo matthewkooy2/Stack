@@ -155,7 +155,11 @@ def reuse(machine):
         return
     tree = git('rev-parse', 'HEAD^{tree}')
     # One recent PR candidate, not an unbounded search for a convenient green tree.
-    for run in runs('ios-swift.yml', event='pull_request')[:1]:
+    try:
+        candidates = runs('ios-swift.yml', event='pull_request')[:1]
+    except (ValueError, KeyError, subprocess.CalledProcessError):
+        candidates = []
+    for run in candidates:
         try:
             proof = proof_for(run)
             if proof['tree'] == tree:

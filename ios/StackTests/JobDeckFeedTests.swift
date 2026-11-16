@@ -231,7 +231,7 @@ final class JobDeckFeedTests: XCTestCase {
         await load.value
         await desk.requested(2)
         desk.fail(1)
-        await desk.settle()
+        await eventually("the later page error") { !feed.loadError.isEmpty }
         XCTAssertEqual(ids, ["a", "b"])
         XCTAssertTrue(feed.loaded)
         XCTAssertFalse(feed.loadError.isEmpty)

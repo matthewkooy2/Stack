@@ -39,6 +39,24 @@ class Providers(unittest.TestCase):
         self.assertTrue(contracts.model_status('bob', 'codex-cli')['configured'])
         with self.assertRaises(ValueError): contracts.config('https://untrusted.invalid')
 
+    def test_public_deployment_uses_local_configuration_and_blocks_captured_external_provider(self):
+        from agents.voice import voice_settings
+        previous = self.configure(
+            provider="codex-cli",
+            model_options={"local": {"provider": "lmstudio", "model": "fixture-local"}},
+        )
+        with patch.dict(os.environ, {"STACK_FIRST_PARTY_AI_ONLY": "1"}):
+            for selection in ("", "codex-cli", "local"):
+                current = contracts.config(selection)
+                self.assertEqual((current["provider"], current["model"]), ("lmstudio", "fixture-local"))
+            with patch.object(local_cli, "generate") as generate, patch.object(provider, "http") as http:
+                with self.assertRaisesRegex(ValueError, "Stack-hosted AI"):
+                    provider.generate("fit", CONTEXT, previous)
+                generate.assert_not_called()
+                http.assert_not_called()
+            with self.assertRaisesRegex(ValueError, "Live voice is unavailable"):
+                voice_settings()
+
     def test_unconfigured_local_is_visible_without_fallback(self):
         for options in ({}, {'local': {'provider':'openai','model':'cloud'}}, {'local': {'model':'unknown'}}):
             self.configure(provider='codex-cli', model='', model_options=options)

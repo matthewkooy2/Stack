@@ -93,6 +93,28 @@ def page(success: bool | None = None, destination: str = '', home: bool = False,
 </main></body></html>'''.encode()
 
 
+def support_page() -> bytes:
+    return """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stack Support</title>
+  <style>
+    body { max-width: 640px; padding: 24px; margin: 48px auto; font: 17px/1.6 system-ui, sans-serif; }
+  </style>
+</head>
+<body><main>
+  <h1>Stack support</h1>
+  <p>For help with Stack, contact <a href="mailto:kooymatthew@gmail.com">kooymatthew@gmail.com</a>.</p>
+  <p>Include what you were trying to do and your iOS version. Keep passwords and personal documents private.</p>
+  <p>If Stack still appears in your Apple Account after you delete your Stack account, you can <a href="https://support.apple.com/en-us/102571">remove Stack from Sign in with Apple</a>.</p>
+  <p><a href="/privacy">Privacy policy</a></p>
+</main></body>
+</html>
+""".encode()
+
+
 def privacy_page() -> bytes:
     return """<!doctype html>
 <html lang="en">
@@ -114,7 +136,7 @@ def privacy_page() -> bytes:
 <body><main>
   <a href="/">Stack</a>
   <h1>Your information in Stack.</h1>
-  <p>Last updated November 2, 2026. Stack is a personal career and interview-preparation project operated by Matthew Kooy. This page describes the information its features use, including its Google connections.</p>
+  <p>Last updated November 15, 2026. Stack is a personal career and interview-preparation project operated by Matthew Kooy. This page describes the information its features use, including its Google connections.</p>
   <h2>Signing in</h2>
   <p>Google sign-in requests your basic identity: your Google account identifier, email address and profile information. Stack uses this information to create or find your Stack account. Signing in does not grant Stack access to Gmail or Google Calendar. Apple sign-in uses your Apple account identifier and the email address Apple shares with Stack.</p>
   <h2>Information you add</h2>
@@ -122,7 +144,7 @@ def privacy_page() -> bytes:
   <h2>Optional Google connections</h2>
   <p>Gmail and Google Calendar are separate, optional connections. When you choose to connect them, the Google consent screen lists the permissions requested. These features can read relevant messages, draft or send email, and read or create calendar events according to the permissions you grant and actions or agent policies you authorize. Google connection credentials are stored by Stack to maintain the connection. You can disconnect a service in Stack or revoke access in your Google account settings.</p>
   <h2>Processing your requests</h2>
-  <p>Resume and interview features send the material needed for your request to the model or transcription service configured for Stack. Depending on that configuration, processing can occur locally or through an external provider. Connected job, browser and email services receive the information needed for the actions you request. Avoid adding information you do not want processed by these features.</p>
+  <p>In the public iPhone release, Stack uses its own model and transcription services to process the resume and interview material needed for your request. Connected job, browser and email services receive the information needed for the actions you request. Avoid adding information you do not want processed by these features.</p>
   <h2>Your controls</h2>
   <p>You can edit your saved information and use Stack’s account export and deletion controls. Account deletion removes active account data and files; it does not promise immediate erasure from every operational log or existing backup. Signing out clears the app’s active session. For questions or help with access, export or deletion, contact <a href="mailto:kooymatthew@gmail.com">kooymatthew@gmail.com</a>.</p>
   <p><a href="/open">Continue in Stack</a></p>

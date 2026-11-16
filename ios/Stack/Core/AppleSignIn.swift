@@ -3,7 +3,11 @@ import SwiftUI
 
 @MainActor
 final class AppleSignIn: NSObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
-    struct Proof { let state: String; let identityToken: String }
+    struct Proof {
+        let state: String
+        let identityToken: String
+        let authorizationCode: String
+    }
     let api: APIClient
     private var controller: ASAuthorizationController?
     private var continuation: CheckedContinuation<Proof, Error>?
@@ -28,7 +32,11 @@ final class AppleSignIn: NSObject, ASAuthorizationControllerDelegate, ASAuthoriz
         guard proof.state == state else {
             throw APIError(message: "Apple sign-in did not match this request. Please retry.")
         }
-        return try await api.call("auth_apple_finish", ["state": .string(state), "identity_token": .string(proof.identityToken)])
+        return try await api.call("auth_apple_finish", [
+            "state": .string(state),
+            "identity_token": .string(proof.identityToken),
+            "authorization_code": .string(proof.authorizationCode)
+        ])
     }
 
     private func request(state: String, nonce: String, window: UIWindow) async throws -> Proof {
@@ -58,11 +66,13 @@ final class AppleSignIn: NSObject, ASAuthorizationControllerDelegate, ASAuthoriz
     }
     func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
         guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
-              let token = credential.identityToken.flatMap({ String(data: $0, encoding: .utf8) }) else {
+              let token = credential.identityToken.flatMap({ String(data: $0, encoding: .utf8) }),
+              let code = credential.authorizationCode.flatMap({ String(data: $0, encoding: .utf8) }),
+              !code.isEmpty else {
             complete(.failure(APIError(message: "Apple sign-in returned an incomplete response. Please retry.")))
             return
         }
-        complete(.success(Proof(state: credential.state ?? "", identityToken: token)))
+        complete(.success(Proof(state: credential.state ?? "", identityToken: token, authorizationCode: code)))
     }
     func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
         if (error as? ASAuthorizationError)?.code == .canceled { complete(.failure(CancellationError())) }

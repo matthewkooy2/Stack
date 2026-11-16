@@ -76,6 +76,11 @@ struct AccessView: View {
                 .buttonStyle(.tap(scale: 0.985))
                 .disabled(store.googlePending)
                 .accessibilityLabel("Sign in")
+                HStack(spacing: 16) {
+                    Link("Privacy policy", destination: URL(string: "https://stackmvp.top/privacy")!)
+                    Link("Support", destination: URL(string: "https://stackmvp.top/support")!)
+                }
+                .font(Typeface.caption)
             }
             .reveal(3, delay: 0.55)
         }

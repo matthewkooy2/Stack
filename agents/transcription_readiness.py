@@ -5,7 +5,7 @@ from pathlib import Path
 import time
 import uuid
 
-PATH=Path('.jac/transcription/readiness.json')
+PATH=Path(os.environ.get('STACK_TRANSCRIPTION_READINESS_PATH', '.jac/transcription/readiness.json'))
 STAGES={'checking','toolchain','source','building','model','probe','ready','failed'}
 TOOLS={'git','cmake','cc','c++'}
 

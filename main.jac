@@ -65,7 +65,7 @@ def:pub auth_apple_web_begin() -> dict[str, any] {
     return apple_auth.begin("web");
 }
 def:pub auth_apple_finish(state: str, identity_token: str, authorization_code: str = "", name: str = "") -> dict[str, any] {
-    return apple_auth.finish(state,identity_token);
+    return apple_auth.finish(state,identity_token,authorization_code,locks.account);
 }
 
 def _owned_interview(id: str) -> PrepSession {
@@ -1098,6 +1098,7 @@ def:priv agent_continue_tailoring(id: str, resume_id: str = "") -> dict[str, any
 }
 
 def:priv agent_linkedin_profile(url: str = "", target_role: str | None = None) -> dict[str, any] {
+    if os.environ.get("STACK_LINKEDIN_ENABLED", "1") != "1" { return _error("LinkedIn review is unavailable."); }
     with locks.account() {
         _agent_fresh();p=_profile_data();
         if url { p.linkedin_url=profile_url(url); }
@@ -1108,6 +1109,7 @@ def:priv agent_linkedin_profile(url: str = "", target_role: str | None = None) -
 
 def:priv agent_linkedin_start(url: str = "", target_role: str = "") -> dict[str, any] {
     saved=agent_linkedin_profile(url,target_role);
+    if saved.get("error") { return saved; }
     with locks.account() {
         _agent_fresh();now=time.time();
         r=root ++> AgentRun(workflow_version=2,kind="linkedin",target_id="self",
@@ -1643,6 +1645,8 @@ def _delete_verified_account(user_id: str) -> dict[str, any] {
         for r in [root -->][?:AgentRun] { r.lease="";r.status="cancelled"; }
         for t in [root.shared -->][?:AgentTicket] { if t.owner==owner { del t; } }
         commit();
+        try { apple_auth.revoke_account(user_id); }
+        except Exception { return {"error":"Could not disconnect Apple. Please retry account deletion."}; }
         for c in [root -->][?:AgentConnection] {
             if c.sealed {
                 try { __import__("agents.google",fromlist=["revoke"]).revoke(__import__("agents.security",fromlist=["unseal"]).unseal(c.sealed)); }

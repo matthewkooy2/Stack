@@ -80,7 +80,8 @@ def setup(check=False, progress=None, deadline=600):
     if actual!=manifest['source_commit']:raise RuntimeError('Whisper source failed pinned revision verification.')
     beat('building','Building the local CPU transcription engine (one build job).')
     build=source/'build'
-    run(['cmake','-S',str(source),'-B',str(build),'-DCMAKE_BUILD_TYPE=Release','-DBUILD_SHARED_LIBS=OFF',
+    portable=['-DGGML_NATIVE=OFF'] if os.environ.get('STACK_TRANSCRIPTION_PORTABLE')=='1' else []
+    run(['cmake','-S',str(source),'-B',str(build),'-DCMAKE_BUILD_TYPE=Release','-DBUILD_SHARED_LIBS=OFF',*portable,
          '-DGGML_BACKEND_DL=OFF','-DGGML_CUDA=OFF','-DGGML_METAL=OFF','-DGGML_VULKAN=OFF',
          '-DGGML_BLAS=OFF','-DGGML_OPENMP=OFF','-DWHISPER_BUILD_TESTS=OFF','-DWHISPER_BUILD_EXAMPLES=ON'])
     run(['cmake','--build',str(build),'--target','whisper-cli','--parallel','1'])

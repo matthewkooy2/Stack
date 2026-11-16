@@ -55,6 +55,27 @@ active release under `/opt/stack-deploy/current`. If an update fails its
 readiness checks, it applies the last successful release. Database restores
 and major-version upgrades are separate operations.
 
+## App Store release configuration
+
+- Set the Apple Team ID, key ID, and container path to the Sign in with Apple
+  key in the private API environment. Keep the key readable only by the Stack
+  service under its mounted private storage. Use the same stable
+  `STACK_CONNECTION_KEY` for encrypting Google connections and Apple refresh
+  tokens. Confirm both App ID and Services ID exchanges if both logins are
+  enabled. Existing iPhone builds that omit the authorization code need an
+  update to sign in with Apple on this image.
+- Point the API and worker at a working Stack-operated Ollama or LM Studio
+  model using the private agent configuration. Confirm resume and coaching
+  inference uses that model. The VM allows only local inference and private
+  transcription. It disables LinkedIn review and externally hosted live voice.
+  Check the worker's synthetic Whisper probe on the public response headers.
+- Keep staging admission restricted. Set `invite_only` to the JSON boolean
+  `false` in the private production config when public signup is ready.
+  Verify a new account, prepare an admitted username/password review account
+  with synthetic data, and exercise the signed iPhone build against production.
+  Use `https://stackmvp.top/privacy` and `https://stackmvp.top/support` in
+  App Store Connect after confirming they resolve from outside the network.
+
 ## Operations
 
 Run these from a root shell on the selected VM to inspect the active deployment.

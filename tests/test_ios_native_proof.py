@@ -123,6 +123,15 @@ class ReleaseProof(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.validate()
 
+    def test_unavailable_run_listing_falls_back_to_fresh_native_checks(self):
+        self.runs.side_effect = subprocess.CalledProcessError(1, ['gh', 'api'])
+        with (patch.dict(os.environ, {'GITHUB_EVENT_NAME': 'push'}),
+              patch.object(proof, 'output') as output,
+              patch.object(proof, 'proof_for') as read_proof):
+            proof.reuse(MACHINE)
+        output.assert_called_once_with('reused_run', 0)
+        read_proof.assert_not_called()
+
     def test_main_commit_must_match_verified_push_exactly(self):
         self.run.update(event='push', head_branch='main', head_sha='cccccccccccccccccccccccccccccccccccccccc')
         self.validate()

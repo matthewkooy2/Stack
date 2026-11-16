@@ -8,12 +8,45 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
-ALL = {'backend': True, 'native': True}
+ALL = {'backend': True, 'native': True, 'backend_groups': 'all'}
 PROSE = {'README.md', 'AGENTS.md', 'THIRD_PARTY_NOTICES.txt'}
+SHARED_WEB = {'web/apple-auth.js', 'web/google-auth.js', 'web/style.css'}
+# Audit individual paths. New files in these directories still run all groups.
+FEATURE_PATHS = {
+    'discovery/branding.py': ('jobs',),
+    'discovery/card.py': ('jobs', 'applications'),
+    'discovery/photos.py': ('jobs',),
+    'discovery/ranking.py': ('jobs',),
+    'web/jobs-lab.html': ('jobs',),
+    'agents/job_score.jac': ('jobs', 'resume'),
+    'agents/record_resume.py': ('jobs', 'resume', 'prep', 'applications'),
+    'agents/resume_details.py': ('jobs', 'resume', 'prep', 'applications'),
+    'agents/resume_processing.jac': ('resume', 'applications'),
+    'agents/resume_templates.jac': ('resume',),
+    'agents/templates/awesome-cv.tex': ('resume',),
+    'agents/templates/bill-ryan.tex': ('resume',),
+    'agents/templates/classic.tex': ('resume',),
+    'agents/templates/deedy.tex': ('resume',),
+    'agents/templates/jake.tex': ('resume',),
+    'agents/templates/jan-kuster.tex': ('resume',),
+    'agents/templates/sb2nov.tex': ('resume',),
+    'web/BulletBank.jac': ('resume',),
+    'agents/contacts.jac': ('network',),
+    'agents/linkedin.jac': ('network',),
+    'agents/interview.py': ('prep', 'jobs', 'resume', 'applications'),
+    'agents/prep.jac': ('prep',),
+    'agents/transcription_store.py': ('prep',),
+    'agents/transcription_worker.py': ('prep',),
+    'core/transcription.jac': ('prep',),
+    'web/Interview.js': ('prep',),
+    'agents/autofill.py': ('applications',),
+}
 
 
 def select(paths):
     result = {'backend': False, 'native': False}
+    groups = set()
+    full_backend = False
     for path in paths:
         # Only explicit prose locations are exempt. Fixture READMEs, executable
         # docs/config and unrecognized paths retain full verification.
@@ -24,6 +57,18 @@ def select(paths):
         # else may affect shared API payloads, fixtures, dependencies or policy.
         if not path.startswith('web/'):
             result['native'] = True
+        if path in SHARED_WEB:
+            continue
+        if path in FEATURE_PATHS:
+            groups.update(FEATURE_PATHS[path])
+        else:
+            full_backend = True
+    if full_backend:
+        result['backend_groups'] = 'all'
+    elif result['backend']:
+        result['backend_groups'] = ','.join(sorted(groups)) or 'shared'
+    else:
+        result['backend_groups'] = 'none'
     return result
 
 
@@ -87,10 +132,47 @@ def pending_native_upload(head):
     return upload_relevant(paths_between(before, head))
 
 
-def selection(event, name, include_upload=False, native_release=False):
+def verified_backend_base(event, name):
+    """Only discard unchanged feature tests when main already verified those inputs."""
+    try:
+        if name == 'push' and event['ref'] == 'refs/heads/main':
+            base = sha(event['before'])
+        elif name == 'pull_request' and event['pull_request']['base']['ref'] == 'main':
+            base = sha(event['pull_request']['base']['sha'])
+        else:
+            return False
+        repository = os.environ['GITHUB_REPOSITORY']
+        prefix = f'repos/{repository}/actions'
+        result = json.loads(subprocess.check_output([
+            'gh', 'api', '--method', 'GET', f'{prefix}/workflows/ci.yml/runs',
+            '-f', 'branch=main', '-f', 'event=push', '-f', f'head_sha={base}', '-F', 'per_page=1',
+        ], timeout=15))
+        if result['total_count'] != 1:
+            return False
+        run, = result['workflow_runs']
+        if (run['event'], run['head_branch'], run['head_sha'], run['head_repository']['full_name'],
+                run['status'], run['conclusion']) != ('push', 'main', base, repository, 'completed', 'success'):
+            return False
+        run_id, attempt = run['id'], run['run_attempt']
+        if type(run_id) is not int or type(attempt) is not int or min(run_id, attempt) < 1:
+            return False
+        jobs = json.loads(subprocess.check_output([
+            'gh', 'api', f'{prefix}/runs/{run_id}/attempts/{attempt}/jobs?per_page=100',
+        ], timeout=15))['jobs']
+        return len(jobs) == 2 and {job['name']: job['conclusion'] for job in jobs} == {
+            'Backend and security': 'success', 'CI passed': 'success',
+        }
+    except (KeyError, TypeError, ValueError, UnicodeError, OSError, subprocess.SubprocessError):
+        return False
+
+
+def selection(event, name, include_upload=False, native_release=False, backend_release=False):
     try:
         paths = changed_paths(event, name)
         result = select(paths)
+        if backend_release and result['backend_groups'] != 'all' and not verified_backend_base(event, name):
+            print('Full backend verification: no successful CI proof for the exact main baseline.')
+            result.update(backend=True, backend_groups='all')
         if include_upload:
             result['native_upload'] = upload_relevant(paths)
             if native_release and name == 'push' and event.get('ref') == 'refs/heads/main':
@@ -108,16 +190,18 @@ def main():
     except (KeyError, ValueError, OSError):
         event = {}
     result = selection(event, os.environ.get('GITHUB_EVENT_NAME', ''), include_upload=True,
-                       native_release='--native-release' in sys.argv[1:])
+                       native_release='--native-release' in sys.argv[1:],
+                       backend_release='--backend-release' in sys.argv[1:])
     lines = ''.join(f'{name}={str(value).lower()}\n' for name, value in result.items())
     print(lines, end='')
     with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
         output.write(lines)
     if os.environ.get('GITHUB_STEP_SUMMARY'):
         with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as summary:
-            summary.write('Existing check selection (credential scans always run):\n\n' +
-                          '\n'.join(f'- {name}: {"run" if value else "not applicable"}'
-                                    for name, value in result.items()) + '\n')
+            summary.write('Existing check selection (credential scans always run):\n\n')
+            for name in ('backend', 'native', 'native_upload'):
+                summary.write(f'- {name}: {"run" if result[name] else "not applicable"}\n')
+            summary.write(f'- Backend feature groups: {result["backend_groups"]}\n')
 
 
 if __name__ == '__main__':

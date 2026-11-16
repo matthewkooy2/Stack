@@ -14,6 +14,9 @@ jobs:
     name: Backend and security
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -21,7 +24,9 @@ jobs:
           fetch-depth: 0
       - name: Select affected checks
         id: affected
-        run: python3 scripts/ci/affected-checks.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/affected-checks.py --backend-release
       - name: Report backend checks not applicable
         if: steps.affected.outputs.backend == 'false'
         run: echo 'No backend runtime changes; credential scans still run.'
@@ -67,7 +72,9 @@ jobs:
           scripts/agent-admin.jac
       - name: Run approved backend safety cases
         if: steps.affected.outputs.backend != 'false'
-        run: python3 scripts/ci/core-tests.py
+        env:
+          STACK_BACKEND_GROUPS: ${{ steps.affected.outputs.backend_groups }}
+        run: python3 scripts/ci/core-tests.py --groups "$STACK_BACKEND_GROUPS"
       - name: Start services and verify account and saved practice persistence
         if: steps.affected.outputs.backend != 'false'
         run: |

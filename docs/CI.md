@@ -31,23 +31,44 @@ check names and workflow triggers stay present for every PR and main push; a
 runtime no-op completes successfully and explains its selection in the run summary.
 No new job, matrix, required check, schedule or framework is introduced. All three
 credential scans still execute, including on documentation-only changes. Backend
-bootstrap, Jac checks, safety cases and startup smoke run together when selected.
+bootstrap, Jac checks, shared safety cases and startup smoke run for every
+backend runtime change. The same backend job runs the selected feature cases.
 Native tests, unsigned Release compile and proof publication run together when
 selected, retaining the existing identical-tree reuse rules.
 
 | Changed paths | Backend runtime | Native runtime |
 | --- | --- | --- |
 | Root `README.md`, `AGENTS.md`, `THIRD_PARTY_NOTICES.txt`; `docs/**/*.md` prose | No | No |
-| `web/**` only | Yes | No |
+| Audited feature files | Shared checks and the affected feature groups | Existing native selection |
+| Browser sign-in helpers or `web/style.css` only | Shared checks | No |
+| Other `web/**` paths, including shared workspace files | All groups | No |
 | `ios/**`, including tests, project settings and resources | Yes (existing Swift/static safety cases) | Yes |
-| Shared API/auth/payload producers: `main.jac`, `core/**`, `agents/**`, `discovery/**`, `mobile/**` | Yes | Yes |
+| Shared or unlisted API/auth/payload producers: `main.jac`, other `core/**`, `agents/**`, `discovery/**`, `mobile/**` | All groups | Yes |
 | Dependencies/build/runtime settings: `native/**`, `dependencies/**`, manifests, lockfiles and root config | Yes | Yes |
 | Tests/fixtures (including their READMEs), scripts, `.github/**`, deployment, non-prose docs, unknown paths | Yes | Yes |
 | Manual run, missing refs/identity, malformed event or unavailable diff | Yes | Yes |
 
-This intentionally uses coarse existing suites. Backend implementation and native
-source changes may run extra safety cases because shared contracts, fixtures and
-policy are covered together. Narrower dependency partitions need separate evidence.
+The backend groups reuse the approved safety cases. Jobs exercises catalog-to-
+application handoff in the autofill case. Resume adds processing, retry and stale
+worker checks. Network includes provider selection and reuse for public profile
+work, and the shared gateway suite covers LinkedIn access. Prep covers practice
+provider claims and transcript durability and isolation. Applications covers
+autofill ownership and retired submission paths. Shared cases cover gateway
+admission, Google account isolation, provider permissions and upload safety.
+
+Only exact, audited paths select feature groups. For example, changes to
+`discovery/card.py` run Jobs and Applications, while changes to
+`agents/job_score.jac` run Jobs and Resume. Mixed changes run the union of their
+groups and execute each shared or overlapping suite once. Unmapped source files
+select all groups, including new files alongside mapped files. A missing group
+output selects the full suite. The run summary reports the selected groups.
+
+Skipping backend cases requires successful backend/security CI for the exact
+main baseline. For a main push this is the preceding commit, and for a PR it
+is the event's main base. Missing, pending, failed or ambiguous proof runs all
+backend groups even for a prose-only change. This prevents a later change from
+skipping cases for an unverified preceding commit.
+
 The native runner still starts to report its existing check; a no-op does not install
 XcodeGen, start simulator tests, compile or publish proof.
 

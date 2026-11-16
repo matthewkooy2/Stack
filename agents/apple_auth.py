@@ -10,14 +10,17 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode, urlsplit
 import ipaddress
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from google.auth import crypt, jwt
+from jaclang.scale.runtime.context.trace_ctx import get_current_trace
 from jaclang.server.shared_store import shared_store
 from agents.accounts import resolve
+from agents.request_trace import valid_request_id
 
 ISSUER = "https://appleid.apple.com"
 PURPOSE = "stack:apple:native:v1"
@@ -132,43 +135,67 @@ def revoke_account(user_id):
         shared_store().kv_delete(key)
 
 
+def _log_failure(step, mode, stage, error):
+    event = {"event": "apple_auth_failure", "step": step, "mode": mode, "stage": stage,
+             "error_type": type(error).__name__}
+    trace_id = get_current_trace()
+    if valid_request_id(trace_id):
+        event["request_id"] = trace_id
+    if isinstance(error, HTTPError):
+        event["provider_status"] = error.code
+    print(json.dumps(event), flush=True)
+
+
 def begin(mode="native") -> dict[str, Any]:
+    stage = "configuration"
     try:
         configuration = web_configuration() if mode == "web" else {}
         client_id = audience(mode)
+        stage = "client_credentials"
         if _grant_required():
             _client_secret(client_id)
             _encryption()
+        stage = "challenge_store"
         _, store = runtime()
         nonce = hashlib.sha256(secrets.token_bytes(32)).hexdigest()
         state = store.create_token("", PURPOSE, 300, json.dumps({"nonce": nonce, "audience": client_id, "mode": mode}))
         return {"ok": True, "state": state, "nonce": nonce, "expires_in": 300, **configuration}
-    except Exception:
+    except Exception as error:
+        _log_failure("begin", mode, stage, error)
         return {"ok": False, "error": ("Apple web sign-in is not configured. Set the Apple Services ID and registered HTTPS return URL on the Stack server." if mode == "web" else "Stack could not prepare Apple sign-in. Please retry.")}
 
 
 def finish(state: str, identity_token: str, authorization_code: str, account_lock) -> dict[str, Any]:
+    mode = "unknown"
+    stage = "challenge_validation"
     try:
         manager, store = runtime()
         record = store.peek_token(state, PURPOSE)
         if not record:
             raise ValueError("Apple sign-in expired. Please start again.")
         challenge = json.loads(record["identity_value"])
-        mode = challenge.get("mode", "native")
-        if mode not in ("native", "web"):
+        challenge_mode = challenge.get("mode", "native")
+        if challenge_mode not in ("native", "web"):
             raise ValueError("Invalid Apple sign-in request.")
+        mode = challenge_mode
+        stage = "configuration"
         client_id = audience(mode)
+        stage = "apple_keys"
         keys = public_keys()
+        stage = "identity_verification"
         claims = jwt.decode(identity_token, keys, audience=client_id)
         if (claims.get("iss") != ISSUER or not claims.get("sub")
                 or challenge["audience"] != client_id
                 or not hmac.compare_digest(claims.get("nonce", ""), challenge["nonce"])):
             raise ValueError("Apple identity did not match this sign-in request.")
+        stage = "challenge_store"
         if not store.consume_token(state, PURPOSE):
             raise ValueError("Apple sign-in expired. Please start again.")
+        stage = "token_exchange"
         if _grant_required() and not authorization_code:
             raise ValueError("Update Stack to complete Apple sign-in.")
         sealed = _exchange(authorization_code, client_id, mode, keys, claims["sub"]) if _grant_required() else ""
+        stage = "account_resolution"
         email = claims.get("email", "") if claims.get("email_verified") in (True, "true") else ""
         user = resolve(manager, "apple", claims["sub"], email)
         uid = user["user_id"]
@@ -176,7 +203,10 @@ def finish(state: str, identity_token: str, authorization_code: str, account_loc
             if not manager.get_user(uid):
                 raise ValueError("That Stack account no longer exists.")
             if sealed:
+                stage = "grant_storage"
                 _save_grant(uid, client_id, sealed)
+            stage = "session_issue"
             return {"ok": True, "token": manager.create_jwt_token(uid), "username": manager.get_username(uid) or ""}
-    except Exception:
+    except Exception as error:
+        _log_failure("finish", mode, stage, error)
         return {"ok": False, "error": "Apple sign-in could not finish. Please try again."}

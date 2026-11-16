@@ -178,6 +178,32 @@ class AppleSignIn(unittest.TestCase):
             self.assertEqual(shared_store().rows("SELECT value FROM kv_state WHERE key = :key",
                                                   {"key": f"stack:apple-grant:{uid}:{client_id}"}), [])
 
+    def test_provider_failure_logs_stage_and_status_without_credentials(self):
+        from contextlib import redirect_stdout
+        from io import BytesIO, StringIO
+        from urllib.error import HTTPError
+        module = self.client.server.module.apple_auth
+        output = StringIO()
+        provider_error = HTTPError("https://appleid.apple.com/auth/token", 503, "private-sentinel",
+                                   {}, BytesIO(b"provider-body-sentinel"))
+        self.addCleanup(provider_error.close)
+        with patch.object(module, "_grant_required", return_value=True), patch.object(
+            module, "_client_secret", return_value="private-sentinel"
+        ), patch.object(module, "_encryption"), patch.object(
+            module, "_apple_post", side_effect=provider_error
+        ), redirect_stdout(output):
+            result = self.sign_in(code="authorization-code-sentinel")
+        self.assertFalse(result["ok"])
+        events = [json.loads(line) for line in output.getvalue().splitlines()
+                  if line.startswith('{"event": "apple_auth_failure"')]
+        self.assertEqual(len(events), 1)
+        if "request_id" in events[0]:
+            self.assertRegex(events[0].pop("request_id"), r"^[a-f0-9]{32}$")
+        self.assertEqual(events, [{"event": "apple_auth_failure", "step": "finish",
+                                   "mode": "native", "stage": "token_exchange",
+                                   "error_type": "HTTPError", "provider_status": 503}])
+        self.assertNotIn("sentinel", json.dumps(events))
+
     def test_returning_signin_preserves_account_and_data(self):
         first = self.sign_in()
         self.client.set_auth_token(first["token"])

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Run the approved existing backend safety cases, in separate Jac runtimes."""
+import argparse
 import os
 from pathlib import Path
 import subprocess
@@ -48,6 +49,26 @@ JAC_SUITES = [
     'pdf_upload_security_tests.jac', 'provider_workflow_tests.jac',
     'autofill_workflow_tests.jac', 'application_retirement_tests.jac',
 ]
+# Suites without a feature assignment run for every backend runtime change.
+FEATURE_SUITES = {
+    'jobs': {'autofill_workflow_tests.jac'},
+    'resume': {'resume', 'autofill_workflow_tests.jac'},
+    'network': {'provider_workflow_tests.jac'},
+    'prep': {'transcription', 'transcription-api', 'provider_workflow_tests.jac'},
+    'applications': {'autofill_workflow_tests.jac', 'application_retirement_tests.jac'},
+}
+
+
+def selected_suites(groups):
+    if groups in ('', 'all'):
+        return tuple(SUITES), tuple(JAC_SUITES)
+    features = set() if groups == 'shared' else set(groups.split(','))
+    grouped_suites = set().union(*FEATURE_SUITES.values())
+    selected = set().union(*(FEATURE_SUITES[feature] for feature in features))
+    return (
+        tuple(name for name in SUITES if name not in grouped_suites or name in selected),
+        tuple(name for name in JAC_SUITES if name not in grouped_suites or name in selected),
+    )
 
 
 def main():
@@ -58,16 +79,23 @@ def main():
         suite = unittest.defaultTestLoader.loadTestsFromNames(SUITES[selector])
         result = unittest.TextTestRunner(verbosity=2).run(suite)
         return 0 if result.wasSuccessful() and result.testsRun and not result.skipped else 1
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--groups', default='all', help='Comma-separated backend feature groups, shared, or all')
+    args = parser.parse_args()
+    try:
+        python_suites, jac_suites = selected_suites(args.groups)
+    except KeyError as error:
+        parser.error(f'Unknown backend feature group: {error.args[0]!r}')
     sys.path.insert(0, str(ROOT / 'scripts'))
     import bootstrap
     env = bootstrap.environment(ROOT)
     env.update(JAC_DB_SCRATCH='1', JAC_TEST_JOBS='0', PYTHONPATH=str(ROOT))
-    for name in SUITES:
+    for name in python_suites:
         start = time.monotonic()
         subprocess.run([str(ROOT / 'scripts/jac'), 'run', '--no-serve', __file__],
                        env=dict(env, STACK_CORE_SUITE=name), check=True)
         print(f'Core {name}: {time.monotonic() - start:.1f}s', flush=True)
-    for name in JAC_SUITES:
+    for name in jac_suites:
         subprocess.run([str(ROOT / 'scripts/jac'), 'test', 'tests/' + name], env=env, check=True)
     subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s',
                     'deploy/startup', '-p', 'test_startup.py', '-v'], env=env, check=True)

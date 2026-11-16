@@ -1,0 +1,101 @@
+{
+  "uid": "stack-application-logs",
+  "title": "Stack Application Logs",
+  "tags": [
+    "stack",
+    "logs"
+  ],
+  "schemaVersion": 41,
+  "editable": false,
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "links": [
+    {
+      "type": "link",
+      "title": "Stack Operations",
+      "url": "/d/stack-operations"
+    },
+    {
+      "type": "link",
+      "title": "Explore in Loki",
+      "url": "/explore"
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "environment",
+        "label": "Environment",
+        "type": "custom",
+        "query": "production,staging",
+        "current": {
+          "text": "production",
+          "value": "production"
+        }
+      },
+      {
+        "name": "service",
+        "label": "Service",
+        "type": "custom",
+        "query": "gateway,api,tunnel",
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        }
+      },
+      {
+        "name": "search",
+        "label": "Request ID or log text",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "logs",
+      "title": "Gateway and API request traces",
+      "description": "Search a request ID to follow it across the gateway and API. Search application_error for Stack errors returned with HTTP 200. Select tunnel for production ingress errors.",
+      "datasource": {
+        "type": "loki",
+        "uid": "stack-loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 23
+      },
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "showLogDetails": true,
+        "wrapLogMessage": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "stack-loki"
+          },
+          "editorMode": "code",
+          "queryType": "range",
+          "expr": "{job=\"stack\",environment=~\"$environment\",service=~\"$service\"} |= \"$search\""
+        }
+      ]
+    }
+  ]
+}

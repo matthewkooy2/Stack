@@ -70,7 +70,7 @@ struct ProfileView: View {
                 Task { if await store.deleteAccount() { dismiss() } }
             }
         } message: {
-            Text("Are you sure? Your account and all its data will be permanently deleted.")
+            Text("Your account and its data will be permanently deleted. If Stack still appears in Sign in with Apple afterward, see Support for removal instructions.")
         }
     }
 
@@ -153,12 +153,12 @@ struct ProfileView: View {
             nudgeSection
             DisclosureSection("Agent model", detail: modelSummary) {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Applies to new agent tasks. Live voice uses its own connection.")
+                    Text("Applies to new agent tasks.")
                         .font(Typeface.caption).foregroundStyle(Palette.muted)
                     if !store.account.modelProviderMessage.isEmpty {
                         Text(store.account.modelProviderMessage).font(Typeface.caption).foregroundStyle(Palette.muted)
                     }
-                    ForEach(["codex-cli", "local"], id: \.self) { choice in
+                    ForEach(modelSettings["model_options"].array.map { $0["selection"].string }, id: \.self) { choice in
                         let option = modelSettings["model_options"].array.first { $0["selection"].string == choice } ?? .null
                         Button {
                             Task { await selectModel(choice) }
@@ -181,7 +181,7 @@ struct ProfileView: View {
             if !modelError.isEmpty {
                 MessageLine(text: modelError)
             }
-            Text("Nothing is sent to an employer, a contact or a model provider unless you approve it.")
+            Text("Stack asks for approval before sending messages to employers or contacts.")
                 .font(Typeface.caption).foregroundStyle(Palette.muted)
             StoreMessages()
             VStack(spacing: Spacing.option) {
@@ -191,6 +191,8 @@ struct ProfileView: View {
                 StackButton(label: "iPhone notification settings", icon: "bell", kind: .secondary) {
                     if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
                 }
+                Link("Privacy policy", destination: URL(string: "https://stackmvp.top/privacy")!)
+                Link("Contact support", destination: URL(string: "https://stackmvp.top/support")!)
                 StackButton(label: "Sign out", icon: "logout", kind: .secondary, disabled: store.busy) {
                     Task { await store.signOut(); dismiss() }
                 }

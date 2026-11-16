@@ -11,7 +11,7 @@ import from pathlib { Path }
 import from jaclang.runtime.runtime { JacRuntime }
 import from jaclang.server.session { Session }
 import core.locks as locks;
-import from agents.contracts { VERSION, STEPS, workflow_steps, PAID, EXTERNAL, TERMINAL, CLI_PROVIDERS, LOCAL_PROVIDERS, config, model_access, model_status, digest, default_policy, validate_policy, validate_facts, context_facts, authorize, reserve_cents, validate_contact }
+import from agents.contracts { VERSION, STEPS, workflow_steps, PAID, EXTERNAL, TERMINAL, CLI_PROVIDERS, LOCAL_PROVIDERS, config, first_party_ai_only, model_access, model_status, digest, default_policy, validate_policy, validate_facts, context_facts, authorize, reserve_cents, validate_contact }
 import from agents.voice { voice_settings, voice_reservation, SECONDS }
 import from agents.prep { catalog, problem, validate_session }
 import from agents.stories { validate as validate_story, corrected as correct_story, missing as story_missing, TOPICS }
@@ -179,10 +179,13 @@ def:priv agent_admission() -> dict[str, any] {
 }
 def:priv agent_settings() -> dict[str, any] {
     _agent_access();m=_agent_memory();
-    return {"account_id":jid(root),"model_selection":m.model_selection or ("local" if config()["provider"] in LOCAL_PROVIDERS else "codex-cli" if config()["provider"]=="codex-cli" else ""),"model_options":[{"selection":choice,**model_status(jid(root),choice)} for choice in ["codex-cli","local"]],"facts":m.facts,"policy":m.policy,"revision":m.revision,"connections":[{"id":jid(c),"provider":c.provider,"state":c.state,"scopes":c.scopes,"tracking":c.tracks_mail(m.policy)} for c in [root -->][?:AgentConnection]],"web_url":config()["web_url"],"activity":_agent_summary()};
+    choices = ["local"] if first_party_ai_only() else ["codex-cli", "local"];
+    selection = "local" if first_party_ai_only() else m.model_selection;
+    return {"account_id":jid(root),"model_selection":selection or ("local" if config()["provider"] in LOCAL_PROVIDERS else "codex-cli" if config()["provider"]=="codex-cli" else ""),"model_options":[{"selection":choice,**model_status(jid(root),choice)} for choice in choices],"facts":m.facts,"policy":m.policy,"revision":m.revision,"connections":[{"id":jid(c),"provider":c.provider,"state":c.state,"scopes":c.scopes,"tracking":c.tracks_mail(m.policy)} for c in [root -->][?:AgentConnection]],"web_url":config()["web_url"],"activity":_agent_summary()};
 }
 def:priv agent_save_model(selection: str) -> dict[str, any] {
     _agent_access();
+    if first_party_ai_only() and selection != "local" { return {"error":"This deployment uses only Stack-hosted AI."}; }
     if selection not in ["codex-cli","local"] { return {"error":"Choose Codex CLI or Local model."}; }
     with locks.account() {
         _agent_fresh();m=_agent_memory();m.model_selection=selection;commit();
@@ -290,6 +293,7 @@ def:priv agent_cancel(id: str) -> dict[str, any] {
     return out;
 }
 def _linkedin_execute(id: str) -> dict[str, any] {
+    if os.environ.get("STACK_LINKEDIN_ENABLED", "1") != "1" { return {"error":"LinkedIn review is unavailable."}; }
     # Execute in the authenticated request; LinkedIn has no worker ticket or lease.
     with locks.account() {
         _agent_fresh();r=_owned_run(id) as AgentRun;

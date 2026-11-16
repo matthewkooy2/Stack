@@ -3,7 +3,7 @@ import json;
 import math;
 import os;
 import from uuid { uuid4 }
-import from agents.contracts { CLI_PROVIDERS, LOCAL_PROVIDERS, config, validate_evidence }
+import from agents.contracts { CLI_PROVIDERS, LOCAL_PROVIDERS, config, first_party_ai_only, validate_evidence }
 import from agents.security { http }
 import agents.interview as interview;
 import agents.coaching as coaching;
@@ -155,6 +155,9 @@ def generate(
 def _send(step: str, c: dict[str, any], system: str, payload: dict[str, any], schema: dict[str, any], coach: bool,
           received: any, observe: any, key: any) -> tuple[str, dict[str, any]] {
     provider = c['provider'];
+    if first_party_ai_only() and provider not in LOCAL_PROVIDERS {
+        raise ValueError('This deployment uses only Stack-hosted AI.');
+    }
     result: dict[str, any] = {};
     if observe { observe("model_request", {"provider":provider,"requested_model":c["model"] or "provider default","transport":"codex exec" if provider=="codex-cli" else "claude -p" if provider=="claude-cli" else "local HTTP API" if provider in LOCAL_PROVIDERS else "HTTPS API","system":system,"input":json.loads(payload["input"]),"prompt_text":system+'\nReturn only the requested JSON.\n'+payload["input"] if provider=="codex-cli" else payload["input"],"schema":schema,"max_output_tokens":c["max_output_tokens"] if provider not in CLI_PROVIDERS else None}); }
     if (provider in CLI_PROVIDERS) {

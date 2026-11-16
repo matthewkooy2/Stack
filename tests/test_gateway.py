@@ -1,6 +1,7 @@
 """Real HTTP boundary checks with a fixture upstream and no account data."""
 import json
 import io
+import os
 import threading
 import unittest
 from contextlib import redirect_stdout
@@ -140,6 +141,18 @@ class Gateway(unittest.TestCase):
                 self.assertEqual(request('agent_run', {'id': 'other'}), 429)
                 gateway._rates.clear()
                 self.assertEqual(request('agent_run', {'id': 'other'}), 403)
+                with patch.dict(os.environ, {"STACK_LINKEDIN_ENABLED": "0"}):
+                    calls.clear()
+                    self.assertEqual(request('agent_linkedin_start', {}), 404)
+                    self.assertEqual(request('agent_linkedin_profile', {}), 404)
+                    self.assertEqual(calls, [])
+                    for name in ('agent_run', 'agent_respond', 'agent_retry', 'agent_cancel',
+                                 'agent_browser', 'agent_browser_control', 'agent_browser_subscribe'):
+                        self.assertEqual(request(name, {'id': 'linkedin-fixture'}), 404)
+                    self.assertTrue(all(path.endswith('agent_run') and options['timeout'] == 8
+                                        for path, options in calls))
+                    with urlopen(f'http://127.0.0.1:{server.server_port}/support', timeout=5) as response:
+                        self.assertIn(b'mailto:', response.read())
         finally:
             server.shutdown();server.server_close();thread.join();gateway._rates.clear()
 

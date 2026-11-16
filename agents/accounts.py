@@ -111,6 +111,7 @@ def purge_files(owner):
 
 def purge_records(manager, user_id, owner):
     db = shared_store()
+    db.rows("DELETE FROM kv_state WHERE starts_with(key, :prefix)", {"prefix": f"stack:apple-grant:{user_id}:"})
     for key, value in db.rows("SELECT key, value FROM kv_state WHERE key LIKE 'oauth-result:%'", {}):
         claims = manager.get_jwt_claims(json.loads(value).get("token", "")) or {}
         if claims.get("sub") == user_id:

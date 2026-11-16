@@ -40,11 +40,11 @@ agent_register_push agent_remove_push agent_notification_status agent_admission 
 }
 
 # Classification uses the authenticated account's task, never a client permission flag.
-def linkedin_request(function: str, path: str, body: bytes, authorization: str) -> bool {
+def linkedin_request(function: str, path: str, body: bytes, authorization: str, timeout: any = None) -> bool {
     if function in ['agent_linkedin_profile','agent_linkedin_start'] { return True; }
     if path=='/browser/stream' or function in ['agent_run','agent_respond','agent_retry','agent_cancel','agent_browser','agent_browser_control','agent_browser_subscribe'] {
         args=json.loads(body);
-        (status,raw)=upstream('/function/agent_run',json.dumps({'id':args.get('id','')}).encode(),authorization,timeout=None);
+        (status,raw)=upstream('/function/agent_run',json.dumps({'id':args.get('id','')}).encode(),authorization,timeout=timeout);
         return json.loads(raw).get('data',{}).get('result',{}).get('kind')=='linkedin';
     }
     return False;
@@ -130,6 +130,9 @@ class Handler(SimpleHTTPRequestHandler) {
         }
         if path == '/.well-known/apple-app-site-association' {
             self.app_page(app_links.association(),'application/json');return;
+        }
+        if path == '/support' {
+            self.app_page(app_links.support_page());return;
         }
         if path == '/privacy' {
             self.app_page(app_links.privacy_page());return;
@@ -230,9 +233,25 @@ class Handler(SimpleHTTPRequestHandler) {
     def post(self: Handler, path: str, function: str) -> any {
         try {
             length = int(self.headers.get('Content-Length', 0));
+            linkedin_enabled = os.environ.get('STACK_LINKEDIN_ENABLED', '1') == '1';
+            if not linkedin_enabled {
+                if function in ['agent_linkedin_profile', 'agent_linkedin_start'] {
+                    self.send_error(404);
+                    return;
+                }
+                if not (0 < length <= 15000000) {
+                    self.send_error(413);
+                    return;
+                }
+            }
             body = self.rfile.read(length);
             authorization = self.headers.get('Authorization', '');
-            linkedin=linkedin_request(function,path,body,authorization);
+            linkedin = linkedin_request(function,path,body,authorization,timeout=None if linkedin_enabled else 8)
+                if linkedin_enabled or authorization else False;
+            if linkedin and not linkedin_enabled {
+                self.send_error(404);
+                return;
+            }
             if not linkedin and not (0 < length <= 15000000) {
                 self.send_error(413);
                 return;

@@ -1,5 +1,5 @@
 // Apple's official popup SDK returns an identity proof; Stack verifies it server-side.
-// Apple credentials never enter Stack, and no Apple or Stack token is persisted here.
+// Stack exchanges the authorization code server-side so account deletion can revoke Apple access.
 const sdkURL = 'https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js';
 let loading, active = false;
 export function appleRedirectURI(value) {
@@ -46,7 +46,7 @@ export async function beginApple(request) {
   if (proof?.state !== challenge.state || typeof proof?.id_token !== 'string' || !proof.id_token) {
    throw new Error('Apple sign-in did not match this request. Try again.');
   }
-  const result = (await request('/function/auth_apple_finish', {state: challenge.state, identity_token: proof.id_token}, false))?.result;
+  const result = (await request('/function/auth_apple_finish', {state: challenge.state, identity_token: proof.id_token, authorization_code: proof.code || ''}, false))?.result;
   if (!result?.ok || !result.token) throw new Error(result?.error || 'Apple sign-in could not finish. Try again.');
   return result;
  } catch (error) {

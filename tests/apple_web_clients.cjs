@@ -5,7 +5,7 @@ async function main() {
  const {beginApple, appleRedirectURI} = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
  const challenge = {ok: true, state: 'fixture-state', nonce: 'fixture-nonce', client_id: 'com.fixture.stack.web', redirect_uri: 'https://stack.example.com/auth/apple'};
  let config, calls = [];
- const proof = {authorization: {state: challenge.state, id_token: 'fixture-apple-proof'}};
+ const proof = {authorization: {state: challenge.state, id_token: 'fixture-apple-proof', code: 'fixture-apple-code'}};
  global.window = {location: {origin: 'https://stack.example.com'}, AppleID: {auth: {init: value => { config = value; }, signIn: async () => proof}}};
  const request = async (route, body, authenticated) => {
   calls.push({route, body, authenticated});
@@ -15,7 +15,7 @@ async function main() {
  assert.equal(result.token, 'fixture-stack-session');
  assert.deepEqual(config, {clientId: challenge.client_id, scope: 'email', redirectURI: challenge.redirect_uri, state: challenge.state, nonce: challenge.nonce, usePopup: true});
  assert.ok(calls.every(call => call.authenticated === false));
- assert.deepEqual(calls[1].body, {state: challenge.state, identity_token: 'fixture-apple-proof'});
+ assert.deepEqual(calls[1].body, {state: challenge.state, identity_token: 'fixture-apple-proof', authorization_code: 'fixture-apple-code'});
  // Mismatched callbacks never reach the session-issuing endpoint.
  calls = []; window.AppleID.auth.signIn = async () => ({authorization: {...proof.authorization, state: 'another-attempt'}});
  await assert.rejects(() => beginApple(request), /did not match/);

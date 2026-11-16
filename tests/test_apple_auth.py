@@ -8,7 +8,8 @@ import unittest
 from unittest.mock import patch
 
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from google.auth import crypt, jwt
 
 if os.environ.get("JAC_DB_URL"):
@@ -27,6 +28,7 @@ class AppleSignIn(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         config = Path(directory.name) / "config.json"
         config.write_text(json.dumps({"invite_only": False}))
+        self.directory = Path(directory.name)
         self.env = patch.dict(os.environ, {"STACK_APPLE_ENABLED": "1", "STACK_APPLE_CLIENT_ID": "com.fixture.stack", "STACK_APPLE_WEB_CLIENT_ID": "com.fixture.stack.web", "STACK_APPLE_WEB_REDIRECT_URI": "https://stack.example.com/auth/apple", "STACK_AGENT_CONFIG": str(config)})
         self.env.start()
         self.addCleanup(self.env.stop)
@@ -48,7 +50,7 @@ class AppleSignIn(unittest.TestCase):
         self.assertTrue(response.ok, response.text)
         return response.data["result"]
 
-    def sign_in(self, changes=None, signer=None, mode="native"):
+    def sign_in(self, changes=None, signer=None, mode="native", code=""):
         challenge = self.rpc("auth_apple_web_begin" if mode == "web" else "auth_apple_begin")
         self.assertTrue(challenge["ok"], challenge)
         claims = dict(iss="https://appleid.apple.com", aud="com.fixture.stack.web" if mode == "web" else "com.fixture.stack", sub="fixture-apple-user",
@@ -57,7 +59,7 @@ class AppleSignIn(unittest.TestCase):
             claims.update(email="fixture@example.test", email_verified="true")
         claims.update(changes or {})
         token = jwt.encode(signer or self.signer, claims).decode()
-        self.proof = dict(state=challenge["state"], identity_token=token)
+        self.proof = dict(state=challenge["state"], identity_token=token, authorization_code=code)
         return self.rpc("auth_apple_finish", self.proof)
 
     def test_valid_signin_creates_usable_stack_session(self):
@@ -120,6 +122,61 @@ class AppleSignIn(unittest.TestCase):
         self.assertTrue(fresh["ok"], fresh)
         self.client.set_auth_token(fresh["token"])
         self.assertNotEqual(self.rpc("bootstrap")["user_id"], owner)
+
+    def test_public_grant_exchange_and_retryable_revocation(self):
+        module = self.client.server.module.apple_auth
+        key_path = self.directory / "fixture.p8"
+        key = ec.generate_private_key(ec.SECP256R1())
+        key_path.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                               serialization.NoEncryption()))
+        environment = {
+            "STACK_APPLE_REQUIRE_REVOCATION": "1", "STACK_APPLE_KEY_PATH": str(key_path),
+            "STACK_APPLE_KEY_ID": "fixture-id", "STACK_APPLE_TEAM_ID": "fixture-team",
+            "STACK_CONNECTION_KEY": Fernet.generate_key().decode(),
+        }
+        client_id = "com.fixture.stack"
+        calls = []
+        fail_revoke = True
+
+        def request(path, audience, values):
+            calls.append((path, audience, values))
+            if path == "/auth/token":
+                proof = jwt.encode(self.signer, {
+                    "iss": "https://appleid.apple.com", "aud": audience,
+                    "sub": "another-account" if values["code"] == "unrelated-code" else "fixture-apple-user",
+                    "iat": int(time.time()), "exp": int(time.time()) + 300,
+                }).decode()
+                return json.dumps({"id_token": proof, "refresh_token": "fixture-refresh-token"}).encode()
+            if fail_revoke:
+                raise OSError("Fixture timeout")
+            return b""
+
+        with patch.dict(os.environ, environment), patch.object(module, "_apple_post", side_effect=request):
+            self.assertTrue(module._client_secret(client_id))
+            self.assertFalse(self.sign_in()["ok"])
+            self.assertFalse(self.sign_in(code="unrelated-code")["ok"])
+            manager, _ = module.runtime()
+            self.assertIsNone(manager.get_user_by_sso("apple", "fixture-apple-user"))
+            result = self.sign_in(code="fixture-code")
+            self.assertTrue(result["ok"], result)
+            self.assertEqual(calls[-1], ("/auth/token", client_id, {"code": "fixture-code", "grant_type": "authorization_code"}))
+            uid = manager.validate_jwt_token(result["token"])
+            from jaclang.server.shared_store import shared_store
+            rows = shared_store().rows("SELECT value FROM kv_state WHERE key = :key",
+                                       {"key": f"stack:apple-grant:{uid}:{client_id}"})
+            self.assertEqual(len(rows), 1)
+            self.assertNotIn("fixture-refresh-token", rows[0][0])
+            self.client.set_auth_token(result["token"])
+            self.assertIn("retry account deletion", self.rpc("account_delete")["error"])
+            self.assertIsNotNone(manager.get_user(uid))
+            fail_revoke = False
+            self.assertTrue(self.rpc("account_delete")["deleted"])
+            self.assertEqual(calls[-1], ("/auth/revoke", client_id, {
+                "token": "fixture-refresh-token", "token_type_hint": "refresh_token",
+            }))
+            self.assertIsNone(manager.get_user(uid))
+            self.assertEqual(shared_store().rows("SELECT value FROM kv_state WHERE key = :key",
+                                                  {"key": f"stack:apple-grant:{uid}:{client_id}"}), [])
 
     def test_returning_signin_preserves_account_and_data(self):
         first = self.sign_in()

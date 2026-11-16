@@ -6,7 +6,7 @@ import math;
 import os;
 import from urllib.parse { quote }
 import from uuid { uuid4 }
-import from agents.contracts { config }
+import from agents.contracts { config, first_party_ai_only }
 import from agents.provider { SYSTEM }
 import from agents.worker { call }
 with entry {
@@ -16,6 +16,7 @@ with entry {
     SECONDS = 300;
 }
 def voice_settings() -> dict[(str, any)] {
+    if first_party_ai_only() { raise ValueError('Live voice is unavailable on this deployment.'); }
     import from pathlib { Path }
     path = Path(os.environ.get('STACK_AGENT_CONFIG', 'storage/agents/config.json'));
     raw = json.loads(path.read_text()) if path.exists() else {};

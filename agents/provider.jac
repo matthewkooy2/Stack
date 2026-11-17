@@ -5,6 +5,7 @@ import os;
 import from uuid { uuid4 }
 import from agents.contracts { CLI_PROVIDERS, LOCAL_PROVIDERS, config, first_party_ai_only, validate_evidence }
 import from agents.security { http }
+import from agents.local_model { InferenceCancellation }
 import agents.interview as interview;
 import agents.coaching as coaching;
 with entry {
@@ -114,7 +115,8 @@ def sources_for(context: dict[str, any]) -> dict[str, str] {
     can omit it; production generation always goes through the worker.
     """
 def generate(
-    step: any, context: any, configuration: any = None, record: any = None, observe: any = None
+    step: any, context: any, configuration: any = None, record: any = None, observe: any = None,
+    cancellation: InferenceCancellation | None = None
 ) -> any {
     c = configuration if (configuration is not None) else config();
     faster = c.get('coach_models', {}).get(c['provider'], '') if step == 'coach' else '';
@@ -139,7 +141,7 @@ def generate(
     }
     save();
     try {
-        result = _generate(step, context, c, received, observed if observe else None);
+        result = _generate(step, context, c, received, observed if observe else None, cancellation);
     } except Exception as exc {
         reason = str(exc) if isinstance(exc, ValueError) else `type(exc).__name__;
         save(
@@ -153,7 +155,7 @@ def generate(
 
 """One request over the configured transport. Returns (response text, provider result)."""
 def _send(step: str, c: dict[str, any], system: str, payload: dict[str, any], schema: dict[str, any], coach: bool,
-          received: any, observe: any, key: any) -> tuple[str, dict[str, any]] {
+          received: any, observe: any, key: any, cancellation: InferenceCancellation | None = None) -> tuple[str, dict[str, any]] {
     provider = c['provider'];
     if first_party_ai_only() and provider not in LOCAL_PROVIDERS {
         raise ValueError('This deployment uses only Stack-hosted AI.');
@@ -166,7 +168,7 @@ def _send(step: str, c: dict[str, any], system: str, payload: dict[str, any], sc
         text = cli_result.get('text', '') if coach and 'text' in cli_result else json.dumps(cli_result);
     } elif (provider in LOCAL_PROVIDERS) {
         import from agents.local_model { complete }
-        result = complete(step, system, payload['input'], schema, c, received);
+        result = complete(step, system, payload['input'], schema, c, received, cancellation=cancellation);
         text = result['text'];
         if observe { observe("model_response", {"reported_models":[result['model']], "response":result}); }
     } elif (provider == 'meta') {
@@ -247,7 +249,8 @@ def _memory_generate(step: str, context: dict[str, any], c: dict[str, any], rece
 
 """LinkedIn PDF review: profile sections fitted to the model context, a per-request section enum,
 and quote checks against the sections the model actually saw."""
-def _linkedin_generate(context: dict[str, any], c: dict[str, any], received: any, observe: any, key: any) -> dict[str, any] {
+def _linkedin_generate(context: dict[str, any], c: dict[str, any], received: any, observe: any, key: any,
+                       cancellation: InferenceCancellation | None) -> dict[str, any] {
     import agents.linkedin as linkedin;
     capture = context['linkedin_profile'];
     role = str(context.get('target_role', ''))[:120];
@@ -267,7 +270,7 @@ def _linkedin_generate(context: dict[str, any], c: dict[str, any], received: any
         'instructions': linkedin.REVIEW_SYSTEM, 'input': request(shown),
         'text': {'format': {'type': 'json_schema', 'name': 'stack_linkedin_review', 'strict': True, 'schema': schema}}
     };
-    (text, result) = _send('linkedin_review', c, linkedin.REVIEW_SYSTEM, payload, schema, False, received, observe, key);
+    (text, result) = _send('linkedin_review', c, linkedin.REVIEW_SYSTEM, payload, schema, False, received, observe, key, cancellation);
     body = text.strip() if isinstance(text, str) else '';
     if body.startswith('```') {
         body = body.strip('`').strip();
@@ -292,7 +295,8 @@ def local_model_context_message() -> str {
     return CONTEXT_MESSAGE;
 }
 
-def _generate(step: any, context: any, configuration: any, received: any, observe: any = None) -> any {
+def _generate(step: any, context: any, configuration: any, received: any, observe: any = None,
+              cancellation: InferenceCancellation | None = None) -> any {
     c = configuration if (configuration is not None) else config();
     provider = c['provider'];
     key = os.environ.get('MODEL_API_KEY' if (provider == 'meta') else 'OPENAI_API_KEY');
@@ -303,7 +307,7 @@ def _generate(step: any, context: any, configuration: any, received: any, observ
         return _memory_generate(step, context, c, received, observe, key);
     }
     if step == 'linkedin_review' {
-        return _linkedin_generate(context, c, received, observe, key);
+        return _linkedin_generate(context, c, received, observe, key, cancellation);
     }
     if (step not in SCHEMAS and step not in interview.STEPS) {
         raise ValueError('Unsupported model operation.');

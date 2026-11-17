@@ -69,9 +69,7 @@ struct NetworkView: View {
             }
             Spacer(minLength: 0)
             Menu {
-                if (Bundle.main.object(forInfoDictionaryKey: "StackLinkedInReviewEnabled") as? NSString)?.boolValue == true {
-                    Button("LinkedIn review", systemImage: "sparkles") { linkedIn = true }
-                }
+                Button("LinkedIn review", systemImage: "sparkles") { linkedIn = true }
                 Button("Public profile drafts", systemImage: "person.crop.rectangle") { secondary = .profiles }
                 Button("Discovery catalog", systemImage: "person.text.rectangle") { secondary = .discovery(nil) }
                 Button("Refresh contacts", systemImage: "arrow.clockwise") { refreshContacts() }

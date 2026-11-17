@@ -8,6 +8,7 @@ with entry {
     KIND_TITLES = {
         'autofill': 'Saved-answer autofill',
         'linkedin': 'LinkedIn profile review',
+        'linkedin_pdf': 'LinkedIn profile review',
         'application': 'Archived application assistant',
         'jobs': 'Job-fit analysis',
         'resume': 'Resume tailoring',
@@ -24,7 +25,7 @@ with entry {
     };
     STEP_LABELS = {
         'browser_autofill': 'Fill this page from saved answers',
-        'linkedin_scan':'Sign in and read your profile', 'linkedin_review':'Analyze recruiter appeal',
+        'linkedin_scan':'Sign in and read your profile', 'linkedin_review':'Analyze recruiter appeal', 'linkedin_pdf':'Read your LinkedIn PDF',
         'inspect': 'Read the application form',
         'fit': 'Analyze job fit',
         'tailor': 'Tailor your resume',
@@ -47,6 +48,7 @@ with entry {
     RESULTS = {
         'autofill': 'This task and its backend browser. Review every field and submit yourself.',
         'linkedin':'Network → LinkedIn profile review, and this task. Copy suggested edits into LinkedIn yourself.',
+        'linkedin_pdf':'Network → LinkedIn, and this task. Copy suggested edits into LinkedIn yourself.',
         'application': 'Saved results from the retired application assistant.',
         'jobs': 'Applications → this job → Agent help, and this task.',
         'resume': 'Review job-specific changes before generating your resume. Reviewed PDF/DOCX content produces a PDF and editable DOCX in a Stack template; uploaded LaTeX keeps its format and source. Your original is preserved.',
@@ -184,6 +186,7 @@ def context_label(kind: str, context: dict[(str, any)]) -> str {
         return str(context['event'].get('summary', 'Interview'));
     }
     if kind == 'linkedin' { return context.get('linkedin_url', '') + (' · ' + context['target_role'] if context.get('target_role') else ''); }
+    if kind == 'linkedin_pdf' { return 'LinkedIn PDF' + (' · ' + context['target_role'] if context.get('target_role') else ''); }
     if (kind == 'profile') {
         return 'Your professional profile';
     }
@@ -240,12 +243,12 @@ with entry {
         },
         {
             'key': 'linkedin',
-            'kinds': ['linkedin'],
+            'kinds': ['linkedin_pdf', 'linkedin'],
             'title': 'LinkedIn profile review',
-            'where': 'Network or web workspace → Network',
-            'summary': 'Reads your profile after you sign in, identifies recruiter-facing weaknesses, and suggests evidence-backed rewrites.',
-            'input': 'Your LinkedIn profile URL, optional target role, and sign-in inside the agent browser on your task.',
-            'review': 'You confirm the profile before capture. Profile text goes to your configured model; login details stay in the browser session. You apply edits yourself.',
+            'where': 'Network → LinkedIn',
+            'summary': 'Reviews the PDF you save from your own LinkedIn profile, flags recruiter-facing weaknesses with exact quotes, and suggests rewrites.',
+            'input': 'Your profile PDF from LinkedIn (More → Save to PDF on linkedin.com) and an optional target role.',
+            'review': 'Stack never signs in to or reads LinkedIn. The PDF text goes to Stack-hosted AI; contact details are removed first. You apply edits yourself.',
             'alternative': 'Use Profile suggestions on Resume to draft a headline and About from your confirmed facts.'
         },
 

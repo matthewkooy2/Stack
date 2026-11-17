@@ -4,6 +4,7 @@ import time;
 import json;
 import agents.worker as browser_worker;
 import agents.linkedin as linkedin;
+import agents.linkedin_pdf as linkedin_pdf;
 import agents.provider as coaching_provider;
 import secrets;
 import from uuid { uuid4, UUID }
@@ -332,6 +333,47 @@ def _linkedin_execute(id: str) -> dict[str, any] {
         }
     }
 }
+# LinkedIn PDF review: the member uploads their own profile export, so Stack never signs in to
+# or reads LinkedIn. Like practice coaching, it runs in the request on the configured local model.
+def:priv linkedin_pdf_review(name: str = "", content: str = "", target_role: str = "") -> dict[str, any] {
+    _agent_access();
+    try { capture=linkedin_pdf.parse_encoded(name,content); }
+    except ValueError as exc { return {"error":str(exc)}; }
+    with locks.account() {
+        _agent_fresh();m=_agent_memory();
+        r=root ++> AgentRun(workflow_version=2,kind="linkedin_pdf",target_id="self",
+            context={"target_role":str(target_role or "").strip()[:120],"file":capture["file"]},
+            model_selection=m.model_selection,created_at=time.time(),updated_at=time.time(),
+            key="linkedin_pdf:"+uuid4().hex,policy_revision=m.revision,artifacts={"linkedin_pdf":capture},
+            index=1,status="running",message="Reviewing your profile");
+        commit();id=jid(r);
+    }
+    return _linkedin_pdf_execute(id);
+}
+def _linkedin_pdf_execute(id: str) -> dict[str, any] {
+    with locks.account() {
+        _agent_fresh();r=_owned_run(id) as AgentRun;
+        capture=r.artifacts.get("linkedin_pdf");context=r.context;selection=r.model_selection;
+        r.status="running";r.message="Reviewing your profile";r.index=1;r.updated_at=time.time();commit();
+    }
+    try {
+        if not capture { raise ValueError("Upload your LinkedIn PDF again."); }
+        c=config(selection);model_access(c,jid(root));
+        if c["provider"] not in LOCAL_PROVIDERS { raise ValueError("LinkedIn review requires the configured local model."); }
+        output=coaching_provider.generate("linkedin_review",{"linkedin_profile":capture,"target_role":context.get("target_role","")},c)["artifact"];
+        with locks.account() {
+            _agent_fresh();r=_owned_run(id) as AgentRun;
+            r.artifacts["linkedin_review"]=output;r.index=2;r.status="completed";r.message="Profile review complete";
+            r.updated_at=time.time();commit();return _run_view(r,True);
+        }
+    } except Exception as exc {
+        message=str(exc) if isinstance(exc,ValueError) else "The review could not finish ("+`type(exc).__name__+"). Retry the review.";
+        with locks.account() {
+            _agent_fresh();r=_owned_run(id) as AgentRun;
+            r.status="failed";r.message=message;r.updated_at=time.time();commit();return _run_view(r,True);
+        }
+    }
+}
 def:priv agent_respond(id: str, values: list[dict[str, any]] = [], reuse: bool = True, target_role: str | None = None) -> dict[str, any] {
     r=_owned_run(id);
     if r is not None and r.kind=="linkedin" {
@@ -648,6 +690,12 @@ def:priv agent_retry(id: str) -> dict[str, any] {
     r=_owned_run(id);
     if r is not None and r.kind=="linkedin" {
         return _linkedin_execute(id);
+    }
+    if r is not None and r.kind=="linkedin_pdf" {
+        _agent_access();
+        # A request that died mid-review leaves "running"; allow a retry once it is clearly stale.
+        if r.status!="failed" and not (r.status=="running" and r.updated_at<time.time()-300) { return {"error":"Only a failed review can be retried."}; }
+        return _linkedin_pdf_execute(id);
     }
     _agent_access();
     with locks.account() {

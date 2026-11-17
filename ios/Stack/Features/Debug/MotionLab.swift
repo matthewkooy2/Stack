@@ -12,6 +12,8 @@ enum LabScreen: String, CaseIterable, Identifiable {
     case jobsDeck = "Jobs deck", network = "Network", applications = "Applications", resume = "Resume", profile = "Profile"
     case resumeUpload = "Resume upload", jobOnboarding = "Job onboarding", jobFilters = "Job filters"
     case gmailTracking = "Gmail tracking"
+    case linkedInUpload = "LinkedIn PDF upload"
+    case linkedInReview = "LinkedIn review"
     case gmailScan = "Gmail scan", tailoringReview = "Tailoring review"
     case prepQuestion = "Prep question", prepWorking = "Prep reading", prepCoaching = "Prep coaching", prepDone = "Prep done", prepSaved = "Prep saved answer", prepCoachingA = "Coaching: real reply A", prepCoachingB = "Coaching: real reply B", logo = "Logo marks", launch = "Launch to login", login = "Login screen", signIn = "Sign-in form", signUp = "Create-account form"
     var id: String { rawValue }
@@ -65,6 +67,11 @@ private struct MotionLabPreview: View {
             LabFlow(flow: "settings") { ProfileView() }
         case .resumeUpload:
             ResumeUploadScreen(onUpload: { take += 1 })
+        case .linkedInUpload:
+            LinkedInPDFUploadScreen(role: .constant("Data analyst"), onChoose: { take += 1 })
+        case .linkedInReview:
+            LinkedInReviewScreen(content: LinkedInReviewContent(LinkedInReviewSample.review), role: "Data analyst",
+                                 onDone: { dismiss() }, onAnother: { take += 1 })
         case .tailoringReview:
             TailoringReviewLab(onBack: { dismiss() })
         case .jobOnboarding:

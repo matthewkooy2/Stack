@@ -1,298 +1,145 @@
 import SwiftUI
-import UIKit
 
-/// The LinkedIn design connected to the existing browser and raw coaching endpoints.
+/// LinkedIn profile review from the PDF a member saves from their own profile. Stack never opens,
+/// signs in to or reads LinkedIn; the upload is reviewed by Stack's configured model in one request.
 @MainActor
 struct LinkedInFlow: View {
-    enum Step: Int, StageKey { case url, role, login, ready, scanning, results, scanError; var depth: Int { rawValue } }
+    enum Step: Int, StageKey { case upload, reviewing, results; var depth: Int { rawValue } }
     @Environment(\.dismiss) private var dismiss
     @Environment(\.stackReduceMotion) private var reduceMotion
-    @Environment(\.scenePhase) private var scenePhase
     @Environment(AppStore.self) private var store
-    @State private var step: Step = .url
-    @State private var id = ""
-    @State private var url = "https://linkedin.com/in/"
+    @State private var step: Step = .upload
     @State private var role = ""
-    @State private var paused = false
-    @State private var showRewrites = false
-    @State private var reviewText = ""
-    @State private var editedReview = ""
+    @State private var importing = false
+    @State private var uploader = ResumeUploader(read: { url in
+        try await readPickedFileInBackground(url, limit: ResumeFiles.limit, tooLarge: LinkedInPDF.tooLarge)
+    }, accepts: LinkedInPDF.isPDF, wrongType: LinkedInPDF.wrongType)
+    @State private var generation = -1
+    /// A review that failed after the PDF was read; Try again reruns it without another upload.
+    @State private var failedRun = ""
+    @State private var retrying = false
     @State private var error = ""
     @State private var run: JSON = .null
-    @State private var browser = RemoteBrowserModel()
-    @State private var analysis: Task<Void, Never>?
-    @State private var starting = false
-    @State private var startRequest: UUID?
-    @State private var startTask: Task<Void, Never>?
-    private var emptyReview: Bool { reviewText.isEmpty }
-    private var scanning: Bool { step == .scanning && !paused && scenePhase == .active }
 
     var body: some View {
-        GeometryReader { geometry in
-            VStack(spacing: 0) {
-                toolbar
-                Stage(key: step) {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: Spacing.stack) {
-                            content(browserHeight: max(260, min(430, geometry.size.height * 0.51)))
-                        }
-                        .padding(.horizontal, Spacing.page)
-                        .padding(.top, 16)
-                        .padding(.bottom, 24)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .scrollIndicators(.hidden)
-                    .scrollDismissesKeyboard(.interactively)
-                }
+        VStack(spacing: 0) {
+            HStack {
+                BackButton(label: step == .results ? "Close" : "Back") { back() }
+                Spacer()
+            }
+            .padding(.horizontal, Spacing.page).padding(.top, 8).padding(.bottom, 8)
+            Stage(key: step) { content }
                 .frame(maxHeight: .infinity)
-                footer
-            }
         }
-        .background(Palette.page.ignoresSafeArea())
-        .tint(Palette.dark)
-        .task(id: scanning) {
-            while scanning && !Task.isCancelled {
-                do {
-                    let latest = try await store.call("agent_run", ["id": .string(id)], linkedin: true)
-                    run = latest
-                    if ["completed", "failed"].contains(latest["status"].string) { apply(latest); return }
-                    try await Task.sleep(for: .seconds(1))
-                } catch { return }
-            }
+        .background(Brand.page.ignoresSafeArea())
+        .tint(Brand.accent)
+        .fileImporter(isPresented: $importing, allowedContentTypes: [.pdf]) { result in
+            guard store.phase == .ready, generation == store.sessionGeneration, uploader.picked(result) else { return }
+            upload()
         }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active { browser.reconnect() } else { browser.background() }
-        }
-        .onDisappear { cancelStart(); browser.close(); analysis?.cancel() }
-        .sheet(isPresented: $showRewrites) {
-            LinkedInCoachingEditor(text: $editedReview)
-        }
+        .onChange(of: importing) { _, open in if !open { uploader.pickerClosed() } }
+        .onChange(of: store.sessionGeneration) { _, _ in dismiss() }
     }
 
-    private var toolbar: some View {
-        HStack(spacing: 16) {
-            BackButton(label: "Back") { back() }
-            Spacer()
-            if step == .role {
-                Button("Skip") { role = ""; start() }
-                    .font(Typeface.body).foregroundStyle(Palette.text)
-                    .frame(minWidth: 44, minHeight: 44)
-                    .buttonStyle(.tap)
-                    .accessibilityIdentifier("linkedin-skip-role")
-            } else {
-                Color.clear.frame(width: 44, height: 44)
-            }
-        }
-        .padding(.horizontal, Spacing.page)
-        .padding(.top, 8)
-        .padding(.bottom, 8)
-    }
-
-    @ViewBuilder
-    private func content(browserHeight: CGFloat) -> some View {
+    @ViewBuilder private var content: some View {
         switch step {
-        case .url:
-            heading("Your LinkedIn profile", "Enter the profile you want to review.")
-            StackField(label: "LinkedIn profile URL", text: $url, placeholder: "linkedin.com/in/your-name/",
-                       keyboard: .URL, autocapitalization: .never)
-                .accessibilityIdentifier("linkedin-profile-url").reveal(1)
-        case .login:
-            heading("Sign in to LinkedIn", starting ? "Opening LinkedIn…" : "")
-            LinkedInBrowser(model: browser, height: browserHeight + 65)
-                .reveal(1)
-        case .role:
-            heading("Your target role", "Tailor the review to your next role.")
-            StackField(label: "Role (optional)", text: $role, placeholder: "e.g. Data analyst")
-                .accessibilityIdentifier("linkedin-target-role").reveal(1)
-        case .ready:
-            heading("Ready to review", role.isBlank ? "" : "For \(role.lowercased()) roles")
-            LinkedInBrowser(model: browser, height: browserHeight)
-                .reveal(1)
-        case .scanning:
-            heading(paused ? "Scan paused" : "Reviewing your profile")
-            LinkedInBrowser(model: browser, height: browserHeight).reveal(1)
-            VStack(alignment: .leading, spacing: 10) {
-                Text(paused ? "Resume when you’re ready" : run["step_number"].int >= 2 ? "Preparing your review…" : "Reading your profile…")
-                    .font(Typeface.caption).foregroundStyle(Palette.muted)
-                ProgressView(value: run["step_number"].int >= 2 ? 1 : 0, total: 2).tint(Palette.dark)
-                    .accessibilityLabel("Scan progress")
-            }.reveal(2)
-        case .scanError:
-            heading("Connection interrupted", error.isEmpty ? "Try again to continue your review." : error)
-            LinkedInBrowser(model: browser, height: browserHeight).reveal(1)
+        case .upload:
+            LinkedInPDFUploadScreen(
+                role: $role,
+                busy: uploader.isBusy || retrying,
+                progress: retrying ? "Reviewing your profile…" : uploader.progress,
+                error: error.isEmpty ? uploader.message : error,
+                onChoose: choose,
+                onRetry: failedRun.isEmpty ? (uploader.canRetry ? retryUpload : nil) : retryReview)
+        case .reviewing:
+            PrepWorkingScreen(progress: "LinkedIn", message: "Reviewing your profile…",
+                              detail: "This can take up to a minute.", spinner: true)
+                .padding(.horizontal, Spacing.page)
         case .results:
-            if emptyReview {
-                heading("Nothing to review yet", "We couldn’t read your profile. Try scanning again.")
-            } else {
-                heading("Your LinkedIn review", role.isBlank ? "" : "For \(role.lowercased()) roles")
-                VStack(alignment: .leading, spacing: 12) {
-                    SectionLabel(text: "Coaching")
-                    Text(reviewText).font(Typeface.body).foregroundStyle(Palette.text)
-                        .textSelection(.enabled)
-                }.reveal(1)
-            }
+            LinkedInReviewScreen(content: LinkedInReviewContent(run["artifacts"]["linkedin_review"]),
+                                 role: run["context"]["target_role"].string, taskID: run["id"].string,
+                                 onDone: { dismiss() }, onAnother: reset)
         }
     }
 
-    private func heading(_ title: String, _ subtitle: String = "") -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
-                .accessibilityAddTraits(.isHeader)
-            if !subtitle.isEmpty { Text(subtitle).font(Typeface.body).foregroundStyle(Palette.text) }
-        }.reveal(0)
-    }
-
-    @ViewBuilder private var footer: some View {
-        VStack(spacing: 10) {
-            switch step {
-            case .url:
-                StackButton(label: "Continue") { hideKeyboard(); go(.role) }
-            case .login:
-                StackButton(label: starting ? "Opening LinkedIn…" : "Continue", disabled: starting || id.isEmpty) { hideKeyboard(); go(.ready) }
-            case .role:
-                StackButton(label: "Continue") { start() }
-            case .ready:
-                StackButton(label: "Analyze my profile", icon: "sparkles") { analyze() }
-                    .accessibilityIdentifier("linkedin-analyze")
-            case .scanning:
-                StackButton(label: paused ? "Resume scan" : "Take control", icon: paused ? "play" : "pause") {
-                    if paused { analyze() }
-                    else { Task { await browser.act("take"); paused = true } }
-                }
-                Button("Stop scan") {
-                    analysis?.cancel()
-                    Task { await browser.act("stop"); go(.ready) }
-                }
-                .font(Typeface.caption).foregroundStyle(Palette.muted).frame(minHeight: 44)
-            case .scanError:
-                StackButton(label: id.isEmpty ? "Retry connection" : "Retry scan", icon: "refresh") {
-                    if id.isEmpty { start() } else { analyze() }
-                }
-            case .results:
-                if emptyReview {
-                    StackButton(label: "Try scan again", icon: "refresh") { analyze() }
-                } else {
-                    StackButton(label: "Review rewrites") { showRewrites = true }
-                }
-            }
-        }
-        .multilineTextAlignment(.center)
-        .padding(.horizontal, Spacing.page).padding(.top, 12).padding(.bottom, 12)
-        .background(Palette.page)
-        .overlay(alignment: .top) { Rectangle().fill(Palette.rule.opacity(0.5)).frame(height: 0.5) }
-    }
-
-    private func start() {
-        guard !starting else { return }
-        hideKeyboard()
+    private func choose() {
         error = ""
-        id = ""
-        browser.close()
-        browser = RemoteBrowserModel()
-        let request = UUID()
-        startRequest = request
-        starting = true
-        go(.login)
-        startTask = Task {
-            defer {
-                if startRequest == request { starting = false; startTask = nil }
+        failedRun = ""
+        generation = store.sessionGeneration
+        importing = uploader.begin()
+    }
+
+    private func retryUpload() {
+        error = ""
+        if uploader.retry() { upload() }
+    }
+
+    /// Reading the PDF happens before the screen changes; the review wait gets its own screen.
+    private func upload() {
+        let session = generation
+        let target = role.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task {
+            let finished = await uploader.run { file in
+                guard session == store.sessionGeneration, store.phase == .ready else { throw CancellationError() }
+                go(.reviewing)
+                let result = try await store.call("linkedin_pdf_review", [
+                    "name": .string(file.name), "content": .string(file.content), "target_role": .string(target),
+                ], timeout: 180)
+                try settle(result)
             }
+            if !finished, step == .reviewing { go(.upload) }
+        }
+    }
+
+    private func retryReview() {
+        guard !retrying, !failedRun.isEmpty else { return }
+        retrying = true
+        error = ""
+        let id = failedRun
+        Task {
+            defer { retrying = false }
             do {
-                let result = try await store.call("agent_linkedin_start", [
-                    "url": .string(LinkedInSetup.profileURL(url)),
-                    "target_role": .string(role)
-                ], linkedin: true)
-                guard !Task.isCancelled, startRequest == request else { return }
-                guard !result["id"].string.isEmpty, result["status"].string != "failed" else {
-                    throw APIError(message: result["message"].string.isEmpty ? "LinkedIn could not open. Please retry." : result["message"].string)
-                }
-                id = result["id"].string
-                run = result
-                browser.open(store: store, id: id, linkedin: true, onChanged: {})
+                go(.reviewing)
+                try settle(try await store.call("agent_retry", ["id": .string(id)], timeout: 180))
+            } catch is CancellationError {
+                go(.upload)
             } catch {
-                guard !Task.isCancelled, startRequest == request, !(error is CancellationError) else { return }
                 self.error = error.localizedDescription
-                go(.scanError)
+                go(.upload)
             }
         }
     }
 
-    private func cancelStart() {
-        startRequest = nil
-        startTask?.cancel()
-        startTask = nil
-        starting = false
-    }
-
-    private func analyze() {
-        hideKeyboard()
-        error = ""
-        paused = false
-        go(.scanning)
-        analysis = Task {
-            await browser.finishInput()
-            do {
-                let result = try await store.call("agent_respond", [
-                    "id": .string(id),
-                    "target_role": .string(role)
-                ], linkedin: true)
-                if !Task.isCancelled { apply(result) }
-            } catch {
-                if !(error is CancellationError) {
-                    self.error = error.localizedDescription
-                    go(.scanError)
-                }
-            }
-        }
-    }
-
-    private func apply(_ result: JSON) {
-        run = result
-        switch result["status"].string {
-        case "completed":
-            reviewText = result["artifacts"]["linkedin_review"]["summary"].string
-            editedReview = reviewText
+    /// A completed review opens the result; a failed one keeps its run so Try again needs no new upload.
+    private func settle(_ result: JSON) throws {
+        if result["status"].string == "completed" {
+            run = result
+            failedRun = ""
             go(.results)
-        case "failed": error = result["message"].string; go(.scanError)
-        case "paused": paused = true; go(.scanning)
-        case "needs_input": go(.login)
-        default: break
+            Task { await store.refresh() }
+            return
+        }
+        failedRun = result["id"].string
+        let message = result["message"].string
+        throw APIError(message: message.isBlank ? "The review did not finish. Try again." : message)
+    }
+
+    private func reset() {
+        run = .null
+        failedRun = ""
+        error = ""
+        uploader.reset()
+        go(.upload)
+    }
+
+    private func back() {
+        switch step {
+        case .upload, .results: dismiss()
+        case .reviewing: break
         }
     }
 
     private func go(_ next: Step) {
         withAnimation(reduceMotion ? nil : Motion.stageAnimation) { step = next }
-    }
-    private func back() {
-        hideKeyboard()
-        switch step {
-        case .url: dismiss()
-        case .role: go(.url)
-        case .login: cancelStart(); browser.close(); go(.role)
-        case .ready: go(.login)
-        case .scanning:
-            analysis?.cancel()
-            Task { await browser.act("take"); go(.ready) }
-        case .scanError: go(id.isEmpty ? .role : .ready)
-        case .results: go(.ready)
-        }
-    }
-    private func hideKeyboard() { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) }
-}
-
-@MainActor
-private struct LinkedInCoachingEditor: View {
-    @Binding var text: String
-    @State private var copied = false
-
-    var body: some View {
-        SheetPage(title: "Suggested rewrites") {
-            StackField(label: "Coaching", text: $text, multiline: true)
-            StackButton(label: copied ? "Copied" : "Copy", kind: .secondary) {
-                UIPasteboard.general.string = text
-                copied = true
-            }
-        }
-        .onChange(of: text) { _, _ in copied = false }
     }
 }

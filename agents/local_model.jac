@@ -4,7 +4,7 @@ import json;
 import os;
 import time;
 import socket;
-import from threading { Event, Timer }
+import from threading { Event, Lock, Timer }
 import from urllib.parse { urlsplit }
 import from http.client { HTTPConnection, HTTPSConnection, HTTPException, HTTPResponse }
 
@@ -12,6 +12,32 @@ with entry {
     RESPONSE_LIMIT = 262144;
     OUTPUT_LIMIT = 65536;
     CONTEXT_MESSAGE = 'This task exceeds the local model context limit. Increase the configured context and load the model with that context before retrying.';
+}
+
+"""One local inference request. Closing its socket signals cancellation to the model server."""
+obj InferenceCancellation {
+    has gate: Lock, stopped: bool = False, disconnect: Callable[[], None] | None = None;
+
+    def bind(disconnect: Callable[[], None] | None) -> None {
+        with self.gate {
+            self.disconnect = disconnect;
+            if self.stopped and disconnect is not None { disconnect(); }
+        }
+    }
+
+    def stop() -> None {
+        with self.gate {
+            self.stopped = True;
+            disconnect = self.disconnect;
+            if disconnect is not None { disconnect(); }
+        }
+    }
+
+    def check() -> None {
+        with self.gate {
+            if self.stopped { raise ValueError('Cancelled'); }
+        }
+    }
 }
 
 """The context window the server reports for the configured model (NInfer and vLLM-style
@@ -186,7 +212,8 @@ def complete(
     prompt: str,
     schema: dict[str, any],
     c: dict[str, any],
-    received: any
+    received: any,
+    cancellation: InferenceCancellation | None = None
 ) -> dict[str, any] {
     provider = c['provider'];
     base = origin(provider, c.get('local_model_url', ''));
@@ -255,8 +282,7 @@ def complete(
         else HTTPConnection(parts.hostname, parts.port, timeout=seconds);
     expired = Event();
     watched: list[socket.socket | None] = [None];
-    def abort() {
-        expired.set();
+    def disconnect() -> None {
         transport = watched[0] or connection.sock;
         if transport is not None {
             try {
@@ -265,6 +291,10 @@ def complete(
                 ;
             }
         }
+    }
+    def abort() {
+        expired.set();
+        disconnect();
         connection.close();
     }
     timer = Timer(seconds, abort);
@@ -275,6 +305,14 @@ def complete(
     try {
         # Direct HTTP connections never consult proxies or follow redirects.
         # The watchdog bounds connect, request writes, and response headers too.
+        if cancellation is not None {
+            cancellation.check();
+            cancellation.bind(disconnect);
+            # Open explicitly so cancellation can also shut down a blocked request write.
+            connection.connect();
+            watched[0] = connection.sock;
+            cancellation.check();
+        }
         connection.request(
             'POST', path, body=json.dumps(payload).encode(), headers=headers
         );
@@ -336,10 +374,12 @@ def complete(
             raise TimeoutError();
         }
     } except TimeoutError {
+        if cancellation is not None { cancellation.check(); }
         raise ValueError(
             'Local inference timed out. Check model capacity before retrying.'
         ) from None;
     } except (OSError, HTTPException) {
+        if cancellation is not None { cancellation.check(); }
         if expired.is_set() {
             raise ValueError(
                 'Local inference timed out. Check model capacity before retrying.'
@@ -350,8 +390,10 @@ def complete(
         ) from None;
     } finally {
         timer.cancel();
+        if cancellation is not None { cancellation.bind(None); }
         connection.close();
     }
+    if cancellation is not None { cancellation.check(); }
     body = b''.join(chunks);
     received(body.decode('utf-8', errors='replace'), 'provider_json');
     try {

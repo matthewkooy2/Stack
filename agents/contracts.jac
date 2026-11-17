@@ -15,6 +15,7 @@ with entry {
     STEPS = {
         'autofill': ['browser_autofill'],
         'linkedin': ['linkedin_scan', 'linkedin_review'],
+        'linkedin_pdf': ['linkedin_pdf', 'linkedin_review'],
         'live': ['interview'],
         'jobs': ['fit'],
         'resume': ['tailor', 'approve_resume'],

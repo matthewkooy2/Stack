@@ -30,15 +30,20 @@ final class ResumeUploader {
     private(set) var message = ""
 
     private let read: (URL) async throws -> File
+    private let accepts: (URL) -> Bool
+    private let wrongType: String
     @ObservationIgnored private var pickedURL: URL?
     @ObservationIgnored private var file: File?
     @ObservationIgnored private var attempt = 0
     @ObservationIgnored private var running = false
 
+    /// `accepts` and `wrongType` let another single-file upload (the LinkedIn PDF) reuse this flow.
     init(read: @escaping (URL) async throws -> File = { url in
         try await readPickedFileInBackground(url, limit: ResumeFiles.limit, tooLarge: ResumeFiles.tooLarge)
-    }) {
+    }, accepts: @escaping (URL) -> Bool = ResumeFiles.isResume, wrongType: String = ResumeFiles.wrongType) {
         self.read = read
+        self.accepts = accepts
+        self.wrongType = wrongType
     }
 
     /// The picker is open, or a file is being read or sent.
@@ -84,10 +89,10 @@ final class ResumeUploader {
             message = "This file could not be opened. Choose it again."
             return false
         case .success(let url):
-            guard ResumeFiles.isResume(url) else {
+            guard accepts(url) else {
                 clearFile()
                 phase = .failed
-                message = ResumeFiles.wrongType
+                message = wrongType
                 return false
             }
             pickedURL = url

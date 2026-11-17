@@ -29,7 +29,10 @@ struct PresenceLinkedInPresentation {
         section = selectedSection
         // Only an explicitly captured matching section can populate Current. Whole-page captures,
         // generated findings and confirmed-fact citations are deliberately not guessed into fields.
-        let captured = run["artifacts"]["linkedin_scan"]["sections"][selectedSection.lowercased()].string
+        let key = selectedSection.lowercased()
+        let captured = run["artifacts"]["linkedin_pdf"]["sections"][key].string.isBlank
+            ? run["artifacts"]["linkedin_scan"]["sections"][key].string
+            : run["artifacts"]["linkedin_pdf"]["sections"][key].string
         current = captured.isBlank ? nil : captured
     }
 
@@ -47,7 +50,7 @@ struct PresenceLinkedInPresentation {
 
     /// Bootstrap includes attention items before recent items, so array order is not chronological.
     static func latestRun(in runs: [JSON]) -> JSON? {
-        runs.filter { $0["kind"].string == "linkedin" && !$0["id"].string.isBlank }
+        runs.filter { ["linkedin", "linkedin_pdf"].contains($0["kind"].string) && !$0["id"].string.isBlank }
             .max { left, right in
                 let leftTime = left["created_at"].double
                 let rightTime = right["created_at"].double

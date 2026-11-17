@@ -60,6 +60,10 @@ struct ScreenFlowUITestScene: View {
         case "memory-preview": MemoryBankView()
         case "tailor-preview": ResumeAgentsSection(setupFor: .constant(""), scores: .constant([:]), onOpenTask: { _ in }, onNavigate: { _ in })
         case "network": NetworkView(onProfile: {})
+        case "linkedin-pdf": LinkedInFlow()
+        case "linkedin-review":
+            LinkedInReviewScreen(content: LinkedInReviewContent(LinkedInReviewSample.review), role: "Data analyst",
+                                 onDone: {}, onAnother: {})
         case "applications", "applications-autofill-unavailable": ApplicationsView(onProfile: {}, onNavigate: { _ in })
         case "jobs": ScreenFlowJobHost(job: Job(ScreenFlowServer.job))
         case "deck", "deck-paging", "deck-reference": MainTabs()

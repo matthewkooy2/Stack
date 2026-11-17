@@ -515,13 +515,13 @@ struct ArtifactView: View {
         "inspect": "Application form", "fit": "Job fit", "tailor": "Tailored resume", "fill": "Form filled",
         "submit": "Submission receipt", "research": "Contact source", "draft": "Email draft", "send": "Email sent",
         "profile": "Profile suggestions", "coach": "Coaching", "execute": "Test results", "sync": "Gmail check",
-        "calendar": "Calendar", "interview": "Transcript",
+        "calendar": "Calendar", "interview": "Transcript", "linkedin_pdf": "LinkedIn PDF",
     ]
 
     var body: some View {
         switch name {
         case "linkedin_review": linkedInReview
-        case "linkedin_scan":
+        case "linkedin_scan", "linkedin_pdf":
             Card(tint: Palette.oat, spacing: 8) {
                 Text("Profile captured").font(Typeface.option).foregroundStyle(Palette.icon)
                 Text(value["summary"].string).font(Typeface.body).foregroundStyle(Palette.text)

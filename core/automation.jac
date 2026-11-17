@@ -4,9 +4,12 @@ import time;
 import json;
 import agents.worker as browser_worker;
 import agents.linkedin as linkedin;
+import agents.linkedin_pdf as linkedin_pdf;
 import agents.provider as coaching_provider;
 import secrets;
 import from uuid { uuid4, UUID }
+import from threading { Lock }
+import from agents.local_model { InferenceCancellation }
 import from pathlib { Path }
 import from jaclang.runtime.runtime { JacRuntime }
 import from jaclang.server.session { Session }
@@ -25,6 +28,9 @@ import from agents.browser_control { BROWSER_ERROR_MESSAGE, sanitize_browser_dia
 import agents.interview as interview;
 import agents.coaching as coaching;
 import from jaclang.server.identity.app_tokens { token_create, token_peek, token_consume }
+
+# The deployed API has one process. Access each run's handle under its account lock.
+glob _linkedin_pdf_inference: dict[str, InferenceCancellation] = {};
 
 node AgentMemory { has facts: list[dict[str, any]] = [], policy: dict[str, any] = {}, revision: int = 0, admitted: bool = False, deleted: bool = False, model_selection: str = ""; }
 node AgentRun {
@@ -283,6 +289,8 @@ def:priv agent_cancel(id: str) -> dict[str, any] {
         r.status="uncertain" if intents else "cancelled";
         r.message="Cancellation requested; reconcile the dispatched action." if intents else "Cancelled";
         r.lease="";r.updated_at=time.time();commit();
+        cancellation = _linkedin_pdf_inference.get(id) if r.kind == "linkedin_pdf" else None;
+        if cancellation is not None { cancellation.stop(); }
         close_browser=r.kind in ["linkedin","autofill"];owner=jid(root);out=_run_view(r,True);
     }
     # Closing a remote browser must not hold up every account's database writer.
@@ -330,6 +338,86 @@ def _linkedin_execute(id: str) -> dict[str, any] {
             _agent_fresh();r=_owned_run(id) as AgentRun;
             r.status="failed";r.message=str(exc);r.updated_at=time.time();commit();return _run_view(r,True);
         }
+    }
+}
+# LinkedIn PDF review: the member uploads their own profile export, so Stack never signs in to
+# or reads LinkedIn. Like practice coaching, it runs in the request on the configured local model.
+def:priv linkedin_pdf_review(name: str = "", content: str = "", target_role: str = "") -> dict[str, any] {
+    _agent_access();
+    try { capture=linkedin_pdf.parse_encoded(name,content); }
+    except ValueError as exc { return {"error":str(exc)}; }
+    with locks.account() {
+        _agent_fresh();m=_agent_memory();
+        r=root ++> AgentRun(workflow_version=2,kind="linkedin_pdf",target_id="self",
+            context={"target_role":str(target_role or "").strip()[:120],"file":capture["file"]},
+            model_selection=m.model_selection,created_at=time.time(),updated_at=time.time(),
+            key="linkedin_pdf:"+uuid4().hex,policy_revision=m.revision,artifacts={"linkedin_pdf":capture},
+            index=1,status="running",message="Reviewing your profile");
+        commit();id=jid(r);
+    }
+    return _linkedin_pdf_execute(id);
+}
+def _linkedin_pdf_execute(id: str, retry: bool = False) -> dict[str, any] {
+    cancellation = InferenceCancellation(gate=Lock());
+    lease = uuid4().hex;
+    with locks.account() {
+        _agent_fresh();
+        r = _owned_run(id);
+        if r is None { return {"error":"Run not found."}; }
+        if retry {
+            stale = r.status == "running" and r.updated_at < time.time() - 300;
+            if (r.status != "failed" and not stale) or id in _linkedin_pdf_inference {
+                return {"error":"Only a failed review can be retried."};
+            }
+        } elif r.status != "running" or r.lease {
+            return _run_view(r, True);
+        }
+        capture = r.artifacts.get("linkedin_pdf");
+        context = r.context;
+        selection = r.model_selection;
+        r.status = "running";
+        r.message = "Reviewing your profile";
+        r.index = 1;
+        r.lease = lease;
+        r.updated_at = time.time();
+        commit();
+        _linkedin_pdf_inference[id] = cancellation;
+    }
+    try {
+        output = None;
+        message = "Profile review complete";
+        try {
+            if not capture { raise ValueError("Upload your LinkedIn PDF again."); }
+            cancellation.check();
+            c = config(selection);
+            model_access(c, jid(root));
+            if c["provider"] not in LOCAL_PROVIDERS { raise ValueError("LinkedIn review requires the configured local model."); }
+            output = coaching_provider.generate(
+                "linkedin_review", {"linkedin_profile":capture,"target_role":context.get("target_role","")},
+                c, cancellation=cancellation
+            )["artifact"];
+        } except Exception as exc {
+            message = str(exc) if isinstance(exc, ValueError) else "The review could not finish ("+`type(exc).__name__+"). Retry the review.";
+        }
+        with locks.account() {
+            _agent_fresh();
+            r = _owned_run(id);
+            if r is None { return {"error":"Run not found."}; }
+            # Cancellation clears the lease. A late result or failure cannot change the run.
+            if r.status != "running" or r.lease != lease { return _run_view(r, True); }
+            if output is not None {
+                r.artifacts["linkedin_review"] = output;
+                r.index = 2;
+            }
+            r.status = "completed" if output is not None else "failed";
+            r.message = message;
+            r.lease = "";
+            r.updated_at = time.time();
+            commit();
+            return _run_view(r, True);
+        }
+    } finally {
+        with locks.account() { _linkedin_pdf_inference.pop(id, None); }
     }
 }
 def:priv agent_respond(id: str, values: list[dict[str, any]] = [], reuse: bool = True, target_role: str | None = None) -> dict[str, any] {
@@ -648,6 +736,10 @@ def:priv agent_retry(id: str) -> dict[str, any] {
     r=_owned_run(id);
     if r is not None and r.kind=="linkedin" {
         return _linkedin_execute(id);
+    }
+    if r is not None and r.kind=="linkedin_pdf" {
+        _agent_access();
+        return _linkedin_pdf_execute(id, retry=True);
     }
     _agent_access();
     with locks.account() {

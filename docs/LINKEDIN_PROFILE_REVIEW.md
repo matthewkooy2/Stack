@@ -1,5 +1,26 @@
 # LinkedIn profile review
 
+## Current route: PDF export
+
+LinkedIn's User Agreement (section 8.2) prohibits bots, scraping and using a member's
+signed-in session, so the browser capture below stays off on hosted deployments
+(`STACK_LINKEDIN_ENABLED=0`). The app now reviews the PDF a member saves from their
+own profile on linkedin.com (More or Resources, then Save to PDF).
+
+- `agents/linkedin_pdf.py` reads the export through the bounded `pdf_safety` worker,
+  separates LinkedIn's sidebar from its main column and maps its headings to sections.
+  Contact details other than the profile address are discarded.
+- `linkedin_pdf_review` creates a `linkedin_pdf` task and, like practice coaching, runs
+  the `linkedin_review` step on the configured local model in the request. The
+  profile is fitted to the model context, finding sections are limited to sections
+  the model was shown, and findings whose quotes are not in that section are dropped.
+- `agent_retry` reruns a failed review from the stored text without a new upload.
+- PDF processing refuses to run on macOS, which lacks the worker's resource limits;
+  verify parsing on Linux. The export omits photos, Featured, recommendations and
+  activity.
+
+## Previous route: browser capture (disabled)
+
 The personal flow uses the redesigned Swift setup, browser controls and report.
 
 1. Enter a profile URL and, optionally, a target role.

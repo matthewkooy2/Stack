@@ -2,8 +2,22 @@
 
 Stack's iPhone client uses SwiftUI. The [interface guide](UI_STYLE.md) defines shared navigation, surfaces, typography and motion. The [screen audit](../docs/ios-ui/README.md) traces the signed-out and signed-in experience through the five tabs and their secondary flows.
 
-It talks to the same backend as the Expo app (`POST /function/<name>` with the existing bearer
-session) and does not change that app, its release pipeline or any backend code.
+Interactive Debug builds connect to the Rust staging API at `https://dev.stackmvp.top`.
+Sign in with your staging account to test jobs, applications, contacts, resumes, and saved practice sessions.
+Staging currently lacks model-backed practice coaching, a general interview worker, and Google account recovery.
+
+## Run staging on a Mac
+
+With Xcode 15.4+ and XcodeGen installed, run one command from the repository root:
+
+```sh
+bash scripts/simulator-on.sh --build   # build, install, and launch on the dedicated simulator
+bash scripts/ios-phone.sh              # build, install, and launch on a paired, unlocked iPhone
+```
+
+The simulator launcher signs locally so your staging login survives relaunches and rebuilds.
+Set `STACK_SIMULATOR_UDID` to use a different installed iPhone simulator.
+The phone launcher uses the existing Stack app identifier and replaces the installed copy.
 
 ## Build and test (macOS)
 
@@ -15,11 +29,11 @@ bash scripts/ci/ios-swift.sh static     # the part that needs only Python (any O
 STACK_API_URL=https://your-stack-api.example bash scripts/ci/ios-swift.sh build
 ```
 
-Or by hand: `cd ios && xcodegen generate && open Stack.xcodeproj`, then set the `STACK_API_URL`
-build setting in Xcode (or pass `STACK_API_URL=https://...` to `xcodebuild`).
-
-`STACK_API_URL` (default `http://127.0.0.1:8000`) becomes the `StackAPIBaseURL` Info.plist key.
-The default simulator build is unsigned and uses a distinct bundle identifier (`com.matthewkooy.stack.swift`).
+For Xcode, run `python3 scripts/ci/resume-review/prepare.py` then
+`cd ios && xcodegen generate && open Stack.xcodeproj`. Select an iPhone simulator and run the Stack scheme.
+Override `STACK_API_URL` in Xcode or pass it to `xcodebuild` to select another backend.
+The CI script explicitly defaults to `http://127.0.0.1:8000` and an unsigned simulator build.
+The simulator bundle identifier is `com.matthewkooy.stack.swift`.
 The separately authorized beta upload route overrides this to the existing Stack App Store bundle
 (`com.matthewkooy.stack`) and version `0.2.0`, so testers can select the Swift candidate in TestFlight.
 It leaves the Expo source and its `0.1.0` release route intact.

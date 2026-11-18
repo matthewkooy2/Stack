@@ -66,7 +66,8 @@ if [[ "$MODE" == build ]]; then
   say "Building (the first build takes a few minutes, later ones are quick)..."
   python3 scripts/ci/resume-review/prepare.py >/dev/null
   (cd ios && xcodegen generate --spec project.yml --project . >/dev/null)
-  BUILD_SETTINGS=()
+  # Keep one required setting in the array for macOS Bash 3.2 with nounset.
+  BUILD_SETTINGS=("STACK_SOURCE_COMMIT=$(git rev-parse HEAD)")
   if [[ -n "${STACK_BUILD_NUMBER:-}" ]]; then
     BUILD_SETTINGS+=("CURRENT_PROJECT_VERSION=$STACK_BUILD_NUMBER")
   fi
@@ -76,7 +77,6 @@ if [[ "$MODE" == build ]]; then
       -allowProvisioningUpdates \
       DEVELOPMENT_TEAM="$TEAM" CODE_SIGN_STYLE=Automatic \
       "STACK_API_URL=$STACK_API_URL" "STACK_BUNDLE_ID=$BUNDLE" STACK_APPLE_SIGN_IN_ENABLED=YES \
-      "STACK_SOURCE_COMMIT=$(git rev-parse HEAD)" \
       STACK_APPLE_ENTITLEMENTS=Stack/StackApple.entitlements \
       "${BUILD_SETTINGS[@]}" \
       >"$WORK/build.log" 2>&1; then

@@ -23,15 +23,15 @@ xcrun simctl shutdown 68DEB5C0-C366-418B-B07B-2B7B0F8B1020
 
 ## Incremental build (verified)
 
-Build against the real API, signed locally and with the Apple button shown, so the signed-in session in the simulator stays valid:
+For an interactive staging session, build, install and launch the locally signed app:
 
 ```sh
-STACK_API_URL=https://ryans-desktop.tailfe312e.ts.net:8443 STACK_APPLE_SIGN_IN_ENABLED=YES STACK_IOS_SIGN_LOCALLY=1 STACK_IOS_DESTINATION='platform=iOS Simulator,id=68DEB5C0-C366-418B-B07B-2B7B0F8B1020' bash scripts/ci/ios-swift.sh build
+bash scripts/simulator-on.sh --build
 ```
 
-Always pass all of these. The login token is saved in the simulator keychain per API origin. A build with a different URL (including the default) shows the signed-out screen, and an unsigned build (without `STACK_IOS_SIGN_LOCALLY=1`) can't read the saved token, so the user would have to sign in again (verified).
+The launcher defaults to Rust staging at `https://dev.stackmvp.top`. The simulator keychain stores the login per API origin. For an existing private desktop session, pass `STACK_API_URL=https://ryans-desktop.tailfe312e.ts.net:8443` to the same command.
 
-First build took ~80s. This runs static checks, `xcodegen generate`, then `xcodebuild build` unsigned. Derived data is persistent and reused, so later builds are incremental; never `clean` or delete it unless a build is genuinely corrupt.
+First build took ~80s. This runs static checks, `xcodegen generate`, then `xcodebuild build` with ad hoc signing. Derived data is persistent and reused, so later builds are incremental; never `clean` or delete it unless a build is genuinely corrupt.
 
 - Derived data: `.jac/ci-ios-swift/DerivedData` (gitignored via `.jac/`); override with `STACK_IOS_DERIVED_DATA`.
 - App: `.jac/ci-ios-swift/DerivedData/Build/Products/Debug-iphonesimulator/Stack.app`
@@ -39,14 +39,14 @@ First build took ~80s. This runs static checks, `xcodegen generate`, then `xcode
 
 ## Run loop
 
-1. Build (above). 2. `control launch` the .app on the device (reinstalls and relaunches). 3. `control screenshot` to verify. 4. Shut the simulator down (see Simulator above).
+1. Run the launcher above. 2. `control screenshot` to verify. 3. Shut the simulator down when the session ends (see Simulator above).
 The first screenshot after launch can be blank white for a few seconds; wait and re-screenshot before debugging.
 Skip `all`/`test` runs unless asked or the change warrants it; the `build` route is the default check.
 
 ## Backend
 
-`STACK_API_URL` is baked into the build as `StackAPIBaseURL`. The app calls `POST /function/<name>` with a bearer session. The real API is `https://ryans-desktop.tailfe312e.ts.net:8443`, which this Mac reaches over Tailscale (Tailscale must be connected and that desktop serving). The simulator uses the Mac's network.
+`STACK_API_URL` is baked into the build as `StackAPIBaseURL`. The app calls `POST /function/<name>` with a bearer session. The simulator uses the Mac's network. The private desktop override requires Tailscale.
 
-- Sign-in: the user signs in themselves, with username/password or Google. Never type their credentials. Continue with Apple can't complete, because the build is unsigned and has no Apple entitlement.
+- Sign-in: the user signs in themselves, with username/password or Google. Never type their credentials. The simulator launcher builds without the Apple sign-in entitlement.
 - This is real user data. Don't create, edit or delete records on the real API to test UI; ask first.
-- Changing the URL requires a rebuild. The default (`http://127.0.0.1:8000`, a local `jac run --dev main.jac`) has no data and no Google sign-in.
+- Changing the URL requires a rebuild. CI defaults to loopback (`http://127.0.0.1:8000`).

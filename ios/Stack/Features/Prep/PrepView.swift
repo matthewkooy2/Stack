@@ -28,7 +28,7 @@ struct PrepView: View {
                     ScrollView {
                         scrollingPage
                             .padding(.horizontal, Spacing.page)
-                            .padding(.top, model.page == .home ? Spacing.page : 8)
+                            .padding(.top, 8)
                             .padding(.bottom, 16)
                             .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .topLeading)
                     }

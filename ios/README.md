@@ -4,7 +4,7 @@ Stack's iPhone client uses SwiftUI. The [interface guide](UI_STYLE.md) defines s
 
 Interactive Debug builds connect to the Rust staging API at `https://dev.stackmvp.top`.
 Sign in with your staging account to test jobs, applications, contacts, resumes, and saved practice sessions.
-Staging currently lacks model-backed practice coaching, a general interview worker, and Google account recovery.
+Practice coaching uses the staging private model. General interview tasks and Google account recovery are still unavailable.
 
 ## Run staging on a Mac
 

@@ -140,7 +140,7 @@ struct ApplicationAgentSection: View {
         do {
             if kind == "plan" {
                 let result = try await store.call("prep_for_application", ["application_id": .string(application.id)])
-                message = "Added \(result["plan"].array.count) practice sessions"
+                message = "Practice sessions in this plan: \(result["plan"].array.count)"
                 offerPrep = true
             } else {
                 let result = try await store.call("agent_start", ["kind": .string(kind), "target_id": .string(application.id)])

@@ -79,7 +79,7 @@ struct TaskDetailView: View {
                     TailorBlocker(run: run, onNavigate: onNavigate) { next in
                         run = next
                         notice = next["status"].string == "queued"
-                            ? "Tailoring started" : ""
+                            ? "Tailoring queued" : ""
                     }
                 }
                 if kind != "linkedin", kind != "autofill", status == "needs_input", !run["needs_resume_review"].bool { answersBox }

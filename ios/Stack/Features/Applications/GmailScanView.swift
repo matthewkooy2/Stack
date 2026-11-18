@@ -11,7 +11,7 @@ struct GmailScanView: View {
     @State private var loading = true
 
     private var scanning: Bool { ["queued", "running"].contains(scan["status"].string) }
-    private var resumable: Bool { ["failed", "needs_input", "blocked"].contains(scan["status"].string) }
+    private var resumable: Bool { ["failed", "blocked"].contains(scan["status"].string) }
 
     var body: some View {
         SheetPage(title: "Scan Gmail") {
@@ -120,6 +120,12 @@ private struct GmailScanReviewRow: View {
     @State private var busy = false
     @State private var error = ""
 
+    private var canImport: Bool {
+        if case .object = event["discovery"] { return true }
+        return false
+    }
+    private var needsApplication: Bool { applicationID.isEmpty && !canImport }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Divider().overlay(Brand.rule)
@@ -127,20 +133,20 @@ private struct GmailScanReviewRow: View {
             Text(String((event["quote"].string.isEmpty ? event["excerpt"].string : event["quote"].string).prefix(600)))
                 .font(Typeface.caption).foregroundStyle(Brand.muted)
             Picker("Application", selection: $applicationID) {
-                Text("New application").tag("")
+                Text(canImport ? "New application" : "Choose an application").tag("")
                 ForEach(store.account.applications.filter { !$0.isDemo }) { app in
                     Text("\(app.job.company) · \(app.job.title)").tag(app.id)
                 }
             }
-            if applicationID.isEmpty {
+            if applicationID.isEmpty && canImport {
                 StackField(label: "Company", text: $company)
                 StackField(label: "Job title", text: $title)
             }
             Picker("Status", selection: $status) {
                 ForEach(["Submitted", "Assessment", "Interview", "Offer", "Rejected"], id: \.self) { Text($0).tag($0) }
             }
-            StackButton(label: applicationID.isEmpty ? "Import application" : "Save update",
-                        disabled: busy || (applicationID.isEmpty && (company.isBlank || title.isBlank))) {
+            StackButton(label: applicationID.isEmpty && canImport ? "Import application" : "Save update",
+                        disabled: busy || needsApplication || (applicationID.isEmpty && (company.isBlank || title.isBlank))) {
                 Task { await save() }
             }
             QuietLinks(links: [ScreenLink("Not an application") { Task { await ignore() } }]).disabled(busy)

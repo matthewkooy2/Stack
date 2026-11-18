@@ -66,7 +66,7 @@ struct ProfileView: View {
                 Task { await selectModel(selection, stopTasks: true) }
             }
         } message: {
-            Text("Running tasks will stop")
+            Text("Active tasks that use the model will stop.")
         }
         .alert("Delete your account?", isPresented: $confirmDelete) {
             Button("Cancel", role: .cancel) {}
@@ -205,7 +205,7 @@ struct ProfileView: View {
                 if changed {
                     StackButton(label: "Save", disabled: store.busy || name.isBlank) { Task { _ = await save() } }
                 }
-                StackButton(label: "Notification settings", icon: "bell", kind: .secondary) {
+                StackButton(label: "Open app settings", icon: "bell", kind: .secondary) {
                     if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
                 }
                 StackButton(label: "Sign out", icon: "logout", kind: .secondary, disabled: store.busy) {
@@ -235,8 +235,8 @@ struct ProfileView: View {
     private var modelSection: some View {
         DisclosureSection("AI model", detail: modelSummary) {
             VStack(alignment: .leading, spacing: 10) {
-                if modelSettings["active_model_tasks"].int > 0 {
-                    Text("Tasks are running. Stop them to switch")
+                if modelSettings["active_model_tasks"].int > 0, modelSettings["model_options"].array.count > 1 {
+                    Text("Switching models will stop active tasks that use the model.")
                         .font(Typeface.caption).foregroundStyle(Palette.muted)
                 }
                 if !store.account.modelProviderMessage.isEmpty {
@@ -255,7 +255,7 @@ struct ProfileView: View {
                         HStack {
                             Image(systemName: modelSettings["model_selection"].string == choice ? "checkmark.circle.fill" : "circle")
                                 .foregroundStyle(modelSettings["model_selection"].string == choice ? Brand.accent : Palette.muted)
-                            Text(choice == "codex-cli" ? "Codex CLI" : "Local model")
+                            Text(modelLabel(option))
                             Spacer()
                         }
                         .font(Typeface.body).foregroundStyle(Palette.text)
@@ -272,10 +272,20 @@ struct ProfileView: View {
     }
 
     private var modelSummary: String {
-        switch modelSettings["model_selection"].string {
+        if let selected = modelSettings["model_options"].array.first(where: { $0["selection"] == modelSettings["model_selection"] }) {
+            return modelLabel(selected)
+        }
+        return modelLabel(store.account.raw["agents"]["model_provider"])
+    }
+
+    private func modelLabel(_ option: JSON) -> String {
+        if !option["model"].string.isEmpty { return option["model"].string }
+        let provider = option["provider"].string
+        switch provider.isEmpty ? option["selection"].string : provider {
         case "codex-cli": return "Codex CLI"
         case "local": return "Local model"
-        default: return store.account.modelProviderName
+        case "openai": return "OpenAI"
+        case let name: return name
         }
     }
 
@@ -283,7 +293,7 @@ struct ProfileView: View {
         let active = store.account.activeRunCount
         let attention = store.account.attentionRunCount
         if active == 0, attention == 0 { return "Idle" }
-        return attention > 0 ? "\(attention) need you" : "\(active) running"
+        return attention > 0 ? "\(attention) need attention" : "\(active) active"
     }
 
     // MARK: Accountability reminders

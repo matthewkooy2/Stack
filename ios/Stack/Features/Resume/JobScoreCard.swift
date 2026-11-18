@@ -32,7 +32,7 @@ struct JobScoreCopy {
 
     var experience: String {
         guard let row = requirements.first(where: { $0["kind"].string == "experience" }) else { return "" }
-        return "Listing asks for \(row["term"].string). You have about \(row["counted_years"].string)."
+        return "Listing asks for \(row["term"].string). Years counted from your confirmed roles: \(row["counted_years"].string)."
     }
 }
 
@@ -48,7 +48,7 @@ struct JobScoreCardView: View {
         Card(spacing: 8) {
             Text(copy.headline).font(.headline).foregroundStyle(Palette.ink)
             if !copy.missingRequired.isEmpty {
-                Text("Missing: \(copy.missingRequired.prefix(4).joined(separator: ", "))")
+                Text("Required but missing from confirmed details: \(copy.missingRequired.prefix(4).joined(separator: ", "))")
                     .font(Typeface.caption).foregroundStyle(Palette.text)
             }
             if copy.isScored {
@@ -63,9 +63,9 @@ struct JobScoreCardView: View {
     private func details(_ copy: JobScoreCopy) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(copy.components)
-            if !copy.shown.isEmpty { Text("You have: " + copy.shown.joined(separator: ", ")) }
+            if !copy.shown.isEmpty { Text("In your confirmed details: " + copy.shown.joined(separator: ", ")) }
             if !copy.listedOnly.isEmpty { Text("Only in your skills list: " + copy.listedOnly.joined(separator: ", ")) }
-            if !copy.missing.isEmpty { Text("Not on your resume: " + copy.missing.joined(separator: ", ")) }
+            if !copy.missing.isEmpty { Text("Missing from confirmed details: " + copy.missing.joined(separator: ", ")) }
             if !copy.phrasesMissing.isEmpty { Text("Missing phrases: " + copy.phrasesMissing.joined(separator: ", ")) }
             if !copy.experience.isEmpty { Text(copy.experience) }
             Text("Estimated by Stack. Not a hiring prediction")

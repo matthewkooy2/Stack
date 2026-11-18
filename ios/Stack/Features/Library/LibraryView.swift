@@ -365,7 +365,7 @@ struct LibraryView: View {
             } else {
                 HStack(spacing: 12) {
                     ProgressView().tint(Brand.accent)
-                    Text("Scoring…").font(Typeface.section).foregroundStyle(Palette.ink)
+                    Text(model.attempt?.status == "queued" ? "Feedback queued" : "Scoring…").font(Typeface.section).foregroundStyle(Palette.ink)
                 }
             }
             if let message = model.attempt?.runMessage, !message.isEmpty {

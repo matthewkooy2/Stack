@@ -80,11 +80,13 @@ struct ResumeAgentsSection: View {
                         let format = store.account.format(of: resume.id)
                         let kind = format["kind"].string
                         VStack(alignment: .leading, spacing: 8) {
-                            SectionHeader(title: "Template")
+                            SectionHeader(title: "PDF layout")
                             ResumeTemplateStrip(selectedKey: ["builtin", "records"].contains(kind) ? format["template"].string : "",
                                                 disabled: working || resume.detailsStatus != "Confirmed") { key in
                                 Task { await useTemplate(key) }
                             }
+                            Text("Word exports use a simple, editable layout.")
+                                .font(.footnote).foregroundStyle(Brand.muted)
                             if resume.detailsStatus != "Confirmed" {
                                 Text("Confirm your details to choose").font(.footnote).foregroundStyle(Brand.muted)
                             }

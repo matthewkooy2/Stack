@@ -555,11 +555,12 @@ struct ApplicationDetailView: View {
 struct ReminderSheet: View {
     @Binding var title: String
     @Binding var due: Date
+    var heading = "New reminder"
     let onSave: () -> Void
     @Environment(AppStore.self) private var store
 
     var body: some View {
-        SheetPage(title: "New reminder") {
+        SheetPage(title: heading) {
             StackField(label: "Title", text: $title)
             DatePicker("When", selection: $due, in: Date()..., displayedComponents: [.date, .hourAndMinute])
                 .font(Typeface.body)

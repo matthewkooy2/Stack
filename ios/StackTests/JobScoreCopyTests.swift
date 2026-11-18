@@ -28,7 +28,7 @@ final class JobScoreCopyTests: XCTestCase {
         XCTAssertEqual(copy.missing, ["Data analysis"])
         XCTAssertEqual(copy.missingRequired, ["Data analysis"])
         XCTAssertEqual(copy.phrasesMissing, ["cpa license"])
-        XCTAssertEqual(copy.experience, "Listing asks for 2+ years. You have about 3.")
+        XCTAssertEqual(copy.experience, "Listing asks for 2+ years. Years counted from your confirmed roles: 3.")
     }
 
     func testThinListingAndUnknownContractShowNoNumber() {

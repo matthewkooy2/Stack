@@ -36,10 +36,10 @@ import UIKit
   init(id: String, emit: @escaping ([String: Any]) -> Void) { self.id = id; self.emit = emit }
   nonisolated static func failure(_ message: String) -> NSError { NSError(domain: "StackSpeech", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }
   static func capabilities() async -> [String: Any] {
-    guard SpeechTranscriber.isAvailable else { return ["available": false, "reason": "On-device speech is unsupported on this iPhone. PC transcription will be used."] }
-    guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: "en-US")) else { return ["available": false, "reason": "English on-device speech is unavailable. PC transcription will be used."] }
+    guard SpeechTranscriber.isAvailable else { return ["available": false, "reason": "On-device speech is unsupported on this iPhone. You can type your answer after recording."] }
+    guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: "en-US")) else { return ["available": false, "reason": "English on-device speech is unavailable. You can type your answer after recording."] }
     let installed = await SpeechTranscriber.installedLocales
-    guard installed.contains(where: { $0.identifier == locale.identifier }) else { return ["available": false, "reason": "The English speech model is not installed. PC transcription will be used."] }
+    guard installed.contains(where: { $0.identifier == locale.identifier }) else { return ["available": false, "reason": "The English speech model is not installed. You can type your answer after recording."] }
     return ["available": true, "locale": locale.identifier, "reason": "On-device English transcription ready."]
   }
   func pause() throws {
@@ -100,7 +100,7 @@ import UIKit
           guard let self else { return }
           self.accept(start: CMTimeGetSeconds(result.range.start), end: CMTimeGetSeconds(CMTimeRangeGetEnd(result.range)), text: String(result.text.characters), final: result.isFinal)
         }
-      } catch { self?.recognitionError = "On-device recognition stopped. Your saved audio can be transcribed on the PC." }
+      } catch { self?.recognitionError = "On-device recognition stopped. You can type your answer after recording." }
     }
     try await analyzer.start(inputSequence: stream)
     try checkStartup()

@@ -148,7 +148,7 @@ struct TranscriptionPanel: View {
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             if transcribing {
-                Text("Working on your transcript…").font(Typeface.caption).foregroundStyle(Palette.muted).breathe(true)
+                Text(status == "queued" ? "Waiting for transcription" : "Working on your transcript…").font(Typeface.caption).foregroundStyle(Palette.muted).breathe(true)
             }
             if !current["error"].string.isEmpty { MessageLine(text: current["error"].string) }
             if status == "completed" {

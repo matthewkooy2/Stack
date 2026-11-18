@@ -34,14 +34,14 @@ struct RemindersView: View {
             }
         }
         .sheet(item: $editing) { reminder in
-            ReminderSheet(title: $title, due: $due) {
+            ReminderSheet(title: $title, due: $due, heading: "Edit reminder") {
                 Task {
                     let ok = await store.mutate(
                         "save_reminder",
                         ["id": .string(reminder.id), "target_type": .string(reminder.targetType),
                          "target_id": .string(reminder.targetID), "title": .string(title),
                          "due_at": .number(due.timeIntervalSince1970)],
-                        notice: "Reminder added", askNotifications: true
+                        notice: "Reminder updated", askNotifications: true
                     )
                     if ok { editing = nil }
                 }

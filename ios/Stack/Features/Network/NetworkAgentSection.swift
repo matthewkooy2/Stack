@@ -291,7 +291,11 @@ struct NetworkAgentSection: View {
         do {
             let result = try await store.call(endpoint, args)
             notice = done
-            if endpoint == "agent_start" { await load() } else { contacts = result["contacts"].array }
+            if endpoint == "agent_start" {
+                await store.refresh()
+            } else {
+                contacts = result["contacts"].array
+            }
             return true
         } catch {
             if !(error is CancellationError) { self.error = error.localizedDescription }

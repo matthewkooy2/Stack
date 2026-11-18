@@ -363,7 +363,7 @@ struct MockInterviewFlow: View {
     }
 
     private func working(message: String, spinner: Bool = false) -> some View {
-        PrepWorkingScreen(progress: model.progress, message: model.runStalled ? "Couldn’t finish your feedback" : message,
+        PrepWorkingScreen(progress: model.progress, message: model.runStalled ? "Couldn’t finish your feedback" : (model.run["status"].string == "running" ? message : "Waiting for feedback"),
                           detail: model.runStalled ? model.run["message"].string : model.error, stalled: model.runStalled,
                           primary: model.runStalled ? "Try again" : nil, busy: model.busy,
                           onPrimary: { Task { await model.retry() } }, spinner: spinner)

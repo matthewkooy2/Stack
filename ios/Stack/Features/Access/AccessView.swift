@@ -57,7 +57,7 @@ struct AccessView: View {
                     .tracking(-0.8)
                     .foregroundStyle(Brand.ink)
                     .accessibilityAddTraits(.isHeader)
-                Text("Your job search, handled")
+                Text("Find jobs and track applications")
                     .font(.title3)
                     .foregroundStyle(Brand.muted)
                     .multilineTextAlignment(.center)

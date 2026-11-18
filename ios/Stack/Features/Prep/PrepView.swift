@@ -345,7 +345,7 @@ struct PrepView: View {
             }
             if model.transcribing {
                 Card {
-                    Text(model.transcriptionUnavailable ? "Transcript unavailable" : "Reading your answer…")
+                    Text(model.transcriptionUnavailable ? "Transcript unavailable" : (model.recording["status"].string == "queued" ? "Waiting for transcription" : "Reading your answer…"))
                         .font(Typeface.body).foregroundStyle(Palette.text)
                         .breathe(!["failed", "cancelled"].contains(model.recording["status"].string) && !model.transcriptionUnavailable)
                     Text(transcriptionNote).font(Typeface.caption).foregroundStyle(Palette.muted)

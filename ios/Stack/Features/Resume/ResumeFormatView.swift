@@ -52,7 +52,7 @@ struct ResumeFormatView: View {
             if kind == "upload" {
                 StackButton(label: "Replace layout", icon: "upload", kind: .secondary, disabled: working) { importing = true }
             }
-            SectionHeader(title: "Templates")
+            SectionHeader(title: "PDF layouts")
             ResumeDesignMenu(selectedKey: ["builtin", "records"].contains(kind) ? format["template"].string : "") { key in
                 change("use_resume_template", ["id": .string(resume.id), "template": .string(key)],
                        done: "Template saved")

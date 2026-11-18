@@ -89,6 +89,7 @@ enum PracticeScore {
     static func label(_ attempt: PracticeAttempt?) -> String {
         guard let attempt else { return "Not started" }
         if let score = attempt.score { return "\(score)" }
+        if attempt.status == "queued" { return "Queued" }
         return attempt.isCoaching ? "Scoring…" : "Unscored"
     }
 

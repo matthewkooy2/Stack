@@ -3,9 +3,9 @@ import SwiftUI
 /// Labels and tones for agent task state, shared by the hub, task detail and application screens.
 enum AgentLabels {
     static let status: [String: String] = [
-        "queued": "Queued", "running": "Working", "waiting": "Ready", "needs_input": "Needs answers",
-        "blocked": "Needs setup", "review": "Review", "uncertain": "Check result",
-        "failed": "Stopped", "completed": "Done", "cancelled": "Cancelled",
+        "queued": "Queued", "running": "Working", "waiting": "Waiting", "needs_input": "Needs answers",
+        "blocked": "Blocked", "review": "Review", "uncertain": "Check result",
+        "failed": "Failed", "completed": "Done", "cancelled": "Cancelled",
     ]
     static let featureState: [String: String] = ["ready": "Ready", "setup": "Needs setup", "unavailable": "Unavailable"]
     static let terminal: Set<String> = ["completed", "cancelled", "failed"]
@@ -16,9 +16,9 @@ enum AgentLabels {
 
     /// A task paused until its resume is ready (confirmed details) is not waiting for answers; say what it needs.
     static func runLabel(_ run: JSON) -> String {
-        if run["needs_resume_review"].bool { return "Add a resume" }
+        if run["needs_resume_review"].bool { return "Resume setup needed" }
         if run["status"].string == "needs_input", run["has_requests"].isNull == false, !run["has_requests"].bool {
-            return "Stopped"
+            return "Needs attention"
         }
         return statusLabel(run["status"].string)
     }

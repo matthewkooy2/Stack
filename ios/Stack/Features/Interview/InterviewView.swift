@@ -118,7 +118,7 @@ struct InterviewView: View {
                 Card(tint: Palette.surfaceRaised, spacing: 8) {
                     HStack(spacing: 12) {
                         ProgressView().tint(Brand.accent)
-                        Text(finished ? "Writing feedback…" : "Reviewing your answer…")
+                        Text(run["status"].string == "running" ? (finished ? "Writing feedback…" : "Reviewing your answer…") : "Waiting for feedback")
                             .font(Typeface.body.weight(.semibold)).foregroundStyle(Brand.ink)
                     }
                     .accessibilityElement(children: .combine)

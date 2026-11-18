@@ -333,8 +333,12 @@ final class ScreenFlowServer: @unchecked Sendable {
 
     private static func deckJob(_ id: String, _ title: String, _ url: String) -> JSON {
         ["id": .string(id), "title": .string(title), "company": "Northwind Analytics", "location": "Chicago, IL",
-         "mode": "Hybrid", "posted": "1 day ago", "listing_url": .string(url), "fit": "Fixture fit note.",
-         "description": "Fixture description."]
+         "mode": "Hybrid", "employment_type": "Full-time", "salary": "$118K - $142K", "posted": "1 day ago",
+         "listing_url": .string(url), "fit": "Your SQL and experimentation work lines up with the core of this role.",
+         "description": "Partner with product and finance to model platform usage, design experiments and turn results into roadmap decisions.",
+         "highlights": ["responsibilities": ["Own the metrics behind the analytics platform", "Design and read out A/B tests",
+                                             "Present findings to product leadership"]],
+         "tags": ["SQL", "Python", "Experimentation", "Looker"]]
     }
 
     /// `paging` serves the deck in two pages: the first holds one job and a cursor, the second (answered late, see

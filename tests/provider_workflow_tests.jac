@@ -35,7 +35,7 @@ test "subscription claims need neither account binding permission nor stack caps
                 client.clear_auth();
                 for ignored in [0,1] {
                     claim=rpc(client,"agent_claim",{"token":"provider-test-token"});
-                    assert claim["owner"] in runs and claim["reservation_cents"]==0;
+                    assert claim["owner"] in runs;
                     rpc(client,"agent_finish",{"token":"provider-test-token","id":claim["id"],"owner":claim["owner"],"lease":claim["lease"],"result":{"artifact":{"summary":"Controlled result"}}});
                 }
                 for (owner,item) in runs.items() {
@@ -79,7 +79,9 @@ test "provider-aware task reuse preserves terminal and active selections" {
 
                 client.set_auth_token(token);
                 session=rpc(client,"prep_create",{"problem_id":"project"});
-                rpc(client,"agent_save_model",{"selection":"codex-cli"});
+                assert "error" in rpc(client,"agent_save_model",{"selection":"codex-cli"});
+                assert rpc(client,"agent_save_model",{"selection":"codex-cli","stop_tasks":True})["model_selection"]=="codex-cli";
+                assert rpc(client,"agent_run",{"id":active["id"]})["status"]=="cancelled";
                 switched=rpc(client,"agent_start",{"kind":"prep","target_id":session["id"]});
                 assert switched["id"]!=active["id"];
                 client.clear_auth();new_claim=rpc(client,"agent_claim",{"token":"dedupe-test-worker"});

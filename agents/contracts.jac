@@ -11,6 +11,8 @@ with entry {
     VERSION = 1;
     CLI_PROVIDERS = {'codex-cli', 'claude-cli'};
     LOCAL_PROVIDERS = {'ollama', 'lmstudio'};
+    MODEL_CONTEXT_TOKENS = 32768;
+    MODEL_OUTPUT_TOKENS = 6144;
     PROVIDERS = CLI_PROVIDERS | LOCAL_PROVIDERS | {'openai', 'meta'};
     STEPS = {
         'autofill': ['browser_autofill'],
@@ -29,7 +31,7 @@ with entry {
         'code': ['execute'],
         'calendar': ['calendar']
     };
-    PAID = {'fit', 'tailor', 'draft', 'coach', 'profile', 'story', 'interview_turn', 'interview_coach'};
+    MODEL_STEPS = {'linkedin_review', 'fit', 'tailor', 'draft', 'coach', 'profile', 'story', 'interview_turn', 'interview_coach'};
     EXTERNAL = {
         'send': 'send_email',
         'calendar': 'calendar_write'
@@ -91,7 +93,17 @@ def _read_config(raw: dict[str, any], selection: str) -> dict[(str, any)] {
     # set, so deployments without it keep their configuration digest.
     coach = raw.get('coach_models', {});
     chosen_coach = {str(k): str(v).strip() for (k, v) in coach.items() if str(v).strip()} if isinstance(coach, `dict) else {};
-    extra = {'coach_models': chosen_coach} if chosen_coach else {};
+    extra: dict[str, any] = {'coach_models': chosen_coach} if chosen_coach else {};
+    fallback_api = raw.get('fallback_api', {});
+    if not isinstance(fallback_api, `dict) { raise ValueError('Invalid fallback API configuration.'); }
+    fallback = raw.get('fallback_enabled', True) is True and not first_party_ai_only();
+    extra['fallback_enabled'] = fallback;
+    if fallback_api {
+        extra['fallback_api'] = {
+            'provider': str(fallback_api.get('provider', 'openai')),
+            'model': str(fallback_api.get('model', ''))
+        };
+    }
     return {
         **extra,
         'provider': str(raw.get('provider', 'openai')),
@@ -100,11 +112,9 @@ def _read_config(raw: dict[str, any], selection: str) -> dict[(str, any)] {
         'model': str(raw.get('model', '')),
         'local_model_url': str(raw.get('local_model_url', '')),
         'local_model_timeout': min(90, max(5, int(raw.get('local_model_timeout', 90)))),
-        'local_model_context_tokens': min(262144, max(1024, int(raw.get('local_model_context_tokens', 8192)))),
-        'input_cents_per_million': int(raw.get('input_cents_per_million', 0)),
-        'output_cents_per_million': int(raw.get('output_cents_per_million', 0)),
+        'local_model_context_tokens': min(MODEL_CONTEXT_TOKENS, max(1024, int(raw.get('local_model_context_tokens', MODEL_CONTEXT_TOKENS)))),
         'max_output_tokens': min(
-            12000, max(256, int(raw.get('max_output_tokens', 3000)))
+            MODEL_OUTPUT_TOKENS, max(256, int(raw.get('max_output_tokens', MODEL_OUTPUT_TOKENS)))
         ),
         'action_daily_limits': raw.get('action_daily_limits', {}),
         'invite_only': invite_only,
@@ -112,6 +122,18 @@ def _read_config(raw: dict[str, any], selection: str) -> dict[(str, any)] {
         'sandbox_available': (raw.get('sandbox_available') is True)
     };
 }
+def model_context_limit(c: dict[str, any]) -> int {
+    if c['provider'] in LOCAL_PROVIDERS {
+        return min(MODEL_CONTEXT_TOKENS, c.get('local_model_context_tokens', MODEL_CONTEXT_TOKENS));
+    }
+    return MODEL_CONTEXT_TOKENS;
+}
+
+# UTF-8 bytes conservatively account for input tokens, including the schema.
+def model_request_size(system: str, prompt: str, schema: dict[str, any], output_tokens: int) -> int {
+    return len(system.encode()) + len(prompt.encode()) + len(json.dumps(schema).encode()) + output_tokens + 512;
+}
+
 def model_access(c: dict[(str, any)], owner: str) {
     if (c['provider'] not in PROVIDERS) {
         raise ValueError('Choose a supported model provider.');
@@ -119,23 +141,11 @@ def model_access(c: dict[(str, any)], owner: str) {
     if (c['provider'] not in CLI_PROVIDERS) {
         if (c['provider'] in LOCAL_PROVIDERS) {
             import from agents.local_model { origin }
-            origin(c['provider'], c.get('local_model_url', ''));
-            if not c['model'].strip() { raise ValueError('Choose an installed local model.'); }
-        } elif (
-            not all(
-                (c[k] > 0)
-                for k in (
-                    'monthly_cents',
-                    'user_monthly_cents',
-                    'input_cents_per_million',
-                    'output_cents_per_million'
-                )
-            )
-            or not c['model']
-        ) {
-            raise ValueError(
-                'Paid agents are disabled. The operator must configure a model, prices, and monthly limits.'
-            );
+            try { origin(c['provider'], c.get('local_model_url', '')); }
+            except ValueError { if not c.get('fallback_enabled') { raise; } }
+            if not c['model'].strip() and not c.get('fallback_enabled') { raise ValueError('Choose an installed local model.'); }
+        } elif not c['model'].strip() {
+            raise ValueError('The operator must configure an API model.');
         }
     }
 }
@@ -143,11 +153,13 @@ def model_status(owner: str, selection: str = "") -> dict[(str, any)] {
     c = config(selection);
     try {
         model_access(c, owner);
-        message = 'Local subscription selected; the server CLI sign-in is checked when a task runs.'
+        message = 'No local model is configured; Codex and Claude are checked when a task runs.'
+            if c['provider'] in LOCAL_PROVIDERS and not c['model'].strip() and c.get('fallback_enabled')
+            else 'Local subscription selected; the server CLI sign-in is checked when a task runs.'
             if (c['provider'] in CLI_PROVIDERS)
             else 'Local inference configured; the installed model and service are checked when a task runs.'
             if (c['provider'] in LOCAL_PROVIDERS)
-            else 'API billing configured; provider credentials are checked when a task runs.';
+            else 'API model configured; provider credentials are checked when a task runs.';
         ready = True;
     } except ValueError as exc {
         (message, ready) = (str(exc), False);
@@ -159,41 +171,6 @@ def model_status(owner: str, selection: str = "") -> dict[(str, any)] {
         'billing': 'subscription' if (c['provider'] in CLI_PROVIDERS) else 'local' if (c['provider'] in LOCAL_PROVIDERS) else 'api',
         'message': message
     };
-}
-def reserve_cents(context: dict[(str, any)]) -> int {
-    c = config();
-    if (c['provider'] in LOCAL_PROVIDERS) { return 0; }
-    if (c['provider'] in CLI_PROVIDERS) { return 0; }
-    if (
-        not all(
-            (c[k] > 0)
-            for k in (
-                'monthly_cents',
-                'user_monthly_cents',
-                'input_cents_per_million',
-                'output_cents_per_million'
-            )
-        )
-        or not c['model']
-    ) {
-        raise ValueError(
-            'Paid agents are disabled. The operator must configure a model, prices, and monthly limits.'
-        );
-    }
-    # UTF-8 bytes conservatively bound tokens, including instructions and schema.
-    upper = (3 * len(json.dumps(context).encode())) + 16000;
-    return max(
-        1,
-        math.ceil(
-            (
-                (
-                    (upper * c['input_cents_per_million'])
-                    + (c['max_output_tokens'] * c['output_cents_per_million'])
-                )
-                / 1000000
-            )
-        )
-    );
 }
 def default_policy() -> dict[(str, any)] {
     return {

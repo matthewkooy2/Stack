@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// LinkedIn profile review from the PDF a member saves from their own profile. Stack never opens,
-/// signs in to or reads LinkedIn; the upload is reviewed by Stack's configured model in one request.
+/// signs in to or reads LinkedIn; the upload is reviewed by the shared model worker.
 @MainActor
 struct LinkedInFlow: View {
     enum Step: Int, StageKey { case upload, reviewing, results; var depth: Int { rawValue } }
@@ -15,16 +15,15 @@ struct LinkedInFlow: View {
         try await readPickedFileInBackground(url, limit: ResumeFiles.limit, tooLarge: LinkedInPDF.tooLarge)
     }, accepts: LinkedInPDF.isPDF, wrongType: LinkedInPDF.wrongType)
     @State private var generation = -1
-    /// A review that failed after the PDF was read; Try again reruns it without another upload.
-    @State private var failedRun = ""
-    @State private var retrying = false
+    @State private var reviewID = ""
+    @State private var reviewTask: Task<Void, Never>?
     @State private var error = ""
     @State private var run: JSON = .null
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                BackButton(label: step == .results ? "Close" : "Back") { back() }
+                BackButton(label: step == .results ? "Close" : "Back") { dismiss() }
                 Spacer()
             }
             .padding(.horizontal, Spacing.page).padding(.top, 8).padding(.bottom, 8)
@@ -39,6 +38,7 @@ struct LinkedInFlow: View {
         }
         .onChange(of: importing) { _, open in if !open { uploader.pickerClosed() } }
         .onChange(of: store.sessionGeneration) { _, _ in dismiss() }
+        .onDisappear { reviewTask?.cancel() }
     }
 
     @ViewBuilder private var content: some View {
@@ -46,14 +46,14 @@ struct LinkedInFlow: View {
         case .upload:
             LinkedInPDFUploadScreen(
                 role: $role,
-                busy: uploader.isBusy || retrying,
-                progress: retrying ? "Reviewing your profile…" : uploader.progress,
+                busy: uploader.isBusy || reviewTask != nil,
+                progress: uploader.progress,
                 error: error.isEmpty ? uploader.message : error,
                 onChoose: choose,
-                onRetry: failedRun.isEmpty ? (uploader.canRetry ? retryUpload : nil) : retryReview)
+                onRetry: reviewID.isEmpty ? (uploader.canRetry ? retryUpload : nil) : retryReview)
         case .reviewing:
             PrepWorkingScreen(progress: "LinkedIn", message: "Reviewing your profile…",
-                              detail: "This can take up to a minute.", spinner: true)
+                              detail: "Once queued, you can leave and check the result in Tasks.", spinner: true)
                 .padding(.horizontal, Spacing.page)
         case .results:
             LinkedInReviewScreen(content: LinkedInReviewContent(run["artifacts"]["linkedin_review"]),
@@ -64,7 +64,6 @@ struct LinkedInFlow: View {
 
     private func choose() {
         error = ""
-        failedRun = ""
         generation = store.sessionGeneration
         importing = uploader.begin()
     }
@@ -74,69 +73,90 @@ struct LinkedInFlow: View {
         if uploader.retry() { upload() }
     }
 
-    /// Reading the PDF happens before the screen changes; the review wait gets its own screen.
     private func upload() {
+        guard reviewTask == nil else { return }
+        reviewID = ""
         let session = generation
         let target = role.trimmingCharacters(in: .whitespacesAndNewlines)
-        Task {
-            let finished = await uploader.run { file in
+        reviewTask = Task {
+            defer { reviewTask = nil }
+            var queued: JSON = .null
+            let accepted = await uploader.run { file in
+                try Task.checkCancellation()
                 guard session == store.sessionGeneration, store.phase == .ready else { throw CancellationError() }
                 go(.reviewing)
-                let result = try await store.call("linkedin_pdf_review", [
+                queued = try await store.call("linkedin_pdf_review", [
                     "name": .string(file.name), "content": .string(file.content), "target_role": .string(target),
                 ], timeout: 180)
-                try settle(result)
+                try Task.checkCancellation()
+                guard !queued["id"].string.isEmpty else {
+                    throw APIError(message: "Stack did not return a review ID. Check Tasks before uploading again.")
+                }
             }
-            if !finished, step == .reviewing { go(.upload) }
+            guard !Task.isCancelled else { return }
+            if accepted {
+                reviewID = queued["id"].string
+                await showReview { queued }
+            } else if step == .reviewing {
+                go(.upload)
+            }
         }
     }
 
     private func retryReview() {
-        guard !retrying, !failedRun.isEmpty else { return }
-        retrying = true
-        error = ""
-        let id = failedRun
-        Task {
-            defer { retrying = false }
-            do {
-                go(.reviewing)
-                try settle(try await store.call("agent_retry", ["id": .string(id)], timeout: 180))
-            } catch is CancellationError {
-                go(.upload)
-            } catch {
-                self.error = error.localizedDescription
-                go(.upload)
+        guard reviewTask == nil, !reviewID.isEmpty else { return }
+        let args: JSON = ["id": .string(reviewID)]
+        reviewTask = Task {
+            defer { reviewTask = nil }
+            await showReview {
+                let latest = try await store.call("agent_run", args, timeout: 10)
+                if ["failed", "blocked"].contains(latest["status"].string) {
+                    return try await store.call("agent_retry", args, timeout: 10)
+                }
+                return latest
             }
         }
     }
 
-    /// A completed review opens the result; a failed one keeps its run so Try again needs no new upload.
-    private func settle(_ result: JSON) throws {
-        if result["status"].string == "completed" {
+    private func showReview(_ fetch: () async throws -> JSON) async {
+        error = ""
+        go(.reviewing)
+        do {
+            var result = try await fetch()
+            let clock = ContinuousClock()
+            let deadline = clock.now + .seconds(180)
+            while ["queued", "running"].contains(result["status"].string) {
+                try await clock.sleep(until: min(clock.now + .seconds(2), deadline))
+                guard clock.now < deadline else {
+                    throw APIError(message: "Your review is still pending. Try again to check its status, or find it in Tasks.")
+                }
+                result = try await store.call("agent_run", ["id": .string(reviewID)], timeout: 10)
+            }
+            try Task.checkCancellation()
+            guard result["status"].string == "completed" else {
+                if result["status"].string == "cancelled" { reviewID = "" }
+                let message = result["message"].string
+                throw APIError(message: message.isBlank ? "The review did not finish." : message)
+            }
             run = result
-            failedRun = ""
+            reviewID = ""
             go(.results)
             Task { await store.refresh() }
+        } catch is CancellationError {
             return
+        } catch {
+            guard !Task.isCancelled else { return }
+            self.error = error.localizedDescription
+            go(.upload)
         }
-        failedRun = result["id"].string
-        let message = result["message"].string
-        throw APIError(message: message.isBlank ? "The review did not finish. Try again." : message)
     }
 
     private func reset() {
         run = .null
-        failedRun = ""
+        reviewID = ""
         error = ""
         uploader.reset()
         go(.upload)
-    }
-
-    private func back() {
-        switch step {
-        case .upload, .results: dismiss()
-        case .reviewing: break
-        }
     }
 
     private func go(_ next: Step) {

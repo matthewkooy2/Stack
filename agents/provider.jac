@@ -1,9 +1,8 @@
 """Model IO only; policies, tools, budgets, and workflow state belong to Jac."""
 import json;
-import math;
 import os;
 import from uuid { uuid4 }
-import from agents.contracts { CLI_PROVIDERS, LOCAL_PROVIDERS, config, first_party_ai_only, validate_evidence }
+import from agents.contracts { CLI_PROVIDERS, LOCAL_PROVIDERS, MODEL_OUTPUT_TOKENS, config, first_party_ai_only, model_context_limit, model_request_size, validate_evidence }
 import from agents.security { http }
 import from agents.local_model { InferenceCancellation }
 import agents.interview as interview;
@@ -114,7 +113,7 @@ def sources_for(context: dict[str, any]) -> dict[str, str] {
     The worker supplies a durable, owner-scoped recorder. Direct unit-test callers
     can omit it; production generation always goes through the worker.
     """
-def generate(
+def _generate_one(
     step: any, context: any, configuration: any = None, record: any = None, observe: any = None,
     cancellation: InferenceCancellation | None = None
 ) -> any {
@@ -153,6 +152,52 @@ def generate(
     return result;
 }
 
+"""Try the local service, signed-in CLIs, then a configured API.
+Each attempt can prepare its request for that provider before sending it."""
+def run_with_fallback(c: dict[str, any], attempt: any, observe: any = None,
+                      cancellation: InferenceCancellation | None = None, allow_fallback: bool = False) -> any {
+    candidates = [c];
+    if allow_fallback and c['provider'] in LOCAL_PROVIDERS and c.get('fallback_enabled') and not first_party_ai_only() {
+        for name in ['codex-cli', 'claude-cli'] { candidates.append({**c, 'provider':name, 'model':''}); }
+        api = c.get('fallback_api', {});
+        if api.get('provider') in ['openai', 'meta'] and api.get('model', '').strip() {
+            candidates.append({**c, **api, 'coach_models': {}});
+        }
+    }
+    for (index, candidate) in enumerate(candidates) {
+        if cancellation is not None { cancellation.check(); }
+        if index and observe { observe('provider_fallback', {'provider':candidate['provider'], 'model':candidate['model']}); }
+        paid_fallback = index > 0 and candidate['provider'] in ['openai', 'meta'];
+        if paid_fallback {
+            key_name = 'MODEL_API_KEY' if candidate['provider'] == 'meta' else 'OPENAI_API_KEY';
+            if not os.environ.get(key_name) { raise ValueError('The fallback API key is not configured.'); }
+        }
+        try {
+            return attempt(candidate);
+        } except ValueError as exc {
+            message = str(exc);
+            unavailable = message.startswith(('The local model service or selected model is unavailable.',
+                'The local model service rejected the request.', 'Local inference timed out.',
+                'Choose an installed local model.', 'This task exceeds the local model context limit.',
+                'Set a local model HTTP(S) origin', 'Install and sign in to ',
+                'The local CLI could not start.', 'The local CLI timed out.',
+                'Sign in in the worker environment', 'Sign in to your Claude subscription',
+                'Codex could not complete the request.', 'Claude could not complete the request.'));
+            if not unavailable or index == len(candidates) - 1 { raise; }
+        }
+    }
+    raise ValueError('No configured model provider is available.');
+}
+
+def generate(step: any, context: any, configuration: any = None, record: any = None, observe: any = None,
+             cancellation: InferenceCancellation | None = None, allow_fallback: bool = False) -> any {
+    c = configuration if configuration is not None else config();
+    def attempt(candidate: dict[str, any]) -> any {
+        return _generate_one(step, context, candidate, record, observe, cancellation);
+    }
+    return run_with_fallback(c, attempt, observe, cancellation, allow_fallback);
+}
+
 """One request over the configured transport. Returns (response text, provider result)."""
 def _send(step: str, c: dict[str, any], system: str, payload: dict[str, any], schema: dict[str, any], coach: bool,
           received: any, observe: any, key: any, cancellation: InferenceCancellation | None = None) -> tuple[str, dict[str, any]] {
@@ -160,11 +205,18 @@ def _send(step: str, c: dict[str, any], system: str, payload: dict[str, any], sc
     if first_party_ai_only() and provider not in LOCAL_PROVIDERS {
         raise ValueError('This deployment uses only Stack-hosted AI.');
     }
+    if provider in ['openai', 'meta'] and model_request_size(system, payload['input'], schema, c['max_output_tokens']) > model_context_limit(c) {
+        raise ValueError('This task exceeds the API model context limit. Reduce the input before retrying.');
+    }
     result: dict[str, any] = {};
     if observe { observe("model_request", {"provider":provider,"requested_model":c["model"] or "provider default","transport":"codex exec" if provider=="codex-cli" else "claude -p" if provider=="claude-cli" else "local HTTP API" if provider in LOCAL_PROVIDERS else "HTTPS API","system":system,"input":json.loads(payload["input"]),"prompt_text":system+'\nReturn only the requested JSON.\n'+payload["input"] if provider=="codex-cli" else payload["input"],"schema":schema,"max_output_tokens":c["max_output_tokens"] if provider not in CLI_PROVIDERS else None}); }
+    if cancellation is not None { cancellation.check(); }
     if (provider in CLI_PROVIDERS) {
         import from agents.local_cli { generate as cli_generate }
-        cli_result = cli_generate(provider, c['model'], system, payload['input'], schema, record_response=received, observe=observe, lenient=coach) if observe else cli_generate(provider, c['model'], system, payload['input'], schema, record_response=received, lenient=coach);
+        options = {'record_response':received, 'lenient':coach};
+        if observe { options['observe']=observe; }
+        if cancellation is not None { options['cancellation']=cancellation; }
+        cli_result = cli_generate(provider, c['model'], system, payload['input'], schema, **options);
         text = cli_result.get('text', '') if coach and 'text' in cli_result else json.dumps(cli_result);
     } elif (provider in LOCAL_PROVIDERS) {
         import from agents.local_model { complete }
@@ -190,6 +242,7 @@ def _send(step: str, c: dict[str, any], system: str, payload: dict[str, any], sc
             };
         result = http('https://api.meta.ai/v1/chat/completions', meta_payload,
             {'Authorization': ('Bearer ' + (key as str)), 'Content-Type': 'application/json'},timeout=90);
+        if cancellation is not None { cancellation.check(); }
         received(json.dumps(result, ensure_ascii=False), 'provider_json');
         if observe { observe("model_response", {"response":result,"reported_models":[result["model"]] if result.get("model") else []}); }
         choice = result.get('choices', [{}])[0];
@@ -204,6 +257,7 @@ def _send(step: str, c: dict[str, any], system: str, payload: dict[str, any], sc
             {'Authorization': ('Bearer ' + (key as str)), 'Content-Type': 'application/json'},
             timeout=90
         );
+        if cancellation is not None { cancellation.check(); }
         received(json.dumps(result, ensure_ascii=False), 'provider_json');
         if observe { observe("model_response", {"response":result,"reported_models":[result["model"]] if result.get("model") else []}); }
         if (not coach and result.get('status') != 'completed') {
@@ -220,22 +274,15 @@ def _send(step: str, c: dict[str, any], system: str, payload: dict[str, any], sc
     return (text, result);
 }
 
-def _cost(result: dict[str, any], c: dict[str, any]) -> int {
-    if c['provider'] in (CLI_PROVIDERS | LOCAL_PROVIDERS) { return 0; }
-    usage = result.get('usage', {});
-    return max(1, math.ceil((usage.get('input_tokens', usage.get('prompt_tokens', 0)) * c['input_cents_per_million']
-        + usage.get('output_tokens', usage.get('completion_tokens', 0)) * c['output_cents_per_million']) / 1000000));
-}
-
 """Memory-grounded tailoring requests (agents.memory_tailoring). That module validates
 citations and facts itself, so only the JSON shape is checked here."""
-def _memory_generate(step: str, context: dict[str, any], c: dict[str, any], received: any, observe: any, key: any) -> dict[str, any] {
+def _memory_generate(step: str, context: dict[str, any], c: dict[str, any], received: any, observe: any, key: any, cancellation: InferenceCancellation | None = None) -> dict[str, any] {
     import agents.memory_tailoring as memory_tailoring;
     (system, text_input, schema) = memory_tailoring.request(step, context);
     c = {**c, 'max_output_tokens': memory_tailoring.output_tokens(step, c)};
     payload = {'model': c['model'], 'store': False, 'max_output_tokens': c['max_output_tokens'], 'instructions': system,
         'input': text_input, 'text': {'format': {'type': 'json_schema', 'name': 'stack_' + step, 'strict': True, 'schema': schema}}};
-    (text, result) = _send(step, c, system, payload, schema, False, received, observe, key);
+    (text, result) = _send(step, c, system, payload, schema, False, received, observe, key, cancellation);
     try {
         data = json.loads(text);
         if not isinstance(data, `dict) { raise ValueError('Expected an object.'); }
@@ -244,7 +291,7 @@ def _memory_generate(step: str, context: dict[str, any], c: dict[str, any], rece
         raise ValueError('The model response could not be read. Retry tailoring.') from None;
     }
     if observe { observe("model_validation", {"valid":True}); }
-    return {'artifact': data, 'cost_cents': _cost(result, c), 'provider_id': result.get('id', '')};
+    return {'artifact': data, 'cost_cents': 0, 'provider_id': result.get('id', '')};
 }
 
 """LinkedIn PDF review: profile sections fitted to the model context, a per-request section enum,
@@ -254,16 +301,19 @@ def _linkedin_generate(context: dict[str, any], c: dict[str, any], received: any
     import agents.linkedin as linkedin;
     capture = context['linkedin_profile'];
     role = str(context.get('target_role', ''))[:120];
-    c = {**c, 'max_output_tokens': min(c['max_output_tokens'], linkedin.REVIEW_OUTPUT_TOKENS)};
     def request(sections: dict[str, str]) -> str {
         return json.dumps({'task': linkedin.REVIEW_INSTRUCTION, 'target_role': role, 'profile': sections});
     }
-    # Same conservative byte-per-token bound as agents.local_model, measured with every section's name.
-    reserved = len(linkedin.REVIEW_SYSTEM.encode()) + len(request({}).encode())
-        + len(json.dumps(linkedin.review_schema(`list(capture['sections']))).encode());
-    budget = c.get('local_model_context_tokens', 8192) - c['max_output_tokens'] - 512 - reserved - 64;
-    (shown, shortened) = linkedin.fit_sections(capture['sections'], budget);
-    if not shown { raise ValueError(local_model_context_message()); }
+    (shown, shortened) = (capture['sections'], []);
+    if c['provider'] not in CLI_PROVIDERS {
+        c = {**c, 'max_output_tokens': min(c['max_output_tokens'], linkedin.REVIEW_OUTPUT_TOKENS)};
+        reserved = model_request_size(linkedin.REVIEW_SYSTEM, request({}),
+            linkedin.review_schema(`list(capture['sections'])), c['max_output_tokens']);
+        (shown, shortened) = linkedin.fit_sections(capture['sections'], model_context_limit(c) - reserved - 64);
+        if not shown {
+            raise ValueError(local_model_context_message() if c['provider'] in LOCAL_PROVIDERS else 'This task exceeds the API model context limit.');
+        }
+    }
     schema = linkedin.review_schema(`list(shown));
     payload: dict[str, any] = {
         'model': c['model'], 'store': False, 'max_output_tokens': c['max_output_tokens'],
@@ -287,7 +337,7 @@ def _linkedin_generate(context: dict[str, any], c: dict[str, any], received: any
         raise;
     }
     if observe { observe("model_validation", {"valid":True,"dropped_findings":artifact['dropped_findings']}); }
-    return {'artifact': artifact, 'cost_cents': 0 if c['provider'] in (CLI_PROVIDERS | LOCAL_PROVIDERS) else 1, 'provider_id': result.get('id', '')};
+    return {'artifact': artifact, 'cost_cents': 0, 'provider_id': result.get('id', '')};
 }
 
 def local_model_context_message() -> str {
@@ -299,12 +349,13 @@ def _generate(step: any, context: any, configuration: any, received: any, observ
               cancellation: InferenceCancellation | None = None) -> any {
     c = configuration if (configuration is not None) else config();
     provider = c['provider'];
+    if provider not in CLI_PROVIDERS { c = {**c, 'max_output_tokens': min(c['max_output_tokens'], MODEL_OUTPUT_TOKENS)}; }
     key = os.environ.get('MODEL_API_KEY' if (provider == 'meta') else 'OPENAI_API_KEY');
     if ((provider not in (CLI_PROVIDERS | LOCAL_PROVIDERS)) and (not key or not c['model'])) {
         raise ValueError('The model provider is not configured.');
     }
     if step in ['tailor_screen', 'tailor_compose', 'tailor_verify'] {
-        return _memory_generate(step, context, c, received, observe, key);
+        return _memory_generate(step, context, c, received, observe, key, cancellation);
     }
     if step == 'linkedin_review' {
         return _linkedin_generate(context, c, received, observe, key, cancellation);
@@ -392,18 +443,16 @@ def _generate(step: any, context: any, configuration: any, received: any, observ
             }
         }
     };
-    (text, result) = _send(step, c, system, payload, schema, coach, received, observe, key);
+    (text, result) = _send(step, c, system, payload, schema, coach, received, observe, key, cancellation);
     if coach {
         if not isinstance(text, str) or not text.strip() { raise ValueError('The model returned no coaching text. Please retry.'); }
-        usage = result.get('usage', {});
-        cents = math.ceil((usage.get('input_tokens', usage.get('prompt_tokens', 0)) * c['input_cents_per_million'] + usage.get('output_tokens', usage.get('completion_tokens', 0)) * c['output_cents_per_million']) / 1000000) if provider not in (CLI_PROVIDERS | LOCAL_PROVIDERS) else 0;
         try { artifact = coaching.artifact(text); }
         except ValueError as exc {
             if observe { observe("model_validation", {"valid":False,"message":str(exc)}); }
             raise;
         }
         if observe { observe("model_validation", {"valid":True,"format":artifact['format']}); }
-        return {'artifact': artifact, 'cost_cents': max(1, cents) if provider not in (CLI_PROVIDERS | LOCAL_PROVIDERS) else 0, 'provider_id': result.get('id', '')};
+        return {'artifact': artifact, 'cost_cents': 0, 'provider_id': result.get('id', '')};
     }
     try {
         data = json.loads(text);
@@ -453,28 +502,9 @@ def _generate(step: any, context: any, configuration: any, received: any, observ
         ) from None;
     }
     if observe { observe("model_validation", {"valid":True}); }
-    usage = result.get('usage', {});
-    cents = 0;
-    if provider not in (CLI_PROVIDERS | LOCAL_PROVIDERS) {
-        cents = math.ceil(
-            (
-                (
-                    (
-                        usage.get('input_tokens', usage.get('prompt_tokens', 0))
-                        * c['input_cents_per_million']
-                    )
-                    + (
-                        usage.get('output_tokens', usage.get('completion_tokens', 0))
-                        * c['output_cents_per_million']
-                    )
-                )
-                / 1000000
-            )
-        );
-    }
     return {
         'artifact': data,
-        'cost_cents': 0 if (provider in (CLI_PROVIDERS | LOCAL_PROVIDERS)) else max(1, cents),
+        'cost_cents': 0,
         'provider_id': result.get('id', '')
     };
 }

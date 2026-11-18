@@ -10,8 +10,8 @@ own profile on linkedin.com (More or Resources, then Save to PDF).
 - `agents/linkedin_pdf.py` reads the export through the bounded `pdf_safety` worker,
   separates LinkedIn's sidebar from its main column and maps its headings to sections.
   Contact details other than the profile address are discarded.
-- `linkedin_pdf_review` creates a `linkedin_pdf` task and, like practice coaching, runs
-  the `linkedin_review` step on the configured local model in the request. The
+- `linkedin_pdf_review` creates a `linkedin_pdf` task on the shared agent queue. The
+  worker uses the configured provider, fallback and model logs. The
   profile is fitted to the model context, finding sections are limited to sections
   the model was shown, and findings whose quotes are not in that section are dropped.
 - `agent_retry` reruns a failed review from the stored text without a new upload.
@@ -29,9 +29,9 @@ The personal flow uses the redesigned Swift setup, browser controls and report.
 4. The request captures the profile with Playwright, calls the account-selected
    LLM and saves raw coaching in the existing report summary.
 
-## Direct execution
+## Previous browser route: direct execution
 
-LinkedIn has no worker ticket, claim, worker token, lease, queue wait, retry count
+The retired browser route has no worker ticket, claim, worker token, lease, queue wait, retry count
 or dependency on the shared worker loop. Every saved task state can continue or
 retry. Captured text persists before the model call, so Retry reuses it after a
 model failure. Each Start creates a new private task. Database writer locks cover

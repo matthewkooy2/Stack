@@ -50,7 +50,7 @@ class AgentAPI(unittest.TestCase):
         self.assertIn('error',self.worker_call('agent_finish',**args,result={'artifact':{'passed':0}}))
         self.assertEqual(len(rpc(self.a,'prep_get',id=session['id'])['results']),1)
 
-    def test_04_unset_budget_blocks_paid_run(self):
+    def test_04_unset_api_model_blocks_run(self):
         policy={'enabled':True,'expires_at':time.time()+3600,'actions':['model'],'domains':[],'daily_limits':{}}
         rpc(self.a,'agent_save_policy',policy=policy)
         session=rpc(self.a,'prep_create',problem_id='project',language='')
@@ -98,27 +98,6 @@ class AgentAPI(unittest.TestCase):
         self.assertIn('error',self.worker_call('agent_finish',**{k:claim[k] for k in ('id','owner','lease')},result={'artifact':{}}))
         status,result=request('/function/agent_admission',{},token)
         self.assertTrue(status!=200 or not result.get('data',{}).get('result',{}).get('admitted'))
-
-    @unittest.skipUnless(os.environ.get('STACK_TEST_AGENT_CONFIG'), 'Requires a dedicated test API config, never production config')
-    def test_10_global_budget_is_atomic_across_accounts(self):
-        path=Path(os.environ['STACK_TEST_AGENT_CONFIG']);before=path.read_text()
-        try:
-            baseline=sum(u['cents'] for u in self.worker_call('agent_report')['usage'] if u['key']=='cost:'+time.strftime('%Y-%m',time.gmtime()))
-            path.write_text(json.dumps({'invite_only':False,'monthly_cents':baseline+1,'user_monthly_cents':1,'model':'test-only', 'input_cents_per_million':1,'output_cents_per_million':1,'max_output_tokens':256}))
-            runs=[]
-            for token in (self.a,self.b):
-                rpc(token,'agent_save_policy',policy={'enabled':True,'expires_at':time.time()+3600,'actions':['model']})
-                session=rpc(token,'prep_create',problem_id='project')
-                runs.append((token,rpc(token,'agent_start',kind='prep',target_id=session['id'])))
-            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-                claims=list(pool.map(lambda _:self.worker_call('agent_claim'),range(2)))
-            active=[c for c in claims if not c.get('idle')]
-            self.assertEqual(len(active),1)
-            states=[rpc(token,'agent_run',id=run['id']) for token,run in runs]
-            self.assertEqual(sum(s['cost_cents'] for s in states),1)
-            self.assertEqual(sorted(s['status'] for s in states),['blocked','running'])
-            self.worker_call('agent_finish',**{k:active[0][k] for k in ('id','owner','lease')},result={'artifact':{'summary':'Controlled test'}})
-        finally:path.write_text(before)
 
 
 if __name__=='__main__':unittest.main(verbosity=2)

@@ -3,9 +3,11 @@
 Run: jac run --no-serve tests/test_memory_tailoring.py"""
 import copy
 import itertools
+import json
 import random
 import re
 import unittest
+from unittest.mock import patch
 
 import agents.memory_access as memory_access
 import agents.memory_tailoring as mt
@@ -325,6 +327,33 @@ class Tailoring(unittest.TestCase):
             self.assertTrue(any('Shift %d:' % k in p for p in parts), k)
         for s, ctx in model.calls:
             self.assertLessEqual(mt.request_size(s, ctx, c), 16384)
+
+    def test_worker_falls_back_when_local_context_cannot_fit_base_resume(self):
+        from agents import worker
+        model = Model()
+        attempts = []
+
+        def cli(name, _model, _system, prompt, schema, **kwargs):
+            attempts.append(name)
+            if name == 'codex-cli':
+                raise ValueError('Install and sign in to codex-cli.')
+            step = next(step for key, step in [('sections', 'tailor_compose'), ('results', 'tailor_verify'),
+                                                ('ratings', 'tailor_screen')] if key in schema['properties'])
+            return model(step, json.loads(prompt)['context'], {})['artifact']
+
+        config = {**LOCAL, 'fallback_enabled': True, 'local_model_context_tokens': 4096}
+        work = {'owner': 'owner', 'context': {'resume_id': 'target'}}
+        with patch.dict('os.environ', {'STACK_FIRST_PARTY_AI_ONLY': '0'}), \
+             patch.object(worker, 'leased_memory', return_value=snapshot()), \
+             patch('agents.local_model.served_context', return_value=4096), \
+             patch('agents.local_model.complete') as local, \
+             patch('agents.local_cli.generate', side_effect=cli):
+            result = worker.memory_tailor(work, {}, config, prepared(), {}, None, None)
+            local.assert_not_called()
+        self.assertIn('artifact', result, result)
+        self.assertEqual(attempts[0], 'codex-cli')
+        self.assertEqual(set(attempts[1:]), {'claude-cli'})
+        self.assertEqual(model.calls[0][0], 'tailor_compose')
 
     def test_server_context_smaller_than_config_retries_smaller(self):
         model = Model(fail_first=mt.CONTEXT_ERROR + ' Increase the configured context and load the model with that context before retrying.')

@@ -28,6 +28,8 @@ struct ProfileView: View {
     @State private var modelSettings: JSON = .null
     @State private var modelBusy = false
     @State private var modelError = ""
+    @State private var modelToSwitch = ""
+    @State private var confirmStopModelTasks = false
     @State private var nudges = NudgeSettings()
     @State private var nudgeNote = ""
     @State private var confirmDelete = false
@@ -60,10 +62,18 @@ struct ProfileView: View {
             }
         }
         .onAppear(perform: seed)
-        .task { await loadModel() }
+        .task(id: section) { if section == .account { await loadModel() } }
         .sheet(isPresented: $showAgents) { AgentHubView().environment(store) }
         .sheet(isPresented: $showReminders) { RemindersView().environment(store) }
         .fullScreenCover(isPresented: $showBank) { MemoryBankView().environment(store) }
+        .confirmationDialog("Stop AI tasks and change models?", isPresented: $confirmStopModelTasks, titleVisibility: .visible) {
+            Button("Stop tasks and switch", role: .destructive) {
+                let selection = modelToSwitch
+                Task { await selectModel(selection, stopTasks: true) }
+            }
+        } message: {
+            Text("This stops the AI tasks running or queued for your account.")
+        }
         .alert("Delete your account?", isPresented: $confirmDelete) {
             Button("Cancel", role: .cancel) {}
             Button("Delete account", role: .destructive) {
@@ -153,7 +163,9 @@ struct ProfileView: View {
             nudgeSection
             DisclosureSection("Agent model", detail: modelSummary) {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Applies to new agent tasks.")
+                    Text(modelSettings["active_model_tasks"].int > 0
+                         ? "Wait for your AI tasks to finish, or stop them to switch models."
+                         : "Applies to new agent tasks.")
                         .font(Typeface.caption).foregroundStyle(Palette.muted)
                     if !store.account.modelProviderMessage.isEmpty {
                         Text(store.account.modelProviderMessage).font(Typeface.caption).foregroundStyle(Palette.muted)
@@ -161,7 +173,12 @@ struct ProfileView: View {
                     ForEach(modelSettings["model_options"].array.map { $0["selection"].string }, id: \.self) { choice in
                         let option = modelSettings["model_options"].array.first { $0["selection"].string == choice } ?? .null
                         Button {
-                            Task { await selectModel(choice) }
+                            if modelSettings["active_model_tasks"].int > 0 {
+                                modelToSwitch = choice
+                                confirmStopModelTasks = true
+                            } else {
+                                Task { await selectModel(choice) }
+                            }
                         } label: {
                             HStack {
                                 Image(systemName: modelSettings["model_selection"].string == choice ? "checkmark.circle.fill" : "circle")
@@ -170,7 +187,7 @@ struct ProfileView: View {
                             }
                             .font(Typeface.body).foregroundStyle(Palette.text)
                         }
-                        .disabled(modelBusy || modelSettings.isNull)
+                        .disabled(modelBusy || modelSettings.isNull || modelSettings["model_selection"].string == choice)
                         if !option["message"].string.isEmpty {
                             Text(option["message"].string).font(Typeface.caption).foregroundStyle(Palette.muted)
                         }
@@ -304,14 +321,17 @@ struct ProfileView: View {
         catch { modelError = error.localizedDescription }
     }
 
-    private func selectModel(_ selection: String) async {
+    private func selectModel(_ selection: String, stopTasks: Bool = false) async {
         modelBusy = true
         modelError = ""
         defer { modelBusy = false }
         do {
-            modelSettings = try await store.call("agent_save_model", ["selection": .string(selection)])
+            modelSettings = try await store.call("agent_save_model", ["selection": .string(selection), "stop_tasks": .bool(stopTasks)])
             await store.refresh()
-        } catch { modelError = error.localizedDescription }
+        } catch {
+            if let latest = try? await store.call("agent_settings") { modelSettings = latest }
+            modelError = error.localizedDescription
+        }
     }
 
     @discardableResult

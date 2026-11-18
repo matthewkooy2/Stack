@@ -237,9 +237,19 @@ export function AgentControls({settings, onSettings, onConnect}) {
  const [policy, setPolicy] = useState(settings.policy || {}), [facts, setFacts] = useState(settings.facts || []), [key, setKey] = useState(''), [value, setValue] = useState(''), [domains, setDomains] = useState((settings.policy?.domains || []).join(', '));
  const task = useTask(), set = (k, v) => setPolicy(p => ({...p, [k]: v}));
  const updateFacts = items => task.perform(async () => { const result = await rpc('agent_save_facts', {facts: items}); setFacts(result.facts); onSettings(result); setKey(''); setValue(''); }, 'Confirmed facts saved.');
+ const selectModel = selection => task.perform(async () => {
+  const latest = await rpc('agent_settings');
+  onSettings(latest);
+  let stopTasks = false;
+  if (latest.active_model_tasks > 0) {
+   stopTasks = window.confirm('Stop your queued and running AI tasks and change models?');
+   if (!stopTasks) return;
+  }
+  onSettings(await rpc('agent_save_model', {selection, stop_tasks: stopTasks}));
+ });
  const localTime = value => { if (!value) return ''; const d = new Date(value * 1000); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
  return h('section', {className: 'agent-controls', 'aria-label': 'Agent settings'}, h('h2', {}, 'Agent settings'), h(Messages, {task}),
-  h('details', {}, h('summary', {}, 'Model provider'), h('p', {}, settings.activity?.model_provider?.message || 'Choose the model used for your tasks.'), ...(settings.model_options || []).map(option => button(option.selection === 'local' ? 'Local model' : 'Codex CLI', () => task.perform(async () => onSettings(await rpc('agent_save_model', {selection: option.selection})), 'Model selection saved.'), {key: option.selection, disabled: task.busy, 'aria-pressed': settings.model_selection === option.selection}))),
+  h('details', {}, h('summary', {}, 'Model provider'), h('p', {}, settings.activity?.model_provider?.message || 'Choose the model used for your tasks.'), ...(settings.model_options || []).map(option => button(option.selection === 'local' ? 'Local model' : 'Codex CLI', () => selectModel(option.selection), {key: option.selection, disabled: task.busy || settings.model_selection === option.selection, 'aria-pressed': settings.model_selection === option.selection}))),
   h('details', {}, h('summary', {}, 'Email & calendar'), h('p', {}, 'Connect only the Google capabilities you want to test. Gmail read access covers your mailbox; Stack processes application and selected-contact messages.'), ...[['Connect Gmail tracking', ['read']], ['Allow Gmail sending', ['send']], ['Connect Google Calendar', ['calendar', 'availability']]].map(([label, capabilities]) => button(label, () => task.perform(() => onConnect(capabilities)), {key: label, disabled: task.busy})), ...(settings.connections || []).map(connection => h('article', {key: connection.id}, h('p', {}, `${connection.provider} · ${connection.state}`), connection.state === 'connected' && button('Disconnect', () => task.perform(async () => onSettings(await rpc('agent_disconnect', {id: connection.id})), 'Disconnected.'), {disabled: task.busy})))),
   h('details', {}, h('summary', {}, 'Rules & follow-up timing'), h('p', {}, 'External messages and calendar changes still wait for your review.'),
    h('form', {onSubmit: e => { e.preventDefault(); task.perform(async () => { const result = await rpc('agent_save_policy', {policy: {...policy, domains: domains.split(',').map(x => x.trim()).filter(Boolean)}}); onSettings(result); setPolicy(result.policy); setDomains(result.policy.domains.join(', ')); }, 'Agent rules saved.'); }},

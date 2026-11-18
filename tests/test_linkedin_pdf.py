@@ -15,7 +15,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 from unittest.mock import patch
 
 os.environ['JAC_DB_SCRATCH'] = '1'
@@ -229,6 +229,21 @@ class ProviderStep(unittest.TestCase):
         self.assertIn('experience', result['artifact']['limitations'])
         self.assertEqual(result['cost_cents'], 0)
 
+    def test_small_gpu_context_does_not_limit_cli_review(self):
+        attempts = []
+        with patch.dict(os.environ, {'STACK_FIRST_PARTY_AI_ONLY':'0'}), \
+             patch('agents.local_model.complete') as local, \
+             patch('agents.local_cli.generate', return_value=review()) as cli:
+            capture = self.capture()
+            result = provider.generate('linkedin_review', {'linkedin_profile':capture},
+                                       self.config(fallback_enabled=True, local_model_context_tokens=1024),
+                                       record=attempts.append, allow_fallback=True)
+        local.assert_not_called()
+        self.assertEqual(json.loads(cli.call_args.args[3])['profile'], capture['sections'])
+        self.assertEqual(result['artifact']['findings'][0]['priority'], 'high')
+        self.assertEqual([(a['provider'],a['status']) for a in attempts if a['status'] in ('error','accepted')],
+                         [('lmstudio','error'),('codex-cli','accepted')])
+
     def test_first_party_deployments_refuse_other_providers(self):
         with patch.dict(os.environ, {'STACK_FIRST_PARTY_AI_ONLY': '1'}), patch('agents.local_cli.generate') as cli:
             with self.assertRaisesRegex(ValueError, 'Stack-hosted AI'):
@@ -244,126 +259,157 @@ class ProviderStep(unittest.TestCase):
         return linkedin_pdf.capture(linkedin_pdf.sections_from_layout(copy.deepcopy(LAYOUT)))
 
 
-class Endpoint(unittest.TestCase):
-    upload = {'name': 'Profile.pdf', 'content': base64.b64encode(b'%PDF-1.4 synthetic').decode(), 'target_role': ROLE}
-
-    def setUp(self):
-        from jaclang.testing.testing import JacTestClient
-
-        tmp = self.enterContext(tempfile.TemporaryDirectory())
-        self.config = Path(tmp) / 'model.json'
-        self.configure_model('http://127.0.0.1:1234')
-        self.enterContext(patch.dict(os.environ, {'STACK_AGENT_CONFIG': str(self.config), 'JAC_DB_URL': '',
-                                                 'STACK_REQUIRE_INVITE': '0', 'STACK_LINKEDIN_ENABLED': '0'}))
-        self.enterContext(patch('agents.pdf_safety.inspect_spans',
-                                return_value={'pages': 2, 'text': '', 'layout': copy.deepcopy(LAYOUT)}))
-        self.client = JacTestClient.from_file(str(Path('tests/linkedin_pdf_api.jac').resolve()), base_path=tmp + '/db')
-        self.addCleanup(self.client.close)
-        self.owner = self.client.register_user('linkedin-owner', 'Synthetic-password-123').data['token']
-
-    def configure_model(self, url):
-        self.config.write_text(json.dumps({'invite_only': False, 'provider': 'lmstudio',
-                                           'model': 'synthetic-qwen', 'local_model_url': url}))
-
-    def rpc(self, name, args):
-        response = self.client.post('/function/' + name, json=args)
-        self.assertTrue(response.ok, response.text)
-        return response.data['result']
-
-    def failed_run(self):
-        with patch('agents.local_model.complete', side_effect=ValueError('Synthetic model unavailable')):
-            failed = self.rpc('linkedin_pdf_review', self.upload)
-        self.assertEqual((failed['kind'], failed['status']), ('linkedin_pdf', 'failed'))
-        self.assertIn('Synthetic model unavailable', failed['message'])
-        return {'id': failed['id']}
-
-    def test_upload_review_retry_and_account_isolation(self):
-        # Works while the browser LinkedIn feature is switched off.
-        args = self.failed_run()
-        with patch('agents.local_model.complete', return_value={'text': json.dumps(review()), 'model': 'synthetic-qwen'}) as model:
-            done = self.rpc('agent_retry', args)
-            sent = json.loads(model.call_args.args[2])
-        self.assertEqual(done['status'], 'completed')
-        self.assertEqual(sent['target_role'], ROLE)
-        self.assertNotIn('alex@example.test', json.dumps(sent))
-        stored = self.rpc('agent_run', args)
-        self.assertEqual(stored['artifacts']['linkedin_review']['findings'][0]['priority'], 'high')
-        self.assertEqual(stored['artifacts']['linkedin_pdf']['file'], 'Profile.pdf')
-        self.assertIn('error', self.rpc('agent_retry', args))
-        with patch('agents.local_model.complete', side_effect=TimeoutError()):
-            timed_out = self.rpc('linkedin_pdf_review', self.upload)
-        self.assertEqual(timed_out['status'], 'failed')
-        self.assertIn('could not finish (TimeoutError)', timed_out['message'])
-        with patch('agents.local_model.complete') as model:
-            self.assertIn('error', self.rpc('linkedin_pdf_review', {**self.upload, 'name': 'Profile.docx'}))
-            model.assert_not_called()
-        self.client.register_user('linkedin-other', 'Synthetic-password-456')
-        self.assertIn('error', self.rpc('agent_run', args))
-        self.client.set_auth_token(self.owner)
-        self.assertEqual(self.rpc('agent_run', args)['status'], 'completed')
-
-    def assert_cancelled(self, run):
-        self.assertEqual(run['status'], 'cancelled')
-        self.assertNotIn('linkedin_review', run['artifacts'])
-
-    def test_late_model_result_or_error_cannot_replace_cancelled_status(self):
-        for late_error in (False, True):
-            with self.subTest(late_error=late_error):
-                args = self.failed_run()
-                started, finish = Event(), Event()
-
-                def model(*_args, **_kwargs):
-                    started.set()
-                    if not finish.wait(5):
-                        raise RuntimeError('Test did not release the model')
-                    if late_error:
-                        raise ValueError('Late inference failure')
-                    return {'text': json.dumps(review()), 'model': 'synthetic-qwen'}
-
-                with patch('agents.local_model.complete', side_effect=model), ThreadPoolExecutor() as pool:
-                    pending = pool.submit(self.rpc, 'agent_retry', args)
-                    try:
-                        self.assertTrue(started.wait(5))
-                        self.assertIn('error', self.rpc('agent_retry', args))
-                        self.assert_cancelled(self.rpc('agent_cancel', args))
-                    finally:
-                        finish.set()
-                    self.assert_cancelled(pending.result(timeout=5))
-                self.assert_cancelled(self.rpc('agent_run', args))
-                self.assertIn('error', self.rpc('agent_retry', args))
-
-    def test_cancel_closes_live_inference_connection(self):
+class Cancellation(unittest.TestCase):
+    def test_lease_watcher_disconnects_local_inference(self):
+        from agents import local_model, worker
         started, disconnected = Event(), Event()
-
         class Model(BaseHTTPRequestHandler):
             def do_POST(self):
                 self.rfile.read(int(self.headers['Content-Length']))
                 started.set()
                 self.connection.settimeout(5)
                 try:
-                    if self.connection.recv(1) == b'':
-                        disconnected.set()
+                    if self.connection.recv(1) == b'': disconnected.set()
                 except TimeoutError:
                     pass
-
         with ThreadingHTTPServer(('127.0.0.1', 0), Model) as server:
-            self.configure_model(f'http://127.0.0.1:{server.server_port}')
             serving = Thread(target=server.serve_forever, daemon=True)
             serving.start()
+            cancellation = local_model.InferenceCancellation(gate=Lock())
+            config = {'provider':'lmstudio','model':'synthetic-qwen',
+                      'local_model_url':f'http://127.0.0.1:{server.server_port}',
+                      'local_model_timeout':30,'local_model_context_tokens':8192,
+                      'max_output_tokens':2048}
+            capture = linkedin_pdf.capture(linkedin_pdf.sections_from_layout(copy.deepcopy(LAYOUT)))
             try:
                 with ThreadPoolExecutor() as pool:
-                    pending = pool.submit(self.rpc, 'linkedin_pdf_review', self.upload)
+                    pending = pool.submit(provider.generate, 'linkedin_review', {'linkedin_profile':capture},
+                                          config, cancellation=cancellation)
                     self.assertTrue(started.wait(5))
-                    run, = self.rpc('agent_activity', {})['runs']
-                    self.assertEqual(run['status'], 'running')
-                    args = {'id': run['id']}
-                    self.assert_cancelled(self.rpc('agent_cancel', args))
-                    self.assertTrue(disconnected.wait(2), 'Model server did not see the request disconnect')
-                    self.assert_cancelled(pending.result(timeout=5))
-                self.assert_cancelled(self.rpc('agent_run', args))
+                    stop = Event()
+                    with patch.object(worker, 'call', return_value={'active':False}):
+                        watcher = Thread(target=worker.watch_lease, args=(stop, {}, cancellation))
+                        watcher.start();watcher.join(4)
+                    self.assertFalse(watcher.is_alive())
+                    self.assertTrue(disconnected.wait(2))
+                    with self.assertRaisesRegex(ValueError, 'Cancelled'): pending.result(timeout=5)
             finally:
-                server.shutdown()
-                serving.join()
+                server.shutdown();serving.join()
+
+
+class Endpoint(unittest.TestCase):
+    upload = {'name': 'Profile.pdf', 'content': base64.b64encode(b'%PDF-1.4 synthetic').decode(), 'target_role': ROLE}
+    token = 'linkedin-test-worker'
+
+    def setUp(self):
+        from jaclang.testing.testing import JacTestClient
+        tmp = self.enterContext(tempfile.TemporaryDirectory())
+        self.config = Path(tmp) / 'model.json'
+        self.config.write_text(json.dumps({'invite_only': False, 'provider': 'lmstudio',
+                                           'model': 'synthetic-qwen', 'fallback_enabled': False}))
+        self.enterContext(patch.dict(os.environ, {'STACK_AGENT_CONFIG': str(self.config), 'JAC_DB_URL': '',
+                                                 'STACK_AGENT_WORKER_TOKEN': self.token, 'STACK_FIRST_PARTY_AI_ONLY': '0'}))
+        self.enterContext(patch('agents.pdf_safety.inspect_spans',
+                                return_value={'pages': 2, 'text': '', 'layout': copy.deepcopy(LAYOUT)}))
+        self.client = JacTestClient.from_file(str(Path('tests/linkedin_pdf_api.jac').resolve()), base_path=tmp + '/db')
+        self.addCleanup(self.client.close)
+        self.owner = self.client.register_user('linkedin-owner', 'Synthetic-password-123').data['token']
+        self.client.set_auth_token(self.owner)
+
+    def rpc(self, name, args):
+        response = self.client.post('/function/' + name, json=args)
+        self.assertTrue(response.ok, response.text)
+        return response.data['result']
+
+    def claim(self):
+        self.client.clear_auth()
+        return self.rpc('agent_claim', {'token': self.token})
+
+    def finish(self, work, result):
+        return self.rpc('agent_finish', {'token': self.token, **{k: work[k] for k in ('id', 'owner', 'lease')}, 'result': result})
+
+    def dispatch(self, work, model):
+        from agents import worker
+        def rpc(name, args, **_kwargs):
+            value = self.rpc(name, args)
+            if value.get('error'): raise ValueError(value['error'])
+            return value
+        with patch.object(worker, 'call', side_effect=rpc), patch('agents.local_model.complete', side_effect=model):
+            return worker.dispatch(work, self.token)
+
+    def test_upload_queue_review_retry_and_account_isolation(self):
+        queued = self.rpc('linkedin_pdf_review', self.upload)
+        self.assertEqual((queued['kind'], queued['status']), ('linkedin_pdf', 'queued'))
+        work = self.claim()
+        self.assertEqual(work['step'], 'linkedin_review')
+        failed = self.finish(work, self.dispatch(work, ValueError('Synthetic model failure')))
+        self.assertEqual(failed['status'], 'blocked')
+        self.client.set_auth_token(self.owner)
+        self.assertEqual(self.rpc('agent_retry', {'id':queued['id']})['status'], 'queued')
+        work = self.claim()
+        sent = []
+        def model(_step, _system, prompt, *_args, **_kwargs):
+            sent.append(json.loads(prompt))
+            return {'text': json.dumps(review()), 'model': 'synthetic-qwen'}
+        done = self.finish(work, self.dispatch(work, model))
+        self.assertEqual(done['status'], 'completed')
+        self.assertEqual(sent[0]['target_role'], ROLE)
+        self.assertNotIn('alex@example.test', json.dumps(sent))
+        self.client.set_auth_token(self.owner)
+        stored = self.rpc('agent_run', {'id':queued['id']})
+        self.assertEqual(stored['artifacts']['linkedin_review']['findings'][0]['priority'], 'high')
+        logs = self.rpc('agent_model_logs', {'id':queued['id']})['attempts']
+        self.assertEqual([entry['status'] for entry in logs], ['error', 'accepted'])
+        self.client.register_user('linkedin-other', 'Synthetic-password-456')
+        self.assertIn('error', self.rpc('agent_run', {'id':queued['id']}))
+
+    def test_api_fallback_completes_linkedin_review_without_a_budget(self):
+        from agents import worker
+        self.config.write_text(json.dumps({'invite_only':False, 'provider':'lmstudio', 'model':'synthetic-qwen',
+            'fallback_enabled':True, 'fallback_api':{'provider':'openai', 'model':'api-test'}}))
+        response = {'status':'completed', 'output':[{'content':[{'type':'output_text','text':json.dumps(review())}]}],
+                    'usage':{'input_tokens':100,'output_tokens':100}}
+        def rpc(name, args, **_kwargs):
+            value = self.rpc(name, args)
+            if value.get('error'): raise ValueError(value['error'])
+            return value
+        with patch.dict(os.environ, {'OPENAI_API_KEY':'synthetic'}), \
+             patch.object(worker, 'call', side_effect=rpc), \
+             patch('agents.local_model.complete', side_effect=ValueError('Local inference timed out.')), \
+             patch('agents.local_cli.generate', side_effect=ValueError('Install and sign in to CLI.')), \
+             patch('agents.provider.http', return_value=response) as http:
+            self.rpc('linkedin_pdf_review', self.upload)
+            work = self.claim()
+            done = self.finish(work, worker.dispatch(work, self.token))
+            self.assertEqual(done['status'], 'completed')
+            self.assertEqual(done['provider'], 'openai')
+            self.assertEqual(done['cost_cents'], 0)
+            self.assertEqual(http.call_count, 1)
+
+    def test_cancelled_lease_rejects_late_model_result(self):
+        queued = self.rpc('linkedin_pdf_review', self.upload)
+        self.assertEqual(self.rpc('agent_settings', {})['active_model_tasks'], 1)
+        self.assertIn('error', self.rpc('agent_save_model', {'selection':'codex-cli'}))
+        work = self.claim()
+        other = self.client.register_user('other-model-owner', 'Synthetic-password-456').data['token']
+        self.client.set_auth_token(other)
+        self.assertEqual(self.rpc('agent_save_model', {'selection':'codex-cli', 'stop_tasks':True})['active_model_tasks'], 0)
+        self.client.set_auth_token(self.owner)
+        self.assertEqual(self.rpc('agent_settings', {})['active_model_tasks'], 1)
+        self.assertIn('error', self.rpc('agent_save_model', {'selection':'codex-cli'}))
+        self.assertEqual(self.rpc('agent_save_model', {'selection':'codex-cli', 'stop_tasks':True})['model_selection'], 'codex-cli')
+        self.client.clear_auth()
+        auth = {'token': self.token, **{k:work[k] for k in ('id','owner','lease')}}
+        self.assertFalse(self.rpc('agent_lease_active', auth)['active'])
+        self.assertIn('error', self.finish(work, {'artifact': review()}))
+        self.client.set_auth_token(self.owner)
+        stored = self.rpc('agent_run', {'id':queued['id']})
+        self.assertEqual(stored['status'], 'cancelled')
+        self.assertNotIn('linkedin_review', stored['artifacts'])
+
+    def test_invalid_upload_never_enters_queue(self):
+        self.assertIn('error', self.rpc('linkedin_pdf_review', {**self.upload, 'name':'Profile.docx'}))
+
 
 
 if __name__ == '__main__':

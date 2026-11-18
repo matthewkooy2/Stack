@@ -46,7 +46,7 @@ def main():
                     session=rpc('prep_save',{'id':session['id'],'revision':session['revision'],'data':data})
                     run=rpc('agent_start',{'kind':'prep','target_id':session['id']})
                     client.clear_auth();work=rpc('agent_claim',{'token':'isolated-local-smoke'})
-                    assert work['id']==run['id'] and work['owner']==owner and work['reservation_cents']==0,work
+                    assert work['id']==run['id'] and work['owner']==owner,work
                     def observe(event,data): rpc('agent_trace',{'token':'isolated-local-smoke',**{k:work[k] for k in ('id','owner','lease')},'event':event,'data':data})
                     start=time.monotonic()
                     with patch('agents.worker.call',side_effect=rpc): result=dispatch(work,'isolated-local-smoke',observe=observe)

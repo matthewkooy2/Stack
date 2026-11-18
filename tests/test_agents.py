@@ -31,16 +31,6 @@ class Contracts(unittest.TestCase):
         contracts.validate_evidence([{'source':'a','quote':'built systems'}],{'a':'I built systems.'})
         with self.assertRaises(ValueError):contracts.validate_evidence([{'source':'a','quote':'managed 50 people'}],{'a':'I built systems.'})
 
-    def test_budget_unset(self):
-        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ,{'STACK_AGENT_CONFIG':d+'/missing.json'}):
-            with self.assertRaises(ValueError):contracts.reserve_cents({})
-
-    def test_budget_reservation_counts_payload(self):
-        with tempfile.TemporaryDirectory() as d:
-            path=Path(d)/'config.json';path.write_text(json.dumps({'monthly_cents':100,'user_monthly_cents':50,'model':'test','input_cents_per_million':100,'output_cents_per_million':500,'max_output_tokens':500}))
-            with patch.dict(os.environ,{'STACK_AGENT_CONFIG':str(path)}):
-                self.assertGreater(contracts.reserve_cents({'a':'x'*50000}),contracts.reserve_cents({}))
-
     def test_two_sum_checks_indices_and_alternative_solutions(self):
         good=prep.evaluate_outputs('two-sum',[[1,0],[0,1],[],[0,2],[]]);self.assertEqual(good['passed'],5)
         bad=prep.evaluate_outputs('two-sum',[[0,0],[True,1],[],[0,2],[]]);self.assertEqual(bad['passed'],3)

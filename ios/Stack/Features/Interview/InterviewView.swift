@@ -93,7 +93,7 @@ struct InterviewView: View {
             if !run["id"].string.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(run["message"].string).font(Typeface.caption).foregroundStyle(Palette.muted)
-                    if ["needs_input", "blocked", "failed"].contains(run["status"].string) {
+                    if ["needs_input", "blocked", "failed"].contains(run["status"].string) || run["stopped_for_model_switch"].bool {
                         StackButton(label: "Retry coaching", disabled: busy) { Task { await retry() } }
                     }
                 }

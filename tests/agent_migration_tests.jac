@@ -71,25 +71,18 @@ test "permissions facts and validation preserve checkpoint behavior" {
     }
 }
 
-test "provider configuration and budget reservations preserve checkpoint" {
+test "provider migration preserves account-independent CLI selection and voice limits" {
     with tempfile.TemporaryDirectory() as tmp {
         path = Path(tmp) / "config.json";
-        with patch.dict(os.environ, {"STACK_AGENT_CONFIG": str(path)}) {
-            for settings in [{}, {"provider": "codex-cli", "local_cli_owner": "alice", "local_cli_daily_limit": 3},
-                {"model": "test", "monthly_cents": 100, "user_monthly_cents": 50,
-                 "input_cents_per_million": 100, "output_cents_per_million": 500}] {
-                path.write_text(json.dumps(settings));
-                expected=legacy("contracts").config();expected.pop("certified_adapters",None);expected.pop("local_cli_owner",None);expected.pop("local_cli_daily_limit",None);actual=importlib.import_module("agents.contracts").config();
-                assert {k:v for (k,v) in actual.items() if k!="sandbox_available"}==expected;
-                assert actual["sandbox_available"] is False;
-                if settings.get("provider")!="codex-cli" {
-                    compare("contracts", "model_status", [["alice"], ["bob"], [""]]);
-                    compare("contracts", "reserve_cents", [[{}], [{"text": "x" * 10000}]]);
-                } else {
-                    module=importlib.import_module("agents.contracts");
-                    assert module.model_status("bob")["configured"] and module.reserve_cents({})==0;
-                }
-            }
+        path.write_text(json.dumps({"provider":"codex-cli","local_cli_owner":"alice","local_cli_daily_limit":3,
+            "monthly_cents":100,"user_monthly_cents":50}));
+        with patch.dict(os.environ, {"STACK_AGENT_CONFIG":str(path),"STACK_FIRST_PARTY_AI_ONLY":"0"}) {
+            module=importlib.import_module("agents.contracts");
+            actual=module.config();
+            assert actual["provider"]=="codex-cli" and actual["sandbox_available"] is False;
+            assert actual["monthly_cents"]==100 and actual["user_monthly_cents"]==50;
+            assert "local_cli_owner" not in actual and "local_cli_daily_limit" not in actual;
+            assert module.model_status("bob")["configured"];
         }
     }
 }

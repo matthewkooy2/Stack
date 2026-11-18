@@ -24,10 +24,10 @@ struct GmailTrackingSection: View {
                     .font(Typeface.body).foregroundStyle(Brand.muted)
             }
             if connected {
-                PrimaryPill(title: "Scan Gmail", icon: "magnifyingglass") { showScan = true }
+                StackButton(label: "Scan Gmail", icon: "magnifyingglass") { showScan = true }
                 if let onManage { QuietLinks(links: [ScreenLink("Manage connection", action: onManage)]) }
             } else {
-                PrimaryPill(title: connecting ? "Connecting…" : "Connect Gmail", icon: "envelope",
+                StackButton(label: connecting ? "Connecting…" : "Connect Gmail", icon: "envelope",
                             disabled: connecting || unavailable || store.busy) {
                     Task { await connect() }
                 }

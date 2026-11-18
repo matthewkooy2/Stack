@@ -48,6 +48,7 @@ struct NetworkView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .animation(Motion.animation(Motion.smooth, reduce: reduceMotion), value: min(roster.contacts.count, 5))
+        .replayable()
         .refreshable {
             if section == .network { await roster.load(store: store) }
             else {
@@ -270,11 +271,7 @@ struct NetworkView: View {
             withAnimation(Motion.animation(Motion.snappy, reduce: reduceMotion)) { section = .presence }
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: "person.crop.rectangle.fill")
-                    .font(.system(size: 17, weight: .semibold)).foregroundStyle(Brand.accent)
-                    .frame(width: 40, height: 40)
-                    .background(Palette.halo, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .accessibilityHidden(true)
+                SymbolTile(systemName: "person.crop.rectangle.fill", weight: .semibold)
                 Text("Review your LinkedIn").font(.headline).foregroundStyle(Brand.ink)
                 Spacer(minLength: 8)
                 Image(systemName: "chevron.right").font(.caption.weight(.semibold))

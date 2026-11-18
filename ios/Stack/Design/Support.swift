@@ -115,22 +115,31 @@ struct StatusPill: View {
 
     let text: String
     var tone: Tone = .neutral
+    /// A larger pill for a screen's context or progress ("2 of 3"), with an optional symbol.
+    var prominent = false
+    var symbol: String?
 
-    init(text: String, tone: Tone = .neutral) {
+    init(text: String, tone: Tone = .neutral, prominent: Bool = false, symbol: String? = nil) {
         self.text = text
         self.tone = tone
+        self.prominent = prominent
+        self.symbol = symbol
     }
 
     init(label: String, tone: Tone = .neutral) { self.init(text: label, tone: tone) }
 
     var body: some View {
-        Text(text)
-            .font(.caption2.weight(.semibold))
-            .foregroundStyle(foreground)
-            .padding(.horizontal, 9)
-            .padding(.vertical, 4)
-            .background(background, in: Capsule())
-            .fixedSize(horizontal: false, vertical: true)
+        HStack(spacing: 6) {
+            if let symbol { Image(systemName: symbol).font(.caption.weight(.semibold)).accessibilityHidden(true) }
+            Text(text).lineLimit(prominent ? 1 : nil)
+        }
+        .font(prominent ? .subheadline.weight(.semibold) : .caption2.weight(.semibold))
+        .foregroundStyle(foreground)
+        .padding(.horizontal, prominent ? 12 : 9)
+        .padding(.vertical, prominent ? 0 : 4)
+        .frame(minHeight: prominent ? 32 : nil)
+        .background(background, in: Capsule())
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private var foreground: Color {

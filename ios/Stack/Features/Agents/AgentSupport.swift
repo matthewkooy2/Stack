@@ -241,7 +241,7 @@ struct AgentFeedbackForm: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Feedback").font(Typeface.section).foregroundStyle(Palette.ink)
+            SectionHeader(title: "Feedback")
             ChoiceChips(options: ["good", "mixed", "bad"], isSelected: { rating == $0 },
                         onTap: { rating = $0; message = "" }, labelFor: { $0.capitalized })
             StackField(label: "Feedback", text: $note, multiline: true)

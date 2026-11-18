@@ -15,7 +15,7 @@ enum LabScreen: String, CaseIterable, Identifiable {
     case linkedInUpload = "LinkedIn PDF upload"
     case linkedInReview = "LinkedIn review"
     case gmailScan = "Gmail scan", tailoringReview = "Tailoring review"
-    case prepQuestion = "Prep question", prepWorking = "Prep reading", prepCoaching = "Prep coaching", prepDone = "Prep done", prepSaved = "Prep saved answer", prepCoachingA = "Coaching: real reply A", prepCoachingB = "Coaching: real reply B", logo = "Logo marks", launch = "Loading account", login = "Login screen", signIn = "Sign-in form", signUp = "Create-account form"
+    case prepHome = "Prep home", prepQuestion = "Prep question", prepWorking = "Prep reading", prepCoaching = "Prep coaching", prepDone = "Prep done", prepSaved = "Prep saved answer", prepCoachingA = "Coaching: real reply A", prepCoachingB = "Coaching: real reply B", logo = "Logo marks", launch = "Loading account", login = "Login screen", signIn = "Sign-in form", signUp = "Create-account form"
     var id: String { rawValue }
 }
 
@@ -93,6 +93,8 @@ private struct MotionLabPreview: View {
             }
         case .gmailScan:
             GmailScanView()
+        case .prepHome:
+            LabFlow(flow: "collections-full") { PrepView() }
         case .prepQuestion:
             ZStack {
                 Brand.page.ignoresSafeArea()

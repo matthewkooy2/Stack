@@ -58,6 +58,7 @@ struct ApplicationsView: View {
             }
         }
         .animation(reduceMotion ? nil : Motion.smooth, value: all.count > 2)
+        .replayable()
         .refreshable { await store.refresh() }
         .onChange(of: pendingApplication, initial: true) { _, app in
             guard let app else { return }
@@ -467,13 +468,7 @@ struct ApplicationDetailView: View {
                 }
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     if !keyboardUp {
-                        actions(app)
-                            .padding(.horizontal, Spacing.page)
-                            .padding(.top, 12)
-                            .padding(.bottom, 8)
-                            .frame(maxWidth: .infinity)
-                            .background(.bar)
-                            .overlay(alignment: .top) { Divider() }
+                        actions(app).pinnedActionBar()
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardUp = true }

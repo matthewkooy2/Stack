@@ -102,9 +102,7 @@ private struct ResumeReviewScreen: View {
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if let controller, controller.loaded, selection != ResumeReviewController.originalSectionID {
-                    actions(controller)
-                        .padding(.horizontal, Spacing.page).padding(.top, 12).padding(.bottom, 8)
-                        .background(Brand.page)
+                    actions(controller).pinnedActionBar()
                 }
             }
         }

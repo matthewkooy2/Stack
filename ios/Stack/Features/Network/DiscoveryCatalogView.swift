@@ -21,12 +21,10 @@ struct DiscoveryCatalogView: View {
     }
 
     var body: some View {
-        SheetPage(title: "Discovery catalog") {
-            Text("Sample profiles with your saved notes and outreach drafts.")
-                .font(Typeface.caption).foregroundStyle(Palette.muted)
+        SheetPage(title: "Discover") {
             ToggleRow(label: "Saved only", isOn: $savedOnly)
             if connections.isEmpty {
-                Text(savedOnly ? "No saved catalog profiles." : "No catalog profiles.")
+                Text(savedOnly ? "No saved profiles" : "No profiles")
                     .font(Typeface.body).foregroundStyle(Palette.muted)
             }
             ForEach(connections) { connection in
@@ -76,7 +74,6 @@ private struct ContactDetailView: View {
                     }
                     .reveal(1)
                     StackField(label: "Outreach draft", text: $draft, multiline: true).reveal(3)
-                    Text("Saved here. Nothing is sent.").font(Typeface.caption).foregroundStyle(Palette.muted)
                     DisclosureSection("Private notes", open: !notes.isBlank) {
                         StackField(label: "Private notes", text: $notes, multiline: true)
                     }
@@ -91,7 +88,7 @@ private struct ContactDetailView: View {
                 .onAppear { if !seeded { draft = record.draft; notes = record.notes; seeded = true } }
             } else {
                 SheetPage(title: "Contact unavailable") {
-                    Text("This profile is no longer in the catalog.").foregroundStyle(Brand.muted)
+                    Text("This profile is no longer available").foregroundStyle(Brand.muted)
                 }
             }
         }

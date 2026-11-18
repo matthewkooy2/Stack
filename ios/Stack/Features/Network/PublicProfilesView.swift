@@ -39,7 +39,7 @@ struct PublicProfilesView: View {
             .padding(.horizontal, 16)
             .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             .stackElevation()
-            Text("Drafts stay on this iPhone. Signing out clears them.")
+            Text("Drafts stay on this iPhone")
                 .font(.footnote).foregroundStyle(Palette.muted)
         }
         .onAppear { generation = store.sessionGeneration }

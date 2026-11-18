@@ -85,7 +85,7 @@ struct MemoryBankView: View {
                         }.font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
                             .frame(maxWidth: .infinity, minHeight: 44).disabled(!loaded || working)
                     }
-                }.padding(.horizontal, Spacing.page).padding(.top, 12).padding(.bottom, 8).background(Brand.page)
+                }.pinnedActionBar()
             }
         }
         .replayable()
@@ -117,7 +117,7 @@ struct MemoryBankView: View {
                                 Button { edit(item) } label: { Label("Edit", systemImage: "pencil") }
                                 Button(role: .destructive) { deleting = item } label: { Label("Delete", systemImage: "trash") }
                             } label: {
-                                Image(systemName: "ellipsis").foregroundStyle(Brand.muted).frame(width: 36, height: 36)
+                                Image(systemName: "ellipsis").foregroundStyle(Brand.muted).frame(width: 44, height: 44)
                                     .contentShape(Rectangle())
                             }.accessibilityLabel("Options for \(item["name"].string)")
                         }
@@ -235,7 +235,7 @@ struct MemoryBankView: View {
             StackField(label: "Name", text: $name, placeholder: "Work, project, skill or other")
             StackField(label: "Source", text: $source, placeholder: "Where these details came from")
             VStack(alignment: .leading, spacing: 10) {
-                Text("Details").font(Typeface.section).foregroundStyle(Brand.ink)
+                SectionHeader(title: "Details")
                 ForEach($facts) { $fact in
                     HStack(alignment: .top, spacing: 8) {
                         Text("•").font(Typeface.body).padding(.top, 13).accessibilityHidden(true)

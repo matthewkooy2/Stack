@@ -61,7 +61,7 @@ struct InterviewView: View {
         VStack(alignment: .leading, spacing: 14) {
             SectionLabel(text: "Job")
             if applications.isEmpty {
-                Text("Save a real job from Jobs to practice for it.").font(Typeface.caption).foregroundStyle(Palette.muted)
+                Text("Save a job to practice for it").font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             if !applications.isEmpty {
                 Picker("Job", selection: $role) {
@@ -108,7 +108,7 @@ struct InterviewView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(run["message"].string).font(Typeface.caption).foregroundStyle(Palette.muted)
                     if ["needs_input", "blocked", "failed"].contains(run["status"].string) || run["stopped_for_model_switch"].bool {
-                        StackButton(label: "Retry coaching", disabled: busy) { Task { await retry() } }
+                        StackButton(label: "Try again", disabled: busy) { Task { await retry() } }
                     }
                 }
             }
@@ -126,13 +126,13 @@ struct InterviewView: View {
             }
             if !coaching.object.isEmpty, !(working && finished) {
                 Card(tint: Palette.surfaceRaised, spacing: 8) {
-                    Text("Final coaching").font(Typeface.option).foregroundStyle(Palette.icon)
+                    Text("Final feedback").font(Typeface.option).foregroundStyle(Palette.icon)
                     InterviewCoachingView(coaching: coaching)
                 }
             }
             if !analysis.object.isEmpty, !finished {
                 Card(tint: Palette.surfaceRaised, spacing: 8) {
-                    Text("Answer \(turns.count) coaching").font(Typeface.option).foregroundStyle(Palette.icon)
+                    Text("Answer \(turns.count) feedback").font(Typeface.option).foregroundStyle(Palette.icon)
                     InterviewCoachingView(coaching: analysis)
                     StackButton(label: "Ask a follow-up", kind: .secondary, disabled: busy || turns.count >= 6 || !active) {
                         Task { await action("followup") }
@@ -201,7 +201,7 @@ struct InterviewView: View {
             .id(current["id"].string + ":" + String(turns.count))
             if let offered {
                 Card(tint: Palette.oat, spacing: 8) {
-                    Text("Your typed answer is preserved. A reviewed recorded transcript is ready.")
+                    Text("A reviewed transcript is ready")
                         .font(Typeface.caption).foregroundStyle(Palette.muted)
                     Text(offered.text).font(Typeface.body).foregroundStyle(Palette.text)
                     StackButton(label: "Use transcript", disabled: busy) {

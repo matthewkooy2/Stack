@@ -239,7 +239,7 @@ struct AgentHubView: View {
 
     private var rulesPage: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("You approve every email and calendar change.")
+            Text("You approve every change")
                 .font(Typeface.body).foregroundStyle(Palette.text)
             ToggleRow(label: "Allow sending and calendar changes", isOn: Binding(get: { enabled }, set: { enabled = $0; rulesDirty = true }))
             if settings["policy"]["enabled"].bool, settings["policy"]["expires_at"].double > 0 {
@@ -255,7 +255,7 @@ struct AgentHubView: View {
                        placeholder: "company.com", multiline: true, keyboard: .URL, autocapitalization: .never)
             StackField(label: "Daily limit", text: Binding(get: { daily }, set: { daily = $0; rulesDirty = true }), keyboard: .numberPad)
             StackField(label: "Follow-ups per contact", text: Binding(get: { followups }, set: { followups = $0; rulesDirty = true }), keyboard: .numberPad)
-            Text("Expires in 30 days. Follow-ups wait for your approval.")
+            Text("Expires in 30 days")
                 .font(Typeface.caption).foregroundStyle(Palette.muted)
             StackButton(label: "Save", disabled: busy) {
                 Task { await savePolicy() }

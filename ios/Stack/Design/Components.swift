@@ -47,7 +47,7 @@ enum Glyph {
         case "industry": return "building.2"
         case "library": return "rectangle.stack.badge.play"
         case "speaker": return "speaker.wave.2"
-        default: return "circle"
+        default: return UIImage(systemName: name) != nil ? name : "circle"
         }
     }
 }
@@ -69,12 +69,14 @@ struct GlyphView: View {
 /// Full-width primary action, quiet secondary action or compact ink button.
 @MainActor
 struct StackButton: View {
-    enum Kind { case primary, secondary, dark }
+    enum Kind { case primary, secondary, soft, dark }
 
     let label: String
     var icon: String = ""
     var kind: Kind = .primary
     var disabled = false
+    /// A soft ring that swells behind a primary button while it waits to be tapped.
+    var pulse = false
     let action: () -> Void
 
     var body: some View {
@@ -82,18 +84,21 @@ struct StackButton: View {
             HStack(spacing: 9) {
                 if !icon.isEmpty { GlyphView(name: icon, size: 18, color: foreground) }
                 Text(label)
-                    .font(kind == .secondary ? Typeface.caption.weight(.semibold) : .system(.headline).weight(.semibold))
+                    .font(kind == .secondary || kind == .soft ? Typeface.caption.weight(.semibold) : .system(.headline).weight(.semibold))
                     .foregroundStyle(foreground)
                     .multilineTextAlignment(.center)
+                    .lineLimit(kind == .soft ? 1 : nil)
+                    .minimumScaleFactor(kind == .soft ? 0.8 : 1)
             }
             .padding(.vertical, 8)
-            .frame(maxWidth: kind == .dark ? nil : .infinity, minHeight: kind == .secondary ? 44 : 52)
+            .frame(maxWidth: kind == .dark ? nil : .infinity, minHeight: kind == .secondary ? 44 : (kind == .soft ? 46 : 52))
             .padding(.horizontal, kind == .dark ? 26 : 17)
             .background(background, in: RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.tap(scale: kind == .secondary ? 0.985 : 0.97))
         .disabled(disabled)
+        .modifier(IdlePulse(active: pulse && !disabled && kind == .primary))
         .frame(maxWidth: .infinity, alignment: kind == .dark ? .leading : .center)
         .accessibilityLabel(label)
     }
@@ -101,7 +106,7 @@ struct StackButton: View {
     private var foreground: Color {
         switch kind {
         case .primary: return .white
-        case .secondary: return Brand.accent
+        case .secondary, .soft: return Brand.accent
         case .dark: return Palette.onDark
         }
     }
@@ -110,6 +115,7 @@ struct StackButton: View {
         switch kind {
         case .primary: return Palette.button
         case .secondary: return .clear
+        case .soft: return Palette.halo
         case .dark: return Palette.dark
         }
     }
@@ -531,7 +537,7 @@ private struct AccountButton: View {
         }
         .buttonStyle(.tap(scale: 0.92, dim: 1))
         .accessibilityLabel(store.account.attentionRunCount > 0
-                            ? "Your account, \(store.account.attentionRunCount) agent tasks need you" : "Your account")
+                            ? "Your account, \(store.account.attentionRunCount) tasks need you" : "Your account")
     }
 }
 
@@ -623,19 +629,39 @@ struct CollectionEmptyState: View {
     }
 }
 
-/// A symbol on a soft accent disc.
+/// A symbol on a soft disc. Accent by default; `tint` indexes `Palette.tints` so a list can give each row its own hue.
 @MainActor
 struct SymbolDisc: View {
     let systemName: String
     var size: CGFloat = 88
+    var tint: Int?
+
+    var body: some View {
+        let shade = tint.map { Palette.tints[abs($0) % Palette.tints.count] }
+        Image(systemName: systemName)
+            .font(.system(size: size * (tint == nil ? 0.38 : 0.42), weight: tint == nil ? .regular : .semibold))
+            .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(shade?.ink ?? Brand.accent)
+            .frame(width: size, height: size)
+            .background(shade?.fill ?? Palette.halo, in: Circle())
+            .accessibilityHidden(true)
+    }
+}
+
+/// A symbol on a soft rounded square, the leading mark of a row. Accent by default, or any `Palette.Tint`.
+@MainActor
+struct SymbolTile: View {
+    let systemName: String
+    var size: CGFloat = 40
+    var tint: Palette.Tint?
+    var weight: Font.Weight = .medium
 
     var body: some View {
         Image(systemName: systemName)
-            .font(.system(size: size * 0.38, weight: .regular))
-            .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(Brand.accent)
+            .font(.system(size: size * 0.42, weight: weight))
+            .foregroundStyle(tint?.ink ?? Brand.accent)
             .frame(width: size, height: size)
-            .background(Palette.halo, in: Circle())
+            .background(tint?.fill ?? Palette.halo, in: RoundedRectangle(cornerRadius: size * 0.28, style: .continuous))
             .accessibilityHidden(true)
     }
 }

@@ -256,7 +256,7 @@ struct TaskDetailView: View {
         Card(tint: Palette.surfaceRaised, spacing: 12) {
             SectionLabel(text: "Autofill")
             Text(run["message"].string).font(Typeface.body).foregroundStyle(Palette.text)
-            Text("Take control to sign in and attach your resume. You review every field and submit.")
+            Text("Take control to sign in and attach your resume")
                 .font(Typeface.caption).foregroundStyle(Palette.muted)
             let report = run["artifacts"]["browser_autofill"]
             if report["truncated"].bool {
@@ -284,7 +284,7 @@ struct TaskDetailView: View {
     private var uncertainBox: some View {
         Card(tint: Palette.surfaceRaised, spacing: 12) {
             SectionLabel(text: "Check result")
-            Text("Stack can’t tell if the last action finished. Check your email, calendar or the company site.")
+            Text("Couldn’t confirm the last action. Check your email or the company site")
                 .font(Typeface.body).foregroundStyle(Palette.text)
             StackField(label: "What you checked",
                        text: Binding(get: { draft.evidence }, set: { draft.evidence = $0; remember() }), multiline: true)
@@ -526,7 +526,7 @@ struct ArtifactView: View {
     private static let eyebrows = [
         "inspect": "Application form", "fit": "Job fit", "tailor": "Tailored resume", "fill": "Form filled",
         "submit": "Submission receipt", "research": "Contact source", "draft": "Email draft", "send": "Email sent",
-        "profile": "Profile suggestions", "coach": "Coaching", "execute": "Test results", "sync": "Gmail check",
+        "profile": "Profile suggestions", "coach": "Feedback", "execute": "Test results", "sync": "Gmail check",
         "calendar": "Calendar", "interview": "Transcript", "linkedin_pdf": "LinkedIn PDF",
     ]
 
@@ -620,7 +620,7 @@ struct ArtifactView: View {
             lines("To strengthen this: ", value["questions"].strings)
             Text(value["limitations"].string).font(Typeface.caption).foregroundStyle(Palette.muted)
             Text("Sections not read: \(value["unread_sections"].strings.joined(separator: ", "))").font(Typeface.caption).foregroundStyle(Palette.muted)
-            Text("Suggested edits are yours to review and apply on LinkedIn.").font(Typeface.caption).foregroundStyle(Palette.muted)
+            Text("Apply edits on LinkedIn when ready").font(Typeface.caption).foregroundStyle(Palette.muted)
         }
     }
 }
@@ -648,9 +648,9 @@ struct TailoredResultView: View {
                 MessageLine(text: "No PDF was generated.")
             }
             if legacy {
-                Text("Your uploaded resume is unchanged.").font(Typeface.caption).foregroundStyle(Palette.muted)
+                Text("Original unchanged").font(Typeface.caption).foregroundStyle(Palette.muted)
             } else {
-                Text("\(pdf["pages"].int) \(pdf["pages"].int == 1 ? "page" : "pages") · \(value["format"].string == "latex" ? "your uploaded design" : "built-in template") · your original is unchanged")
+                Text("\(pdf["pages"].int) \(pdf["pages"].int == 1 ? "page" : "pages") · \(value["format"].string == "latex" ? "your layout" : "template")")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             if !value["summary"].string.isEmpty { Text(value["summary"].string).font(Typeface.body).foregroundStyle(Palette.text) }
@@ -666,7 +666,7 @@ struct TailoredResultView: View {
                         ChangeRow(change: change, rejected: rejected.contains(change["id"].string))
                     }
                     if value["changes"].array.isEmpty, !legacy {
-                        Text("No wording or order changes were needed.").font(Typeface.body).foregroundStyle(Palette.text)
+                        Text("No changes needed").font(Typeface.body).foregroundStyle(Palette.text)
                     }
                     if !value["dropped"].array.isEmpty { DroppedList(dropped: value["dropped"].array) }
                     ForEach(value["notes"].strings, id: \.self) { Text("• \($0)").font(Typeface.caption).foregroundStyle(Palette.text) }
@@ -677,12 +677,12 @@ struct TailoredResultView: View {
                 }
             case "Original":
                 let original = pdf["original_text"].string
-                Text(original.isEmpty ? "Original text is not included in this older result." : original)
+                Text(original.isEmpty ? "Original text unavailable" : original)
                     .font(Typeface.body).foregroundStyle(Palette.text).textSelection(.enabled)
             case "Tailored":
                 Text(pdf["text"].string).font(Typeface.body).foregroundStyle(Palette.text).textSelection(.enabled)
             default:
-                Text("Select and copy this into Overleaf to keep editing it there.").font(Typeface.caption).foregroundStyle(Palette.muted)
+                Text("Copy into Overleaf to keep editing").font(Typeface.caption).foregroundStyle(Palette.muted)
                 CodeBlock(text: value["tex"].string)
             }
             if !value["cover_letter"]["content"].string.isEmpty {
@@ -712,11 +712,8 @@ struct TailorBlocker: View {
             SectionLabel(text: "One step before tailoring")
             if resumes.isEmpty {
                 Text("Upload a resume first").font(Typeface.title).foregroundStyle(Palette.ink)
-                Text("Stack tailors a resume you have uploaded, and you have none yet. Nothing has been generated.")
-                    .font(Typeface.body).foregroundStyle(Palette.text)
                 StackButton(label: "Go to the Resume tab", icon: "resume", disabled: busy) { onNavigate("resume") }
             } else if let current = current ?? store.account.resume(store.account.selectedResumeID) ?? resumes.first {
-                Text("Nothing has been generated yet.").font(Typeface.body).foregroundStyle(Palette.text)
                 TailorResumeSetup(resume: current, others: resumes.filter { store.account.canTailor($0.id) && $0.id != current.id }) { id in
                     await continueWith(id)
                 }

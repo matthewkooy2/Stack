@@ -305,6 +305,7 @@ private struct AccessField: View {
     var autocapitalization: TextInputAutocapitalization = .sentences
     var contentType: UITextContentType? = nil
     @FocusState private var focused: Bool
+    @Environment(\.stackReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -326,7 +327,7 @@ private struct AccessField: View {
             .background(Palette.field, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
                 .stroke(focused ? Brand.accent : Brand.rule, lineWidth: focused ? 2 : 1))
-            .animation(Motion.fadeAnimation, value: focused)
+            .animation(Motion.animation(Motion.fadeAnimation, reduce: reduceMotion), value: focused)
         }
         .toolbar {
             if focused {

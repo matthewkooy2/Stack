@@ -277,7 +277,7 @@ struct MockInterviewFlow: View {
             VStack(alignment: .leading, spacing: 0) {
                 if model.phase != .final {
                     HStack(spacing: 8) {
-                        BrandBackButton(disabled: model.phase == .recording || (model.busy && model.phase != .starting)) { model.stop(); dismiss() }
+                        BackButton(disabled: model.phase == .recording || (model.busy && model.phase != .starting)) { model.stop(); dismiss() }
                         Text("Mock interview").font(.headline).foregroundStyle(Brand.ink)
                             .accessibilityAddTraits(.isHeader)
                         Spacer()
@@ -380,14 +380,14 @@ struct MockInterviewFlow: View {
                     }
                     AnswerEditor(text: $model.draft, placeholder: "Your answer", label: "Your answer", disabled: model.busy)
                     if !model.error.isEmpty { Text(model.error).font(Typeface.caption).foregroundStyle(Palette.danger) }
-                    SoftAction(title: model.recordedAnswer == nil ? "Record answer" : "Record again", icon: "mic.fill",
+                    StackButton(label: model.recordedAnswer == nil ? "Record answer" : "Record again", icon: "mic.fill", kind: .soft,
                                disabled: model.busy) { Task { await model.record() } }
                 }
             }
             .scrollIndicators(.hidden)
             .scrollDismissesKeyboard(.interactively)
             // Outside the scroll view, so it stays above the keyboard and is always tappable.
-            PrimaryPill(title: "Get feedback", disabled: model.busy || model.draft.isBlank) { Task { await model.submit() } }
+            StackButton(label: "Get feedback", disabled: model.busy || model.draft.isBlank) { Task { await model.submit() } }
         }
     }
 
@@ -395,17 +395,17 @@ struct MockInterviewFlow: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    HStack { BrandBackButton(action: { dismiss() }); Spacer() }
+                    HStack { BackButton(action: { dismiss() }); Spacer() }
                     Text("Interview feedback").font(Typeface.display).foregroundStyle(Brand.ink)
                         .padding(.top, 18)
                     if let role = model.role {
-                        ProgressPill(text: "\(role.job.title) · \(role.job.company)", symbol: "briefcase.fill").padding(.top, 10)
+                        StatusPill(text: "\(role.job.title) · \(role.job.company)", tone: .accent, prominent: true, symbol: "briefcase.fill").padding(.top, 10)
                     }
                     InterviewCoachingView(coaching: model.coaching).padding(.top, 22)
                 }
             }
             .scrollIndicators(.hidden)
-            PrimaryPill(title: "Done") { dismiss() }
+            StackButton(label: "Done") { dismiss() }
         }
     }
 }

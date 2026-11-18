@@ -48,7 +48,7 @@ struct ResumeSectionEditor: View {
             }
             Button("Cancel", role: .cancel) { pendingRemoval = nil }
         } message: {
-            Text("This removes the entry and its details from your review. Your original upload is unchanged.")
+            Text("Removes this entry from your review")
         }
     }
 
@@ -86,7 +86,7 @@ struct ResumeSectionEditor: View {
         let entryLabel = spec?.entryLabel ?? title
         return VStack(alignment: .leading, spacing: 16) {
             if list.isEmpty {
-                Text("Nothing here yet. Add an entry to fill in its details.")
+                Text("Nothing here yet")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             ForEach(Array(list.enumerated()), id: \.element.id) { index, entry in
@@ -264,17 +264,16 @@ struct ResumeOriginalScreen: View {
             StackButton(label: "All sections", icon: "return", kind: .secondary, disabled: false, action: onBack)
                 .accessibilityIdentifier("resume-review-all-sections")
             Text("Original extraction").font(Typeface.section).foregroundStyle(Palette.ink).accessibilityAddTraits(.isHeader)
-            Text("Read-only. These are the fields first extracted from your upload, in their original order. "
-                 + "They are unaltered by edits or editable-field limits. The accepted source text is below.")
+            Text("Read-only, as first extracted")
                 .font(Typeface.caption).foregroundStyle(Palette.muted)
             ForEach(Array(controller.warnings.enumerated()), id: \.offset) { _, warning in
                 Text(warning).font(Typeface.caption).foregroundStyle(Palette.text)
             }
             let groups = controller.originalGroups
             if controller.originalValues == nil {
-                Text("The original fields are not available for this resume.").font(Typeface.caption).foregroundStyle(Palette.muted)
+                Text("Original fields unavailable").font(Typeface.caption).foregroundStyle(Palette.muted)
             } else if groups.isEmpty {
-                Text("Nothing was extracted.").font(Typeface.caption).foregroundStyle(Palette.muted)
+                Text("Nothing extracted").font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             ForEach(groups) { group in
                 Card(spacing: 10) {
@@ -292,7 +291,7 @@ struct ResumeOriginalScreen: View {
                 .accessibilityIdentifier("resume-original-group-\(group.id)")
             }
             Text("Extracted text").font(Typeface.option).foregroundStyle(Palette.icon).accessibilityAddTraits(.isHeader)
-            Text(controller.sourceText.isEmpty ? "No text was extracted." : controller.sourceText)
+            Text(controller.sourceText.isEmpty ? "No text extracted" : controller.sourceText)
                 .font(Typeface.caption).foregroundStyle(Palette.text).textSelection(.enabled)
                 .accessibilityIdentifier("resume-original-source-text")
         }

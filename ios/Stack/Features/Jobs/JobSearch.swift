@@ -504,9 +504,7 @@ struct JobFiltersSheet: View {
                             StackButton(label: "Done") { go("") }
                         }
                     }
-                    .padding(.horizontal, Spacing.page).padding(.vertical, 12)
-                    .background(Brand.page)
-                    .overlay(alignment: .top) { Rectangle().fill(Brand.rule.opacity(0.7)).frame(height: 0.5) }
+                    .pinnedActionBar()
                 }
             }
         }.animation(reduceMotion ? nil : Motion.fadeAnimation, value: pane).replayable()
@@ -724,7 +722,7 @@ struct JobFiltersSheet: View {
 
     private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title).font(.footnote.weight(.semibold)).foregroundStyle(Palette.muted)
+            SectionHeader(title: title)
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -668,7 +668,7 @@ final class PrepModel {
             }
         } catch {
             fail(error)
-            if !(error is CancellationError) { self.error = "Your answer and coaching remain available. " + error.localizedDescription }
+            if !(error is CancellationError) { self.error = "Your answer and feedback are saved. " + error.localizedDescription }
         }
     }
 

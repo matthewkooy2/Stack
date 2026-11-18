@@ -120,7 +120,7 @@ struct ApplicationCalendarView: View {
                     StackButton(label: "Connect Google Calendar", icon: "link", kind: .secondary) { Task { await connect() } }
                 }
             }
-            if loading { ProgressView().tint(Palette.muted) }
+            if loading { SkeletonRow() }
             MessageLine(text: error).fadeSwitch(!error.isEmpty)
         }
         .task { await load() }
@@ -185,7 +185,7 @@ struct ApplicationCalendarView: View {
         return VStack(alignment: .leading, spacing: 10) {
             SectionLabel(text: selected.formatted(.dateTime.weekday(.wide).month(.wide).day()))
             if activity.isEmpty, events.isEmpty {
-                Text("Nothing on this day.").font(Typeface.caption).foregroundStyle(Palette.muted)
+                Text("Nothing this day").font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             ForEach(Array(events.enumerated()), id: \.offset) { _, entry in
                 Card(spacing: 4) {

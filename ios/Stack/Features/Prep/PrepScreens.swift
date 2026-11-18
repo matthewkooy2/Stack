@@ -31,197 +31,6 @@ func splitPrompt(_ prompt: String) -> (lead: String, rest: String) {
 
 // MARK: - Shared pieces
 
-/// A symbol on a soft tinted disc. `tint` indexes `Palette.tints`, so a screen can give each row its own hue.
-struct TintDisc: View {
-    let systemName: String
-    var tint = 0
-    var size: CGFloat = 40
-
-    var body: some View {
-        let shade = Palette.tints[abs(tint) % Palette.tints.count]
-        Image(systemName: systemName)
-            .font(.system(size: size * 0.42, weight: .semibold))
-            .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(shade.ink)
-            .frame(width: size, height: size)
-            .background(shade.fill, in: Circle())
-            .accessibilityHidden(true)
-    }
-}
-
-/// A raised surface for a set of rows with inset dividers.
-struct GroupedList<Content: View>: View {
-    @ViewBuilder var content: () -> Content
-
-    var body: some View {
-        VStack(spacing: 0, content: content)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-            .stackElevation()
-    }
-}
-
-/// One tappable row of a `GroupedList`: tinted disc, title and detail, then a trailing view (a chevron by default).
-@MainActor
-struct GroupRow<Trailing: View>: View {
-    let symbol: String
-    var tint = 0
-    let title: String
-    var detail = ""
-    var divider = true
-    var disabled = false
-    let action: () -> Void
-    @ViewBuilder var trailing: () -> Trailing
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 14) {
-                TintDisc(systemName: symbol, tint: tint, size: 40)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.headline).foregroundStyle(Palette.ink)
-                        .multilineTextAlignment(.leading).lineLimit(2)
-                    if !detail.isEmpty {
-                        Text(detail).font(Typeface.caption).foregroundStyle(Palette.muted)
-                            .multilineTextAlignment(.leading).lineLimit(2)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                trailing()
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .frame(minHeight: 64)
-            .contentShape(Rectangle())
-            .overlay(alignment: .bottom) {
-                if divider { Divider().padding(.leading, 70) }
-            }
-        }
-        .buttonStyle(.tap(scale: 0.985, dim: 0.5))
-        .disabled(disabled)
-        .accessibilityLabel(detail.isEmpty ? title : "\(title), \(detail)")
-    }
-}
-
-extension GroupRow where Trailing == RowChevron {
-    init(symbol: String, tint: Int = 0, title: String, detail: String = "", divider: Bool = true, disabled: Bool = false,
-         action: @escaping () -> Void) {
-        self.init(symbol: symbol, tint: tint, title: title, detail: detail, divider: divider, disabled: disabled, action: action) {
-            RowChevron()
-        }
-    }
-}
-
-/// The chevron that ends a `GroupRow`.
-struct RowChevron: View {
-    var body: some View {
-        Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Palette.muted.opacity(0.7))
-            .accessibilityHidden(true)
-    }
-}
-
-/// A soft capsule with a short status such as "2 of 3".
-struct ProgressPill: View {
-    let text: String
-    var symbol: String?
-
-    var body: some View {
-        HStack(spacing: 6) {
-            if let symbol { Image(systemName: symbol).font(.caption.weight(.semibold)).accessibilityHidden(true) }
-            Text(text).font(.subheadline.weight(.semibold)).lineLimit(1)
-        }
-        .foregroundStyle(Brand.accent)
-        .padding(.horizontal, 12).frame(minHeight: 32)
-        .background(Palette.halo, in: Capsule())
-    }
-}
-
-/// A score out of four with a tone that matches how well it went.
-struct ScoreChip: View {
-    let score: Int
-    private var tone: StatusPill.Tone { score >= 3 ? .success : (score >= 1 ? .warning : .danger) }
-
-    var body: some View {
-        StatusPill(text: "\(score)/4", tone: tone)
-            .accessibilityHidden(true)
-    }
-}
-
-/// A soft ring that swells and fades behind a button while it waits to be tapped. Still under Reduce Motion.
-private struct IdlePulse: ViewModifier {
-    var active: Bool
-    @Environment(\.stackReduceMotion) private var reduceMotion
-    @State private var out = false
-
-    func body(content: Content) -> some View {
-        content.background {
-            if active && !reduceMotion {
-                RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
-                    .fill(Palette.button.opacity(0.30))
-                    .scaleEffect(x: out ? 1.06 : 1, y: out ? 1.28 : 1)
-                    .opacity(out ? 0 : 0.8)
-                    .animation(.easeOut(duration: 2.2).repeatForever(autoreverses: false), value: out)
-                    .onAppear { out = true }
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
-        }
-    }
-}
-
-/// Primary action with an optional SF Symbol.
-struct PrimaryPill: View {
-    let title: String
-    var icon: String?
-    var disabled = false
-    var pulse = false
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                if let icon { Image(systemName: icon).font(.headline).accessibilityHidden(true) }
-                Text(title)
-            }
-            .font(.headline.weight(.semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 16)
-            .frame(maxWidth: .infinity, minHeight: 54)
-            .background(Palette.button, in: RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.tap(scale: 0.97))
-        .disabled(disabled)
-        .modifier(IdlePulse(active: pulse && !disabled))
-        .accessibilityLabel(title)
-    }
-}
-
-/// A quiet button with a soft fill, for the actions that sit beside the main one.
-struct SoftAction: View {
-    let title: String
-    var icon: String?
-    var disabled = false
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 7) {
-                if let icon { Image(systemName: icon).font(.subheadline.weight(.semibold)).accessibilityHidden(true) }
-                Text(title).lineLimit(1).minimumScaleFactor(0.85)
-            }
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Brand.accent)
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, minHeight: 46)
-            .background(Palette.halo, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.tap(scale: 0.97, dim: 0.5))
-        .disabled(disabled)
-        .accessibilityLabel(title)
-    }
-}
-
 struct QuietLinks: View {
     let links: [ScreenLink]
     var body: some View {
@@ -254,7 +63,7 @@ private struct PrepSubheader: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            BrandBackButton(action: onBack)
+            BackButton(action: onBack)
             Text(title).font(Typeface.title).foregroundStyle(Brand.ink)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .lineLimit(2)
@@ -289,7 +98,7 @@ struct PrepQuestionScreen: View {
             Spacer(minLength: 24)
             ZStack(alignment: .leading) {
                 VStack(alignment: .leading, spacing: 14) {
-                    if let context { ProgressPill(text: context, symbol: "briefcase.fill") }
+                    if let context { StatusPill(text: context, tone: .accent, prominent: true, symbol: "briefcase.fill") }
                     Text(parts.lead)
                         .font(Typeface.display)
                         .fixedSize(horizontal: false, vertical: true)
@@ -309,7 +118,7 @@ struct PrepQuestionScreen: View {
             if !message.isEmpty {
                 Text(message).font(Typeface.caption).foregroundStyle(Palette.danger).padding(.bottom, 10)
             }
-            PrimaryPill(title: primary, icon: primary == "Record answer" ? "mic.fill" : nil, disabled: busy,
+            StackButton(label: primary, icon: primary == "Record answer" ? "mic.fill" : "", disabled: busy,
                         pulse: primary == "Record answer", action: onPrimary)
                 .reveal(2)
             QuietLinks(links: links).disabled(busy).padding(.top, 6).reveal(3)
@@ -333,7 +142,7 @@ struct PrepQuestionScreen: View {
                 .buttonStyle(.tap(scale: 0.97))
                 .accessibilityLabel("Topic: \(topic)")
             } else if let progress {
-                ProgressPill(text: progress)
+                StatusPill(text: progress, tone: .accent, prominent: true)
             }
             Spacer()
             if let onHistory {
@@ -373,7 +182,7 @@ struct PrepRecordingScreen: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
-                ProgressPill(text: progress)
+                StatusPill(text: progress, tone: .accent, prominent: true)
                 Spacer()
                 statePill
             }
@@ -431,7 +240,7 @@ struct PrepRecordingScreen: View {
             .buttonStyle(.tap(scale: 0.95, dim: 0.5))
             .disabled(busy || !live)
             .accessibilityLabel(recorder.isPaused ? "Resume recording" : "Pause recording")
-            PrimaryPill(title: busy ? "Saving…" : "Done", icon: busy ? nil : "stop.fill", disabled: busy || !live, action: onDone)
+            StackButton(label: busy ? "Saving…" : "Done", icon: busy ? "" : "stop.fill", disabled: busy || !live, action: onDone)
                 .accessibilityHint("Saves your answer")
         }
     }
@@ -456,7 +265,7 @@ struct PrepWorkingScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                if !progress.isEmpty { ProgressPill(text: progress) }
+                if !progress.isEmpty { StatusPill(text: progress, tone: .accent, prominent: true) }
                 Spacer()
             }
             .frame(minHeight: 44)
@@ -483,7 +292,7 @@ struct PrepWorkingScreen: View {
             Spacer()
             Spacer()
             if let primary, let onPrimary {
-                PrimaryPill(title: primary, disabled: busy, action: onPrimary).reveal(2)
+                StackButton(label: primary, disabled: busy, action: onPrimary).reveal(2)
             }
             QuietLinks(links: links).padding(.top, 6).reveal(3)
         }
@@ -528,7 +337,7 @@ struct PrepCoachingScreen: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                ProgressPill(text: progress)
+                StatusPill(text: progress, tone: .accent, prominent: true)
                 Spacer()
                 Button(action: onAnswer) {
                     HStack(spacing: 6) {
@@ -595,7 +404,7 @@ struct PrepCoachingScreen: View {
             if !message.isEmpty {
                 Text(message).font(Typeface.caption).foregroundStyle(Palette.danger).padding(.bottom, 10)
             }
-            PrimaryPill(title: primary, icon: nil, disabled: busy, action: onPrimary).reveal(4)
+            StackButton(label: primary, disabled: busy, action: onPrimary).reveal(4)
             QuietLinks(links: secondary.map { [ScreenLink($0, action: onAgain)] } ?? []).padding(.top, 6).reveal(5)
         }
     }
@@ -659,16 +468,6 @@ struct PrepCoachingScreen: View {
     }
 }
 
-/// A round white back button, the same as on the sign-in forms.
-struct BrandBackButton: View {
-    var disabled = false
-    let action: () -> Void
-
-    var body: some View {
-        BackButton(disabled: disabled, action: action)
-    }
-}
-
 // MARK: - Done
 
 /// A session receipt with the answer count and the current streak.
@@ -700,14 +499,14 @@ struct PrepDoneScreen: View {
             .frame(maxWidth: .infinity)
             Spacer()
             Spacer()
-            PrimaryPill(title: "Done", action: onDone).reveal(2)
+            StackButton(label: "Done", action: onDone).reveal(2)
             QuietLinks(links: [ScreenLink("Practice again", action: onAgain)]).padding(.top, 6).reveal(3)
         }
     }
 
     private func tile(symbol: String, tint: Int, value: Int, label: String) -> some View {
         Card(spacing: 10) {
-            TintDisc(systemName: symbol, tint: tint, size: 36)
+            SymbolDisc(systemName: symbol, size: 36, tint: tint)
             VStack(alignment: .leading, spacing: 0) {
                 Text("\(value)").font(Typeface.title.monospacedDigit()).foregroundStyle(Brand.ink)
                     .contentTransition(.numericText())

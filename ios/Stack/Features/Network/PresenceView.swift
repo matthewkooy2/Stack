@@ -64,11 +64,7 @@ struct PresenceView: View {
     private var linkedInReview: some View {
         Card(spacing: 16) {
             HStack(spacing: 12) {
-                Image(systemName: "person.crop.rectangle.fill")
-                    .font(.system(size: 17, weight: .semibold)).foregroundStyle(Brand.accent)
-                    .frame(width: 38, height: 38)
-                    .background(Palette.halo, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-                    .accessibilityHidden(true)
+                SymbolTile(systemName: "person.crop.rectangle.fill", weight: .semibold)
                 Text("LinkedIn review").font(Typeface.section).foregroundStyle(Brand.ink)
                     .accessibilityAddTraits(.isHeader).accessibilityIdentifier("presence-linkedin")
                 Spacer(minLength: 4)
@@ -142,11 +138,7 @@ struct PresenceView: View {
         }
         return Button { platform = provider } label: {
             HStack(spacing: 14) {
-                Image(systemName: provider.symbol).font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(provider.tint.ink)
-                    .frame(width: 36, height: 36)
-                    .background(provider.tint.fill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .accessibilityHidden(true)
+                SymbolTile(systemName: provider.symbol, size: 38, tint: provider.tint)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(provider.rawValue).font(.headline).foregroundStyle(Brand.ink)
                     Text(edits.first ?? provider.detail)

@@ -129,7 +129,7 @@ struct LinkedInPDFUploadScreen: View {
                     .accessibilityAddTraits(.updatesFrequently)
                     .accessibilityIdentifier("linkedin-pdf-status")
                 }
-                PrimaryPill(title: "Choose PDF", icon: "doc", disabled: busy, action: onChoose)
+                StackButton(label: "Choose PDF", icon: "doc", disabled: busy, action: onChoose)
                     .accessibilityIdentifier("linkedin-choose-pdf")
                 if let onRetry, !busy {
                     QuietLinks(links: [ScreenLink("Try again", action: onRetry)])
@@ -198,7 +198,7 @@ struct LinkedInReviewScreen: View {
             .scrollIndicators(.hidden)
 
             VStack(spacing: 4) {
-                PrimaryPill(title: "Done", action: onDone).accessibilityIdentifier("linkedin-review-done")
+                StackButton(label: "Done", action: onDone).accessibilityIdentifier("linkedin-review-done")
                 if let onAnother {
                     QuietLinks(links: [ScreenLink("Review another PDF", action: onAnother)])
                 }

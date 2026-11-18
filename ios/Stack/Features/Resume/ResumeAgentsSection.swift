@@ -102,10 +102,7 @@ struct ResumeAgentsSection: View {
                                 JobScoreCardView(result: score["job_score"])
                             } else {
                                 HStack(spacing: 12) {
-                                    Image(systemName: "chart.bar.fill").font(.body).foregroundStyle(Brand.accent)
-                                        .frame(width: 40, height: 40)
-                                        .background(Palette.halo, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-                                        .accessibilityHidden(true)
+                                    SymbolTile(systemName: "chart.bar.fill")
                                     Text("Check how well this resume fits").font(.subheadline).foregroundStyle(Brand.muted)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                 }
@@ -129,7 +126,7 @@ struct ResumeAgentsSection: View {
             }.safeAreaInset(edge: .bottom) {
                 StackButton(label: working ? "Preparing…" : "Tailor", disabled: working || job == nil || resume == nil) {
                     Task { await start() }
-                }.padding(.horizontal, Spacing.page).padding(.vertical, 12).background(Brand.page)
+                }.pinnedActionBar()
             }
             }
         }
@@ -206,9 +203,7 @@ struct ResumeAgentsSection: View {
     private func pickerRow(title: String, symbol: String, value: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 12) {
-                Image(systemName: symbol).font(.body).foregroundStyle(Brand.accent)
-                    .frame(width: 40, height: 40).background(Palette.halo, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-                    .accessibilityHidden(true)
+                SymbolTile(systemName: symbol)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title).font(.footnote).foregroundStyle(Brand.muted)
                     Text(value).font(.body.weight(.medium)).foregroundStyle(Brand.ink)

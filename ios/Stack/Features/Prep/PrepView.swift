@@ -37,6 +37,7 @@ struct PrepView: View {
             }
         }
         .background(Brand.page.ignoresSafeArea())
+        .replayable()
         .sensoryFeedback(.success, trigger: model.page) { _, new in new == .coaching || new == .complete }
         .task {
             model.bind(store)
@@ -65,7 +66,7 @@ struct PrepView: View {
     private var scrollingPage: some View {
         VStack(alignment: .leading, spacing: Spacing.stack) {
             if !fillsScreen && !ownsBack {
-                BrandBackButton(disabled: model.locked) { Task { await model.back() } }
+                BackButton(disabled: model.locked) { Task { await model.back() } }
             }
             if [.answer, .review].contains(model.page) {
                 Text("Question \(model.index + 1) of \(model.plan.count)")
@@ -139,12 +140,12 @@ struct PrepView: View {
     private var hero: some View {
         Card(tint: Palette.surface, spacing: 14) {
             if let session = model.continuing {
-                ProgressPill(text: "Continue · \(session.label)", symbol: "arrow.uturn.forward")
+                StatusPill(text: "Continue · \(session.label)", tone: .accent, prominent: true, symbol: "arrow.uturn.forward")
                 prompt(session.prompt)
-                PrimaryPill(title: "Continue", disabled: model.busy) {
+                StackButton(label: "Continue", disabled: model.busy) {
                     Task { await model.openSession(session.id) }
                 }
-                SoftAction(title: "Start something new", icon: "plus", disabled: model.busy) { model.startedFresh = true }
+                StackButton(label: "Start something new", icon: "plus", kind: .soft, disabled: model.busy) { model.startedFresh = true }
             } else {
                 topicMenu
                 if let offered = model.offered {
@@ -152,14 +153,14 @@ struct PrepView: View {
                         .id(offered.id)
                         .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 8)), removal: .opacity))
                     VStack(spacing: 12) {
-                        PrimaryPill(title: "Record answer", icon: "mic.fill", disabled: model.busy, pulse: true) {
+                        StackButton(label: "Record answer", icon: "mic.fill", disabled: model.busy, pulse: true) {
                             Task { await model.answerOffered() }
                         }
                         HStack(spacing: 10) {
-                            SoftAction(title: "Type instead", icon: "keyboard", disabled: model.busy) {
+                            StackButton(label: "Type instead", icon: "keyboard", kind: .soft, disabled: model.busy) {
                                 Task { await model.answerOffered(typing: true) }
                             }
-                            SoftAction(title: "Another question", icon: "arrow.triangle.2.circlepath", disabled: model.busy) {
+                            StackButton(label: "Another question", icon: "arrow.triangle.2.circlepath", kind: .soft, disabled: model.busy) {
                                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
                                 withAnimation(Motion.animation(Motion.smooth, reduce: reduceMotion)) { model.another() }
                             }
@@ -224,7 +225,7 @@ struct PrepView: View {
             if days == 0 && streak == 0 {
                 Card(spacing: 0) {
                     HStack(spacing: 12) {
-                        TintDisc(systemName: "flame.fill", tint: 3, size: 40)
+                        SymbolDisc(systemName: "flame.fill", size: 40, tint: 3)
                         Text("Answer one question to start a streak").font(.subheadline.weight(.medium))
                             .foregroundStyle(Brand.ink).fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
@@ -265,7 +266,7 @@ struct PrepView: View {
 
     private func stat(symbol: String, tint: Int, value: Int, label: String) -> some View {
         HStack(spacing: 12) {
-            TintDisc(systemName: symbol, tint: tint, size: 40)
+            SymbolDisc(systemName: symbol, size: 40, tint: tint)
             VStack(alignment: .leading, spacing: 0) {
                 Text("\(value)").font(Typeface.title.monospacedDigit()).foregroundStyle(Brand.ink)
                     .contentTransition(.numericText())
@@ -321,7 +322,7 @@ struct PrepView: View {
             Text(model.question?.prompt ?? "").font(Typeface.title).foregroundStyle(Palette.ink).reveal(0)
             AnswerEditor(text: Binding(get: { model.draft }, set: { model.edited($0) }),
                          placeholder: "Your answer", label: "Your answer", disabled: model.busy)
-            PrimaryPill(title: "Get feedback", disabled: model.busy || model.coaching || model.draft.isBlank) {
+            StackButton(label: "Get feedback", disabled: model.busy || model.coaching || model.draft.isBlank) {
                 Task { await model.coach() }
             }
         }
@@ -369,7 +370,7 @@ struct PrepView: View {
                              placeholder: "Type or edit your answer", label: "Your answer",
                              disabled: model.coaching || (model.busy && !model.canReviewPhoneText))
                 VStack(spacing: 6) {
-                    PrimaryPill(title: "Get feedback", disabled: model.busy || model.coaching || model.draft.isBlank) { Task { await model.coach() } }
+                    StackButton(label: "Get feedback", disabled: model.busy || model.coaching || model.draft.isBlank) { Task { await model.coach() } }
                     if !model.coaching {
                         QuietLinks(links: [ScreenLink("Record again") { Task { await model.recordAnswer() } }])
                     }
@@ -498,6 +499,7 @@ struct AnswerEditor: View {
     let label: String
     var disabled = false
     @FocusState private var focused: Bool
+    @Environment(\.stackReduceMotion) private var reduceMotion
 
     var body: some View {
         TextField(placeholder, text: $text, axis: .vertical)
@@ -512,7 +514,7 @@ struct AnswerEditor: View {
             .background(Palette.field, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
                 .stroke(focused ? Brand.accent.opacity(0.7) : Brand.rule, lineWidth: focused ? 1.5 : 1))
-            .animation(Motion.fadeAnimation, value: focused)
+            .animation(Motion.animation(Motion.fadeAnimation, reduce: reduceMotion), value: focused)
             .disabled(disabled)
             .accessibilityLabel(label)
     }

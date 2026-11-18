@@ -350,7 +350,7 @@ struct JobsView: View {
                     .font(Typeface.caption).tint(Brand.muted)
                 }
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, Spacing.page)
         }
     }
 
@@ -633,7 +633,13 @@ struct JobDetailView: View {
         SheetPage(title: "Job details") {
             JobHeading(job: displayed)
             if !displayed.posted.isEmpty { Text(displayed.posted).font(Typeface.caption).foregroundStyle(Palette.muted) }
-            if loading { ProgressView().tint(Palette.muted) }
+            if loading {
+                VStack(alignment: .leading, spacing: 10) {
+                    SkeletonBlock(height: 14)
+                    SkeletonBlock(height: 14)
+                    SkeletonBlock(width: 180, height: 14)
+                }
+            }
             MessageLine(text: loadError).fadeSwitch(!loadError.isEmpty)
             if !loadError.isEmpty {
                 StackButton(label: "Try again", icon: "refresh") { Task { await loadDetails() } }
@@ -641,7 +647,7 @@ struct JobDetailView: View {
             if let next = JobListing(job: displayed) {
                 StackButton(label: "Open application page", icon: "link") { listing = next }.reveal(2)
             } else if !displayed.url.isBlank {
-                Text("This listing's link can't be opened safely in the app.")
+                Text("This link can’t be opened in the app")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             if !match.object.isEmpty { matchSection(match) }

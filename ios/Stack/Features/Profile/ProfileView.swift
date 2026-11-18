@@ -418,11 +418,7 @@ private struct SettingsRow: View {
         let tone = Palette.tints[tint % Palette.tints.count]
         Button(action: action) {
             HStack(spacing: 12) {
-                Image(systemName: symbol)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(tone.ink)
-                    .frame(width: 32, height: 32)
-                    .background(tone.fill, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                SymbolTile(systemName: symbol, size: 32, tint: tone, weight: .semibold)
                 Text(title).font(.body.weight(.medium)).foregroundStyle(Palette.ink)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if !value.isEmpty {

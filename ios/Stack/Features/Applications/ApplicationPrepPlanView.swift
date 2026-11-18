@@ -13,7 +13,7 @@ struct ApplicationPrepPlanView: View {
 
     var body: some View {
         SheetPage(title: "Interview plan", subtitle: application.job.title + " · " + application.job.company) {
-            if loading { ProgressView().tint(Palette.muted) }
+            if loading { ForEach(0..<3, id: \.self) { _ in SkeletonRow() } }
             MessageLine(text: error).fadeSwitch(!error.isEmpty)
             if !error.isEmpty { StackButton(label: "Try again", kind: .secondary) { Task { await load() } } }
             ForEach(Array(plan.enumerated()), id: \.offset) { _, row in

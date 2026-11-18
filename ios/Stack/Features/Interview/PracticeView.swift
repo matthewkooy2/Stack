@@ -170,7 +170,7 @@ struct PracticeView: View {
             }
             ForEach(Array(current["feedback"].array.enumerated()), id: \.offset) { _, item in
                 Card(tint: Palette.surfaceRaised, spacing: 8) {
-                    Text("Coaching").font(Typeface.option).foregroundStyle(Palette.icon)
+                    Text("Feedback").font(Typeface.option).foregroundStyle(Palette.icon)
                     let text = item["data"]["text"].string
                     Text(text.isEmpty ? item["data"]["summary"].string : text).font(Typeface.body).foregroundStyle(Palette.text)
                     ForEach(Array(item["data"]["rubric"].array.enumerated()), id: \.offset) { _, row in

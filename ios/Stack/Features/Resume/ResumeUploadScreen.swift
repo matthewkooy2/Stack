@@ -38,7 +38,7 @@ struct ResumeUploadScreen: View {
 
             VStack(spacing: 6) {
                 Text("Add your resume")
-                    .font(.title2.weight(.semibold)).foregroundStyle(Brand.ink)
+                    .font(Typeface.title).foregroundStyle(Brand.ink)
                     .accessibilityAddTraits(.isHeader)
                 Text("PDF or DOCX · Up to 10 MB")
                     .font(Typeface.caption).foregroundStyle(Brand.muted)
@@ -49,28 +49,14 @@ struct ResumeUploadScreen: View {
             }
             VStack(spacing: 4) {
                 if let onRetry, !uploading {
-                    Button("Try again", action: onRetry)
-                        .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
-                        .controlSize(.large).tint(Palette.button).foregroundStyle(.white)
-                        .disabled(disabled).accessibilityIdentifier("resume-upload-retry")
-                    Button("Choose another file", action: onUpload)
-                        .font(.subheadline.weight(.semibold)).foregroundStyle(Brand.accent)
-                        .frame(minHeight: 44).disabled(disabled)
+                    StackButton(label: "Try again", disabled: disabled, action: onRetry)
+                        .accessibilityIdentifier("resume-upload-retry")
+                    StackButton(label: "Choose another resume", kind: .secondary, disabled: disabled, action: onUpload)
                         .accessibilityIdentifier("resume-upload")
                 } else {
-                    Button(action: onUpload) {
-                        if uploading {
-                            ProgressView().tint(.white)
-                        } else {
-                            Text("Choose file")
-                        }
-                    }
-                    .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
-                    .controlSize(.large).tint(Palette.button).foregroundStyle(.white)
-                    .disabled(uploading || disabled)
-                    .accessibilityLabel(uploading ? "Uploading resume" : "Choose file")
-                    .accessibilityHint("Choose a PDF or DOCX, up to 10 megabytes.")
-                    .accessibilityIdentifier("resume-upload")
+                    StackButton(label: uploading ? "Uploading…" : "Choose resume", disabled: uploading || disabled, action: onUpload)
+                        .accessibilityHint("PDF or DOCX, up to 10 MB")
+                        .accessibilityIdentifier("resume-upload")
                 }
                 if uploading || onRetry != nil {
                     Text(uploading ? (progress.isEmpty ? "Uploading…" : progress) : fileName)

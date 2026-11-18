@@ -229,9 +229,7 @@ struct ResumeView: View {
     private func libraryLink(_ title: String, symbol: String, detail: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 12) {
-                Image(systemName: symbol).font(.body.weight(.medium)).foregroundStyle(Brand.accent)
-                    .frame(width: 40, height: 40).background(Palette.halo, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-                    .accessibilityHidden(true)
+                SymbolTile(systemName: symbol)
                 Text(title).font(.body.weight(.medium)).foregroundStyle(Brand.ink)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if !detail.isEmpty { Text(detail).font(.subheadline).foregroundStyle(Brand.muted) }
@@ -349,11 +347,7 @@ struct ResumeView: View {
         let tile = fileTile(for: resume)
         return Button { managing = resume } label: {
             HStack(spacing: 12) {
-                Image(systemName: tile.symbol).font(.body)
-                    .foregroundStyle(tile.tint.ink)
-                    .frame(width: 40, height: 40)
-                    .background(tile.tint.fill, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-                    .accessibilityHidden(true)
+                SymbolTile(systemName: tile.symbol, tint: tile.tint)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(resume.displayName).font(.body.weight(.medium)).foregroundStyle(Brand.ink).lineLimit(1)
                     if !metaLine(resume).isEmpty {

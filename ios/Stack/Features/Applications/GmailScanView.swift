@@ -16,14 +16,14 @@ struct GmailScanView: View {
     var body: some View {
         SheetPage(title: "Scan Gmail") {
             if loading {
-                ProgressView("Loading Gmail scan…")
+                ForEach(0..<2, id: \.self) { _ in SkeletonRow() }
             } else {
                 if scanning {
                     ProgressView("Scanning Gmail…").tint(Brand.accent)
                     QuietLinks(links: [ScreenLink("Stop scan") { Task { await stop() } }])
                         .disabled(busy)
                 } else if resumable {
-                    PrimaryPill(title: "Resume scan", icon: "arrow.clockwise", disabled: busy) {
+                    StackButton(label: "Resume scan", icon: "arrow.clockwise", disabled: busy) {
                         Task { await resume() }
                     }
                     QuietLinks(links: [ScreenLink("New scan") { scan = [:] }])
@@ -32,7 +32,7 @@ struct GmailScanView: View {
                         .tint(Brand.accent)
                     Text("Finds confirmations, updates and invitations")
                         .font(Typeface.body).foregroundStyle(Brand.muted)
-                    PrimaryPill(title: "Start scan", icon: "magnifyingglass", disabled: busy) {
+                    StackButton(label: "Start scan", icon: "magnifyingglass", disabled: busy) {
                         Task { await start() }
                     }
                 }

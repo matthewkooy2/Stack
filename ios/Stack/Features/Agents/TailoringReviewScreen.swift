@@ -142,10 +142,10 @@ struct TailoringReviewScreen: View {
     private func overviewCard(_ suggestion: TailoringSuggestion) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                badge(suggestion.label, accent: true)
+                StatusPill(text: suggestion.label, tone: .accent)
                 Spacer()
-                badge(reviewed.contains(suggestion.id)
-                      ? (rejected.contains(suggestion.id) ? "Kept original" : "Accepted") : "Review", accent: false)
+                StatusPill(text: reviewed.contains(suggestion.id)
+                           ? (rejected.contains(suggestion.id) ? "Kept original" : "Accepted") : "Review")
             }
             Text(suggestion.title).font(.headline).tracking(-0.5).foregroundStyle(Brand.ink)
             if !suggestion.location.isEmpty, suggestion.location != context {
@@ -153,7 +153,7 @@ struct TailoringReviewScreen: View {
             }
             comparison(suggestion, compact: true)
             if suggestion.isFillerRemoval {
-                Text("No new achievement added.").font(.footnote).foregroundStyle(Brand.muted)
+                Text("No new achievement").font(.footnote).foregroundStyle(Brand.muted)
             }
             Button { open(suggestion) } label: {
                 HStack {
@@ -175,14 +175,14 @@ struct TailoringReviewScreen: View {
             if !suggestion.location.isEmpty, suggestion.location != context {
                 Text(suggestion.location).font(Typeface.body).foregroundStyle(Brand.muted)
             }
-            badge(suggestion.isFillerRemoval ? "REMOVE FILLER" : suggestion.label, accent: true)
+            StatusPill(text: suggestion.isFillerRemoval ? "Remove filler" : suggestion.label, tone: .accent)
             comparison(suggestion, compact: false)
                 .padding(16).frame(maxWidth: .infinity, alignment: .leading)
                 .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
                 .stackElevation()
             if !suggestion.reason.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Why").font(Typeface.section).foregroundStyle(Brand.ink)
+                    SectionHeader(title: "Why")
                     Text(suggestion.reason).font(Typeface.body).foregroundStyle(Brand.ink)
                     if suggestion.isFillerRemoval {
                     }
@@ -227,18 +227,12 @@ struct TailoringReviewScreen: View {
             ForEach(Array(items.enumerated()), id: \.offset) { index, item in
                 let previous = suggestion.originalItems.firstIndex { $0["id"] == item["id"] } ?? index
                 HStack(alignment: .top, spacing: 10) {
-                    badge(original ? "\(index + 1)" : "\(previous + 1) → \(index + 1)", accent: !original && previous != index)
+                    StatusPill(text: original ? "\(index + 1)" : "\(previous + 1) → \(index + 1)", tone: !original && previous != index ? .accent : .neutral)
                     Text(item["text"].string.replacingOccurrences(of: "**", with: ""))
                         .font(Typeface.caption).foregroundStyle(Brand.ink).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
-    }
-
-    private func badge(_ text: String, accent: Bool) -> some View {
-        Text(text).font(.caption.weight(.semibold))
-            .foregroundStyle(accent ? Brand.accent : Brand.muted).padding(.horizontal, 9).padding(.vertical, 5)
-            .background(accent ? Brand.accent.opacity(0.12) : Brand.rule.opacity(0.4), in: RoundedRectangle(cornerRadius: 7))
     }
 
     private func originalText(_ suggestion: TailoringSuggestion) -> AttributedString {
@@ -278,7 +272,7 @@ struct TailoringReviewScreen: View {
             if !error.isEmpty { MessageLine(text: error) }
             if !review["blocked"].string.isEmpty { MessageLine(text: review["blocked"].string) }
             if overview {
-                PrimaryPill(title: busy ? "Applying changes…" : (complete ? "Apply changes" : "Continue reviewing"),
+                StackButton(label: busy ? "Applying changes…" : (complete ? "Apply changes" : "Continue reviewing"),
                             disabled: busy || !review["blocked"].string.isEmpty) {
                     if complete { onApply() }
                     else if let next = suggestions.first(where: { !reviewed.contains($0.id) }) { open(next) }
@@ -286,22 +280,17 @@ struct TailoringReviewScreen: View {
             } else if let current {
                 let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 6)) : AnyLayout(HStackLayout(spacing: 10))
                 layout {
-                    Button { decide(current, reject: true) } label: {
-                        Text("Keep original").font(.headline).foregroundStyle(Brand.ink)
-                            .frame(maxWidth: .infinity, minHeight: 58)
-                            .overlay { RoundedRectangle(cornerRadius: 16).stroke(Brand.muted.opacity(0.4), lineWidth: 1) }
-                    }
-                    .buttonStyle(.plain).disabled(busy)
-                    PrimaryPill(title: "Accept", disabled: busy) { decide(current, reject: false) }
+                    StackButton(label: "Keep original", kind: .soft, disabled: busy) { decide(current, reject: true) }
+                    StackButton(label: "Accept", disabled: busy) { decide(current, reject: false) }
                 }
             }
-            if overview { Text("Applying changes creates a tailored copy.").font(.footnote).foregroundStyle(Brand.muted) }
+            if overview { Text("Creates a tailored copy").font(.footnote).foregroundStyle(Brand.muted) }
             if !overview {
                 Button("See all") { showAll = true }
                     .font(Typeface.body).foregroundStyle(Brand.accent).frame(minHeight: 44).buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 14).padding(.top, 16).padding(.bottom, 12).background(Brand.page)
+        .pinnedActionBar()
     }
 
     private var details: some View {

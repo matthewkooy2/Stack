@@ -71,6 +71,13 @@ struct ScreenFlowUITestScene: View {
         return ProcessInfo.processInfo.arguments.first { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) } ?? ""
     }
 
+    /// `--screen-tab=<jobs|applications|network|resume|prep>` opens the tabbed flows on that tab, for screenshots.
+    static var tab: StackTab? {
+        let prefix = "--screen-tab="
+        let name = ProcessInfo.processInfo.arguments.first { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) }
+        return StackTab.allCases.first { $0.rawValue.lowercased() == name }
+    }
+
     var body: some View {
         ZStack {
             Palette.page.ignoresSafeArea()
@@ -100,8 +107,8 @@ struct ScreenFlowUITestScene: View {
                                  onDone: {}, onAnother: {})
         case "applications", "applications-autofill-unavailable": ApplicationsView(onProfile: {}, onNavigate: { _ in })
         case "jobs": ScreenFlowJobHost(job: Job(ScreenFlowServer.job))
-        case "deck", "deck-paging", "deck-reference": MainTabs()
-        case let flow where CollectionSampleSize.allCases.contains(where: { $0.flow == flow }): MainTabs(selection: .applications)
+        case "deck", "deck-paging", "deck-reference": MainTabs(selection: Self.tab ?? .jobs)
+        case let flow where CollectionSampleSize.allCases.contains(where: { $0.flow == flow }): MainTabs(selection: Self.tab ?? .applications)
         case "job-onboarding-preview": JobOnboardingGate(required: true)
         case "job-filters-preview": JobFiltersSheet(search: JobSearch()) { _, _ in {} }
         case "onboarding": AccessView()

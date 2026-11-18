@@ -111,7 +111,7 @@ final class JobsDeckFlowUITests: XCTestCase {
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
         entry.tap()
         XCTAssertTrue(card(app, "job-entry").waitForExistence(timeout: 10), "the filter replaced the deck")
-        XCTAssertFalse(app.staticTexts["Requirements"].exists, "saving a quick pick closes requirements")
+        XCTAssertFalse(app.staticTexts["Filters"].exists, "saving a quick pick closes filters")
 
         card(app, "job-entry").tap()
         XCTAssertEqual(listingURL(app), "https://example.invalid/jobs/entry")
@@ -233,7 +233,7 @@ final class JobsDeckFlowUITests: XCTestCase {
         XCTAssertTrue(requirements.isEnabled)
         XCTAssertTrue(requirements.isHittable)
         requirements.tap()
-        XCTAssertTrue(app.staticTexts["Requirements"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Filters"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["stub-browser-url"].exists)
         app.buttons["Close"].tap()
         XCTAssertTrue(card(app, "job-alpha").waitForExistence(timeout: 5))

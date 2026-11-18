@@ -30,19 +30,17 @@ struct JobOnboardingView: View {
                 SheetPage(title: "Career stage", closeLabel: "Back", onClose: { picker = "" }) {
                     VStack(spacing: 0) {
                         ForEach(PreferenceForm.careerStages, id: \.self) { value in
-                            Button { stage = value; picker = "" } label: {
-                                HStack {
-                                    Text(value).foregroundStyle(Brand.ink)
-                                    Spacer()
-                                    if stage == value { Image(systemName: "checkmark").foregroundStyle(Brand.accent) }
-                                }
-                                .font(Typeface.body).frame(minHeight: 56).contentShape(Rectangle())
-                                .overlay(alignment: .bottom) { Rectangle().fill(Brand.rule).frame(height: 1) }
-                            }.buttonStyle(.plain)
+                            JobChoiceRow(label: value, selected: stage == value,
+                                         showsRule: value != PreferenceForm.careerStages.last) { stage = value; picker = "" }
                         }
                     }
-                    Button("Skip for now") { stage = ""; picker = "" }
-                        .font(Typeface.caption).foregroundStyle(Brand.muted).frame(minHeight: 44)
+                    .padding(.horizontal, 16)
+                    .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                    .stackElevation()
+                    if !stage.isEmpty {
+                        Button("Clear") { stage = ""; picker = "" }
+                            .font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent).frame(minHeight: 44)
+                    }
                 }
             } else if finished {
                 ResumeUploadScreen(uploading: uploader.isBusy, fileName: uploader.fileName, disabled: store.busy,
@@ -50,7 +48,7 @@ struct JobOnboardingView: View {
                                    progress: uploader.progress, onUpload: chooseResume,
                                    onRetry: uploader.canRetry ? { retryUpload() } : nil)
                     .safeAreaInset(edge: .bottom, spacing: 0) {
-                        Button("Skip for now", action: onDone)
+                        Button("Not now", action: onDone)
                             .font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.muted)
                             .frame(maxWidth: .infinity, minHeight: 44).disabled(uploader.isBusy)
                             .padding(.horizontal, Spacing.page).padding(.bottom, 16)
@@ -60,17 +58,17 @@ struct JobOnboardingView: View {
                 VStack(spacing: 0) {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 0) {
-                            Text("Your job search")
-                                .font(Typeface.display).tracking(-1.8).foregroundStyle(Brand.ink).reveal(0)
-                            VStack(alignment: .leading, spacing: 0) {
-                                selection("Role", value: role) { picker = "role" }
-                                Divider()
-                                selection("Location", value: location) { picker = "location" }
-                                Divider()
-                                selection("Career stage", value: stage) { picker = "stage" }
+                            Text("Find jobs")
+                                .font(Typeface.display).tracking(-1.2).foregroundStyle(Brand.ink)
+                                .accessibilityAddTraits(.isHeader).reveal(0)
+                            VStack(spacing: 0) {
+                                selection("Role", symbol: "briefcase", placeholder: "Any role", value: role) { picker = "role" }
+                                selection("Location", symbol: "mappin.and.ellipse", placeholder: "Anywhere", value: location) { picker = "location" }
+                                selection("Career stage", symbol: "graduationcap", placeholder: "Optional", value: stage, last: true) { picker = "stage" }
                             }
                             .padding(.horizontal, 16)
-                            .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                            .stackElevation()
                             .padding(.top, 28).reveal(2)
                         }
                         .padding(.horizontal, Spacing.page).padding(.top, 40).padding(.bottom, 24)
@@ -81,7 +79,7 @@ struct JobOnboardingView: View {
                         StackButton(label: working ? "Saving…" : "Continue", disabled: working) {
                             Task { await save() }
                         }
-                        Button("Skip for now", action: showResume)
+                        Button("Not now", action: showResume)
                             .font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.muted)
                             .frame(maxWidth: .infinity, minHeight: 44).disabled(working)
                     }
@@ -98,21 +96,29 @@ struct JobOnboardingView: View {
         .replayable()
     }
 
-    private func selection(_ label: String, value: String, action: @escaping () -> Void) -> some View {
+    private func selection(_ label: String, symbol: String, placeholder: String, value: String, last: Bool = false,
+                           action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(label).font(.headline).foregroundStyle(Brand.ink)
-                    if !value.isEmpty { Text(value).font(Typeface.caption).foregroundStyle(Brand.muted) }
+            HStack(spacing: 14) {
+                Image(systemName: symbol).font(.system(size: 16, weight: .medium)).foregroundStyle(Brand.accent)
+                    .frame(width: 34, height: 34).background(Palette.halo, in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label).font(Typeface.caption).foregroundStyle(Brand.muted)
+                    Text(value.isEmpty ? placeholder : value).font(Typeface.body)
+                        .foregroundStyle(value.isEmpty ? Brand.muted : Brand.ink).lineLimit(2)
                 }
                 Spacer(minLength: 8)
-                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Brand.muted)
+                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Brand.muted.opacity(0.7))
             }
             .multilineTextAlignment(.leading)
-            .padding(.vertical, 15)
+            .padding(.vertical, 12)
+            .frame(minHeight: 64)
             .contentShape(Rectangle())
+            .overlay(alignment: .bottom) { if !last { Rectangle().fill(Brand.rule.opacity(0.7)).frame(height: 0.5) } }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.tap(scale: 0.985, dim: 1))
+        .accessibilityLabel(label)
+        .accessibilityValue(value.isEmpty ? placeholder : value)
         .accessibilityHint("Optional")
     }
 

@@ -203,7 +203,7 @@ struct InvitationView: View {
             VStack(alignment: .leading, spacing: Spacing.stack) {
                 VStack(alignment: .leading, spacing: 16) {
                     StackMark(size: 64, animateIn: false)
-                    Text("Invitation code").font(Typeface.display).tracking(-0.8).foregroundStyle(Palette.ink)
+                    Text("Almost there").font(Typeface.display).tracking(-0.8).foregroundStyle(Palette.ink)
                         .accessibilityAddTraits(.isHeader)
                 }
                 .reveal(0)

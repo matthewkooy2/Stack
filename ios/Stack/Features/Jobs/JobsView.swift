@@ -35,8 +35,14 @@ struct JobsView: View {
     @State private var tailorSetup = ""
     @State private var tailorScores: [String: JSON] = [:]
 
-    private var settle: Animation { .spring(response: 0.38, dampingFraction: 0.90) }
+    /// Rubber-band return when a drag is let go short of the threshold.
+    private var settle: Animation { .spring(response: 0.42, dampingFraction: 0.78) }
+    /// The fly-off: a spring with no bounce, so the card leaves cleanly.
+    private var flyOff: Animation { .smooth(duration: 0.34) }
     private var swipeProgress: CGFloat { min(abs(drag.width) / max(cardWidth * 0.65, 1), 1) }
+    private var largeText: Bool { dynamicTypeSize.isAccessibilitySize }
+    /// A strip of the next card stays visible under the current one.
+    private let peek: CGFloat = 12
 
     private var deck: [Job] {
         guard displayedContext == accountContext else { return [] }
@@ -62,18 +68,18 @@ struct JobsView: View {
                     .onChange(of: geometry.size.width) { _, width in cardWidth = width }
             }
             .padding(.horizontal, 10)
-            .padding(.bottom, 6)
-            .clipped()
+            .overlay(alignment: .bottom) {
+                if savedJob != nil || pendingDecision != nil {
+                    decisionBanner
+                        .padding(.horizontal, 18).padding(.bottom, 14)
+                        .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .animation(reduceMotion ? nil : Motion.snappy, value: savedJob != nil || pendingDecision != nil)
         }
         .background(Brand.page.ignoresSafeArea())
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if savedJob != nil || pendingDecision != nil {
-                decisionBanner
-                    .transition(reduceMotion ? .opacity : .move(edge: .bottom).combined(with: .opacity))
-            }
-        }
-        .animation(reduceMotion ? nil : Motion.ease(0.28), value: savedJob != nil || pendingDecision != nil)
-        .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.4), trigger: swipeReady) { _, ready in ready }
+        .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.5), trigger: swipeReady) { _, ready in ready }
+        .sensoryFeedback(.impact(flexibility: .rigid, intensity: 0.55), trigger: leavingID) { _, leaving in leaving != nil }
         .onChange(of: dragging) { _, active in
             if !active {
                 swipeAxis = nil
@@ -131,7 +137,7 @@ struct JobsView: View {
         }) { value in
             switch value {
             case .filters:
-                JobFiltersSheet(search: search, title: "Requirements", disabled: feed.gate.saving, error: feed.loadError,
+                JobFiltersSheet(search: search, title: "Filters", disabled: feed.gate.saving, error: feed.loadError,
                                 onQuickChange: { query, filters in
                                     let event = reserveChange()
                                     Task { await applySearch(event, query: query, filters: filters) }
@@ -163,124 +169,123 @@ struct JobsView: View {
 
     @ViewBuilder
     private func content(availableHeight: CGFloat) -> some View {
+        let cardHeight = max(availableHeight - peek, 0)
         if !feed.loaded || (deck.isEmpty && feed.loadError.isEmpty && !feed.nextCursor.isEmpty) {
-            VStack {
-                Spacer()
-                ProgressView().tint(Brand.muted).accessibilityLabel("Loading jobs")
-                Spacer()
-            }
-            .padding(20)
+            JobCardSkeleton()
+                .frame(height: cardHeight)
+                .stackElevation()
+                .frame(maxHeight: .infinity, alignment: .top)
         } else if !deck.isEmpty {
-            ZStack {
+            ZStack(alignment: .top) {
                 ForEach(Array(deck.prefix(3).enumerated().reversed()), id: \.element.id) { offset, job in
-                    JobCard(job: job, isActive: offset == 0,
-                            preferredLocation: search.filters["location"].string.isEmpty ? search.criteria["location"].string : search.filters["location"].string,
-                            onOpen: { open(job) },
-                            onDetails: { detail = job },
-                            onSave: { decide(job, save: true) },
-                            onPass: { decide(job, save: false) })
-                        .overlay(alignment: .topTrailing) {
-                            if offset == 0 {
-                                Button { detail = job } label: {
-                                    Image(systemName: "info.circle").font(.title3.weight(.medium))
-                                        .foregroundStyle(Brand.ink)
-                                        .frame(width: 44, height: 44)
-                                        .background(Palette.surface, in: Circle())
-                                }
-                                .buttonStyle(.tap(scale: 0.96))
-                                .accessibilityLabel("Job details")
-                                .padding(10)
-                            }
-                        }
-                        .safeAreaInset(edge: .bottom, spacing: 0) {
-                            if offset == 0 {
-                                feedback.padding(.bottom, 8).background(Palette.surface)
-                            }
-                        }
-                        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                        .shadow(color: .black.opacity(offset == 0 ? 0.07 : 0.025),
-                                radius: offset == 0 ? 10 + swipeProgress * 6 : 3, y: 3)
-                        .scaleEffect(offset == 0 ? 1 - swipeProgress * 0.012
-                                     : 1 - (CGFloat(offset) - swipeProgress) * 0.018)
-                        .offset(y: offset == 0 ? 0 : max(CGFloat(offset) - swipeProgress, 0) * 6)
-                        .offset(x: offset == 0 ? drag.width : 0)
-                        .rotationEffect(.degrees(offset == 0 && !reduceMotion
-                            ? max(-2.2, min(2.2, Double(drag.width / max(cardWidth, 1)) * 2.2)) : 0))
-                        .simultaneousGesture(swipe(job), including: offset == 0 ? .all : .none)
-                        .allowsHitTesting(offset == 0 && leavingID == nil)
-                        .accessibilityHidden(offset != 0)
+                    card(job, offset: offset, height: cardHeight)
                 }
             }
+            .frame(maxHeight: .infinity, alignment: .top)
         } else {
-            ScrollView {
-                VStack(spacing: 14) {
-                    feedback
-                    EmptyNote(icon: emptyIcon, title: emptyTitle, message: emptyMessage)
-                    if !feed.loadError.isEmpty {
-                        StackButton(label: "Retry", icon: "refresh", disabled: feed.busy) {
-                            Task { await load(refresh: false) }
-                        }
-                    } else if search.missingGraduation {
-                        StackButton(label: "Set graduation", icon: "clock") { sheet = .timeline }
-                    } else if !feed.nextCursor.isEmpty {
-                        StackButton(label: "Load more roles", icon: "refresh", disabled: feed.busy) {
-                            Task { await load(refresh: false, more: true) }
-                        }
-                    } else {
-                        StackButton(label: "Change requirements", disabled: feed.gate.saving) { sheet = .filters }
-                    }
-                }
-                .frame(maxWidth: 460)
-                .padding(20)
-                .frame(maxWidth: .infinity, minHeight: availableHeight)
-            }
+            emptyState(availableHeight: availableHeight)
         }
+    }
+
+    /// The front card follows the finger; the ones behind sit slightly lower and smaller and rise as it leaves.
+    private func card(_ job: Job, offset: Int, height: CGFloat) -> some View {
+        let front = offset == 0
+        let progress = swipeProgress
+        let shape = RoundedRectangle(cornerRadius: JobCard.cornerRadius, style: .continuous)
+        let tilt = reduceMotion ? 0 : max(-14, min(14, Double(drag.width / max(cardWidth, 1)) * 10))
+        return JobCard(job: job, isActive: front,
+                       preferredLocation: search.filters["location"].string.isEmpty ? search.criteria["location"].string : search.filters["location"].string,
+                       onOpen: { open(job) },
+                       onDetails: { detail = job },
+                       onSave: { decide(job, save: true) },
+                       onPass: { decide(job, save: false) })
+            .overlay {
+                if front, abs(drag.width) > 4 {
+                    JobSwipeStamp(offset: drag.width).clipShape(shape)
+                } else if !front {
+                    shape.fill(Color.black.opacity(0.05 * (1 - progress)))
+                        .allowsHitTesting(false).accessibilityHidden(true)
+                }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if front { feedback.padding(.bottom, 8).background(Palette.surface) }
+            }
+            .background(Palette.surface, in: shape)
+            .clipShape(shape)
+            .frame(height: height)
+            .shadow(color: .black.opacity(front ? 0.10 : 0.05), radius: front ? 14 : 6, y: 5)
+            .scaleEffect(front ? 1 : 0.95 + 0.05 * progress, anchor: .bottom)
+            .offset(y: front ? 0 : peek * (1 - progress))
+            .offset(x: front ? drag.width : 0)
+            .rotationEffect(.degrees(front ? tilt : 0), anchor: UnitPoint(x: 0.5, y: 1.15))
+            .simultaneousGesture(swipe(job), including: front ? .all : .none)
+            .allowsHitTesting(front && leavingID == nil)
+            .accessibilityHidden(!front)
+    }
+
+    private func emptyState(availableHeight: CGFloat) -> some View {
+        ScrollView {
+            VStack(spacing: 8) {
+                feedback
+                CollectionEmptyState(symbol: emptySymbol, title: emptyTitle, subtitle: emptyMessage,
+                                     actionTitle: emptyAction.title, action: emptyAction.run)
+                    .disabled(emptyAction.disabled)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: availableHeight, maxHeight: largeText ? .infinity : availableHeight)
+        }
+        .scrollBounceBehavior(.basedOnSize)
+    }
+
+    private var emptyAction: (title: String, disabled: Bool, run: () -> Void) {
+        if !feed.loadError.isEmpty { return ("Try again", feed.busy, { Task { await load(refresh: false) } }) }
+        if search.missingGraduation { return ("Set graduation", false, { sheet = .timeline }) }
+        if !feed.nextCursor.isEmpty { return ("Load more", feed.busy, { Task { await load(refresh: false, more: true) } }) }
+        return ("Edit filters", feed.gate.saving, { sheet = .filters })
     }
 
     private var requirementsButton: some View {
-        Button { sheet = .filters } label: {
-            Image(systemName: "slider.horizontal.3")
-                .font(.body.weight(.semibold)).foregroundStyle(Brand.ink)
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.tap(scale: 0.96))
-        .disabled(leavingID != nil)
-        .accessibilityLabel("Requirements and job tools")
-        .accessibilityIdentifier("job-requirements")
+        HeaderIconButton(systemName: "slider.horizontal.3", label: "Filters",
+                         dot: search.hasOverrides) { sheet = .filters }
+            .disabled(leavingID != nil)
+            .accessibilityIdentifier("job-requirements")
     }
 
-    /// Outside the moving deck: the next card stays swipeable while this offers help for the saved job.
+    /// A floating capsule over the foot of the deck: what just happened, a way forward and Undo.
     private var decisionBanner: some View {
         let jobTitle = savedJob?.title ?? pendingDecision?.job.title ?? ""
-        let status = savedJob == nil ? "Passed" : "Saved"
-        let summary = jobTitle.isBlank ? "\(status) job" : "\(status) \(jobTitle)"
-        let layout = dynamicTypeSize.isAccessibilitySize
-            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
-            : AnyLayout(HStackLayout(spacing: 10))
+        let saved = savedJob != nil
+        let summary = jobTitle.isBlank ? (saved ? "Saved" : "Passed") : "\(saved ? "Saved" : "Passed") \(jobTitle)"
+        let layout = largeText
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 6))
+            : AnyLayout(HStackLayout(spacing: 8))
         return layout {
-            Label(summary,
-                  systemImage: savedJob == nil ? "arrow.left.circle" : "checkmark.circle.fill")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Brand.ink)
-                .lineLimit(2)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(summary)
-                .accessibilityIdentifier("job-decision")
-            HStack(spacing: 10) {
+            Label {
+                Text(summary).lineLimit(largeText ? 3 : 1)
+            } icon: {
+                Image(systemName: saved ? "bookmark.fill" : "xmark.circle.fill")
+                    .foregroundStyle(saved ? Palette.success : Brand.muted)
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Brand.ink)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(summary)
+            .accessibilityIdentifier("job-decision")
+            HStack(spacing: 4) {
                 if let job = savedJob {
                     Button { openTailor(for: job) } label: {
                         HStack(spacing: 5) {
                             if preparingTailor { ProgressView().controlSize(.small) }
                             Text(preparingTailor ? "Opening…" : "Tailor")
-                            if !preparingTailor { Image(systemName: "arrow.right") }
+                            if !preparingTailor { Image(systemName: "arrow.right").font(.caption.weight(.bold)) }
                         }
-                        .font(.system(.subheadline, weight: .semibold))
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(Brand.accent)
-                        .padding(.horizontal, 13).frame(minHeight: 44)
-                        .background(Brand.accent.opacity(0.12), in: Capsule())
+                        .padding(.horizontal, 12).frame(minHeight: 36)
+                        .background(Palette.halo, in: Capsule())
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.tap(scale: 0.96))
                     .disabled(preparingTailor || leavingID != nil)
@@ -288,17 +293,26 @@ struct JobsView: View {
                     .accessibilityIdentifier("saved-job-tailor")
                 }
                 if pendingDecision != nil {
-                    Button("Undo") { undoDecision() }
-                        .font(.system(.subheadline, weight: .medium)).foregroundStyle(Brand.muted)
-                        .frame(minWidth: 44, minHeight: 44)
-                        .buttonStyle(.tap(scale: 0.96))
-                        .transition(.opacity)
+                    Button { undoDecision() } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "arrow.uturn.backward").font(.caption.weight(.bold))
+                            Text("Undo")
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Brand.ink)
+                        .padding(.horizontal, 10).frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.tap(scale: 0.96))
+                    .accessibilityLabel("Undo")
+                    .transition(.opacity)
                 }
             }
         }
-        .padding(.horizontal, 16).padding(.vertical, 10)
-        .background(Palette.surface)
-        .overlay(alignment: .top) { Brand.rule.frame(height: 0.5) }
+        .padding(.leading, 16).padding(.trailing, 6).padding(.vertical, 4)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 30, style: .continuous).strokeBorder(Palette.rule.opacity(0.6), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.14), radius: 16, y: 6)
         .animation(reduceMotion ? nil : Motion.fadeAnimation, value: pendingDecision != nil)
         .accessibilityElement(children: .contain)
     }
@@ -313,7 +327,7 @@ struct JobsView: View {
             let saved = await saving?.value ?? true
             guard saved, isCurrent(generation), savedJob?.id == job.id else { return }
             guard let application = store.account.applications.first(where: { !$0.isDemo && $0.job.id == job.id }) else {
-                feed.loadError = "Could not open this saved job. Try saving it again."
+                feed.loadError = "Couldn\u{2019}t open job"
                 return
             }
             tailoring = application
@@ -340,38 +354,36 @@ struct JobsView: View {
         }
     }
 
-    private var emptyIcon: String {
-        if !feed.loadError.isEmpty { return "warning" }
-        if search.missingGraduation { return "graduation" }
-        return "jobs"
+    private var emptySymbol: String {
+        if !feed.loadError.isEmpty { return "wifi.exclamationmark" }
+        if search.missingGraduation { return "graduationcap" }
+        if !feed.nextCursor.isEmpty { return "rectangle.stack" }
+        if search.filters["timeline"].string == "confirmed" || search.noRoleMatches || !search.excluded.isEmpty {
+            return "magnifyingglass"
+        }
+        return "checkmark.circle"
     }
 
     private var emptyTitle: String {
-        if !feed.loadError.isEmpty { return "Could not load roles" }
-        if search.missingGraduation { return "Add your graduation month" }
-        if !feed.nextCursor.isEmpty { return "More roles to review" }
-        if search.filters["timeline"].string == "confirmed" { return "No confirmed timeline matches" }
-        if search.noRoleMatches { return "No listings match \u{201C}\(search.roleLabel)\u{201D}" }
-        return "You are all caught up"
+        if !feed.loadError.isEmpty { return "Couldn\u{2019}t load jobs" }
+        if search.missingGraduation { return "Add graduation month" }
+        if !feed.nextCursor.isEmpty { return "More jobs" }
+        if search.filters["timeline"].string == "confirmed" { return "No matches" }
+        if search.noRoleMatches { return "No jobs for \u{201C}\(search.roleLabel)\u{201D}" }
+        return "You\u{2019}re all caught up"
     }
 
     private var emptyMessage: String {
         if !feed.loadError.isEmpty { return feed.loadError }
-        if search.missingGraduation {
-            return "Use it to match roles to your graduation date."
-        }
+        if search.missingGraduation { return "We\u{2019}ll match jobs to your timeline" }
         if !feed.nextCursor.isEmpty { return "" }
-        if search.filters["timeline"].string == "confirmed" {
-            return "Include roles without a stated graduation window in Requirements."
-        }
-        if search.noRoleMatches {
-            return "Try a related title in Requirements."
-        }
+        if search.filters["timeline"].string == "confirmed" { return "Include jobs with no stated timeline in Filters" }
+        if search.noRoleMatches { return "Try a related title" }
         if !search.excluded.isEmpty {
             let reasons = search.excluded.prefix(4).map { "\($0["reason"].string) (\($0["count"].int))" }.joined(separator: ", ")
-            return "Hidden by your requirements: \(reasons). Mark some as nice to have to see them ranked lower."
+            return "Hidden by filters: \(reasons)"
         }
-        return "New roles arrive every morning."
+        return "New jobs every morning"
     }
 
     /// A tap reads the listing in the in-app browser; a job without a safe web link opens its details instead.
@@ -414,7 +426,7 @@ struct JobsView: View {
         saveTask = nil
         leavingID = job.id
         let generation = store.sessionGeneration
-        withAnimation(reduceMotion ? nil : Motion.ease(0.30), completionCriteria: .logicallyComplete) {
+        withAnimation(reduceMotion ? nil : flyOff, completionCriteria: .logicallyComplete) {
             drag = CGSize(width: (save ? 1 : -1) * (cardWidth + 64), height: 0)
         } completion: {
             finishDecision(job, save: save, generation: generation)
@@ -473,7 +485,7 @@ struct JobsView: View {
             if !saved {
                 if savedJob?.id == pending.job.id { savedJob = nil }
                 withAnimation(reduceMotion ? nil : Motion.release) { _ = hidden.remove(pending.job.id) }
-                feed.loadError = store.error.isEmpty ? "This decision was not saved. Please try again." : store.error
+                feed.loadError = store.error.isEmpty ? "Couldn\u{2019}t save. Try again" : store.error
             }
             return saved
         }
@@ -624,7 +636,7 @@ struct JobDetailView: View {
             if loading { ProgressView().tint(Palette.muted) }
             MessageLine(text: loadError).fadeSwitch(!loadError.isEmpty)
             if !loadError.isEmpty {
-                StackButton(label: "Retry details", icon: "refresh") { Task { await loadDetails() } }
+                StackButton(label: "Try again", icon: "refresh") { Task { await loadDetails() } }
             }
             if let next = JobListing(job: displayed) {
                 StackButton(label: "Open application page", icon: "link") { listing = next }.reveal(2)
@@ -640,7 +652,7 @@ struct JobDetailView: View {
                 }
             }
             if !displayed.requirements.isEmpty {
-                DisclosureSection("What they look for") {
+                DisclosureSection("Looking for") {
                     VStack(alignment: .leading, spacing: 10) {
                         ForEach(displayed.requirements, id: \.self) { item in
                             HStack(alignment: .top, spacing: 10) {
@@ -704,8 +716,6 @@ struct JobDetailView: View {
     private func timelineSection(_ timeline: JSON) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(timeline["reason"].string).font(Typeface.body).foregroundStyle(Palette.text)
-            Text("Timeline check only, not a guarantee of eligibility.")
-                .font(Typeface.caption).foregroundStyle(Palette.muted)
             ForEach(Array(timeline["evidence"].array.enumerated()), id: \.offset) { _, item in
                 Card(spacing: 6) {
                     Text(item["field"].string).font(Typeface.caption).foregroundStyle(Palette.muted)
@@ -724,9 +734,6 @@ struct JobDetailView: View {
         if !blocks.isEmpty || !displayed.summary.isEmpty {
             DisclosureSection(snippet ? "Listing excerpt" : "Employer listing") {
                 VStack(alignment: .leading, spacing: 12) {
-                    if snippet {
-                        Text("Read the full listing at the source.").font(Typeface.caption).foregroundStyle(Palette.muted)
-                    }
                     ForEach(blocks.isEmpty ? [displayed.summary] : blocks, id: \.self) {
                         Text($0).font(Typeface.body).foregroundStyle(Palette.text)
                     }

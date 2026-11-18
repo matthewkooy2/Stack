@@ -20,7 +20,7 @@ struct PublicProfilesView: View {
     private func key(_ field: ProfileDraftField) -> String { platform + ":" + field.id }
 
     var body: some View {
-        SheetPage(title: canSwitchPlatform ? "Public profiles" : platform, subtitle: "Drafts stay in this signed-in session.") {
+        SheetPage(title: canSwitchPlatform ? "Profiles" : platform) {
             if canSwitchPlatform {
                 FlowLayout(spacing: 6) {
                     ForEach(["LinkedIn", "GitHub", "Portfolio"], id: \.self) { name in
@@ -37,7 +37,10 @@ struct PublicProfilesView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .stackElevation()
+            Text("Drafts stay on this iPhone. Signing out clears them.")
+                .font(.footnote).foregroundStyle(Palette.muted)
         }
         .onAppear { generation = store.sessionGeneration }
         .onChange(of: store.sessionGeneration) { _, _ in dismiss() }
@@ -49,8 +52,6 @@ struct PublicProfilesView: View {
                     store.profileDrafts[key(item)] = draft.trimmingCharacters(in: .whitespacesAndNewlines)
                     field = nil
                 }
-                Text("Signing out clears your saved drafts.")
-                    .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             .interactiveDismissDisabled(!draft.isEmpty)
         }
@@ -65,7 +66,7 @@ struct ProfileDraftField: Identifiable {
         switch platform {
         case "LinkedIn": rows = [("url", "Profile URL"), ("headline", "Headline"), ("location", "Location"),
             ("about", "About"), ("skills", "Top skills"), ("role", "Current or recent role"),
-            ("experience", "Experience highlights"), ("school", "School"), ("degree", "Degree and field of study"),
+            ("experience", "Experience highlights"), ("school", "School"), ("degree", "Degree"),
             ("activities", "Activities and achievements"), ("featured", "Projects and links"), ("credentials", "Certifications")]
         case "GitHub": rows = [("url", "Profile URL"), ("bio", "Bio"), ("website", "Website"),
             ("readme", "README introduction"), ("stack", "Tools and technologies"), ("focus", "Current focus"),

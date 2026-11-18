@@ -54,16 +54,16 @@ struct NetworkAgentSection: View {
                 if let contact = contacts.first(where: { $0["id"].string == item.id }) {
                     contactCard(contact)
                     if let feature, feature.state != "ready" {
-                        DisclosureSection("Outreach setup", open: true) {
+                        DisclosureSection("Setup", open: true) {
                             FeatureCardView(feature: feature, onAction: onNavigate, compact: true)
                         }
                     }
                 } else if loaded && error.isEmpty {
-                    Text("This contact is no longer available.").font(Typeface.body).foregroundStyle(Brand.muted)
+                    EmptyNote(icon: "network", title: "Contact unavailable")
                 }
             case .discovery: EmptyView()
             }
-            if loading && !loaded { ProgressView().tint(Brand.accent) }
+            if loading && !loaded { SkeletonRow() }
             if !loaded && !loading && !error.isEmpty {
                 switch destination {
                 case .settings, .contact:
@@ -76,17 +76,16 @@ struct NetworkAgentSection: View {
     }
 
     private var settings: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            SectionLabel(text: "Follow-up timing")
-            Text("Choose how often Stack can draft a follow-up for your review.")
-                .font(.subheadline).foregroundStyle(Brand.muted)
-            StackField(label: "Follow-ups per contact (0–3)", text: $drafts.followupLimit, keyboard: .numberPad)
-            StackField(label: "Days between follow-ups", text: $drafts.followupDays, keyboard: .numberPad)
-            StackButton(label: "Save follow-up timing", disabled: working || !drafts.policyLoaded) {
+        VStack(alignment: .leading, spacing: 16) {
+            Card {
+                StackField(label: "Follow-ups per contact", text: $drafts.followupLimit, keyboard: .numberPad)
+                StackField(label: "Days between follow-ups", text: $drafts.followupDays, keyboard: .numberPad)
+            }
+            StackButton(label: "Save", disabled: working || !drafts.policyLoaded) {
                 Task { await saveFollowupPolicy() }
             }
             if let feature {
-                DisclosureSection("Outreach setup", open: feature.state != "ready") {
+                DisclosureSection("Setup", open: feature.state != "ready") {
                     FeatureCardView(feature: feature, onAction: onNavigate, compact: true)
                 }
             }
@@ -95,70 +94,139 @@ struct NetworkAgentSection: View {
 
     private func contactCard(_ contact: JSON) -> some View {
         let id = contact["id"].string
-        let stopped = contact["stopped"].bool
+        let info = NetworkContact(contact)
+        let stopped = info.stopped
         let selected = contact["selected"].bool
-        return VStack(alignment: .leading, spacing: 12) {
-            let info = NetworkContact(contact)
-            HStack(spacing: 12) {
-                Avatar(initials: info.initials, size: 48)
-                VStack(alignment: .leading, spacing: 4) {
-                    if !info.detail.isEmpty {
-                        Text(info.detail).font(.headline).foregroundStyle(Brand.ink)
+        let followups = contact["followups"].int
+        let runs = Array(store.account.runViews.filter { $0["target_id"].string == id && $0["kind"].string == "network" }.prefix(2).enumerated())
+        return VStack(alignment: .leading, spacing: 20) {
+            hero(info, stopped: stopped)
+            HStack(alignment: .top, spacing: 24) {
+                if let url = URL(string: "mailto:" + info.email), !info.email.isEmpty {
+                    Link(destination: url) { roundAction("envelope.fill", "Email") }
+                        .buttonStyle(.tap(scale: 0.92))
+                        .accessibilityLabel("Email \(info.name)")
+                }
+                if !stopped {
+                    if selected {
+                        Button {
+                            Task { await perform("agent_start", ["kind": "network", "target_id": .string(id)], done: "Drafting. Nothing sends without your review") }
+                        } label: { roundAction("square.and.pencil", "Draft", prominent: true) }
+                            .buttonStyle(.tap(scale: 0.92))
+                            .disabled(working || feature?.state == "unavailable")
+                            .accessibilityLabel("Draft outreach")
+                    } else {
+                        Button {
+                            var next = contact
+                            next["selected"] = true
+                            let selectedContact = next
+                            Task { await perform("agent_save_contact", ["id": .string(id), "data": selectedContact], done: "Selected") }
+                        } label: { roundAction("checkmark.circle", "Select", prominent: true) }
+                            .buttonStyle(.tap(scale: 0.92))
+                            .disabled(working)
+                            .accessibilityLabel("Select for outreach")
                     }
-                    if !info.email.isEmpty && info.detail != info.email {
-                        Text(info.email).font(.subheadline).foregroundStyle(Brand.muted).textSelection(.enabled)
+                    Button {
+                        Task { await perform("agent_stop_contact", ["id": .string(id)], done: "Outreach stopped") }
+                    } label: { roundAction("hand.raised.fill", "Stop", danger: true) }
+                        .buttonStyle(.tap(scale: 0.92))
+                        .disabled(working)
+                        .accessibilityLabel("Stop outreach")
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .sensoryFeedback(.success, trigger: notice) { _, new in !new.isEmpty }
+
+            if !info.email.isEmpty || !info.relationship.isEmpty || followups > 0 || info.nextFollowup > 0 {
+                Card {
+                    VStack(alignment: .leading, spacing: 0) {
+                        let rows = detailRows(info, followups: followups)
+                        ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(row.0).font(.footnote).foregroundStyle(Brand.muted)
+                                Text(row.1).font(Typeface.body).foregroundStyle(Brand.ink).textSelection(.enabled)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 12)
+                            .overlay(alignment: .bottom) {
+                                if index < rows.count - 1 { Rectangle().fill(Palette.rule.opacity(0.7)).frame(height: 0.5) }
+                            }
+                        }
                     }
+                    .padding(.vertical, -12)
                 }
             }
-            if stopped {
-                StatusPill(label: "Outreach stopped")
-            }
-            if !contact["relationship"].string.isEmpty {
-                Text(contact["relationship"].string).font(Typeface.caption).foregroundStyle(Palette.text)
-            }
-            if contact["followups"].int > 0 || contact["next_at"].double > 0 {
-                Text("Follow-ups sent: \(contact["followups"].int)" + (contact["next_at"].double > 0 ? " · next draft \(dateTime(contact["next_at"].double))" : ""))
-                    .font(Typeface.caption).foregroundStyle(Palette.muted)
-            }
-            ForEach(Array(store.account.runViews.filter { $0["target_id"].string == id && $0["kind"].string == "network" }.prefix(2).enumerated()), id: \.offset) { _, run in
-                TaskRow(run: run) { onOpenTask(run["id"].string) }
-            }
-            if !selected, !stopped {
-                StackButton(label: "Select for outreach", kind: .secondary, disabled: working) {
-                    var next = contact
-                    next["selected"] = true
-                    let selectedContact = next
-                    Task { await perform("agent_save_contact", ["id": .string(id), "data": selectedContact], done: "Selected. Nothing was sent.") }
-                }
-            }
-            if selected, !stopped {
-                StackButton(label: "Draft outreach for my review", disabled: working || feature?.state == "unavailable") {
-                    Task { await perform("agent_start", ["kind": "network", "target_id": .string(id)], done: "Drafting. You will review the email before anything is sent.") }
-                }
-            }
-            if !stopped {
-                StackButton(label: "Stop outreach and follow-ups", kind: .secondary, disabled: working) {
-                    Task { await perform("agent_stop_contact", ["id": .string(id)], done: "Outreach stopped for this contact.") }
+            if !runs.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    SectionHeader(title: "Activity")
+                    ForEach(runs, id: \.offset) { _, run in
+                        TaskRow(run: run) { onOpenTask(run["id"].string) }
+                    }
                 }
             }
         }
     }
 
+    private func hero(_ info: NetworkContact, stopped: Bool) -> some View {
+        VStack(spacing: 6) {
+            Avatar(name: info.name, size: 96).padding(.bottom, 8)
+            Text(info.name).font(.title.weight(.bold)).foregroundStyle(Brand.ink).multilineTextAlignment(.center)
+            if !info.role.isEmpty {
+                Text(info.role).font(.body.weight(.medium)).foregroundStyle(Brand.ink.opacity(0.85))
+            }
+            if !info.company.isEmpty {
+                Text(info.company).font(.subheadline).foregroundStyle(Brand.muted)
+            }
+            if stopped {
+                StatusPill(text: "Outreach stopped", tone: .neutral).padding(.top, 4)
+            } else if info.followupDue() {
+                StatusPill(text: "Follow up", tone: .warning).padding(.top, 4)
+            }
+        }
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
+        .padding(.top, 8)
+    }
+
+    private func roundAction(_ symbol: String, _ title: String, prominent: Bool = false, danger: Bool = false) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: symbol)
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(prominent ? Color.white : (danger ? Palette.danger : Brand.accent))
+                .frame(width: 56, height: 56)
+                .background(prominent ? Palette.button : (danger ? Palette.danger.opacity(0.11) : Palette.halo), in: Circle())
+            Text(title).font(.caption.weight(.medium)).foregroundStyle(Brand.muted)
+        }
+        .frame(minWidth: 64)
+        .contentShape(Rectangle())
+    }
+
+    private func detailRows(_ info: NetworkContact, followups: Int) -> [(String, String)] {
+        var rows: [(String, String)] = []
+        if !info.email.isEmpty { rows.append(("Email", info.email)) }
+        if !info.relationship.isEmpty { rows.append(("How you know them", info.relationship)) }
+        if followups > 0 { rows.append(("Follow-ups", "\(followups) sent")) }
+        if info.nextFollowup > 0 && !info.stopped { rows.append(("Next draft", dateTime(info.nextFollowup))) }
+        return rows
+    }
+
     private var form: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            StackField(label: "Contact name", text: $drafts.name)
-            StackField(label: "Verified email", text: $drafts.email, keyboard: .emailAddress, autocapitalization: .never)
-            StackField(label: "Company", text: $drafts.company)
-            StackField(label: "How you know them", text: $drafts.relationship, multiline: true)
-            StackField(label: "Public research source (optional)", text: $drafts.sourceURL, placeholder: "https://company.com/team",
-                       keyboard: .URL, autocapitalization: .never)
-            StackButton(label: "Save contact", icon: "save", disabled: working || drafts.name.isBlank) { Task { await save() } }
+        VStack(alignment: .leading, spacing: 16) {
+            Card {
+                StackField(label: "Contact name", text: $drafts.name)
+                StackField(label: "Email", text: $drafts.email, keyboard: .emailAddress, autocapitalization: .never)
+                StackField(label: "Company", text: $drafts.company)
+                StackField(label: "How you know them", text: $drafts.relationship, multiline: true)
+                StackField(label: "Source link (optional)", text: $drafts.sourceURL, placeholder: "https://company.com/team",
+                           keyboard: .URL, autocapitalization: .never)
+            }
+            StackButton(label: "Save contact", disabled: working || drafts.name.isBlank) { Task { await save() } }
         }
     }
 
     private var importForm: some View {
         VStack(alignment: .leading, spacing: 14) {
-            StackField(label: "Paste rows (name,email,relationship)", text: $drafts.importText,
+            StackField(label: "Paste contacts", text: $drafts.importText, placeholder: "Name, email, relationship",
                        multiline: true, autocapitalization: .never)
             StackButton(label: "Import contacts", disabled: working || drafts.importText.isBlank) {
                 Task {
@@ -196,7 +264,7 @@ struct NetworkAgentSection: View {
     private func saveFollowupPolicy() async {
         guard !working else { return }
         guard let limit = Int(drafts.followupLimit), (0...3).contains(limit), let days = Int(drafts.followupDays), (3...30).contains(days) else {
-            error = "Use 0–3 follow-ups and 3–30 days between them."
+            error = "Use 0–3 follow-ups, 3–30 days apart"
             return
         }
         let generation = store.sessionGeneration
@@ -209,7 +277,7 @@ struct NetworkAgentSection: View {
             policy["followup_days"] = .number(Double(days))
             try await store.call("agent_save_policy", ["policy": policy])
             error = ""
-            notice = "Follow-up timing saved."
+            notice = "Saved"
         } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
     }
 
@@ -237,7 +305,7 @@ struct NetworkAgentSection: View {
             "relationship": .string(drafts.relationship), "source": "User supplied", "source_url": .string(drafts.sourceURL), "selected": true,
         ]
         let ok = await perform("agent_save_contact", ["data": data],
-                               done: "Contact saved. Nothing was sent. Tap Draft outreach when you are ready.")
+                               done: "Contact saved")
         if ok {
             drafts.name = ""; drafts.email = ""; drafts.company = ""; drafts.relationship = ""; drafts.sourceURL = ""
             dismiss()

@@ -9,15 +9,24 @@ struct NetworkContact: Identifiable, Hashable {
     let company: String
     let email: String
     let relationship: String
+    let stopped: Bool
+    let nextFollowup: Double
 
     init(_ json: JSON) {
         id = json["id"].string
         let suppliedName = json["name"].string.trimmingCharacters(in: .whitespacesAndNewlines)
-        name = suppliedName.isEmpty ? "Unnamed contact" : suppliedName
+        name = suppliedName.isEmpty ? "No name" : suppliedName
         role = json["role"].string.trimmingCharacters(in: .whitespacesAndNewlines)
         company = json["company"].string.trimmingCharacters(in: .whitespacesAndNewlines)
         email = json["email"].string.trimmingCharacters(in: .whitespacesAndNewlines)
         relationship = json["relationship"].string.trimmingCharacters(in: .whitespacesAndNewlines)
+        stopped = json["stopped"].bool
+        nextFollowup = json["next_at"].double
+    }
+
+    /// A follow-up draft is due now and outreach has not been stopped.
+    func followupDue(now: Date = Date()) -> Bool {
+        !stopped && nextFollowup > 0 && nextFollowup <= now.timeIntervalSince1970
     }
 
     var initials: String {

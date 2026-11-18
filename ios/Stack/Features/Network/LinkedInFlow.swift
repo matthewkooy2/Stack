@@ -53,7 +53,7 @@ struct LinkedInFlow: View {
                 onRetry: reviewID.isEmpty ? (uploader.canRetry ? retryUpload : nil) : retryReview)
         case .reviewing:
             PrepWorkingScreen(progress: "LinkedIn", message: "Reviewing your profile…",
-                              detail: reviewID.isEmpty ? "Sending your PDF…" : "You can leave and find the result in Agents.", spinner: true)
+                              detail: reviewID.isEmpty ? "Sending your PDF…" : "You can leave. Find it in Activity.", spinner: true)
                 .padding(.horizontal, Spacing.page)
         case .results:
             LinkedInReviewScreen(content: LinkedInReviewContent(run["artifacts"]["linkedin_review"]),
@@ -90,7 +90,7 @@ struct LinkedInFlow: View {
                 ], timeout: 180)
                 try Task.checkCancellation()
                 guard !queued["id"].string.isEmpty else {
-                    throw APIError(message: "Stack did not return a review ID. Check Tasks before uploading again.")
+                    throw APIError(message: "Couldn’t start the review. Check Activity before trying again.")
                 }
             }
             guard !Task.isCancelled else { return }
@@ -128,7 +128,7 @@ struct LinkedInFlow: View {
             while ["queued", "running"].contains(result["status"].string) {
                 try await clock.sleep(until: min(clock.now + .seconds(2), deadline))
                 guard clock.now < deadline else {
-                    throw APIError(message: "Your review is still pending. Try again to check its status, or find it in Tasks.")
+                    throw APIError(message: "Still reviewing. Try again, or check Activity.")
                 }
                 result = try await store.call("agent_run", ["id": .string(reviewID)], timeout: 10)
             }
@@ -136,7 +136,7 @@ struct LinkedInFlow: View {
             guard result["status"].string == "completed" else {
                 if result["status"].string == "cancelled" { reviewID = "" }
                 let message = result["message"].string
-                throw APIError(message: message.isBlank ? "The review did not finish." : message)
+                throw APIError(message: message.isBlank ? "Couldn’t finish the review." : message)
             }
             run = result
             reviewID = ""

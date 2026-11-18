@@ -18,6 +18,7 @@ struct NetworkView: View {
     @State private var unavailableContact = false
     @ScaledMetric(relativeTo: .largeTitle) private var portraitSize: CGFloat = 80
     @FocusState private var searching: Bool
+    @Namespace private var selectorSpace
 
     private var sortedContacts: [NetworkContact] {
         roster.contacts.sorted {
@@ -29,11 +30,8 @@ struct NetworkView: View {
     var body: some View {
         CollectionPage(title: "Network", onProfile: onProfile) {
             if section == .network && (!roster.contacts.isEmpty || !roster.error.isEmpty) {
-                Button { sheet = .add } label: {
-                    Image(systemName: "plus").frame(width: 44, height: 44)
-                }
-                .accessibilityLabel("Add a contact")
-                .accessibilityIdentifier("network-your-contacts")
+                HeaderIconButton(systemName: "plus", label: "Add a contact") { sheet = .add }
+                    .accessibilityIdentifier("network-your-contacts")
             }
             if section == .network { options }
         } content: { height in
@@ -41,13 +39,15 @@ struct NetworkView: View {
                 selector
                 if section == .network {
                     networkContent(height: height)
+                        .transition(.opacity)
                 } else {
                     PresenceView(reload: $presenceReload)
+                        .transition(.opacity)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .animation(reduceMotion ? nil : Motion.fadeAnimation, value: min(roster.contacts.count, 5))
+        .animation(Motion.animation(Motion.smooth, reduce: reduceMotion), value: min(roster.contacts.count, 5))
         .refreshable {
             if section == .network { await roster.load(store: store) }
             else {
@@ -57,8 +57,6 @@ struct NetworkView: View {
         }
         .alert("Contact unavailable", isPresented: $unavailableContact) {
             Button("OK", role: .cancel) {}
-        } message: {
-            Text("This contact is no longer available.")
         }
         .tint(Brand.accent)
         .task { openPendingContact(); await roster.load(store: store); openPendingContact() }
@@ -77,52 +75,62 @@ struct NetworkView: View {
         }
     }
 
+    // MARK: Switcher
+
+    /// A sliding capsule inside a quiet track. Selection moves with a spring and a light tick.
     private var selector: some View {
-        HStack(spacing: 20) {
+        HStack(spacing: 0) {
             sectionButton(.network)
             sectionButton(.presence)
-            Spacer()
         }
-        .overlay(alignment: .bottom) { Divider() }
+        .padding(3)
+        .background(Palette.muted.opacity(0.12), in: Capsule())
+        .sensoryFeedback(.selection, trigger: section)
     }
 
     private func sectionButton(_ value: NetworkSection) -> some View {
-        Button {
+        let selected = section == value
+        return Button {
+            guard !selected else { return }
             searching = false
-            withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { section = value }
+            withAnimation(Motion.animation(Motion.snappy, reduce: reduceMotion)) { section = value }
         } label: {
             Text(value.rawValue)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(section == value ? Brand.ink : Brand.muted)
-                .frame(minHeight: 44)
-                .overlay(alignment: .bottom) {
-                    if section == value { Capsule().fill(Brand.accent).frame(height: 3) }
+                .foregroundStyle(selected ? Brand.ink : Brand.muted)
+                .frame(maxWidth: .infinity, minHeight: 38)
+                .background {
+                    if selected {
+                        Capsule().fill(Palette.surfaceRaised)
+                            .overlay(Capsule().strokeBorder(Palette.rule.opacity(0.6), lineWidth: 0.5))
+                            .stackElevation()
+                            .matchedGeometryEffect(id: "network-section", in: selectorSpace)
+                    }
                 }
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(value == .presence ? "network-presence-tab" : "network-roster-tab")
-        .accessibilityAddTraits(section == value ? .isSelected : [])
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     private var options: some View {
-        Menu {
+        HeaderMenu("ellipsis", label: "Network options") {
             Button("Import contacts", systemImage: "square.and.arrow.down") { sheet = .csv }
-            Button("Outreach settings", systemImage: "slider.horizontal.3") { sheet = .settings }
-            Button("Discovery catalog", systemImage: "person.text.rectangle") { sheet = .discovery(nil) }
-        } label: {
-            Image(systemName: "ellipsis").font(.headline).foregroundStyle(Brand.ink)
-                .frame(width: 44, height: 44).contentShape(Rectangle())
+            Button("Outreach", systemImage: "slider.horizontal.3") { sheet = .settings }
+            Button("Discover", systemImage: "person.text.rectangle") { sheet = .discovery(nil) }
         }
-        .accessibilityLabel("Network options")
         .accessibilityIdentifier("network-options")
     }
+
+    // MARK: People
 
     @ViewBuilder
     private func networkContent(height: CGFloat) -> some View {
         if !roster.error.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 MessageLine(text: roster.error)
-                Button("Retry loading contacts", action: refreshContacts)
+                Button("Try again", action: refreshContacts)
                     .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
                     .disabled(roster.loading)
             }
@@ -130,7 +138,12 @@ struct NetworkView: View {
         }
         if roster.contacts.isEmpty {
             if !roster.loaded && roster.error.isEmpty {
-                ProgressView("Loading contacts…").frame(maxWidth: .infinity, minHeight: max(44, height - 80))
+                VStack(spacing: 0) {
+                    ForEach(0..<5, id: \.self) { _ in SkeletonRow() }
+                }
+                .padding(.horizontal, 16)
+                .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                .accessibilityLabel("Loading contacts")
             } else if roster.error.isEmpty {
                 CollectionEmptyState(symbol: "person.2", title: "No contacts yet", actionTitle: "Add a contact",
                                      titleIdentifier: "network-empty", actionIdentifier: "network-your-contacts") {
@@ -154,19 +167,25 @@ struct NetworkView: View {
 
     private func singleContact(_ contact: NetworkContact) -> some View {
         Button { sheet = .contact(contact) } label: {
-            VStack(spacing: 16) {
-                avatar(contact, size: portraitSize)
-                VStack(spacing: 5) {
-                    Text(contact.name).font(.title.weight(.semibold)).foregroundStyle(Brand.ink)
-                    if !contact.detail.isEmpty {
-                        Text(contact.detail).font(.body).foregroundStyle(Brand.muted)
+            VStack(spacing: 20) {
+                Avatar(name: contact.name, size: portraitSize)
+                VStack(spacing: 6) {
+                    Text(contact.name).font(.title2.weight(.bold)).foregroundStyle(Brand.ink)
+                    if !contact.role.isEmpty {
+                        Text(contact.role).font(.body.weight(.medium)).foregroundStyle(Brand.ink.opacity(0.85))
                     }
-                    if !contact.email.isEmpty && contact.email != contact.detail {
+                    if !contact.company.isEmpty {
+                        Text(contact.company).font(.subheadline).foregroundStyle(Brand.muted)
+                    } else if contact.role.isEmpty && !contact.email.isEmpty {
                         Text(contact.email).font(.subheadline).foregroundStyle(Brand.muted)
                     }
+                    if let pill = statusPill(contact) { pill.padding(.top, 4) }
                 }
                 if !contact.relationship.isEmpty {
-                    Text(contact.relationship).font(.subheadline).foregroundStyle(Brand.ink).lineLimit(3)
+                    Text(contact.relationship)
+                        .font(.subheadline).foregroundStyle(Brand.ink).lineLimit(4)
+                        .padding(14).frame(maxWidth: .infinity)
+                        .background(Brand.page, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
                 }
                 HStack(spacing: 6) {
                     Text("View contact")
@@ -176,74 +195,107 @@ struct NetworkView: View {
                 .padding(.horizontal, 18).frame(minHeight: 44)
                 .background(Palette.halo, in: Capsule())
             }
-            .padding(.horizontal, 12).padding(.vertical, 16)
-            .multilineTextAlignment(.center).contentShape(Rectangle())
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 20).padding(.vertical, 28)
+            .frame(maxWidth: .infinity)
+            .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .stackElevation()
+            .contentShape(Rectangle())
         }
         .buttonStyle(.tap(scale: 0.985))
-        .accessibilityHint("Open contact and outreach")
+        .contextMenu { contactActions(contact) }
         .accessibilityIdentifier("network-contact-\(contact.id)")
     }
 
     private func personCard(_ contact: NetworkContact) -> some View {
         Button { sheet = .contact(contact) } label: {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top) {
-                    avatar(contact, size: 44)
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(Brand.muted)
+                    Avatar(name: contact.name, size: 48)
+                    Spacer(minLength: 4)
+                    if let pill = statusPill(contact) { pill }
                 }
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text(contact.name).font(.headline).foregroundStyle(Brand.ink)
-                    if !contact.detail.isEmpty {
-                        Text(contact.detail).font(.subheadline).foregroundStyle(Brand.muted)
+                    if !contact.role.isEmpty {
+                        Text(contact.role).font(.subheadline).foregroundStyle(Brand.ink.opacity(0.85)).lineLimit(2)
+                    }
+                    if !contact.company.isEmpty {
+                        Text(contact.company).font(.footnote).foregroundStyle(Brand.muted).lineLimit(1)
+                    } else if contact.role.isEmpty && !contact.email.isEmpty {
+                        Text(contact.email).font(.footnote).foregroundStyle(Brand.muted).lineLimit(1)
                     }
                 }
                 if !contact.relationship.isEmpty {
-                    Divider()
-                    Text(contact.relationship).font(.subheadline).foregroundStyle(Brand.ink)
-                        .lineLimit(2)
+                    Spacer(minLength: 0)
+                    Text(contact.relationship).font(.footnote).foregroundStyle(Brand.muted).lineLimit(3)
+                        .padding(.top, 10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .overlay(alignment: .top) { Rectangle().fill(Palette.rule.opacity(0.7)).frame(height: 0.5) }
                 }
             }
             .multilineTextAlignment(.leading)
             .padding(16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .stackElevation()
             .contentShape(Rectangle())
         }
-        .buttonStyle(.tap(scale: 0.985))
-        .accessibilityHint("Open contact and outreach")
+        .buttonStyle(.tap(scale: 0.97))
+        .contextMenu { contactActions(contact) }
         .accessibilityIdentifier("network-contact-\(contact.id)")
     }
 
-    private func avatar(_ contact: NetworkContact, size: CGFloat) -> some View {
-        Text(contact.initials).font(.system(size: size * 0.35, weight: .semibold))
-            .foregroundStyle(Brand.accent)
-            .frame(width: size, height: size)
-            .background(Palette.halo, in: Circle())
-            .accessibilityHidden(true)
+    /// A trailing hint only when it changes what the person does next.
+    private func statusPill(_ contact: NetworkContact) -> StatusPill? {
+        if contact.stopped { return StatusPill(text: "Stopped", tone: .neutral) }
+        if contact.followupDue() { return StatusPill(text: "Follow up", tone: .warning) }
+        return nil
     }
+
+    @ViewBuilder
+    private func contactActions(_ contact: NetworkContact) -> some View {
+        if !contact.email.isEmpty {
+            if let url = URL(string: "mailto:" + contact.email) {
+                Link(destination: url) { Label("Email", systemImage: "envelope") }
+            }
+            Button("Copy email", systemImage: "doc.on.doc") { UIPasteboard.general.string = contact.email }
+        }
+        Button("Open", systemImage: "person.crop.circle") { sheet = .contact(contact) }
+    }
+
+    // MARK: Search and directory
 
     private var searchField: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass").foregroundStyle(Brand.muted).accessibilityHidden(true)
-            TextField("Search contacts", text: $query)
+            TextField("Search", text: $query)
                 .focused($searching)
+                .font(Typeface.body)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
                 .submitLabel(.search)
                 .onSubmit { searching = false }
                 .accessibilityIdentifier("network-search")
             if !query.isEmpty {
-                Button { query = "" } label: {
+                Button {
+                    query = ""
+                } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(Brand.muted)
                         .frame(width: 44, height: 44)
                 }
+                .buttonStyle(.tap(scale: 0.9))
                 .accessibilityLabel("Clear search")
+                .transition(.opacity)
             }
         }
-        .padding(.horizontal, 12)
-        .frame(minHeight: 44)
-        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 12))
+        .padding(.leading, 16)
+        .padding(.trailing, query.isEmpty ? 16 : 2)
+        .frame(minHeight: 48)
+        .background(Palette.field, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
+            .strokeBorder(searching ? Brand.accent : Palette.rule, lineWidth: searching ? 1.5 : 1))
+        .animation(Motion.animation(Motion.snappy, reduce: reduceMotion), value: query.isEmpty)
     }
 
     private var directory: some View {
@@ -252,19 +304,17 @@ struct NetworkView: View {
             if $0 == "#" || $1 == "#" { return $0 != "#" && $1 == "#" }
             return $0.localizedStandardCompare($1) == .orderedAscending
         }
-        return LazyVStack(alignment: .leading, spacing: 0) {
+        return LazyVStack(alignment: .leading, spacing: 8) {
             if groups.isEmpty {
                 VStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.title.weight(.light)).foregroundStyle(Brand.muted)
-                        .accessibilityHidden(true)
-                    Text("No matching contacts").font(.headline).foregroundStyle(Brand.ink)
+                    SymbolDisc(systemName: "magnifyingglass", size: 64)
+                    Text("No matches").font(.headline).foregroundStyle(Brand.ink)
                         .accessibilityAddTraits(.isHeader)
                     Button {
                         query = ""
                         searching = false
                     } label: {
-                        Text("Clear search").frame(minHeight: 44)
+                        Text("Clear").font(.subheadline.weight(.semibold)).frame(minHeight: 44)
                     }
                 }
                 .multilineTextAlignment(.center)
@@ -272,32 +322,48 @@ struct NetworkView: View {
                 .padding(.vertical, 24)
             }
             ForEach(letters, id: \.self) { letter in
-                Text(letter).font(.footnote.weight(.semibold)).foregroundStyle(Brand.muted)
-                    .padding(.top, 12).accessibilityAddTraits(.isHeader)
-                ForEach(groups[letter] ?? []) { contact in
-                    Button { sheet = .contact(contact) } label: {
-                        HStack(spacing: 12) {
-                            avatar(contact, size: 36)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(contact.name).font(.headline).foregroundStyle(Brand.ink)
-                                if !contact.detail.isEmpty {
-                                    Text(contact.detail).font(.subheadline).foregroundStyle(Brand.muted)
-                                }
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right").font(.caption).foregroundStyle(Brand.muted)
-                        }
-                        .multilineTextAlignment(.leading)
-                        .padding(.vertical, 9).frame(minHeight: 54)
-                        .contentShape(Rectangle())
+                let members = groups[letter] ?? []
+                SectionHeader(title: letter).padding(.leading, 4).padding(.top, 8)
+                VStack(spacing: 0) {
+                    ForEach(members) { contact in
+                        directoryRow(contact, last: contact.id == members.last?.id)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityHint("Open contact and outreach")
-                    .accessibilityIdentifier("network-contact-\(contact.id)")
-                    Divider()
                 }
+                .padding(.horizontal, 16)
+                .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                .stackElevation()
             }
         }
+    }
+
+    private func directoryRow(_ contact: NetworkContact, last: Bool) -> some View {
+        Button { sheet = .contact(contact) } label: {
+            HStack(spacing: 12) {
+                Avatar(name: contact.name, size: 40)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(contact.name).font(.headline).foregroundStyle(Brand.ink)
+                    if !contact.detail.isEmpty {
+                        Text(contact.detail).font(.subheadline).foregroundStyle(Brand.muted).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 8)
+                if let pill = statusPill(contact) {
+                    pill
+                } else {
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                        .foregroundStyle(Brand.muted.opacity(0.6)).accessibilityHidden(true)
+                }
+            }
+            .multilineTextAlignment(.leading)
+            .padding(.vertical, 10).frame(minHeight: 60)
+            .contentShape(Rectangle())
+            .overlay(alignment: .bottom) {
+                if !last { Rectangle().fill(Palette.rule.opacity(0.7)).frame(height: 0.5).padding(.leading, 52) }
+            }
+        }
+        .buttonStyle(.tap(scale: 0.985))
+        .contextMenu { contactActions(contact) }
+        .accessibilityIdentifier("network-contact-\(contact.id)")
     }
 
     private func refreshContacts() { Task { await roster.load(store: store) } }
@@ -350,15 +416,15 @@ enum NetworkSheet: Identifiable {
         switch self {
         case .add: return "New contact"
         case .csv: return "Import contacts"
-        case .settings: return "Outreach settings"
-        case .contact(let contact): return contact.name
-        case .discovery: return "Discovery catalog"
+        case .settings: return "Outreach"
+        case .contact: return "Contact"
+        case .discovery: return "Discover"
         }
     }
 }
 
 enum NetworkSection: String {
-    case network = "People", presence = "Presence"
+    case network = "Contacts", presence = "Profiles"
 }
 
 /// Outreach gets its own screen, with agent tasks opening from here.

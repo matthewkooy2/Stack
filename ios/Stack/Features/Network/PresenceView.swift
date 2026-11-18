@@ -6,6 +6,7 @@ import SwiftUI
 struct PresenceView: View {
     @Binding var reload: Int
     @Environment(AppStore.self) private var store
+    @Environment(\.stackReduceMotion) private var reduceMotion
     @State private var run: JSON = .null
     @State private var loading = false
     @State private var error = ""
@@ -24,14 +25,17 @@ struct PresenceView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             linkedInReview
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Profile drafts").font(Typeface.section).foregroundStyle(Brand.ink)
-                    .accessibilityAddTraits(.isHeader)
-                    .padding(.bottom, 6)
-                ForEach(PresencePlatform.allCases) { platform in
-                    draftRow(platform)
-                    Divider()
+            VStack(alignment: .leading, spacing: 8) {
+                SectionHeader(title: "Drafts").padding(.leading, 4)
+                VStack(spacing: 0) {
+                    let platforms = PresencePlatform.allCases
+                    ForEach(platforms) { platform in
+                        draftRow(platform, last: platform == platforms.last)
+                    }
                 }
+                .padding(.horizontal, 16)
+                .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                .stackElevation()
             }
         }
         .task(id: loadKey) { await load() }
@@ -43,8 +47,8 @@ struct PresenceView: View {
         .sheet(item: $editor) { target in
             SheetPage(title: "Suggested rewrites") {
                 LinkedInRewriteEditor(taskID: target.id, rewrites: target.rewrites)
-                Text("Nothing is published. Copy approved text when you’re ready to apply it.")
-                    .font(Typeface.caption).foregroundStyle(Palette.muted)
+                Text("Nothing is published")
+                    .font(.footnote).foregroundStyle(Palette.muted)
             }
             .environment(store)
         }
@@ -56,12 +60,14 @@ struct PresenceView: View {
         }
     }
 
+    /// The hero: one card, one primary action that fits the current state of the review.
     private var linkedInReview: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                Text("in").font(.headline.bold()).foregroundStyle(Brand.accent)
-                    .frame(width: 32, height: 32)
-                    .background(Palette.halo, in: RoundedRectangle(cornerRadius: 7))
+        Card(spacing: 16) {
+            HStack(spacing: 12) {
+                Image(systemName: "person.crop.rectangle.fill")
+                    .font(.system(size: 17, weight: .semibold)).foregroundStyle(Brand.accent)
+                    .frame(width: 38, height: 38)
+                    .background(Palette.halo, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
                     .accessibilityHidden(true)
                 Text("LinkedIn review").font(Typeface.section).foregroundStyle(Brand.ink)
                     .accessibilityAddTraits(.isHeader).accessibilityIdentifier("presence-linkedin")
@@ -73,25 +79,39 @@ struct PresenceView: View {
                             Button("Full review", systemImage: "doc.text") { task = TaskTarget(id: model.taskID) }
                         }
                     } label: {
-                        Image(systemName: "ellipsis").frame(width: 44, height: 44)
+                        Image(systemName: "ellipsis").font(.body.weight(.semibold)).foregroundStyle(Brand.muted)
+                            .frame(width: 44, height: 44).contentShape(Rectangle())
                     }
                     .accessibilityLabel("LinkedIn review options")
+                    .padding(.trailing, -8)
                 }
             }
             if loading {
-                ProgressView("Loading review…").font(.subheadline).tint(Brand.accent)
-                    .accessibilityIdentifier("presence-loading")
+                VStack(alignment: .leading, spacing: 10) {
+                    SkeletonBlock(width: 120, height: 12)
+                    SkeletonBlock(height: 14)
+                    SkeletonBlock(height: 14)
+                    SkeletonBlock(width: 180, height: 14)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Loading review")
+                .accessibilityIdentifier("presence-loading")
             } else if !error.isEmpty {
                 MessageLine(text: error)
-                action("Retry loading review", identifier: "presence-retry") { reload += 1 }
+                action("Try again", identifier: "presence-retry", prominent: false) { reload += 1 }
             } else if let model = presentation {
                 if let suggested = model.suggested(saved: store.rewriteDrafts[model.taskID]) {
-                    Text("Suggested \(model.sectionLabel.lowercased())").font(.footnote.weight(.semibold)).foregroundStyle(Brand.muted)
-                    Text(suggested.isBlank ? "This rewrite is empty." : suggested)
-                        .font(Typeface.body).foregroundStyle(Brand.ink)
-                        .lineLimit(4).accessibilityIdentifier("presence-suggested")
-                    DisclosureSection("Compare with current wording") {
-                        Text(model.current ?? "This section wasn’t captured.")
+                    VStack(alignment: .leading, spacing: 10) {
+                        StatusPill(text: "Suggested \(model.sectionLabel.lowercased())", tone: .accent)
+                        Text(suggested.isBlank ? "Empty" : suggested)
+                            .font(Typeface.body).foregroundStyle(Brand.ink)
+                            .lineLimit(4).accessibilityIdentifier("presence-suggested")
+                    }
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Brand.page, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
+                    DisclosureSection("Current wording") {
+                        Text(model.current ?? "Not captured")
                             .font(.subheadline).foregroundStyle(Brand.muted).textSelection(.enabled)
                             .accessibilityIdentifier("presence-current")
                     }
@@ -106,17 +126,15 @@ struct PresenceView: View {
                     action("Open review", identifier: "presence-open-review") { task = TaskTarget(id: model.taskID) }
                 }
             } else {
-                Text("Get feedback on the profile in your LinkedIn PDF.")
-                    .font(.subheadline).foregroundStyle(Brand.muted)
+                Text("Get feedback on your LinkedIn")
+                    .font(Typeface.body).foregroundStyle(Brand.muted)
                 action("Review LinkedIn", identifier: "presence-start-review") { linkedIn = true }
             }
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .animation(Motion.animation(Motion.smooth, reduce: reduceMotion), value: loading)
     }
 
-    private func draftRow(_ provider: PresencePlatform) -> some View {
+    private func draftRow(_ provider: PresencePlatform, last: Bool) -> some View {
         let fields = ProfileDraftField.fields(for: provider.rawValue)
         let edits = fields.compactMap { item -> String? in
             guard let text = store.profileDrafts[provider.rawValue + ":" + item.id], !text.isBlank else { return nil }
@@ -124,40 +142,46 @@ struct PresenceView: View {
         }
         return Button { platform = provider } label: {
             HStack(spacing: 14) {
-                Image(systemName: provider.symbol).font(.body.weight(.medium)).foregroundStyle(Brand.muted)
-                    .frame(width: 26).accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 4) {
+                Image(systemName: provider.symbol).font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(provider.tint.ink)
+                    .frame(width: 36, height: 36)
+                    .background(provider.tint.fill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
                     Text(provider.rawValue).font(.headline).foregroundStyle(Brand.ink)
                     Text(edits.first ?? provider.detail)
                         .font(.subheadline).foregroundStyle(Brand.muted).lineLimit(2)
                 }
-                Spacer()
-                Image(systemName: "chevron.right").font(.caption.weight(.medium)).foregroundStyle(Brand.muted)
-                    .accessibilityHidden(true)
+                Spacer(minLength: 8)
+                if !edits.isEmpty { StatusPill(text: "Draft", tone: .success) }
+                Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                    .foregroundStyle(Brand.muted.opacity(0.6)).accessibilityHidden(true)
             }
             .multilineTextAlignment(.leading)
-            .padding(.vertical, 12).frame(minHeight: 60)
+            .padding(.vertical, 12).frame(minHeight: 66)
             .contentShape(Rectangle())
+            .overlay(alignment: .bottom) {
+                if !last { Rectangle().fill(Palette.rule.opacity(0.7)).frame(height: 0.5).padding(.leading, 50) }
+            }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.tap(scale: 0.985))
         .accessibilityLabel(provider.rawValue)
         .accessibilityValue(edits.first ?? provider.detail)
         .accessibilityHint("Edit profile drafts")
         .accessibilityIdentifier(provider == .linkedin ? "presence-linkedin-drafts" : "presence-\(provider.rawValue.lowercased())")
     }
 
-    private func action(_ title: String, identifier: String, perform: @escaping () -> Void) -> some View {
+    /// One prominent action per card; a quiet text action where it is a retry.
+    private func action(_ title: String, identifier: String, prominent: Bool = true, perform: @escaping () -> Void) -> some View {
         Button(action: perform) {
-            HStack(spacing: 8) {
-                Text(title)
-                Image(systemName: "arrow.right").font(.footnote).accessibilityHidden(true)
-            }
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Brand.accent)
-            .frame(minHeight: 44, alignment: .leading)
-            .contentShape(Rectangle())
+            Text(title)
+                .font(.system(.headline).weight(.semibold))
+                .foregroundStyle(prominent ? Color.white : Brand.accent)
+                .frame(maxWidth: .infinity, minHeight: 50)
+                .background(prominent ? Palette.button : Palette.halo, in: RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.tap(scale: 0.98))
+        .buttonStyle(.tap(scale: 0.97))
         .accessibilityIdentifier(identifier)
     }
 
@@ -176,7 +200,7 @@ struct PresenceView: View {
             let result = try await store.call("agent_run", ["id": .string(id)], linkedin: true)
             // LinkedIn's prototype transport bypasses AppStore's normal stale-session guard.
             guard !Task.isCancelled, requestID == request, generation == store.sessionGeneration, store.phase == .ready else { return }
-            guard result["id"].string == id else { throw APIError(message: "This LinkedIn review is not available. Try again.") }
+            guard result["id"].string == id else { throw APIError(message: "Review unavailable") }
             run = result
         } catch {
             guard !Task.isCancelled, requestID == request, generation == store.sessionGeneration, store.phase == .ready,
@@ -218,6 +242,14 @@ private enum PresencePlatform: String, CaseIterable, Identifiable {
         case .linkedin: return "person.crop.rectangle"
         case .github: return "chevron.left.forwardslash.chevron.right"
         case .portfolio: return "globe"
+        }
+    }
+
+    var tint: Palette.Tint {
+        switch self {
+        case .linkedin: return Palette.tints[0]
+        case .github: return Palette.tints[5]
+        case .portfolio: return Palette.tints[1]
         }
     }
 

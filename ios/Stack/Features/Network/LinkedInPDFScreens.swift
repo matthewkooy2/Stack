@@ -8,9 +8,9 @@ enum LinkedInPDF {
         "Send the downloaded Profile.pdf to this iPhone with AirDrop or iCloud Drive.",
         "Tap Choose PDF and pick Profile.pdf.",
     ]
-    static let note = "Save to PDF is only on LinkedIn's website, not in its app. Stack reads just this file and never signs in to LinkedIn."
-    static let wrongType = "Choose the PDF you saved from LinkedIn."
-    static let tooLarge = "The PDF must be 10 MB or smaller."
+    static let note = "Stack reads only this file and never signs in to LinkedIn"
+    static let wrongType = "Choose your LinkedIn PDF"
+    static let tooLarge = "Max 10 MB"
     static func isPDF(_ url: URL) -> Bool { url.pathExtension.lowercased() == "pdf" }
 }
 
@@ -75,12 +75,13 @@ struct LinkedInPDFUploadScreen: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Review your LinkedIn")
+                    VStack(alignment: .leading, spacing: 14) {
+                        SymbolDisc(systemName: "person.crop.rectangle", size: 64)
+                        Text("LinkedIn review")
                             .font(Typeface.display)
                             .foregroundStyle(Brand.ink)
                             .accessibilityAddTraits(.isHeader)
-                        Text("Upload the PDF LinkedIn makes of your profile.")
+                        Text("Upload your profile as a PDF")
                             .font(Typeface.body).foregroundStyle(Brand.muted)
                     }
                     .reveal(0)
@@ -105,10 +106,13 @@ struct LinkedInPDFUploadScreen: View {
                     .accessibilityIdentifier("linkedin-pdf-steps")
                     .reveal(1)
 
-                    StackField(label: "Target role (optional)", text: $role, placeholder: "e.g. Data analyst")
-                        .accessibilityIdentifier("linkedin-target-role").reveal(2)
+                    Card {
+                        StackField(label: "Target role", text: $role, placeholder: "Data analyst")
+                            .accessibilityIdentifier("linkedin-target-role")
+                    }
+                    .reveal(2)
 
-                    Text(LinkedInPDF.note).font(Typeface.caption).foregroundStyle(Brand.muted).reveal(3)
+                    Text(LinkedInPDF.note).font(.footnote).foregroundStyle(Brand.muted).reveal(3)
                 }
                 .padding(.horizontal, Spacing.page).padding(.top, 8).padding(.bottom, 24)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -155,48 +159,44 @@ struct LinkedInReviewScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Your LinkedIn review")
+                VStack(alignment: .leading, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("LinkedIn review")
                             .font(Typeface.display)
                             .foregroundStyle(Brand.ink)
                             .accessibilityAddTraits(.isHeader)
-                        if !role.isBlank {
-                            Text("For \(role.lowercased()) roles").font(.system(.subheadline).weight(.semibold))
-                                .foregroundStyle(Brand.accent)
-                        }
+                        if !role.isBlank { StatusPill(text: "For \(role.lowercased()) roles", tone: .accent) }
                         if !content.summary.isBlank {
-                            Text(content.summary).font(Typeface.body).foregroundStyle(Brand.ink)
-                                .textSelection(.enabled)
+                            Card {
+                                Text(content.summary).font(Typeface.body).foregroundStyle(Brand.ink)
+                                    .textSelection(.enabled)
+                            }
                         }
                     }
                     .reveal(0)
 
                     if !content.findings.isEmpty {
-                        VStack(alignment: .leading, spacing: 0) {
-                            label("To improve")
-                            ForEach(content.findings) { finding in
-                                findingRow(finding)
-                                Rectangle().fill(Brand.rule).frame(height: 1)
-                            }
+                        VStack(alignment: .leading, spacing: 10) {
+                            SectionHeader(title: "To improve")
+                            ForEach(content.findings) { finding in findingCard(finding) }
                         }
                         .reveal(1)
                     }
 
                     if !content.rewrites.isEmpty {
                         VStack(alignment: .leading, spacing: 10) {
-                            label("Suggested wording")
+                            SectionHeader(title: "Suggested wording")
                             LinkedInRewriteEditor(taskID: taskID, rewrites: content.rewrites).id(content.rewrites)
                         }
                         .reveal(2)
                     }
 
-                    if !content.strengths.isEmpty { list("Working well", content.strengths).reveal(3) }
-                    if !content.questions.isEmpty { list("Worth adding", content.questions).reveal(3) }
+                    if !content.strengths.isEmpty { list("Working well", content.strengths, symbol: "checkmark.circle.fill", tint: Palette.success).reveal(3) }
+                    if !content.questions.isEmpty { list("Worth adding", content.questions, symbol: "plus.circle.fill", tint: Brand.accent).reveal(3) }
 
-                    Text(content.limitations.isBlank ? "Suggested edits are yours to apply on LinkedIn."
-                         : content.limitations + " Suggested edits are yours to apply on LinkedIn.")
-                        .font(Typeface.caption).foregroundStyle(Brand.muted).reveal(4)
+                    if !content.limitations.isBlank {
+                        Text(content.limitations).font(.footnote).foregroundStyle(Brand.muted).reveal(4)
+                    }
                 }
                 .padding(.horizontal, Spacing.page).padding(.top, 8).padding(.bottom, 24)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -215,52 +215,61 @@ struct LinkedInReviewScreen: View {
         .replayable()
     }
 
-    private func label(_ text: String) -> some View {
-        Text(text).font(.system(.subheadline).weight(.semibold)).foregroundStyle(Brand.accent)
-            .padding(.bottom, 4)
+    private func tone(_ priority: String) -> StatusPill.Tone {
+        switch priority.lowercased() {
+        case "high": return .danger
+        case "medium": return .warning
+        default: return .neutral
+        }
     }
 
     /// The weakness and its fix show at once; the quote and why it matters open on tap.
-    private func findingRow(_ finding: LinkedInReviewContent.Finding) -> some View {
+    private func findingCard(_ finding: LinkedInReviewContent.Finding) -> some View {
         let expanded = open.contains(finding.id)
         return Button {
-            withAnimation(reduceMotion ? nil : Motion.fadeAnimation) {
+            withAnimation(Motion.animation(Motion.snappy, reduce: reduceMotion)) {
                 if expanded { open.remove(finding.id) } else { open.insert(finding.id) }
             }
         } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("\(finding.priority.capitalized) · \(finding.section)")
-                    .font(.system(.subheadline).weight(.semibold)).foregroundStyle(Brand.muted)
+            Card(spacing: 8) {
+                HStack(spacing: 8) {
+                    if !finding.priority.isBlank { StatusPill(text: finding.priority.capitalized, tone: tone(finding.priority)) }
+                    Text(finding.section).font(.footnote.weight(.semibold)).foregroundStyle(Brand.muted)
+                    Spacer(minLength: 0)
+                }
                 Text(finding.weakness).font(.headline)
                     .foregroundStyle(Brand.ink).multilineTextAlignment(.leading)
-                Text(finding.recommendation).font(Typeface.body).foregroundStyle(Brand.ink)
+                Text(finding.recommendation).font(Typeface.body).foregroundStyle(Brand.ink.opacity(0.85))
                     .multilineTextAlignment(.leading)
                 if expanded {
                     if !finding.quote.isBlank {
-                        Text("“\(finding.quote)”").font(Typeface.caption).foregroundStyle(Brand.muted)
+                        Text("“\(finding.quote)”").font(.subheadline).italic().foregroundStyle(Brand.muted)
                             .multilineTextAlignment(.leading)
                     }
                     if !finding.why.isBlank {
-                        Text(finding.why).font(Typeface.caption).foregroundStyle(Brand.muted)
+                        Text(finding.why).font(.subheadline).foregroundStyle(Brand.muted)
                             .multilineTextAlignment(.leading)
                     }
                 } else if !finding.quote.isBlank || !finding.why.isBlank {
-                    Text("Why").font(Typeface.caption).foregroundStyle(Brand.accent)
+                    Text("Why").font(.subheadline.weight(.semibold)).foregroundStyle(Brand.accent)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 14)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.tap(scale: 0.99))
+        .buttonStyle(.tap(scale: 0.985))
         .accessibilityHint(expanded ? "Hides the quote" : "Shows the words this is about and why it matters")
     }
 
-    private func list(_ title: String, _ items: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            label(title)
-            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                Text(item).font(Typeface.body).foregroundStyle(Brand.ink)
+    private func list(_ title: String, _ items: [String], symbol: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(title: title)
+            Card(spacing: 12) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Image(systemName: symbol).font(.subheadline).foregroundStyle(tint).accessibilityHidden(true)
+                        Text(item).font(Typeface.body).foregroundStyle(Brand.ink)
+                    }
+                }
             }
         }
     }

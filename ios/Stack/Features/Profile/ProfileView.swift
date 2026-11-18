@@ -7,6 +7,7 @@ struct ProfileView: View {
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @Environment(\.stackReduceMotion) private var reduceMotion
 
     enum Pane: Int, StageKey {
         case hub, details, matching, account
@@ -42,22 +43,15 @@ struct ProfileView: View {
     }
 
     var body: some View {
-        ZStack {
-            Palette.page.ignoresSafeArea()
-            Stage(key: section) {
-                Page {
-                    HStack {
-                        BackButton(label: section == .hub ? "Close" : "Back") {
-                            if section == .hub { dismiss() } else { go(.hub) }
-                        }
-                        Spacer()
-                    }
-                    switch section {
-                    case .hub: hub
-                    case .details: details
-                    case .matching: matching
-                    case .account: account
-                    }
+        Stage(key: section) {
+            SheetPage(title: paneTitle, closeLabel: section == .hub ? "Close" : "Back", onClose: {
+                if section == .hub { dismiss() } else { go(.hub) }
+            }) {
+                switch section {
+                case .hub: hub
+                case .details: details
+                case .matching: matching
+                case .account: account
                 }
             }
         }
@@ -66,13 +60,13 @@ struct ProfileView: View {
         .sheet(isPresented: $showAgents) { AgentHubView().environment(store) }
         .sheet(isPresented: $showReminders) { RemindersView().environment(store) }
         .fullScreenCover(isPresented: $showBank) { MemoryBankView().environment(store) }
-        .confirmationDialog("Stop AI tasks and change models?", isPresented: $confirmStopModelTasks, titleVisibility: .visible) {
+        .confirmationDialog("Switch AI model?", isPresented: $confirmStopModelTasks, titleVisibility: .visible) {
             Button("Stop tasks and switch", role: .destructive) {
                 let selection = modelToSwitch
                 Task { await selectModel(selection, stopTasks: true) }
             }
         } message: {
-            Text("This stops the AI tasks running or queued for your account.")
+            Text("Active tasks that use the model will stop.")
         }
         .alert("Delete your account?", isPresented: $confirmDelete) {
             Button("Cancel", role: .cancel) {}
@@ -80,42 +74,77 @@ struct ProfileView: View {
                 Task { if await store.deleteAccount() { dismiss() } }
             }
         } message: {
-            Text("Your account and its data will be permanently deleted. If Stack still appears in Sign in with Apple afterward, see Support for removal instructions.")
+            Text("This permanently deletes your account and data.")
+        }
+    }
+
+    private var paneTitle: String {
+        switch section {
+        case .hub: return "Profile"
+        case .details: return "Your details"
+        case .matching: return "Job preferences"
+        case .account: return "Account"
         }
     }
 
     private func go(_ next: Pane) {
-        withAnimation(Motion.stageAnimation) { section = next }
+        withAnimation(reduceMotion ? nil : Motion.stageAnimation) { section = next }
     }
 
     // MARK: Hub
 
     private var hub: some View {
         VStack(alignment: .leading, spacing: Spacing.stack) {
-            HStack(spacing: 16) {
-                Avatar(initials: String(store.account.name.prefix(1)).uppercased(), size: 64)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(store.account.name.isEmpty ? "Your profile" : store.account.name).font(Typeface.title).foregroundStyle(Palette.ink)
-                    if !store.account.role.isEmpty {
-                        Text(store.account.role).font(Typeface.caption).foregroundStyle(Palette.muted)
-                    }
-                }
+            identity.reveal(0)
+            settingsGroup("You") {
+                SettingsRow(symbol: "person.crop.circle", tint: 0, title: "Your details") { go(.details) }
+                SettingsRow(symbol: "slider.horizontal.3", tint: 1, title: "Job preferences") { go(.matching) }
+                SettingsRow(symbol: "square.stack", tint: 2, title: "Experience", last: true) { showBank = true }
             }
-            .reveal(0)
-
-            VStack(spacing: 0) {
-                ListRow(label: "Your details", icon: "profile", detail: "Name, role, location, timeline") { go(.details) }.reveal(1)
-                ListRow(label: "Job matching", icon: "jobs", detail: "Level, pay, work style, exclusions") { go(.matching) }.reveal(2)
-                ListRow(label: "Agents", icon: "sparkles", detail: agentSummary) { showAgents = true }.reveal(3)
-                ListRow(label: "Follow-up reminders", icon: "bell", detail: reminderSummary) { showReminders = true }.reveal(4)
-                ListRow(label: "Memory bank", icon: "resume", detail: "Skills, projects and experience") { showBank = true }.reveal(5)
-                ListRow(label: "Account", icon: "shield", detail: "Sign-in, model, notifications") { go(.account) }.reveal(6)
+            .reveal(1)
+            settingsGroup("Settings") {
+                SettingsRow(symbol: "sparkles", tint: 5, title: "Activity", value: agentSummary) { showAgents = true }
+                SettingsRow(symbol: "bell", tint: 3, title: "Reminders", value: reminderSummary) { showReminders = true }
+                SettingsRow(symbol: "lock.shield", tint: 4, title: "Account", last: true) { go(.account) }
             }
-
+            .reveal(2)
             StoreMessages()
             if changed {
-                StackButton(label: "Save changes", disabled: store.busy || name.isBlank) { Task { _ = await save() } }
+                StackButton(label: "Save", disabled: store.busy || name.isBlank) { Task { _ = await save() } }
+                    .transition(.opacity.combined(with: .offset(y: 8)))
             }
+        }
+        .animation(reduceMotion ? nil : Motion.snappy, value: changed)
+    }
+
+    private var identity: some View {
+        let account = store.account
+        let line = [account.role, account.location].filter { !$0.isBlank }.joined(separator: " · ")
+        return VStack(spacing: 12) {
+            if account.name.isBlank {
+                SymbolDisc(systemName: "person.fill", size: 84)
+            } else {
+                UserAvatar(name: account.name, size: 84)
+            }
+            VStack(spacing: 4) {
+                Text(account.name.isBlank ? "Your account" : account.name)
+                    .font(.title2.weight(.bold)).foregroundStyle(Palette.ink)
+                    .multilineTextAlignment(.center)
+                if !line.isEmpty {
+                    Text(line).font(Typeface.caption).foregroundStyle(Palette.muted)
+                        .multilineTextAlignment(.center).lineLimit(2)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 4)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func settingsGroup<Content: View>(_ title: String, @ViewBuilder content: @escaping () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionHeader(title: title)
+            Card(spacing: 0, content: content)
         }
     }
 
@@ -123,13 +152,15 @@ struct ProfileView: View {
 
     private var details: some View {
         VStack(alignment: .leading, spacing: Spacing.stack) {
-            Text("Your details").font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
-            VStack(spacing: 18) {
-                StackField(label: "Your name", text: $name)
-                StackField(label: "Target role", text: $role, placeholder: "Separate several roles with commas")
+            VStack(spacing: 16) {
+                StackField(label: "Name", text: $name)
+                StackField(label: "Target role", text: $role, placeholder: "Roles, separated by commas")
                 StackField(label: "Location", text: $location)
-                StackField(label: "Expected graduation (YYYY-MM)", text: $graduation, placeholder: "2027-05", keyboard: .numbersAndPunctuation)
-                StackField(label: "Available full-time from (YYYY-MM)", text: $availableFrom, placeholder: "Optional", keyboard: .numbersAndPunctuation)
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                SectionHeader(title: "Dates")
+                StackField(label: "Graduation", text: $graduation, placeholder: "YYYY-MM", keyboard: .numbersAndPunctuation)
+                StackField(label: "Available from", text: $availableFrom, placeholder: "YYYY-MM", keyboard: .numbersAndPunctuation)
             }
             StoreMessages()
             saveButton
@@ -140,7 +171,6 @@ struct ProfileView: View {
 
     private var matching: some View {
         VStack(alignment: .leading, spacing: Spacing.stack) {
-            Text("Job matching").font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
             MatchInputsView(form: $preferences)
             StoreMessages()
             saveButton
@@ -157,84 +187,113 @@ struct ProfileView: View {
 
     private var account: some View {
         VStack(alignment: .leading, spacing: Spacing.stack) {
-            Text("Account").font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
             GoogleAccountCard()
-            ToggleRow(label: "Reminder notifications", isOn: $notifications)
-            nudgeSection
-            DisclosureSection("Agent model", detail: modelSummary) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(modelSettings["active_model_tasks"].int > 0
-                         ? "Wait for your AI tasks to finish, or stop them to switch models."
-                         : "Applies to new agent tasks.")
-                        .font(Typeface.caption).foregroundStyle(Palette.muted)
-                    if !store.account.modelProviderMessage.isEmpty {
-                        Text(store.account.modelProviderMessage).font(Typeface.caption).foregroundStyle(Palette.muted)
-                    }
-                    ForEach(modelSettings["model_options"].array.map { $0["selection"].string }, id: \.self) { choice in
-                        let option = modelSettings["model_options"].array.first { $0["selection"].string == choice } ?? .null
-                        Button {
-                            if modelSettings["active_model_tasks"].int > 0 {
-                                modelToSwitch = choice
-                                confirmStopModelTasks = true
-                            } else {
-                                Task { await selectModel(choice) }
-                            }
-                        } label: {
-                            HStack {
-                                Image(systemName: modelSettings["model_selection"].string == choice ? "checkmark.circle.fill" : "circle")
-                                Text(choice == "codex-cli" ? "Codex CLI" : "Local model")
-                                Spacer()
-                            }
-                            .font(Typeface.body).foregroundStyle(Palette.text)
-                        }
-                        .disabled(modelBusy || modelSettings.isNull || modelSettings["model_selection"].string == choice)
-                        if !option["message"].string.isEmpty {
-                            Text(option["message"].string).font(Typeface.caption).foregroundStyle(Palette.muted)
-                        }
-                    }
-                }
+            VStack(spacing: 0) {
+                ToggleRow(label: "Notifications", isOn: $notifications)
+                    .padding(.vertical, 14)
+                    .frame(minHeight: 56)
+                    .overlay(alignment: .bottom) { Divider() }
+                nudgeSection
+                modelSection
             }
             // Outside the disclosure: a load or select can fail after it is collapsed.
             if !modelError.isEmpty {
                 MessageLine(text: modelError)
             }
-            Text("Stack asks for approval before sending messages to employers or contacts.")
-                .font(Typeface.caption).foregroundStyle(Palette.muted)
             StoreMessages()
             VStack(spacing: Spacing.option) {
                 if changed {
-                    StackButton(label: "Save changes", disabled: store.busy || name.isBlank) { Task { _ = await save() } }
+                    StackButton(label: "Save", disabled: store.busy || name.isBlank) { Task { _ = await save() } }
                 }
-                StackButton(label: "iPhone notification settings", icon: "bell", kind: .secondary) {
+                StackButton(label: "Open app settings", icon: "bell", kind: .secondary) {
                     if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
                 }
-                Link("Privacy policy", destination: URL(string: "https://stackmvp.top/privacy")!)
-                Link("Contact support", destination: URL(string: "https://stackmvp.top/support")!)
                 StackButton(label: "Sign out", icon: "logout", kind: .secondary, disabled: store.busy) {
                     Task { await store.signOut(); dismiss() }
                 }
-                Button("Delete account", role: .destructive) { confirmDelete = true }
-                    .font(Typeface.body)
-                    .frame(maxWidth: .infinity, minHeight: 44)
-                    .disabled(store.busy)
             }
-            Text("Stack 0.2").font(Typeface.caption).foregroundStyle(Palette.muted).frame(maxWidth: .infinity)
+            VStack(spacing: 4) {
+                HStack(spacing: 20) {
+                    Link("Privacy policy", destination: URL(string: "https://stackmvp.top/privacy")!)
+                    Link("Support", destination: URL(string: "https://stackmvp.top/support")!)
+                }
+                .font(Typeface.caption)
+                .tint(Palette.muted)
+                .frame(minHeight: 44)
+                Button("Delete account", role: .destructive) { confirmDelete = true }
+                    .font(Typeface.caption)
+                    .frame(minHeight: 44)
+                    .disabled(store.busy)
+                if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
+                    Text("Stack \(version)").font(.footnote).foregroundStyle(Palette.muted)
+                }
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private var modelSection: some View {
+        DisclosureSection("AI model", detail: modelSummary) {
+            VStack(alignment: .leading, spacing: 10) {
+                if modelSettings["active_model_tasks"].int > 0, modelSettings["model_options"].array.count > 1 {
+                    Text("Switching models will stop active tasks that use the model.")
+                        .font(Typeface.caption).foregroundStyle(Palette.muted)
+                }
+                if !store.account.modelProviderMessage.isEmpty {
+                    Text(store.account.modelProviderMessage).font(Typeface.caption).foregroundStyle(Palette.muted)
+                }
+                ForEach(modelSettings["model_options"].array.map { $0["selection"].string }, id: \.self) { choice in
+                    let option = modelSettings["model_options"].array.first { $0["selection"].string == choice } ?? .null
+                    Button {
+                        if modelSettings["active_model_tasks"].int > 0 {
+                            modelToSwitch = choice
+                            confirmStopModelTasks = true
+                        } else {
+                            Task { await selectModel(choice) }
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: modelSettings["model_selection"].string == choice ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(modelSettings["model_selection"].string == choice ? Brand.accent : Palette.muted)
+                            Text(modelLabel(option))
+                            Spacer()
+                        }
+                        .font(Typeface.body).foregroundStyle(Palette.text)
+                        .frame(minHeight: 44)
+                        .contentShape(Rectangle())
+                    }
+                    .disabled(modelBusy || modelSettings.isNull || modelSettings["model_selection"].string == choice)
+                    if !option["message"].string.isEmpty {
+                        Text(option["message"].string).font(Typeface.caption).foregroundStyle(Palette.muted)
+                    }
+                }
+            }
         }
     }
 
     private var modelSummary: String {
-        switch modelSettings["model_selection"].string {
+        if let selected = modelSettings["model_options"].array.first(where: { $0["selection"] == modelSettings["model_selection"] }) {
+            return modelLabel(selected)
+        }
+        return modelLabel(store.account.raw["agents"]["model_provider"])
+    }
+
+    private func modelLabel(_ option: JSON) -> String {
+        if !option["model"].string.isEmpty { return option["model"].string }
+        let provider = option["provider"].string
+        switch provider.isEmpty ? option["selection"].string : provider {
         case "codex-cli": return "Codex CLI"
         case "local": return "Local model"
-        default: return store.account.modelProviderName
+        case "openai": return "OpenAI"
+        case let name: return name
         }
     }
 
     private var agentSummary: String {
         let active = store.account.activeRunCount
         let attention = store.account.attentionRunCount
-        if active == 0, attention == 0 { return "Nothing running" }
-        return "\(active) in progress · \(attention) need you"
+        if active == 0, attention == 0 { return "Idle" }
+        return attention > 0 ? "\(attention) need attention" : "\(active) active"
     }
 
     // MARK: Accountability reminders
@@ -251,14 +310,12 @@ struct ProfileView: View {
     }
 
     private var nudgeSection: some View {
-        DisclosureSection("Daily accountability", detail: nudgeSummary) {
+        DisclosureSection("Daily reminders", detail: nudgeSummary) {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Short reminders through the day, each with one small step: a role, a follow-up, a practice answer or a message.")
-                    .font(Typeface.caption).foregroundStyle(Brand.muted)
-                ToggleRow(label: "Send reminders", isOn: nudgeBinding(\.enabled))
+                ToggleRow(label: "Remind me", isOn: nudgeBinding(\.enabled))
                 if nudges.enabled {
                     Text("How often").font(.system(.subheadline).weight(.semibold)).foregroundStyle(Brand.muted)
-                    HStack(spacing: 8) {
+                    FlowLayout(spacing: 8) {
                         ForEach(NudgeSettings.frequencies, id: \.self) { hours in
                             Chip(label: "Every \(hours)h", selected: nudges.everyHours == hours) { update { $0.everyHours = hours } }
                         }
@@ -272,7 +329,7 @@ struct ProfileView: View {
                     Text(nudgeNote).font(Typeface.caption).foregroundStyle(Brand.muted)
                 }
                 if nudgeNote == Self.deniedNote {
-                    Button("Open iPhone Settings") {
+                    Button("Open Settings") {
                         if let url = URL(string: UIApplication.openNotificationSettingsURLString) { openURL(url) }
                     }
                     .font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
@@ -281,7 +338,7 @@ struct ProfileView: View {
         }
     }
 
-    static let deniedNote = "Notifications are off for Stack. Turn them on in iPhone Settings to get these reminders."
+    static let deniedNote = "Notifications are off. Turn them on in Settings"
 
     private func nudgeBinding<Value>(_ path: WritableKeyPath<NudgeSettings, Value>) -> Binding<Value> {
         Binding(get: { nudges[keyPath: path] }, set: { value in update { $0[keyPath: path] = value } })
@@ -293,7 +350,7 @@ struct ProfileView: View {
         nudges.save(for: store.account.userID)
         Task {
             switch await store.reconcileNudges(ask: true) {
-            case .scheduled(let count): nudgeNote = "\(count) reminder\(count == 1 ? "" : "s") a day, starting \(Self.hourLabel(nudges.hours.first ?? nudges.startHour))."
+            case .scheduled(let count): nudgeNote = "\(count) a day from \(Self.hourLabel(nudges.hours.first ?? nudges.startHour))"
             case .denied: nudgeNote = Self.deniedNote
             case .off: nudgeNote = ""
             }
@@ -302,7 +359,7 @@ struct ProfileView: View {
 
     private var reminderSummary: String {
         let open = store.account.reminders.filter { !$0.done }.count
-        return open == 0 ? "No open reminders" : "\(open) open"
+        return open == 0 ? "None" : "\(open) open"
     }
 
     private func seed() {
@@ -355,4 +412,36 @@ struct ProfileView: View {
 
 extension Notification.Name {
     static let stackProfileSaved = Notification.Name("stack.profile.saved")
+}
+
+/// A Settings-style row: a tinted symbol tile, a title, an optional value and a chevron.
+@MainActor
+private struct SettingsRow: View {
+    let symbol: String
+    let tint: Int
+    let title: String
+    var value = ""
+    var last = false
+    let action: () -> Void
+
+    var body: some View {
+        let tone = Palette.tints[tint % Palette.tints.count]
+        Button(action: action) {
+            HStack(spacing: 12) {
+                SymbolTile(systemName: symbol, size: 32, tint: tone, weight: .semibold)
+                Text(title).font(.body.weight(.medium)).foregroundStyle(Palette.ink)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if !value.isEmpty {
+                    Text(value).font(Typeface.caption).foregroundStyle(Palette.muted).lineLimit(1)
+                }
+                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(Palette.muted.opacity(0.7))
+            }
+            .padding(.vertical, 10)
+            .frame(minHeight: 52)
+            .contentShape(Rectangle())
+            .overlay(alignment: .bottom) { if !last { Divider().padding(.leading, 44) } }
+        }
+        .buttonStyle(.tap(scale: 0.985, dim: 1))
+        .accessibilityLabel(value.isEmpty ? title : "\(title), \(value)")
+    }
 }

@@ -284,10 +284,22 @@ final class AccountStateTests: XCTestCase {
         XCTAssertFalse(account.canTailor("missing"))
     }
 
+    func testFailedImportDoesNotStayMarkedAsProcessing() {
+        var resume: JSON = ["details_status": "Processing", "processing": ["import": ["status": "failed"]]]
+        XCTAssertEqual(ResumeItem(resume).detailsStatus, "Import failed")
+        resume["processing"] = ["import": ["status": "queued"]]
+        XCTAssertEqual(ResumeItem(resume).detailsStatus, "Processing")
+        resume["details_status"] = "Confirmed"
+        resume["processing"] = ["source": ["status": "failed"]]
+        XCTAssertEqual(ResumeItem(resume).detailsStatus, "Confirmed")
+    }
+
     /// The picker keeps Jake and offers the five requested designs, with the server's template keys.
     func testDesignPickerOffersTheSixBuiltInTemplates() {
         XCTAssertEqual(ResumeTemplate.all.map(\.key), ["jake", "awesome-cv", "bill-ryan", "sb2nov", "deedy", "jan-kuster"])
-        XCTAssertFalse(ResumeTemplate.all.contains { $0.label.localizedCaseInsensitiveContains("latex") })
+        XCTAssertEqual(ResumeTemplate.all.map(\.label), ["Jake's Resume", "Awesome-CV", "Bill Ryan's Elegant Resume",
+                                                        "Sourabh Bajaj's Resume", "Deedy Resume", "Jan Kuster's Classic CV"])
+        XCTAssertEqual(ResumeTemplate.label(for: "classic"), "Classic")
     }
 
     func testPreferenceFormRoundTripsForTheServer() {
@@ -311,10 +323,10 @@ final class AgentLabelTests: XCTestCase {
         XCTAssertEqual(AgentLabels.tone(for: "cancelled"), .quiet)
     }
 
-    func testStoppedTaskWithNothingToAnswerSaysTryAgain() {
-        XCTAssertEqual(AgentLabels.runLabel(["status": "needs_input", "has_requests": false]), "Stopped · try again")
-        XCTAssertEqual(AgentLabels.runLabel(["status": "needs_input", "has_requests": true]), "Needs your answers")
-        XCTAssertEqual(AgentLabels.runLabel(["status": "blocked", "needs_resume_review": true]), "Needs your resume")
+    func testTaskLabelsDescribeRequiredAction() {
+        XCTAssertEqual(AgentLabels.runLabel(["status": "needs_input", "has_requests": false]), "Needs attention")
+        XCTAssertEqual(AgentLabels.runLabel(["status": "needs_input", "has_requests": true]), "Needs answers")
+        XCTAssertEqual(AgentLabels.runLabel(["status": "needs_input", "needs_resume_review": true]), "Resume setup needed")
     }
 }
 

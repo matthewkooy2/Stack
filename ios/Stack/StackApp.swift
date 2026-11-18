@@ -28,18 +28,13 @@ struct StackApp: App {
     }
 
     private var mainScene: some View {
-        #if DEBUG
         RootView()
-                .environment(store)
-                .tint(Palette.dark)
-                .task { await store.start() }
-                .motionLab()
-        #else
-        RootView()
-                .environment(store)
-                .tint(Palette.dark)
-                .task { await store.start() }
-        #endif
+            .environment(store)
+            .tint(Brand.accent)
+            .task { await store.start() }
+            #if DEBUG
+            .motionLab()
+            #endif
     }
 }
 

@@ -11,8 +11,8 @@ struct JobScoreCopy {
     var isScored: Bool { isSupported && result["status"].string == "scored" && !result["score"].isNull }
 
     var headline: String {
-        guard isSupported else { return "Update Stack to see this score" }
-        return isScored ? "Job score: \(result["score"].int)" : "This listing has too little to compare"
+        guard isSupported else { return "Update Stack to see the match" }
+        return isScored ? "Match score \(result["score"].int)" : "Too little in this listing to compare"
     }
 
     private var requirements: [JSON] { isSupported ? result["requirements"].array : [] }
@@ -32,7 +32,7 @@ struct JobScoreCopy {
 
     var experience: String {
         guard let row = requirements.first(where: { $0["kind"].string == "experience" }) else { return "" }
-        return "The listing asks for \(row["term"].string); your confirmed dates count about \(row["counted_years"].string) (internships count half)."
+        return "Listing asks for \(row["term"].string). Years counted from your confirmed roles: \(row["counted_years"].string)."
     }
 }
 
@@ -40,19 +40,19 @@ struct JobScoreCopy {
 @MainActor
 struct JobScoreCardView: View {
     let result: JSON
+    @Environment(\.stackReduceMotion) private var reduceMotion
     @State private var open = false
 
     var body: some View {
         let copy = JobScoreCopy(result: result)
-        Card(tint: Palette.oat, spacing: 8) {
-            SectionLabel(text: "Job score · your confirmed details")
-            Text(copy.headline).font(Typeface.body.weight(.semibold)).foregroundStyle(Palette.ink)
+        Card(spacing: 8) {
+            Text(copy.headline).font(.headline).foregroundStyle(Palette.ink)
             if !copy.missingRequired.isEmpty {
-                Text("Missing required: \(copy.missingRequired.prefix(4).joined(separator: ", "))")
+                Text("Required but missing from confirmed details: \(copy.missingRequired.prefix(4).joined(separator: ", "))")
                     .font(Typeface.caption).foregroundStyle(Palette.text)
             }
             if copy.isScored {
-                Button(open ? "Hide score details" : "Score details") { withAnimation(Motion.fadeAnimation) { open.toggle() } }
+                Button(open ? "Hide details" : "Details") { withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { open.toggle() } }
                     .font(Typeface.caption.weight(.semibold)).foregroundStyle(Palette.dark)
                 if open { details(copy) }
             }
@@ -64,11 +64,11 @@ struct JobScoreCardView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(copy.components)
             if !copy.shown.isEmpty { Text("In your confirmed details: " + copy.shown.joined(separator: ", ")) }
-            if !copy.listedOnly.isEmpty { Text("Only on your skills line: " + copy.listedOnly.joined(separator: ", ")) }
-            if !copy.missing.isEmpty { Text("Not in your confirmed details: " + copy.missing.joined(separator: ", ")) }
-            if !copy.phrasesMissing.isEmpty { Text("Listing phrases not found: " + copy.phrasesMissing.joined(separator: ", ")) }
+            if !copy.listedOnly.isEmpty { Text("Only in your skills list: " + copy.listedOnly.joined(separator: ", ")) }
+            if !copy.missing.isEmpty { Text("Missing from confirmed details: " + copy.missing.joined(separator: ", ")) }
+            if !copy.phrasesMissing.isEmpty { Text("Missing phrases: " + copy.phrasesMissing.joined(separator: ", ")) }
             if !copy.experience.isEmpty { Text(copy.experience) }
-            Text("Uses only details you confirmed, computed without AI. Add a skill only if it is true. Not a prediction of hiring.")
+            Text("Estimated by Stack. Not a hiring prediction")
                 .foregroundStyle(Palette.muted)
         }
         .font(Typeface.caption)

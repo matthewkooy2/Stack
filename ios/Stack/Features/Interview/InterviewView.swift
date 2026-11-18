@@ -38,7 +38,7 @@ struct InterviewView: View {
     static func requestID() -> String { String(Int(Date().timeIntervalSince1970 * 1000)) + "-" + UUID().uuidString.lowercased() }
 
     var body: some View {
-        SheetPage(title: "Mock interview", subtitle: "Choose a saved role, review each answer, and get coaching. You can record or type.") {
+        SheetPage(title: current.object.isEmpty ? "Mock interview" : data["job"]["title"].string) {
             if current.object.isEmpty { setup } else { session }
             MessageLine(text: error).fadeSwitch(!error.isEmpty)
         }
@@ -59,20 +59,26 @@ struct InterviewView: View {
 
     private var setup: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SectionLabel(text: "Saved role")
+            SectionLabel(text: "Job")
             if applications.isEmpty {
-                Text("Save a real job from Jobs to practice for it.").font(Typeface.caption).foregroundStyle(Palette.muted)
+                Text("Save a job to practice for it").font(Typeface.caption).foregroundStyle(Palette.muted)
             }
-            FlowLayout(spacing: 8) {
-                ForEach(applications) { app in
-                    Chip(label: "\(app.job.title) · \(app.job.company)", selected: role == app.id) {
-                        if !busy { role = app.id; createID = Self.requestID() }
+            if !applications.isEmpty {
+                Picker("Job", selection: $role) {
+                    Text("Choose a job").tag("")
+                    ForEach(applications) { app in
+                        Text("\(app.job.title) · \(app.job.company)").tag(app.id)
                     }
                 }
+                .pickerStyle(.menu)
+                .tint(Brand.accent)
+                .frame(minHeight: 44)
+                .disabled(busy)
+                .onChange(of: role) { _, _ in createID = Self.requestID() }
             }
-            StackButton(label: "Start job interview", icon: "chat", disabled: busy || role.isEmpty) { Task { await start() } }
+            StackButton(label: "Start", icon: "chat", disabled: busy || role.isEmpty || applications.isEmpty) { Task { await start() } }
             if !sessions.isEmpty {
-                SectionLabel(text: "Saved interviews")
+                SectionLabel(text: "Past interviews")
                 ForEach(Array(sessions.enumerated()), id: \.offset) { _, row in
                     OptionRow(label: savedLabel(row), icon: "chat", disabled: busy) { Task { await open(row["id"].string) } }
                 }
@@ -88,13 +94,21 @@ struct InterviewView: View {
 
     private var session: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("\(data["job"]["title"].string) · \(data["status"].string)").font(Typeface.title).foregroundStyle(Palette.ink)
-            StackButton(label: "Back to interviews", icon: "return", kind: .secondary, disabled: busy) { leave() }
+            HStack {
+                Button { leave() } label: {
+                    Label("Interviews", systemImage: "chevron.left")
+                        .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+                }
+                .foregroundStyle(Brand.accent).disabled(busy)
+                .accessibilityLabel("Back to interviews")
+                Spacer()
+                Text(data["status"].string.capitalized).font(Typeface.caption).foregroundStyle(Palette.muted)
+            }
             if !run["id"].string.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(run["message"].string).font(Typeface.caption).foregroundStyle(Palette.muted)
                     if ["needs_input", "blocked", "failed"].contains(run["status"].string) || run["stopped_for_model_switch"].bool {
-                        StackButton(label: "Retry coaching", disabled: busy) { Task { await retry() } }
+                        StackButton(label: "Try again", disabled: busy) { Task { await retry() } }
                     }
                 }
             }
@@ -104,7 +118,7 @@ struct InterviewView: View {
                 Card(tint: Palette.surfaceRaised, spacing: 8) {
                     HStack(spacing: 12) {
                         ProgressView().tint(Brand.accent)
-                        Text(finished ? "Writing your final coaching…" : "Coaching your answer…")
+                        Text(run["status"].string == "running" ? (finished ? "Writing feedback…" : "Reviewing your answer…") : "Waiting for feedback")
                             .font(Typeface.body.weight(.semibold)).foregroundStyle(Brand.ink)
                     }
                     .accessibilityElement(children: .combine)
@@ -112,29 +126,29 @@ struct InterviewView: View {
             }
             if !coaching.object.isEmpty, !(working && finished) {
                 Card(tint: Palette.surfaceRaised, spacing: 8) {
-                    Text("Final coaching").font(Typeface.option).foregroundStyle(Palette.icon)
+                    Text("Final feedback").font(Typeface.option).foregroundStyle(Palette.icon)
                     InterviewCoachingView(coaching: coaching)
                 }
             }
             if !analysis.object.isEmpty, !finished {
                 Card(tint: Palette.surfaceRaised, spacing: 8) {
-                    Text("Answer \(turns.count) coaching").font(Typeface.option).foregroundStyle(Palette.icon)
+                    Text("Answer \(turns.count) feedback").font(Typeface.option).foregroundStyle(Palette.icon)
                     InterviewCoachingView(coaching: analysis)
-                    StackButton(label: "Ask answer follow-up", kind: .secondary, disabled: busy || turns.count >= 6 || !active) {
+                    StackButton(label: "Ask a follow-up", kind: .secondary, disabled: busy || turns.count >= 6 || !active) {
                         Task { await action("followup") }
                     }
                 }
             }
             if active, turns.count < questions.count, turns.count < 6 { currentQuestion }
             if !turns.isEmpty, data["pending"].string.isEmpty, finished || analysis.object.isEmpty {
-                StackButton(label: finished ? "Get final coaching" : "Analyze reviewed answer", disabled: busy) {
+                StackButton(label: finished ? "Finish and get feedback" : "Get feedback", disabled: busy) {
                     Task { await action("analyze") }
                 }
             }
             if active {
-                StackButton(label: "Finish interview", disabled: busy || turns.isEmpty) { Task { await action("finish") } }
+                StackButton(label: "Finish interview", kind: .secondary, disabled: busy || turns.isEmpty) { Task { await action("finish") } }
             }
-            SectionLabel(text: "Your answers")
+            if !turns.isEmpty { SectionLabel(text: "Your answers") }
             ForEach(Array(turns.enumerated()), id: \.offset) { index, turn in
                 Card(spacing: 6) {
                     let attempts = turn["previous"].array.count + 1
@@ -142,31 +156,35 @@ struct InterviewView: View {
                         .font(Typeface.caption.weight(.semibold)).foregroundStyle(Palette.muted)
                     Text(turn["question"]["question"].string).font(Typeface.caption).foregroundStyle(Palette.muted)
                     Text(turn["answer"].string).font(Typeface.body).foregroundStyle(Palette.text)
-                    HStack(spacing: 8) {
+                    FlowLayout(spacing: 8) {
                         // A retry is a new answer to the same question; the earlier one stays saved.
-                        Chip(label: "Try this question again") {
+                        Chip(label: "Try again") {
                             if !busy { correction = index; fixing = false; edited = "" }
                         }
                         // Fixing only applies to a spoken answer, where the transcription can mishear words.
                         if !turn["recording_id"].string.isEmpty {
-                            Chip(label: "Fix transcript") {
+                            Chip(label: "Edit transcript") {
                                 if !busy { correction = index; fixing = true; edited = turn["answer"].string }
                             }
                         }
                     }
+                    if correction == index { correctionEditor }
                 }
             }
-            if correction >= 0 {
-                StackField(label: fixing ? "Fix words the transcription got wrong" : "Your new answer to question \(correction + 1)",
-                           text: $edited, multiline: true)
-                StackButton(label: fixing ? "Save transcript fix" : "Save new answer", disabled: busy || edited.isBlank) {
-                    Task {
-                        await act("interview_correct", ["id": current["id"], "revision": current["revision"],
-                                                        "index": .number(Double(correction)), "answer": .string(edited)])
-                    }
+        }
+    }
+
+    private var correctionEditor: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            StackField(label: fixing ? "Fix words the transcription got wrong" : "Your new answer to question \(correction + 1)",
+                       text: $edited, multiline: true)
+            StackButton(label: "Save", disabled: busy || edited.isBlank) {
+                Task {
+                    await act("interview_correct", ["id": current["id"], "revision": current["revision"],
+                                                    "index": .number(Double(correction)), "answer": .string(edited)])
                 }
-                StackButton(label: "Cancel", kind: .secondary, disabled: busy) { correction = -1; edited = "" }
             }
+            StackButton(label: "Cancel", kind: .secondary, disabled: busy) { correction = -1; edited = "" }
         }
     }
 
@@ -183,10 +201,10 @@ struct InterviewView: View {
             .id(current["id"].string + ":" + String(turns.count))
             if let offered {
                 Card(tint: Palette.oat, spacing: 8) {
-                    Text("Your typed answer is preserved. A reviewed recorded transcript is ready.")
+                    Text("A reviewed transcript is ready")
                         .font(Typeface.caption).foregroundStyle(Palette.muted)
                     Text(offered.text).font(Typeface.body).foregroundStyle(Palette.text)
-                    StackButton(label: "Use recorded transcript", disabled: busy) {
+                    StackButton(label: "Use transcript", disabled: busy) {
                         draft = offered.text
                         recordingID = offered.id
                         self.offered = nil
@@ -194,9 +212,9 @@ struct InterviewView: View {
                 }
             }
             if !data["pending"].string.isEmpty {
-                StackButton(label: "Continue with typed role question", disabled: busy) { Task { await action("next") } }
+                StackButton(label: "Continue", disabled: busy) { Task { await action("next") } }
             } else {
-                StackButton(label: "Save reviewed answer and analyze", disabled: busy || draft.isBlank) {
+                StackButton(label: "Get feedback", disabled: busy || draft.isBlank) {
                     Task {
                         await act("interview_answer", ["id": current["id"], "revision": current["revision"], "answer": .string(draft),
                                                        "client_id": .string(answerID), "recording_id": .string(recordingID)], clear: true)

@@ -142,7 +142,9 @@ struct ResumeItem: Identifiable, Hashable {
         name = json["name"].string
         size = json["size"].int
         createdAt = json["created_at"].double
-        detailsStatus = json["details_status"].string
+        let details = json["details_status"].string
+        let failedImport = json["processing"]["import"]["status"].string == "failed"
+        detailsStatus = details == "Processing" && failedImport ? "Import failed" : details
         isProcessing = !json["processing"].isNull && json["processing"] != .bool(false) && json["processing"] != .object([:])
     }
 }

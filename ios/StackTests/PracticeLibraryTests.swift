@@ -24,7 +24,7 @@ final class PracticeLibraryTests: XCTestCase {
         let pending = PracticeAttempt(["id": "a2", "score": .null, "status": "queued", "run": ["id": "r2"]])
         XCTAssertNil(pending.score)
         XCTAssertTrue(pending.isCoaching)
-        XCTAssertEqual(PracticeScore.label(pending), "Scoring…")
+        XCTAssertEqual(PracticeScore.label(pending), "Queued")
 
         let stalled = PracticeAttempt(["id": "a3", "score": .null, "status": "failed"])
         XCTAssertTrue(stalled.isStalled)

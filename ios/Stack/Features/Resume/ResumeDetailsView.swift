@@ -25,9 +25,7 @@ extension ResumeReviewController.Backend {
     }
 }
 
-/// Review of what Stack read from a resume. Every extracted field is editable, grouped into focused
-/// sections; edits are written to a local draft (a failure is shown and the edits stay editable) until
-/// saved. Original uploads stay unchanged, and the original extraction has its own read-only screen.
+/// Review of what Stack read from a resume. Every extracted field is editable, grouped into focused sections.
 ///
 /// The screen is rebuilt for each signed-in account, so another account's draft is never rendered.
 @MainActor
@@ -53,11 +51,13 @@ private struct ResumeReviewScreen: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
     @Environment(\.stackReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var controller: ResumeReviewController?
     @State private var selection: String? = "profile"
     @State private var editing: String?
     @State private var showSource = false
     @State private var lastReadTicket: JSON = .null
+    @State private var keyboardUp = false
 
     /// A retry changes the account's ticket before the editor's next read completes.
     private var activeProcessing: JSON {
@@ -77,21 +77,17 @@ private struct ResumeReviewScreen: View {
                         BackButton(label: "Close") { dismiss() }
                         Spacer()
                         if controller?.loaded == true {
-                            Menu {
+                            HeaderMenu("ellipsis", label: "More options") {
                                 Button("Original extraction", systemImage: "doc.text") {
                                     withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { selection = ResumeReviewController.originalSectionID; editing = nil }
                                 }.accessibilityIdentifier("resume-review-section-original")
-                            } label: {
-                                Image(systemName: "ellipsis").font(.system(size: 18, weight: .semibold))
-                                    .foregroundStyle(Brand.ink).frame(width: 44, height: 44)
-                                    .background(.white, in: Circle())
                             }
-                            .accessibilityLabel("More options")
                         }
-                    }.padding(.bottom, 32)
-                    Text("Review details").font(Typeface.display).tracking(-1.8).foregroundStyle(Brand.ink)
-                    Text("Check the information we extracted from your resume and make any corrections.")
-                        .font(Typeface.caption).foregroundStyle(Brand.muted).padding(.top, 10)
+                    }.padding(.bottom, 16)
+                    Text("Resume details").font(Typeface.display).foregroundStyle(Brand.ink)
+                    Text(resume.displayName)
+                        .font(Typeface.caption).foregroundStyle(Brand.muted).lineLimit(1)
+                        .truncationMode(.middle).padding(.top, 6)
                     VStack(alignment: .leading, spacing: 12) {
                         if let controller {
                             ProcessingStatusView(resumeID: resume.id, kind: ResumeLane.kind(of: activeProcessing), processing: activeProcessing)
@@ -99,19 +95,20 @@ private struct ResumeReviewScreen: View {
                         } else if userID.isEmpty {
                             MessageLine(text: "Sign in to review resume details.")
                         } else {
-                            ProgressView().tint(Palette.muted).accessibilityLabel("Reading resume")
+                            readingSkeleton
                         }
-                    }.padding(.top, 28)
+                    }.padding(.top, 24)
                 }
                 .padding(.horizontal, Spacing.page).padding(.top, 12).padding(.bottom, 24)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if let controller, controller.loaded, selection != ResumeReviewController.originalSectionID {
-                    actions(controller)
-                        .padding(.horizontal, Spacing.page).padding(.top, 12).padding(.bottom, 8)
-                        .background(Brand.page)
+                if let controller, controller.loaded, selection != ResumeReviewController.originalSectionID, !keyboardUp {
+                    actions(controller).pinnedActionBar()
                 }
             }
+            // The pinned bar would sit over the field being edited, so it waits for the keyboard to go.
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardUp = true }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardUp = false }
         }
         .task {
             guard controller == nil, !userID.isEmpty else { return }
@@ -139,9 +136,7 @@ private struct ResumeReviewScreen: View {
 
     @ViewBuilder
     private func content(_ controller: ResumeReviewController) -> some View {
-        if controller.initialLoading {
-            ProgressView().tint(Palette.muted).accessibilityLabel("Reading resume")
-        }
+        if controller.initialLoading { readingSkeleton }
         MessageLine(text: controller.error).fadeSwitch(!controller.error.isEmpty)
         MessageLine(text: controller.detailsError).fadeSwitch(!controller.detailsError.isEmpty)
             .accessibilityIdentifier("resume-review-details-error")
@@ -155,22 +150,61 @@ private struct ResumeReviewScreen: View {
             if controller.recordMode {
                 ResumeRecordsEditor(controller: controller)
             } else if selection == ResumeReviewController.originalSectionID {
-                ResumeOriginalScreen(controller: controller) { withAnimation(Motion.fadeAnimation) { selection = nil } }
+                ResumeOriginalScreen(controller: controller) { withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { selection = nil } }
             } else {
                 overview(controller)
             }
         }
     }
 
+    private var readingSkeleton: some View {
+        VStack(spacing: 12) {
+            ForEach(0..<4, id: \.self) { _ in SkeletonBlock(height: 64, radius: Radius.card) }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Reading resume")
+    }
+
+    private func statusTone(_ controller: ResumeReviewController) -> StatusPill.Tone {
+        switch controller.statusID {
+        case "confirmed": return .success
+        case "conflict": return .danger
+        default: return .warning
+        }
+    }
+
+    /// One compact card for the review state, a restored draft and the reader's warnings.
+    private func banner(_ controller: ResumeReviewController) -> some View {
+        let tone = statusTone(controller)
+        let color: Color = tone == .success ? Palette.success : (tone == .danger ? Palette.danger : Palette.warning)
+        let symbol = tone == .success ? "checkmark.circle.fill" : "exclamationmark.circle.fill"
+        return HStack(alignment: .top, spacing: 10) {
+            Image(systemName: symbol).font(.body.weight(.semibold)).foregroundStyle(color)
+                .padding(.top, 1).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(controller.statusLabel).font(.subheadline.weight(.semibold)).foregroundStyle(color)
+                    .accessibilityIdentifier("resume-review-state")
+                    .accessibilityValue(controller.statusID)
+                if controller.restoredDraft && !controller.hasConflict {
+                    Text("Restored your unsaved edits").font(.footnote).foregroundStyle(Palette.text)
+                        .accessibilityIdentifier("resume-review-restored")
+                }
+                ForEach(Array(controller.warnings.enumerated()), id: \.offset) { _, warning in
+                    Text(warning).font(.footnote).foregroundStyle(Palette.text)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 12)
+        .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
+    }
+
     private func statusBlock(_ controller: ResumeReviewController) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(controller.statusLabel)
-                .font(.system(size: 12, weight: .semibold)).foregroundStyle(Palette.muted)
-                .accessibilityIdentifier("resume-review-state")
-                .accessibilityValue(controller.statusID)
+            banner(controller)
             if controller.hasConflict {
                 Card(tint: Palette.oat, spacing: 12) {
-                    Text("This resume changed since you started editing. Your edits are kept on this device and cannot be saved over the newer version.")
+                    Text("Changed since you started editing. Your edits stay on this device")
                         .font(Typeface.caption).foregroundStyle(Palette.text)
                     StackButton(label: "Discard my edits and reload", kind: .secondary, disabled: controller.saving) {
                         controller.discardEditsAndReload()
@@ -180,17 +214,10 @@ private struct ResumeReviewScreen: View {
                 }
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("resume-review-conflict")
-            } else if controller.restoredDraft {
-                Text("Restored your unsaved edits from this device.")
-                    .font(Typeface.caption).foregroundStyle(Palette.muted)
-                    .accessibilityIdentifier("resume-review-restored")
             }
             if !controller.draftError.isEmpty {
                 Text(controller.draftError).font(Typeface.caption).foregroundStyle(Palette.danger)
                     .accessibilityIdentifier("resume-review-draft-error")
-            }
-            ForEach(Array(controller.warnings.enumerated()), id: \.offset) { _, warning in
-                Text(warning).font(Typeface.caption).foregroundStyle(Palette.text)
             }
         }
     }
@@ -200,9 +227,10 @@ private struct ResumeReviewScreen: View {
             let order = ["profile", "workExperiences", "educations", "projects", "skills", "additional"]
             return (order.firstIndex(of: left.id) ?? order.count) < (order.firstIndex(of: right.id) ?? order.count)
         }
-        return VStack(alignment: .leading, spacing: 0) {
+        return VStack(alignment: .leading, spacing: 12) {
             ForEach(summaries) { summary in
                 VStack(alignment: .leading, spacing: 0) {
+                    ZStack(alignment: .trailing) {
                     Button {
                         withAnimation(reduceMotion ? nil : Motion.fadeAnimation) {
                             selection = selection == summary.id ? nil : summary.id
@@ -212,7 +240,7 @@ private struct ResumeReviewScreen: View {
                         HStack(alignment: .center, spacing: 12) {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(summary.title == "Work experience" ? "Experience" : summary.title)
-                                    .font(.system(size: 21, weight: .semibold)).tracking(-0.5).foregroundStyle(Brand.ink)
+                                    .font(.headline).foregroundStyle(Brand.ink)
                                 if selection != summary.id {
                                     Text(sectionPreview(controller.document, key: summary.id))
                                         .font(Typeface.caption).foregroundStyle(Brand.muted).lineLimit(1)
@@ -220,20 +248,24 @@ private struct ResumeReviewScreen: View {
                             }
                             Spacer()
                             Image(systemName: selection == summary.id ? "chevron.up" : "chevron.down")
-                                .font(.system(size: 15, weight: .medium)).foregroundStyle(Brand.ink)
+                                .font(.footnote.weight(.semibold)).foregroundStyle(Brand.muted)
                         }.frame(maxWidth: .infinity, minHeight: 52, alignment: .leading).contentShape(Rectangle())
-                    }.buttonStyle(.plain).accessibilityIdentifier("resume-review-section-\(summary.id)")
-                    if selection == summary.id {
-                        HStack {
-                            Spacer()
+                    }.buttonStyle(.tap(scale: 0.99))
+                        .accessibilityLabel("\(summary.title == "Work experience" ? "Experience" : summary.title), \(summary.detail)")
+                        .accessibilityValue(selection == summary.id ? "Expanded" : "Collapsed")
+                        .accessibilityIdentifier("resume-review-section-\(summary.id)")
+                        if selection == summary.id {
                             Button(editing == summary.id ? "Done" : "Edit") {
                                 withAnimation(reduceMotion ? nil : Motion.fadeAnimation) {
                                     editing = editing == summary.id ? nil : summary.id
                                 }
-                            }.font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
+                            }.font(.subheadline.weight(.semibold)).foregroundStyle(Brand.accent)
                                 .frame(minWidth: 44, minHeight: 44)
+                                .padding(.trailing, 30)
                                 .accessibilityIdentifier("resume-review-edit-\(summary.id)")
                         }
+                    }
+                    if selection == summary.id {
                         if editing == summary.id {
                             ResumeSectionEditor(controller: controller, sectionKey: summary.id, inline: true) {
                                 withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { editing = nil }
@@ -243,9 +275,10 @@ private struct ResumeReviewScreen: View {
                         }
                     }
                 }
-                .padding(.vertical, 8)
-                .padding(.bottom, selection == summary.id ? 14 : 0)
-                .overlay(alignment: .bottom) { Rectangle().fill(Brand.rule).frame(height: 1) }
+                .padding(.horizontal, 16).padding(.vertical, 6)
+                .padding(.bottom, selection == summary.id ? 10 : 0)
+                .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                .stackElevation()
             }
         }
     }
@@ -295,8 +328,12 @@ private struct ResumeReviewScreen: View {
     }
 
     private func detailValue(_ value: String, label: String, bullets: Bool) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Text(label).font(Typeface.caption).foregroundStyle(Brand.muted).frame(width: 76, alignment: .leading)
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: 12))
+        return layout {
+            Text(label).font(Typeface.caption).foregroundStyle(Brand.muted)
+                .frame(width: typeSize.isAccessibilitySize ? nil : 76, alignment: .leading)
             if bullets {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(Array(ResumeBullets.split(value).enumerated()), id: \.offset) { _, item in
@@ -311,7 +348,7 @@ private struct ResumeReviewScreen: View {
 
     private func actions(_ controller: ResumeReviewController) -> some View {
         VStack(spacing: 2) {
-            StackButton(label: onConfirmed != nil ? "Confirm and continue tailoring" : "Confirm details",
+            StackButton(label: onConfirmed != nil ? "Confirm and tailor" : "Confirm details",
                         disabled: controller.saving || controller.hasConflict) {
                 Task { await controller.save(confirm: true) }
             }.accessibilityIdentifier("resume-review-confirm")

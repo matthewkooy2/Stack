@@ -77,6 +77,7 @@ enum ApplicationCalendar {
 struct ApplicationCalendarView: View {
     @Environment(AppStore.self) private var store
 
+    @Environment(\.stackReduceMotion) private var reduceMotion
     @State private var interviews: [JSON] = []
     @State private var connected = false
     @State private var loading = true
@@ -93,28 +94,33 @@ struct ApplicationCalendarView: View {
     var body: some View {
         let data = model
         SheetPage(title: "Calendar") {
-            let streak = ApplicationCalendar.streak(activity: data.activity, today: Date())
-            if streak > 0 {
-                Text("\(streak)-day streak of application activity").font(Typeface.body).foregroundStyle(Palette.text)
-            }
             HStack {
-                Chip(label: "‹") { shift(-1) }.accessibilityLabel("Previous month")
+                Button { shift(-1) } label: {
+                    Image(systemName: "chevron.left").frame(width: 44, height: 44)
+                }.accessibilityLabel("Previous month")
                 Spacer()
                 Text(month.formatted(.dateTime.month(.wide).year())).font(Typeface.section).foregroundStyle(Palette.ink)
                 Spacer()
-                Chip(label: "›") { shift(1) }.accessibilityLabel("Next month")
+                Button { shift(1) } label: {
+                    Image(systemName: "chevron.right").frame(width: 44, height: 44)
+                }.accessibilityLabel("Next month")
             }
             grid(data)
             dayDetail(data)
-            if !connected {
+            if calendar.isDateInToday(selected) {
+                let streak = ApplicationCalendar.streak(activity: data.activity, today: Date())
+                if streak > 0 {
+                    Text("\(streak)-day activity streak").font(.footnote).foregroundStyle(Palette.muted)
+                }
+            }
+            if !loading, !connected {
                 Card(tint: Palette.oat, spacing: 8) {
-                    Text("Interviews from your email").font(Typeface.option).foregroundStyle(Palette.icon)
-                    Text("Connect Google Calendar to add interview events after you approve them.")
+                    Text("Add interviews to Google Calendar")
                         .font(Typeface.caption).foregroundStyle(Palette.text)
                     StackButton(label: "Connect Google Calendar", icon: "link", kind: .secondary) { Task { await connect() } }
                 }
             }
-            if loading { ProgressView().tint(Palette.muted) }
+            if loading { SkeletonRow() }
             MessageLine(text: error).fadeSwitch(!error.isEmpty)
         }
         .task { await load() }
@@ -122,7 +128,11 @@ struct ApplicationCalendarView: View {
 
     private func shift(_ delta: Int) {
         if let next = calendar.date(byAdding: .month, value: delta, to: month) {
-            withAnimation(Motion.fadeAnimation) { month = next }
+            withAnimation(reduceMotion ? nil : Motion.fadeAnimation) {
+                month = next
+                selected = calendar.isDate(next, equalTo: Date(), toGranularity: .month)
+                    ? Date() : (calendar.dateInterval(of: .month, for: next)?.start ?? next)
+            }
         }
     }
 
@@ -146,17 +156,18 @@ struct ApplicationCalendarView: View {
                             VStack(spacing: 3) {
                                 Text("\(calendar.component(.day, from: day))")
                                     .font(Typeface.caption.weight(isSelected ? .bold : .regular))
-                                    .foregroundStyle(isSelected ? Palette.onDark : Palette.text)
+                                    .foregroundStyle(isSelected ? Color.white : Palette.text)
                                 HStack(spacing: 3) {
-                                    Circle().fill(hasActivity ? Palette.ring : .clear).frame(width: 6, height: 6)
-                                    Circle().fill(hasEvent ? Brand.accent : .clear).frame(width: 6, height: 6)
+                                    Circle().fill(hasActivity ? (isSelected ? .white : Palette.muted) : .clear).frame(width: 6, height: 6)
+                                    Circle().fill(hasEvent ? (isSelected ? .white : Brand.accent) : .clear).frame(width: 6, height: 6)
                                 }
                             }
                             .frame(maxWidth: .infinity, minHeight: 44)
-                            .background(isSelected ? Palette.dark : (calendar.isDateInToday(day) ? Palette.halo : Palette.surface),
+                            .background(isSelected ? Palette.button : (calendar.isDateInToday(day) ? Palette.halo : .clear),
                                         in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
                         .buttonStyle(.tap(scale: 0.94, dim: 1))
+                        .accessibilityAddTraits(isSelected ? .isSelected : [])
                         .accessibilityLabel(day.formatted(.dateTime.weekday(.wide).month().day())
                                             + (hasActivity ? ", application activity" : "") + (hasEvent ? ", has events" : ""))
                     } else {
@@ -174,7 +185,7 @@ struct ApplicationCalendarView: View {
         return VStack(alignment: .leading, spacing: 10) {
             SectionLabel(text: selected.formatted(.dateTime.weekday(.wide).month(.wide).day()))
             if activity.isEmpty, events.isEmpty {
-                Text("Nothing on this day.").font(Typeface.caption).foregroundStyle(Palette.muted)
+                Text("Nothing this day").font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             ForEach(Array(events.enumerated()), id: \.offset) { _, entry in
                 Card(spacing: 4) {

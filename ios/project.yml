@@ -25,6 +25,9 @@ settings:
     STACK_LISTING_FIXTURE_PORT: "18765"
     STACK_LISTING_REQUIRE_ACCEPTANCE: "0"
     STACK_LISTING_ERROR_TEXT: ""
+  configs:
+    Debug:
+      STACK_API_URL: "https://dev.stackmvp.top"
 targets:
   Stack:
     type: application
@@ -56,7 +59,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen:
-          UIColorName: LaunchBlue
+          UIColorName: LaunchCanvas
         # Keep recording an answer when the app is not on screen (the red status bar pill shows it).
         UIBackgroundModes:
           - audio

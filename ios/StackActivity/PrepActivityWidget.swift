@@ -2,8 +2,8 @@ import ActivityKit
 import SwiftUI
 import WidgetKit
 
-private let accent = Color(red: 0x25 / 255, green: 0x63 / 255, blue: 1)
-private let page = Color(red: 0xF5 / 255, green: 0xF3 / 255, blue: 0xF0 / 255)
+private let accent = Color(uiColor: .systemBlue)
+private let prepURL = URL(string: "com.matthewkooy.stack://open/prep")
 
 private extension PrepActivityAttributes.Phase {
     var symbol: String {
@@ -20,7 +20,7 @@ private extension PrepActivityAttributes.Phase {
         switch self {
         case .recording: return "Recording"
         case .paused: return "Paused"
-        case .coaching: return stale ? "Coaching is ready soon" : "Writing your coaching"
+        case .coaching: return stale ? "Open Prep for an update" : "Writing your coaching"
         case .ready: return "Your coaching is ready"
         case .failed: return "Couldn’t finish your coaching"
         }
@@ -47,7 +47,8 @@ struct PrepActivityWidget: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: PrepActivityAttributes.self) { context in
             LockScreen(context: context)
-                .activityBackgroundTint(page)
+                .activityBackgroundTint(Color(uiColor: .secondarySystemBackground))
+                .widgetURL(prepURL)
                 .activitySystemActionForegroundColor(accent)
         } dynamicIsland: { context in
             DynamicIsland {
@@ -72,6 +73,7 @@ struct PrepActivityWidget: Widget {
                 Image(systemName: context.state.phase.symbol).foregroundStyle(accent)
             }
             .keylineTint(accent)
+            .widgetURL(prepURL)
         }
     }
 }
@@ -82,12 +84,13 @@ private struct LockScreen: View {
     var body: some View {
         HStack(spacing: 14) {
             Image(systemName: context.state.phase.symbol)
-                .font(.system(size: 22, weight: .semibold)).foregroundStyle(.white)
+                .font(.title3.weight(.semibold)).foregroundStyle(accent)
                 .frame(width: 46, height: 46)
-                .background(accent, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+                .background(accent.opacity(0.12), in: Circle())
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
-                Text(context.state.phase.title(stale: context.isStale)).font(.headline).foregroundStyle(.black)
-                Text(context.attributes.question).font(.subheadline).foregroundStyle(.gray).lineLimit(2)
+                Text(context.state.phase.title(stale: context.isStale)).font(.headline).foregroundStyle(.primary)
+                Text(context.attributes.question).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
             }
             Spacer(minLength: 8)
             ActivityClock(state: context.state).font(.title2.weight(.semibold)).foregroundStyle(accent)

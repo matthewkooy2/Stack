@@ -11,49 +11,46 @@ struct GmailScanView: View {
     @State private var loading = true
 
     private var scanning: Bool { ["queued", "running"].contains(scan["status"].string) }
-    private var resumable: Bool { ["failed", "needs_input", "blocked"].contains(scan["status"].string) }
+    private var resumable: Bool { ["failed", "blocked"].contains(scan["status"].string) }
 
     var body: some View {
-        SheetPage(title: "Find your applications.", subtitle: "Including jobs you applied to outside Stack.") {
+        SheetPage(title: "Scan Gmail") {
             if loading {
-                ProgressView("Loading Gmail scan…")
+                ForEach(0..<2, id: \.self) { _ in SkeletonRow() }
             } else {
                 if scanning {
-                    Text("Scanning Gmail…").font(Typeface.option).foregroundStyle(Brand.ink)
-                    ProgressView()
-                    Text("You can close this screen. The scan will keep going.")
-                        .font(Typeface.body).foregroundStyle(Brand.muted)
+                    ProgressView("Scanning Gmail…").tint(Brand.accent)
                     QuietLinks(links: [ScreenLink("Stop scan") { Task { await stop() } }])
                         .disabled(busy)
                 } else if resumable {
-                    PrimaryPill(title: "Resume scan", icon: "arrow.clockwise", disabled: busy) {
+                    StackButton(label: "Resume scan", icon: "arrow.clockwise", disabled: busy) {
                         Task { await resume() }
                     }
                     QuietLinks(links: [ScreenLink("New scan") { scan = [:] }])
                 } else {
-                    DatePicker("Search since", selection: $since, in: Date(timeIntervalSince1970: 0)...Date(), displayedComponents: .date)
+                    DatePicker("Since", selection: $since, in: Date(timeIntervalSince1970: 0)...Date(), displayedComponents: .date)
                         .tint(Brand.accent)
-                    Text("Find application confirmations, status updates and interview invitations from this date through today.")
+                    Text("Finds confirmations, updates and invitations")
                         .font(Typeface.body).foregroundStyle(Brand.muted)
-                    PrimaryPill(title: "Start scan", icon: "magnifyingglass", disabled: busy) {
+                    StackButton(label: "Start scan", icon: "magnifyingglass", disabled: busy) {
                         Task { await start() }
                     }
                 }
                 if !scan.object.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
                         if !scanning {
-                            Text(scan["status"].string == "completed" ? "Scan complete." : scan["message"].string)
+                            Text(scan["status"].string == "completed" ? "Scan complete" : scan["message"].string)
                                 .font(Typeface.option).foregroundStyle(Brand.ink)
                         }
-                        Text("\(scan["scan"]["scanned"].int) emails checked · \(scan["scan"]["imported"].int) imported · \(scan["scan"]["updated"].int) updates")
+                        Text("\(scan["scan"]["scanned"].int) checked · \(scan["scan"]["imported"].int) imported")
                             .font(Typeface.caption).foregroundStyle(Brand.muted)
-                        Text("Imported applications are tracked automatically. Interview invitations appear in your Stack calendar; Google Calendar changes still wait for your approval.")
+                        Text("You approve Calendar changes")
                             .font(Typeface.caption).foregroundStyle(Brand.muted)
                     }
                 }
                 MessageLine(text: error).fadeSwitch(!error.isEmpty)
                 if !reviews.isEmpty {
-                    Text("A few need a check.").font(Typeface.title).foregroundStyle(Brand.ink)
+                    Text("Needs review").font(Typeface.title).foregroundStyle(Brand.ink)
                     ForEach(reviews, id: \.self) { event in
                         GmailScanReviewRow(event: event) { await load() }
                             .id(event["id"].string)
@@ -123,6 +120,12 @@ private struct GmailScanReviewRow: View {
     @State private var busy = false
     @State private var error = ""
 
+    private var canImport: Bool {
+        if case .object = event["discovery"] { return true }
+        return false
+    }
+    private var needsApplication: Bool { applicationID.isEmpty && !canImport }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Divider().overlay(Brand.rule)
@@ -130,20 +133,20 @@ private struct GmailScanReviewRow: View {
             Text(String((event["quote"].string.isEmpty ? event["excerpt"].string : event["quote"].string).prefix(600)))
                 .font(Typeface.caption).foregroundStyle(Brand.muted)
             Picker("Application", selection: $applicationID) {
-                Text("Import a new application").tag("")
+                Text(canImport ? "New application" : "Choose an application").tag("")
                 ForEach(store.account.applications.filter { !$0.isDemo }) { app in
                     Text("\(app.job.company) · \(app.job.title)").tag(app.id)
                 }
             }
-            if applicationID.isEmpty {
+            if applicationID.isEmpty && canImport {
                 StackField(label: "Company", text: $company)
                 StackField(label: "Job title", text: $title)
             }
             Picker("Status", selection: $status) {
                 ForEach(["Submitted", "Assessment", "Interview", "Offer", "Rejected"], id: \.self) { Text($0).tag($0) }
             }
-            StackButton(label: applicationID.isEmpty ? "Import application" : "Save update",
-                        disabled: busy || (applicationID.isEmpty && (company.isBlank || title.isBlank))) {
+            StackButton(label: applicationID.isEmpty && canImport ? "Import application" : "Save update",
+                        disabled: busy || needsApplication || (applicationID.isEmpty && (company.isBlank || title.isBlank))) {
                 Task { await save() }
             }
             QuietLinks(links: [ScreenLink("Not an application") { Task { await ignore() } }]).disabled(busy)

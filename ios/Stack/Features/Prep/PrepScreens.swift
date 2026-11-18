@@ -29,61 +29,67 @@ func splitPrompt(_ prompt: String) -> (lead: String, rest: String) {
     return (prompt, "")
 }
 
-/// A big blue pill, the same as the login screen's main button.
-struct PrimaryPill: View {
-    let title: String
-    var icon: String?
-    var disabled = false
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                if let icon { Image(systemName: icon).font(.system(size: 19, weight: .semibold)) }
-                Text(title).font(.system(.headline).weight(.semibold))
-            }
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity, minHeight: 58)
-            .background(Brand.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.tap(scale: 0.98))
-        .disabled(disabled)
-        .accessibilityLabel(title)
-    }
-}
+// MARK: - Shared pieces
 
 struct QuietLinks: View {
     let links: [ScreenLink]
     var body: some View {
-        HStack(spacing: 24) {
-            ForEach(links) { link in
-                Button(action: link.action) {
-                    Text(link.title).font(Typeface.caption).foregroundStyle(Brand.muted)
-                        .frame(minHeight: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.tap(scale: 0.97))
+        if !links.isEmpty {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 20) { buttons }
+                    .fixedSize(horizontal: true, vertical: false)
+                VStack(spacing: 0) { buttons }
             }
+            .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity)
+    }
+
+    private var buttons: some View {
+        ForEach(links) { link in
+            Button(action: link.action) {
+                Text(link.title).font(.subheadline.weight(.medium)).foregroundStyle(Brand.accent)
+                    .frame(minHeight: 44).contentShape(Rectangle())
+            }
+            .buttonStyle(.tap(scale: 0.98))
+        }
     }
 }
 
-/// A question, large, with one action. It is Prep's home, and every later question in a session.
+/// A round back control with a title, the header of the Prep lists and saved answers.
+@MainActor
+private struct PrepSubheader: View {
+    let title: String
+    let onBack: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            BackButton(action: onBack)
+            Text(title).font(Typeface.title).foregroundStyle(Brand.ink)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .lineLimit(2)
+                .accessibilityAddTraits(.isHeader)
+        }
+        .padding(.leading, -6)
+    }
+}
+
+// MARK: - Question
+
+/// A question with optional role context and a direct recording action.
 @MainActor
 struct PrepQuestionScreen: View {
     var topic: String?
     var progress: String?
     var context: String?
     let prompt: String
-    var primary = "Answer"
+    var primary = "Record answer"
     var busy = false
     var message = ""
     var links: [ScreenLink] = []
     var onTopic: (() -> Void)?
     var onHistory: (() -> Void)?
     let onPrimary: () -> Void
+    @Environment(\.stackReduceMotion) private var reduceMotion
 
     var body: some View {
         let parts = splitPrompt(prompt)
@@ -92,28 +98,30 @@ struct PrepQuestionScreen: View {
             Spacer(minLength: 24)
             ZStack(alignment: .leading) {
                 VStack(alignment: .leading, spacing: 14) {
-                    if let context { Text(context).font(Typeface.caption).foregroundStyle(Brand.muted) }
+                    if let context { StatusPill(text: context, tone: .accent, prominent: true, symbol: "briefcase.fill") }
                     Text(parts.lead)
-                        .font(.system(size: 36, weight: .heavy))
-                        .tracking(-1.8)
+                        .font(Typeface.display)
+                        .fixedSize(horizontal: false, vertical: true)
                         .foregroundStyle(Brand.ink)
-                        .minimumScaleFactor(0.6)
+                        .accessibilityAddTraits(.isHeader)
                     if !parts.rest.isEmpty {
-                        Text(parts.rest).font(.system(.title3)).foregroundStyle(Brand.muted)
+                        Text(parts.rest).font(.title3).foregroundStyle(Brand.muted)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .id(prompt)
-                .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 14)), removal: .opacity))
+                .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 10)), removal: .opacity))
             }
-            .animation(Motion.ease(0.4), value: prompt)
+            .animation(reduceMotion ? nil : Motion.smooth, value: prompt)
             .reveal(1)
             Spacer(minLength: 24)
             if !message.isEmpty {
                 Text(message).font(Typeface.caption).foregroundStyle(Palette.danger).padding(.bottom, 10)
             }
-            PrimaryPill(title: primary, icon: primary == "Answer" ? "mic.fill" : nil, disabled: busy, action: onPrimary)
+            StackButton(label: primary, icon: primary == "Record answer" ? "mic.fill" : "", disabled: busy,
+                        pulse: primary == "Record answer", action: onPrimary)
                 .reveal(2)
-            QuietLinks(links: links).padding(.top, 6).reveal(3)
+            QuietLinks(links: links).disabled(busy).padding(.top, 6).reveal(3)
         }
     }
 
@@ -121,175 +129,126 @@ struct PrepQuestionScreen: View {
         HStack {
             if let onTopic, let topic {
                 Button(action: onTopic) {
-                    HStack(spacing: 5) {
-                        Text(topic).font(.system(.subheadline).weight(.semibold))
-                        Image(systemName: "chevron.down").font(.system(size: 10, weight: .bold))
+                    HStack(spacing: 6) {
+                        Text(topic).font(.subheadline.weight(.semibold))
+                        Image(systemName: "chevron.down").font(.caption2.weight(.bold))
                     }
-                    .foregroundStyle(Brand.ink)
+                    .foregroundStyle(Brand.accent)
+                    .padding(.horizontal, 12).frame(minHeight: 36)
+                    .background(Palette.halo, in: Capsule())
                     .frame(minHeight: 44)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.tap(scale: 0.97))
                 .accessibilityLabel("Topic: \(topic)")
             } else if let progress {
-                Text(progress).font(.system(.subheadline).weight(.semibold)).foregroundStyle(Brand.muted)
+                StatusPill(text: progress, tone: .accent, prominent: true)
             }
             Spacer()
             if let onHistory {
                 Button(action: onHistory) {
-                    Image(systemName: "clock.arrow.circlepath").font(.system(size: 20)).foregroundStyle(Brand.ink)
+                    Image(systemName: "clock.arrow.circlepath").font(.title3).foregroundStyle(Brand.ink)
                         .frame(width: 44, height: 44)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.tap(scale: 0.92, dim: 1))
-                .accessibilityLabel("Past sessions")
+                .accessibilityLabel("History")
             }
         }
         .frame(minHeight: 44)
     }
 }
 
-/// Recording: a timer, one circle that pauses, and Done. Level, status and quality hints live in the circle and
-/// one quiet line. The microphone stays the recorder's business; this only reads it.
+// MARK: - Recording
+
+/// The question stays in view while the microphone meter and timer report the live take.
 @MainActor
 struct PrepRecordingScreen: View {
     let recorder: AudioRecorder
     let progress: String
+    var prompt = ""
     var busy = false
     var message = ""
     let onDone: () -> Void
     let onTogglePause: () -> Void
     let onCancel: () -> Void
-
     @Environment(\.stackReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .largeTitle) private var clockSize: CGFloat = 64
 
     private var live: Bool { recorder.isRecording || recorder.isPaused }
     private var running: Bool { recorder.isRecording && !recorder.isPaused }
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Text(progress).font(.system(.subheadline).weight(.semibold)).foregroundStyle(Brand.muted)
+                StatusPill(text: progress, tone: .accent, prominent: true)
                 Spacer()
+                statePill
             }
             .frame(minHeight: 44)
-            .reveal(0)
-            Spacer()
-            VStack(spacing: 34) {
-                Button(action: onTogglePause) { orb }
-                    .buttonStyle(.tap(scale: 0.97, dim: 1))
-                    .disabled(busy || !live)
-                    .accessibilityLabel(recorder.isPaused ? "Resume recording" : "Pause recording")
-                VStack(spacing: 8) {
-                    Text(clock)
-                        .font(.system(size: 64, weight: .heavy).monospacedDigit())
-                        .tracking(-2)
-                        .foregroundStyle(Brand.ink)
-                        .contentTransition(reduceMotion ? .identity : .numericText())
-                        .accessibilityLabel("Elapsed time")
-                        .accessibilityValue("\(Int(recorder.elapsed) / 60) minutes \(Int(recorder.elapsed) % 60) seconds")
-                    caption
-                }
+            if !prompt.isEmpty {
+                Text(prompt).font(Typeface.title).foregroundStyle(Brand.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityAddTraits(.isHeader)
+            }
+            Spacer(minLength: 8)
+            VStack(spacing: 20) {
+                Text(recordingSurfaceClock(recorder.elapsed))
+                    .font(.system(size: clockSize, weight: .semibold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(Brand.ink)
+                    .minimumScaleFactor(0.6).lineLimit(1)
+                    .contentTransition(reduceMotion ? .identity : .numericText())
+                    .accessibilityLabel("Elapsed time")
+                    .accessibilityValue("\(Int(recorder.elapsed) / 60) minutes \(Int(recorder.elapsed) % 60) seconds")
+                RecordingLevelBars(meter: recorder.meter, running: running, maxHeight: 72)
             }
             .frame(maxWidth: .infinity)
-            .reveal(1)
-            Spacer()
-            if !message.isEmpty {
-                Text(message).font(Typeface.caption).foregroundStyle(Palette.danger).padding(.bottom, 10)
-            }
-            PrimaryPill(title: "Done", disabled: busy || !live, action: onDone)
-                .accessibilityHint("Saves your answer.")
-                .reveal(2)
-            QuietLinks(links: [ScreenLink("Cancel", action: onCancel)]).padding(.top, 6).reveal(3)
+            Spacer(minLength: 8)
+            if !message.isEmpty { MessageLine(text: message) }
+            controls
+            QuietLinks(links: [ScreenLink("Cancel", action: onCancel)])
+                .disabled(busy)
         }
     }
 
-    private var clock: String {
-        let total = max(0, Int(recorder.elapsed))
-        return String(format: "%d:%02d", total / 60, total % 60)
+    private var statePill: some View {
+        HStack(spacing: 7) {
+            Circle().fill(running ? Palette.danger : Palette.muted).frame(width: 8, height: 8)
+                .breathe(running, minimum: 0.35)
+            Text(recorder.isPaused ? "Paused" : (running ? "Recording" : "Ready"))
+                .font(.subheadline.weight(.semibold)).foregroundStyle(Palette.muted)
+        }
+        .padding(.horizontal, 12).frame(minHeight: 32)
+        .background(Palette.surface, in: Capsule())
+        .animation(reduceMotion ? nil : Motion.snappy, value: recorder.isPaused)
+        .accessibilityHidden(true)
     }
 
-    /// The circle swells with the measured microphone level while recording.
-    private var orb: some View {
-        TimelineView(.animation(minimumInterval: reduceMotion ? 0.25 : 1.0 / 60.0, paused: !running)) { _ in
-            let level = running ? CGFloat(recorder.meter?.snapshot().level ?? 0) : 0
-            let swell = reduceMotion ? 0 : min(max(level, 0), 1)
-            ZStack {
-                Circle().fill(Brand.accent.opacity(0.14)).frame(width: 190, height: 190).scaleEffect(1 + swell * 0.16)
-                Circle().stroke(Brand.accent, lineWidth: 3).frame(width: 150, height: 150)
-                Circle().fill(Brand.accent).frame(width: 118, height: 118).scaleEffect(1 + swell * 0.05)
+    @ViewBuilder
+    private var controls: some View {
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 12)) : AnyLayout(HStackLayout(spacing: 12))
+        layout {
+            Button(action: onTogglePause) {
                 Image(systemName: recorder.isPaused ? "play.fill" : "pause.fill")
-                    .font(.system(size: 30, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .font(.title3.weight(.semibold)).foregroundStyle(Brand.accent)
+                    .frame(width: typeSize.isAccessibilitySize ? nil : 54, height: 54)
+                    .frame(maxWidth: typeSize.isAccessibilitySize ? .infinity : 54)
+                    .background(Palette.halo, in: RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
+                    .contentShape(Rectangle())
             }
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: swell)
-        }
-        .frame(width: 200, height: 200)
-    }
-
-    @ViewBuilder private var caption: some View {
-        TimelineView(.periodic(from: .now, by: 0.5)) { _ in
-            let quality = running ? (recorder.meter?.snapshot().quality ?? .waiting) : .waiting
-            let warn = [.quiet, .silent, .clipping].contains(quality)
-            Text(recorder.isPaused ? "Paused. Tap the circle to continue."
-                 : warn ? RecordingLevelBars.caption(quality, running: true)
-                 : live ? "Tap the circle to pause" : (recorder.finalizing ? "Saving your answer" : ""))
-                .font(Typeface.caption)
-                .foregroundStyle(quality == .clipping ? Palette.danger : Brand.muted)
-                .multilineTextAlignment(.center)
-                .frame(minHeight: 20)
+            .buttonStyle(.tap(scale: 0.95, dim: 0.5))
+            .disabled(busy || !live)
+            .accessibilityLabel(recorder.isPaused ? "Resume recording" : "Pause recording")
+            StackButton(label: busy ? "Saving…" : "Done", icon: busy ? "" : "stop.fill", disabled: busy || !live, action: onDone)
+                .accessibilityHint("Saves your answer")
         }
     }
 }
 
-/// Choose what to practice: a focus, or a mock interview for a saved role.
-@MainActor
-struct PrepTopicSheet: View {
-    let selected: PrepFocus
-    let onFocus: (PrepFocus) -> Void
-    let onInterview: () -> Void
-    /// Opens the practice-interview library (industry question slots with recorded, scored answers).
-    var onPractice: (() -> Void)?
-    @Environment(\.dismiss) private var dismiss
+// MARK: - Working
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(PrepFocus.allCases, id: \.self) { focus in
-                row(focus.shortName, checked: focus == selected) { onFocus(focus); dismiss() }
-            }
-            Rectangle().fill(Brand.rule).frame(height: 1).padding(.vertical, 6)
-            row("Mock interview") { dismiss(); onInterview() }
-            if let onPractice { row("Practice interview") { dismiss(); onPractice() } }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, Spacing.page)
-        .padding(.top, 30)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(Brand.page.ignoresSafeArea())
-        .presentationDetents([.medium])
-        .presentationDragIndicator(.visible)
-    }
-
-    private func row(_ title: String, checked: Bool = false, muted: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack {
-                Text(title)
-                    .font(.system(size: muted ? 17 : 22, weight: .semibold))
-                    .tracking(-0.5)
-                    .foregroundStyle(muted ? Brand.muted : Brand.ink)
-                Spacer()
-                if checked { Image(systemName: "checkmark").font(.system(size: 17, weight: .bold)).foregroundStyle(Brand.accent) }
-            }
-            .frame(minHeight: 50)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.tap(scale: 0.99))
-        .accessibilityLabel(title)
-        .accessibilityAddTraits(checked ? .isSelected : [])
-    }
-}
-
-/// While the answer is read and the coaching written: the coin mark breathing, one line, nothing to decide.
+/// Displays progress while a request runs.
 /// When it stalls, the same screen offers the one next step.
 @MainActor
 struct PrepWorkingScreen: View {
@@ -301,25 +260,29 @@ struct PrepWorkingScreen: View {
     var busy = false
     var onPrimary: (() -> Void)?
     var links: [ScreenLink] = []
-    /// Shows a spinner under the message, for longer waits such as final coaching.
     var spinner = false
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(progress).font(.system(.subheadline).weight(.semibold)).foregroundStyle(Brand.muted)
+                if !progress.isEmpty { StatusPill(text: progress, tone: .accent, prominent: true) }
                 Spacer()
             }
             .frame(minHeight: 44)
             .reveal(0)
             Spacer()
             VStack(spacing: 22) {
-                StackMark(size: 170).compositingGroup().breathe(!stalled, minimum: 0.55)
-                Text(message)
-                    .font(.system(size: 24, weight: .bold)).tracking(-0.7)
-                    .foregroundStyle(Brand.ink)
+                ZStack {
+                    Circle().fill(Palette.halo).frame(width: 88, height: 88)
+                    if stalled {
+                        Image(systemName: "exclamationmark.circle").font(.title).foregroundStyle(Palette.muted)
+                            .accessibilityHidden(true)
+                    } else {
+                        ProgressView().controlSize(spinner ? .large : .regular).tint(Brand.accent)
+                    }
+                }
+                Text(message).font(Typeface.title).foregroundStyle(Brand.ink)
                     .multilineTextAlignment(.center)
-                if spinner && !stalled { ProgressView().tint(Brand.accent).controlSize(.large) }
                 if !detail.isEmpty {
                     Text(detail).font(Typeface.caption).foregroundStyle(Brand.muted).multilineTextAlignment(.center)
                 }
@@ -327,8 +290,9 @@ struct PrepWorkingScreen: View {
             .frame(maxWidth: .infinity)
             .reveal(1)
             Spacer()
+            Spacer()
             if let primary, let onPrimary {
-                PrimaryPill(title: primary, disabled: busy, action: onPrimary).reveal(2)
+                StackButton(label: primary, disabled: busy, action: onPrimary).reveal(2)
             }
             QuietLinks(links: links).padding(.top, 6).reveal(3)
         }
@@ -336,7 +300,9 @@ struct PrepWorkingScreen: View {
     }
 }
 
-/// One scored part of the coaching, with the reason for its score.
+// MARK: - Feedback
+
+/// One scored part of the feedback, with the reason for its score.
 struct CoachCriterion: Identifiable, Equatable {
     let name: String
     let score: Int          // 0 to 4
@@ -344,8 +310,8 @@ struct CoachCriterion: Identifiable, Equatable {
     var id: String { name }
 }
 
-/// Coaching as a scorecard: a one-line verdict, four scores readable at a glance, and one thing to work on.
-/// Each row opens to say why it got its score. When the coaching has no scores it shows its two key points instead.
+/// Feedback as a scorecard: a one-line verdict, four scores readable at a glance, and one thing to work on.
+/// Each row opens to say why it got its score. When the feedback has no scores it shows its two key points instead.
 @MainActor
 struct PrepCoachingScreen: View {
     let progress: String
@@ -364,143 +330,147 @@ struct PrepCoachingScreen: View {
     var secondary: String? = "Try this answer again"
 
     @Environment(\.stackReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.verticalSizeClass) private var verticalSize
     @State private var open: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(progress).font(.system(.subheadline).weight(.semibold)).foregroundStyle(Brand.muted)
+                StatusPill(text: progress, tone: .accent, prominent: true)
                 Spacer()
                 Button(action: onAnswer) {
-                    Text("Your answer").font(.system(.subheadline).weight(.semibold)).foregroundStyle(Brand.ink)
-                        .frame(minHeight: 44)
-                        .contentShape(Rectangle())
+                    HStack(spacing: 6) {
+                        Image(systemName: "text.quote").font(.footnote.weight(.semibold))
+                        Text("Your answer").font(.subheadline.weight(.semibold))
+                    }
+                    .foregroundStyle(Brand.ink)
+                    .padding(.horizontal, 12).frame(minHeight: 32)
+                    .background(Palette.surface, in: Capsule())
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.tap(scale: 0.97))
             }
             .frame(minHeight: 44)
             .reveal(0)
             ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(verdict)
-                        .font(.system(size: 30, weight: .heavy)).tracking(-1.4)
-                        .foregroundStyle(Brand.ink)
-                        .minimumScaleFactor(0.7)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.top, 18)
-                        .reveal(1)
-                    if criteria.isEmpty {
-                        if !worked.isBlank { block("Worked", worked).padding(.top, 28).reveal(2) }
-                    } else {
-                        VStack(spacing: 0) {
-                            ForEach(Array(criteria.enumerated()), id: \.element.id) { index, item in
-                                row(item, index: index)
-                            }
-                        }
-                        .padding(.top, 22)
-                        .reveal(2)
-                    }
-                    if !focus.isBlank { block("Work on", focus).padding(.top, 28).reveal(3) }
-                    if !fullText.isBlank {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Full coaching").font(.system(.subheadline).weight(.semibold)).foregroundStyle(Brand.accent)
-                            Text(fullText).font(Typeface.body).foregroundStyle(Brand.ink)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }.padding(.top, 28)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.bottom, 16)
+                feedbackContent
+                if scrollsActions { actions }
             }
             .scrollIndicators(.hidden)
             .frame(maxHeight: .infinity)
+            if !scrollsActions { actions }
+        }
+    }
+
+    private var scrollsActions: Bool { typeSize.isAccessibilitySize || verticalSize == .compact }
+
+    private var feedbackContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(verdict)
+                .font(Typeface.title)
+                .foregroundStyle(Brand.ink)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 10)
+                .reveal(1)
+            if criteria.isEmpty {
+                if !worked.isBlank {
+                    noteCard(pill: "Strength", tone: .success, text: worked).reveal(2)
+                }
+            } else {
+                Card(spacing: 0) {
+                    ForEach(Array(criteria.enumerated()), id: \.element.id) { index, item in
+                        row(item, last: index == criteria.count - 1)
+                    }
+                }
+                .reveal(2)
+            }
+            if !focus.isBlank { noteCard(pill: "To improve", tone: .warning, text: focus).reveal(3) }
+            if !fullText.isBlank {
+                DisclosureSection("Full feedback") {
+                    Text(fullText).font(Typeface.body).foregroundStyle(Brand.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.bottom, 16)
+    }
+
+    @ViewBuilder
+    private var actions: some View {
+        VStack(spacing: 0) {
             if !message.isEmpty {
                 Text(message).font(Typeface.caption).foregroundStyle(Palette.danger).padding(.bottom, 10)
             }
-            PrimaryPill(title: primary, disabled: busy, action: onPrimary).reveal(4)
+            StackButton(label: primary, disabled: busy, action: onPrimary).reveal(4)
             QuietLinks(links: secondary.map { [ScreenLink($0, action: onAgain)] } ?? []).padding(.top, 6).reveal(5)
         }
     }
 
-    private func row(_ item: CoachCriterion, index: Int) -> some View {
+    private func row(_ item: CoachCriterion, last: Bool) -> some View {
         let isOpen = open == item.id
         return VStack(alignment: .leading, spacing: 0) {
             Button {
-                withAnimation(reduceMotion ? nil : Motion.ease(0.32)) { open = isOpen ? nil : item.id }
+                withAnimation(reduceMotion ? nil : Motion.snappy) { open = isOpen ? nil : item.id }
             } label: {
                 HStack(spacing: 12) {
-                    Text(item.name).font(.system(size: 19, weight: .semibold)).tracking(-0.4).foregroundStyle(Brand.ink)
+                    Text(item.name).font(.headline).foregroundStyle(Brand.ink)
                     Spacer(minLength: 8)
-                    Text("\(item.score)/4")
-                        .font(.system(.subheadline).weight(.semibold).monospacedDigit())
-                        .foregroundStyle(item.score == 0 ? Palette.danger : Brand.muted)
-                    dots(item.score, delay: 0.35 + Double(index) * 0.08)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 12, weight: .bold)).foregroundStyle(Brand.muted)
-                        .rotationEffect(.degrees(isOpen ? 180 : 0))
+                    if !typeSize.isAccessibilitySize { dots(item.score) }
+                    ScoreChip(score: item.score)
+                    if !item.why.isBlank {
+                        Image(systemName: "chevron.down")
+                            .font(.caption.weight(.semibold)).foregroundStyle(Brand.muted)
+                            .rotationEffect(.degrees(isOpen ? 180 : 0))
+                    }
                 }
-                .frame(minHeight: 56)
+                .frame(minHeight: 52)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.tap(scale: 0.99, dim: 1))
             .accessibilityLabel("\(item.name), \(item.score) of 4")
-            .accessibilityHint(isOpen ? "Hides why" : "Shows why")
+            .disabled(item.why.isBlank)
+            .accessibilityValue(item.why.isBlank ? "" : (isOpen ? "Expanded" : "Collapsed"))
+            .accessibilityHint(item.why.isBlank ? "" : (isOpen ? "Hides why" : "Shows why"))
             if isOpen && !item.why.isBlank {
                 Text(item.why)
                     .font(Typeface.body).foregroundStyle(Brand.muted)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.bottom, 16)
+                    .padding(.bottom, 12)
                     .transition(.opacity.combined(with: .offset(y: -6)))
             }
-            Rectangle().fill(Brand.rule).frame(height: 1)
+            if !last { Divider() }
         }
     }
 
-    /// Four dots, filled to the score. They fill in one after another when the screen appears.
-    private func dots(_ score: Int, delay: Double) -> some View {
-        HStack(spacing: 6) {
+    /// A compact visual counterpart to the spoken score.
+    private func dots(_ score: Int) -> some View {
+        HStack(spacing: 5) {
             ForEach(0..<4, id: \.self) { i in
                 Circle()
                     .fill(i < score ? Brand.accent : Brand.rule)
-                    .frame(width: 11, height: 11)
-                    .pop(delay: delay + Double(i) * 0.05)
+                    .frame(width: 6, height: 6)
             }
         }
         .accessibilityHidden(true)
     }
 
-    private func block(_ label: String, _ text: String) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(label).font(.system(.subheadline).weight(.semibold)).foregroundStyle(Brand.accent)
+    private func noteCard(pill: String, tone: StatusPill.Tone, text: String) -> some View {
+        Card(spacing: 10) {
+            StatusPill(text: pill, tone: tone)
             Text(text)
-                .font(.system(size: 22, weight: .bold)).tracking(-0.6)
+                .font(Typeface.section)
                 .foregroundStyle(Brand.ink)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
 
-/// A round white back button, the same as on the sign-in forms.
-struct BrandBackButton: View {
-    var disabled = false
-    let action: () -> Void
+// MARK: - Done
 
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: "chevron.left")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(Brand.ink)
-                .frame(width: 44, height: 44)
-                .background(Color.white, in: Circle())
-                .overlay(Circle().stroke(Brand.rule, lineWidth: 1))
-        }
-        .buttonStyle(.tap(scale: 0.92, dim: 1))
-        .disabled(disabled)
-        .accessibilityLabel("Back")
-    }
-}
-
-/// The end of a session: the mark lands, one line, nothing to decide.
+/// A session receipt with the answer count and the current streak.
 @MainActor
 struct PrepDoneScreen: View {
     let answers: Int
@@ -508,27 +478,46 @@ struct PrepDoneScreen: View {
     let onDone: () -> Void
     let onAgain: () -> Void
 
-    private var detail: String {
-        let count = "\(answers) \(answers == 1 ? "answer" : "answers")"
-        return streak > 0 ? "\(count) · \(streak) day streak" : count
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             Spacer()
-            VStack(spacing: 14) {
-                StackMark(size: 200)
-                Text("Nice work.").font(.system(size: 46, weight: .heavy)).tracking(-2.2).foregroundStyle(Brand.ink)
-                    .reveal(0, delay: 0.9)
-                Text(detail).font(.system(.title3)).foregroundStyle(Brand.muted).reveal(1, delay: 0.9)
+            VStack(spacing: 24) {
+                Image(systemName: "checkmark").font(.system(size: 34, weight: .bold)).foregroundStyle(Palette.success)
+                    .frame(width: 88, height: 88)
+                    .background(Palette.success.opacity(0.13), in: Circle())
+                    .pop()
+                    .accessibilityHidden(true)
+                Text("Session complete").font(Typeface.display).foregroundStyle(Brand.ink)
+                    .multilineTextAlignment(.center)
+                    .reveal(0)
+                HStack(spacing: 12) {
+                    tile(symbol: "text.bubble.fill", tint: 0, value: answers, label: answers == 1 ? "answer" : "answers")
+                    if streak > 0 { tile(symbol: "flame.fill", tint: 3, value: streak, label: "day streak") }
+                }
+                .reveal(1)
             }
             .frame(maxWidth: .infinity)
             Spacer()
-            PrimaryPill(title: "Done", action: onDone).reveal(2, delay: 0.9)
-            QuietLinks(links: [ScreenLink("Practice again", action: onAgain)]).padding(.top, 6).reveal(3, delay: 0.9)
+            Spacer()
+            StackButton(label: "Done", action: onDone).reveal(2)
+            QuietLinks(links: [ScreenLink("Practice again", action: onAgain)]).padding(.top, 6).reveal(3)
         }
     }
+
+    private func tile(symbol: String, tint: Int, value: Int, label: String) -> some View {
+        Card(spacing: 10) {
+            SymbolDisc(systemName: symbol, size: 36, tint: tint)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("\(value)").font(Typeface.title.monospacedDigit()).foregroundStyle(Brand.ink)
+                    .contentTransition(.numericText())
+                Text(label).font(Typeface.caption).foregroundStyle(Brand.muted)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
 }
+
+// MARK: - Lists
 
 struct HistoryItem: Identifiable, Equatable {
     let id: String
@@ -536,7 +525,7 @@ struct HistoryItem: Identifiable, Equatable {
     let detail: String
 }
 
-/// A plain list: a big title, then rows with a hairline between them.
+/// A title with a back control, then one grouped list of rows.
 @MainActor
 struct PrepListScreen: View {
     let title: String
@@ -546,39 +535,24 @@ struct PrepListScreen: View {
     let onSelect: (HistoryItem) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack { BrandBackButton(action: onBack); Spacer() }.reveal(0)
-            Text(title).font(.system(size: 36, weight: .heavy)).tracking(-1.8).foregroundStyle(Brand.ink)
-                .padding(.top, 18).padding(.bottom, 8).reveal(1)
+        VStack(alignment: .leading, spacing: Spacing.group) {
+            PrepSubheader(title: title, onBack: onBack).reveal(0)
             if items.isEmpty {
-                Text(empty).font(Typeface.body).foregroundStyle(Brand.muted).padding(.top, 16)
-            }
-            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                Button { onSelect(item) } label: {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(item.title).font(.system(size: 20, weight: .semibold)).tracking(-0.5).foregroundStyle(Brand.ink)
-                                .lineLimit(2).multilineTextAlignment(.leading)
-                            if !item.detail.isEmpty {
-                                Text(item.detail).font(Typeface.caption).foregroundStyle(Brand.muted).lineLimit(2)
-                            }
-                        }
-                        Spacer(minLength: 8)
-                        Image(systemName: "chevron.right").font(.system(size: 13, weight: .bold)).foregroundStyle(Brand.muted)
+                EmptyNote(icon: "clock", title: empty).reveal(1)
+            } else {
+                GroupedList {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                        GroupRow(symbol: "text.bubble", tint: index, title: item.title, detail: item.detail,
+                                 divider: index < items.count - 1) { onSelect(item) }
                     }
-                    .padding(.vertical, 14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.tap(scale: 0.99, dim: 1))
-                .overlay(alignment: .bottom) { Rectangle().fill(Brand.rule).frame(height: 1) }
-                .reveal(index + 2)
+                .reveal(1)
             }
         }
     }
 }
 
-/// One saved answer: the question, the audio, what was said, and the coaching it got, with every reason showing.
+/// One saved answer: the question, the audio, what was said, and the feedback it got, with every reason showing.
 @MainActor
 struct PrepSavedAnswerScreen<Playback: View>: View {
     let heading: String
@@ -592,47 +566,78 @@ struct PrepSavedAnswerScreen<Playback: View>: View {
     @ViewBuilder var playback: () -> Playback
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack { BrandBackButton(action: onBack); Spacer() }.reveal(0)
-            Text(heading).font(.system(size: 36, weight: .heavy)).tracking(-1.8).foregroundStyle(Brand.ink)
-                .padding(.top, 18).reveal(1)
-            if !prompt.isEmpty { Text(prompt).font(Typeface.caption).foregroundStyle(Brand.muted).padding(.top, 6) }
-            playback().padding(.top, 18)
+        VStack(alignment: .leading, spacing: Spacing.group) {
+            PrepSubheader(title: heading, onBack: onBack).reveal(0)
+            if !prompt.isEmpty { Text(prompt).font(Typeface.section).foregroundStyle(Brand.ink).reveal(1) }
+            playback()
             if !answer.isBlank {
-                label("What you said").padding(.top, 26)
-                Text(answer).font(Typeface.body).foregroundStyle(Brand.ink).padding(.top, 6)
+                Card(spacing: 8) {
+                    StatusPill(text: "What you said", tone: .neutral)
+                    Text(answer).font(Typeface.body).foregroundStyle(Brand.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             if !verdict.isBlank {
-                label("Coaching").padding(.top, 26)
-                Text(verdict).font(.system(size: 24, weight: .bold)).tracking(-0.8).foregroundStyle(Brand.ink)
-                    .fixedSize(horizontal: false, vertical: true).padding(.top, 6)
+                Text(verdict).font(Typeface.title).foregroundStyle(Brand.ink)
+                    .fixedSize(horizontal: false, vertical: true).padding(.top, 8)
             }
-            ForEach(criteria) { item in
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text(item.name).font(.system(size: 18, weight: .semibold)).foregroundStyle(Brand.ink)
-                        Spacer()
-                        Text("\(item.score)/4").font(.system(.subheadline).weight(.semibold).monospacedDigit())
-                            .foregroundStyle(item.score == 0 ? Palette.danger : Brand.muted)
+            if !criteria.isEmpty {
+                Card(spacing: 0) {
+                    ForEach(Array(criteria.enumerated()), id: \.element.id) { index, item in
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text(item.name).font(.headline).foregroundStyle(Brand.ink)
+                                Spacer()
+                                ScoreChip(score: item.score)
+                            }
+                            if !item.why.isBlank { Text(item.why).font(Typeface.caption).foregroundStyle(Brand.muted) }
+                        }
+                        .padding(.vertical, 12)
+                        .accessibilityElement(children: .combine)
+                        .overlay(alignment: .bottom) { if index < criteria.count - 1 { Divider() } }
                     }
-                    if !item.why.isBlank { Text(item.why).font(Typeface.body).foregroundStyle(Brand.muted) }
                 }
-                .padding(.vertical, 12)
-                .overlay(alignment: .bottom) { Rectangle().fill(Brand.rule).frame(height: 1) }
             }
             if !focus.isBlank {
-                label("Work on").padding(.top, 22)
-                Text(focus).font(.system(size: 20, weight: .bold)).tracking(-0.5).foregroundStyle(Brand.ink).padding(.top, 6)
+                Card(spacing: 10) {
+                    StatusPill(text: "To improve", tone: .warning)
+                    Text(focus).font(Typeface.section).foregroundStyle(Brand.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             if !fullText.isBlank {
-                label("Full coaching").padding(.top, 22)
-                Text(fullText).font(Typeface.body).foregroundStyle(Brand.ink)
-                    .fixedSize(horizontal: false, vertical: true).padding(.top, 6)
+                DisclosureSection("Full feedback") {
+                    Text(fullText).font(Typeface.body).foregroundStyle(Brand.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }
+}
 
-    private func label(_ text: String) -> some View {
-        Text(text).font(.system(.subheadline).weight(.semibold)).foregroundStyle(Brand.accent)
+/// A topic chooser sheet. The Prep home uses an inline menu; this stays available for other entry points.
+@MainActor
+struct PrepTopicSheet: View {
+    let selected: PrepFocus
+    let onFocus: (PrepFocus) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        SheetPage(title: "Topic") {
+            GroupedList {
+                ForEach(Array(PrepFocus.allCases.enumerated()), id: \.element) { index, focus in
+                    GroupRow(symbol: "text.bubble", tint: index, title: focus.rawValue,
+                             divider: index < PrepFocus.allCases.count - 1) {
+                        onFocus(focus)
+                        dismiss()
+                    } trailing: {
+                        if focus == selected { Image(systemName: "checkmark").foregroundStyle(Brand.accent) }
+                    }
+                    .accessibilityAddTraits(focus == selected ? .isSelected : [])
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 }

@@ -1,0 +1,38 @@
+# Prep, interviews and recording
+
+The old Prep landing page offered one question. Its topic menu also contained both interview modes, and loading failures could leave the entire tab blank. The new landing page gives the current question or unfinished session the largest surface. Three labeled rows open a job-specific mock interview, the recorded practice library and past sessions. The account button matches the other tabs.
+
+## Reachable routes
+
+The inventory follows the Swift state machines and their presentation sites on the checked-out main revision. Several entries share a screen because they use the same reader, editor or recorder.
+
+| Route from the app | Finding and implemented treatment |
+| --- | --- |
+| Prep → home, continuing session, new question | A raised prompt contains topic, question and recording action. Typing and changing the question are secondary. The home screen displays loading, empty, error and reload states. Continue reopens the saved session with its original ID. |
+| Prep → topic sheet | Four named focuses have icons and a selection check. The sheet scrolls and expands beyond its medium height. Interview modes are direct destinations on home. |
+| Prep → question → type an answer | Progress and question precede the answer field. Text scales with Dynamic Type and the field uses an adaptive background. The keyboard dismissal control and draft binding remain in place. |
+| Prep → record, pause, resume, cancel, finish | The question remains visible above the timer and measured microphone levels. Pause and resume have explicit labels. Capture uses the existing recorder, input-quality warnings, interruption handling and saved-file workflow. |
+| Prep → review and edit transcript | Local playback, pending or failed transcription, retry upload, typing, record again and getting coaching are available in the scrolling review. Received coaching and its saved or unsaved state stay attached to the submitted answer. |
+| Prep → processing → coaching | A native activity indicator replaces the pulsing logo. The verdict, criterion scores, expandable reasons, suggested improvement, full coaching and submitted answer share one readable hierarchy. The footer scrolls with the feedback at accessibility text sizes and compact heights. |
+| Prep → complete | The completion state shows the answer count, streak, Done and Practice again. Controls appear without the previous 0.9-second delay. |
+| Prep → past sessions → session answers → saved answer | List rows use adaptive text. An archived answer groups the original question, available audio, submitted text and its coaching. Empty histories still explain where saved sessions or answers will appear. |
+| Prep → mock interview → starting, no saved role, question | The role-specific question can be recorded or typed. Startup failure offers retry. An account with no role can open Jobs directly. Mock interview questions and recordings scroll when they exceed the available height. |
+| Mock interview → typing or recording → working → coaching | Spoken and typed answers share feedback. A failed submission of a recorded transcript returns the text to the editor for retry. The submitted answer button now opens its actual question and answer. Microphone denial exposes Settings alongside typing. |
+| Mock interview → finish early or after the last question → final | Waiting, stalled and retry states use the shared status screen. The final assessment retains the role, rubric, strengths, weaknesses and practice suggestions. Done returns to Prep. |
+| Prep → practice interview → loading, industry, track, question list | Screen titles identify the current choice. Industry loading failure offers reload. Unavailable tracks retain their disabled state. Empty question lists provide an explanation. |
+| Practice interview → question detail → best answer or all attempts | The best answer is a single accessible action. Attempts list score and recording availability. The detail supports local video, transcript-only fallback, scores, rubric, feedback, retry scoring and confirmed deletion. |
+| Practice interview → interviewer → camera or audio recording | Compact speaker status leaves space for the question and camera. Replay, skip, automatic start, audio-only capture and Settings remain available when applicable. The recording has one stop-and-review action. Close is visibly disabled during recording and finalization. |
+| Practice interview → review → scoring → saved attempt | Review pairs playback and editable text. Retry handles upload or transcription failure. Closing or going back from review asks before discarding the recording. In-progress and stalled scoring have distinct states. |
+| Applications → saved role → mock interview setup, saved interviews and session | A native role picker replaces the wrapping chip grid. The active session names the role. Answer-specific retry and transcript correction open beside their original answer. Follow-up, early finish, analysis and final feedback remain available. |
+| Application mock interview → recorded answer and saved recordings | The recorder shows question progress, measured level, live-text toggle, timer, pause, stop and input warnings. The user can open a local or synced recording, correct, retry, use or delete a transcript. The blue stop button has a high-contrast label in both appearances. |
+| Applications → preparation plan → technical practice chooser or existing exercise | The exercise or chooser comes first. Saved sessions use exercise names when the catalog supplies them. Tool availability and the optional web workspace move into a disclosure. |
+| Technical practice → approach guide, editor, running task or feedback | Answers, optional code, notes, elapsed time, save, finish, tests, coaching and refresh retain their original paths. The existing task rows open the agent task sheet. The editor leads with the current exercise and one primary save action. |
+| Lock Screen and compact, minimal or expanded Dynamic Island → Prep | System colors support both appearances. The activity distinguishes recording, paused, coaching, ready and failed. A stale activity invites a status check. Tapping uses the app’s existing Prep URL. |
+
+## Checks
+
+The existing Python Swift structural check passed for 134 source files, and all nine checker tests passed. Source inspection matched the Motion Lab initializers, the microphone UI test labels and the recording clock identifier. The two recording surfaces use the existing measured input, and the review fields still call the existing draft-edit methods.
+
+On the Mac-built app, the highest-value check is a full spoken answer on an iPhone. Pause, resume, finish, edit the transcript, get coaching, background the app, and return from its Live Activity. Verify the text, audio and coaching still match after leaving and returning to Prep. Repeat with denied microphone permission, a camera-disabled video practice attempt, a long question, large accessibility text and Reduce Motion. Verify keyboard reach, VoiceOver focus, media playback, dark appearance and animation smoothness on the device.
+
+On an iPhone, start a role-specific mock interview, speak a recognizable sentence, then interrupt recording with a call or an audio-route change. Return to the mock: playback should use that take, available speech should be editable, and the turn count should stay unchanged until Get coaching. With on-device transcription unavailable, listen and type or select Record again. Cancel the replacement take and confirm the first take is still available. Also close the mock during finalization and confirm that no late result opens or submits an answer.

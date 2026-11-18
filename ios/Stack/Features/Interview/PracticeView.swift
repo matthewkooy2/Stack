@@ -33,23 +33,26 @@ struct PracticeView: View {
     private var liveFeature: AgentFeature? { store.account.feature("live") }
 
     var body: some View {
-        SheetPage(title: "Technical practice", subtitle: "Save answers and code, run tests, and get focused feedback.") {
-            featureSummary
+        SheetPage(title: current.object.isEmpty ? "Coding practice" : (problem?.title ?? "Coding practice")) {
             MessageLine(text: error).fadeSwitch(!error.isEmpty)
             MessageLine(text: message, isError: false).fadeSwitch(!message.isEmpty)
-            if let url = URL(string: web), !web.isEmpty {
-                StackButton(label: "Open web workspace (editor, timer, live interview)", kind: .secondary) { openURL(url) }
-            } else {
-                Text("The laptop workspace and live interviews become available when hosting is configured.")
-                    .font(Typeface.caption).foregroundStyle(Palette.muted)
-            }
             if current.object.isEmpty { chooser } else { editor }
             if !sessions.isEmpty {
-                SectionLabel(text: "Continue a session")
+                SectionLabel(text: "Continue")
                 ForEach(Array(sessions.enumerated()), id: \.offset) { _, row in
                     let language = row["data"]["language"].string
-                    OptionRow(label: row["data"]["problem_id"].string + (language.isEmpty ? "" : " · \(language)") + (row["data"]["elapsed_seconds"].int > 0 ? " · Practiced" : ""), icon: "code", disabled: busy) {
+                    let id = row["data"]["problem_id"].string
+                    OptionRow(label: problems.first(where: { $0.id == id })?.title ?? id,
+                              icon: "code", detail: language.uppercased(), disabled: busy) {
                         Task { await resume(row["id"].string) }
+                    }
+                }
+            }
+            if !web.isEmpty || coachingFeature != nil || codeFeature != nil || liveFeature != nil {
+                DisclosureSection("Practice tools") {
+                    featureSummary
+                    if let url = URL(string: web), !web.isEmpty {
+                        StackButton(label: "Open on web", kind: .secondary) { openURL(url) }
                     }
                 }
             }
@@ -116,7 +119,7 @@ struct PracticeView: View {
                 }
             }
             if problems.isEmpty {
-                Text("Technical exercises appear here when your account has them.").font(Typeface.caption).foregroundStyle(Palette.muted)
+                EmptyNote(icon: "code", title: "No exercises available")
             }
         }
     }
@@ -143,16 +146,16 @@ struct PracticeView: View {
                 StackField(label: "Your code", text: Binding(get: { code }, set: { code = $0; dirty = true }),
                            multiline: true, autocapitalization: .never)
             }
-            StackField(label: "Practice notes", text: Binding(get: { notes }, set: { notes = $0; dirty = true }), multiline: true)
+            StackField(label: "Notes", text: Binding(get: { notes }, set: { notes = $0; dirty = true }), multiline: true)
             if dirty { Text("Unsaved changes").font(Typeface.caption).foregroundStyle(Palette.muted) }
             StackButton(label: "Save practice", disabled: busy) { Task { await save(kind: "") } }
-            StackButton(label: "Finish practice", icon: "check", disabled: busy) { Task { await save(kind: "done") } }
+            StackButton(label: "Finish practice", icon: "check", kind: .secondary, disabled: busy) { Task { await save(kind: "done") } }
             if hasLanguage {
-                StackButton(label: "Save and run tests", kind: .secondary, disabled: busy || codeFeature?.state == "unavailable") {
+                StackButton(label: "Run tests", kind: .secondary, disabled: busy || codeFeature?.state == "unavailable") {
                     Task { await save(kind: "code") }
                 }
             }
-            StackButton(label: "Save and get coaching", disabled: busy || coachingFeature?.state == "unavailable") {
+            StackButton(label: "Get feedback", kind: .secondary, disabled: busy || coachingFeature?.state == "unavailable") {
                 Task { await save(kind: "prep") }
             }
             StackButton(label: "Refresh results", kind: .secondary, disabled: busy) { Task { await resume(current["id"].string) } }
@@ -167,7 +170,7 @@ struct PracticeView: View {
             }
             ForEach(Array(current["feedback"].array.enumerated()), id: \.offset) { _, item in
                 Card(tint: Palette.surfaceRaised, spacing: 8) {
-                    Text("Coaching").font(Typeface.option).foregroundStyle(Palette.icon)
+                    Text("Feedback").font(Typeface.option).foregroundStyle(Palette.icon)
                     let text = item["data"]["text"].string
                     Text(text.isEmpty ? item["data"]["summary"].string : text).font(Typeface.body).foregroundStyle(Palette.text)
                     ForEach(Array(item["data"]["rubric"].array.enumerated()), id: \.offset) { _, row in

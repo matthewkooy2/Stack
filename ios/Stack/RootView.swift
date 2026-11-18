@@ -22,7 +22,7 @@ enum StackTab: String, CaseIterable, Identifiable {
 
 @MainActor
 struct RootView: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.stackReduceMotion) private var reduceMotion
     @Environment(AppStore.self) private var store
     @Environment(\.scenePhase) private var scenePhase
 
@@ -121,21 +121,26 @@ struct JobOnboardingGate: View {
     }
 }
 
-/// The five destinations retain their order, with the blue look on Jobs, Network and Prep.
+/// Keep visited roots mounted so tab changes preserve decks, drafts and scroll positions.
 @MainActor
 struct MainTabs: View {
     @Environment(AppStore.self) private var store
-    @State private var selection: StackTab = .jobs
-    @State private var visited: Set<StackTab> = [.jobs]
+    @State private var selection: StackTab
+    @State private var visited: Set<StackTab>
     @State private var showProfile = false
     @State private var agentTask: TaskTarget?
-    @Namespace private var highlight
+    @State private var resumeRouteAfterDismissal: String?
+
+    init(selection: StackTab = .jobs) {
+        _selection = State(initialValue: selection)
+        _visited = State(initialValue: [selection])
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             ZStack {
                 ForEach(StackTab.allCases) { tab in
-                    if visited.contains(tab) {
+                    if selection == tab || visited.contains(tab) {
                         screen(for: tab)
                             .opacity(selection == tab ? 1 : 0)
                             .allowsHitTesting(selection == tab)
@@ -144,7 +149,7 @@ struct MainTabs: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            TabBar(selection: $selection, namespace: highlight, resumeIsEmpty: store.account.resumes.isEmpty)
+            TabBar(selection: $selection)
         }
         .onChange(of: selection) { _, tab in visited.insert(tab) }
         .onChange(of: store.linkedDestination) { _, destination in
@@ -153,10 +158,12 @@ struct MainTabs: View {
         .onAppear {
             if let destination = store.linkedDestination { go(to: destination); store.linkedDestination = nil }
         }
-        .sheet(isPresented: $showProfile) {
+        .sheet(isPresented: $showProfile, onDismiss: openDeferredResumeRoute) {
             ProfileView().environment(store).replayable()
         }
-        .sheet(item: $agentTask) { target in AgentTaskSheet(taskID: target.id).environment(store).replayable() }
+        .sheet(item: $agentTask, onDismiss: openDeferredResumeRoute) { target in
+            AgentTaskSheet(taskID: target.id).environment(store).replayable()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .stackNavigate)) { note in
             guard let destination = note.userInfo?["destination"] as? String else { return }
             go(to: destination)
@@ -177,11 +184,28 @@ struct MainTabs: View {
             "resume": .resume, "resume-details": .resume, "resume-bank": .resume, "prep": .prep,
         ]
         guard let tab = map[destination] else { return }
+        if destination == "resume-bank" || destination == "resume-details" {
+            if showProfile || agentTask != nil {
+                resumeRouteAfterDismissal = destination
+            } else {
+                store.pendingOpen["resume_route"] = destination
+            }
+        } else {
+            resumeRouteAfterDismissal = nil
+            store.pendingOpen.removeValue(forKey: "resume_route")
+        }
+        agentTask = nil
         showProfile = false
         visited.insert(tab)
         if tab == .network { store.pendingOpen["network_section"] = "network" }
-        withAnimation(Motion.ease(0.32)) { selection = tab }
+        selection = tab
         if destination != "prep" { Task { await store.refresh() } }
+    }
+
+    private func openDeferredResumeRoute() {
+        guard let route = resumeRouteAfterDismissal else { return }
+        resumeRouteAfterDismissal = nil
+        store.pendingOpen["resume_route"] = route
     }
 
     /// Opens the application, contact or agent task a tapped notification refers to.
@@ -221,65 +245,53 @@ struct MainTabs: View {
         case .jobs: JobsView(onProfile: { showProfile = true })
         case .applications: ApplicationsView(onProfile: { showProfile = true }, onNavigate: { selection = $0 })
         case .network: NetworkView(onProfile: { showProfile = true })
-        case .resume: ResumeView(onProfile: { showProfile = true })
-        case .prep: PrepView(isActive: selection == .prep && !showProfile && agentTask == nil)
+        case .resume: ResumeView(onProfile: { showProfile = true }, isActive: selection == .resume && !showProfile && agentTask == nil)
+        case .prep: PrepView(isActive: selection == .prep && !showProfile && agentTask == nil,
+                             onProfile: { showProfile = true })
         }
     }
 }
 
 private struct TabBar: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.stackReduceMotion) private var reduceMotion
     @Binding var selection: StackTab
-    let namespace: Namespace.ID
-    let resumeIsEmpty: Bool
-
-    private var resumeUpload: Bool { selection == .resume && resumeIsEmpty }
-    /// Screens in the blue look: the bar's icons and selection follow it. Prep keeps the page colour only.
-    private var branded: Bool { selection == .jobs || selection == .network || resumeUpload }
-    private var brandedPage: Bool { branded || selection == .prep }
-    private var pageColor: Color { brandedPage ? Brand.page : Palette.page }
-    private var highlight: Color {
-        if resumeUpload { return .clear }
-        return branded ? Brand.accent.opacity(0.10) : Palette.halo.opacity(0.7)
-    }
-
-    private func tint(for tab: StackTab) -> Color {
-        if branded { return selection == tab ? Brand.accent : Brand.muted }
-        return selection == tab ? Palette.icon : Palette.muted
-    }
+    @State private var bounces: [StackTab: Int] = [:]
 
     var body: some View {
         HStack(spacing: 0) {
             ForEach(StackTab.allCases) { tab in
+                let selected = selection == tab
                 Button {
-                    withAnimation(reduceMotion ? nil : Motion.ease(0.32)) { selection = tab }
+                    selection = tab
+                    if !reduceMotion { bounces[tab, default: 0] += 1 }
                 } label: {
-                    VStack(spacing: 4) {
-                        GlyphView(name: tab.icon, size: 21, color: tint(for: tab))
+                    VStack(spacing: 3) {
+                        Image(systemName: Glyph.symbol(tab.icon))
+                            .symbolVariant(selected ? .fill : .none)
+                            .symbolEffect(.bounce, options: .nonRepeating, value: bounces[tab, default: 0])
+                            .font(.system(size: 19, weight: .medium))
                         Text(tab.rawValue)
-                            .font(.system(size: 11, weight: selection == tab ? .semibold : .regular))
-                            .foregroundStyle(tint(for: tab))
+                            .font(.system(size: 11, weight: selected ? .semibold : .medium))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 52)
-                    .background {
-                        if selection == tab {
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(highlight)
-                                .matchedGeometryEffect(id: "tab-highlight", in: namespace)
-                        }
-                    }
+                    .foregroundStyle(selected ? Brand.accent : Brand.muted)
+                    .frame(maxWidth: .infinity, minHeight: 49)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.tap(scale: 0.94, dim: 1))
+                .buttonStyle(.plain)
                 .accessibilityLabel(tab.rawValue)
-                .accessibilityAddTraits(selection == tab ? .isSelected : [])
+                .accessibilityAddTraits(selected ? .isSelected : [])
+                .accessibilityShowsLargeContentViewer {
+                    Label(tab.rawValue, systemImage: Glyph.symbol(tab.icon))
+                }
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.top, 8)
-        .padding(.bottom, 4)
-        .background(pageColor.ignoresSafeArea(edges: .bottom))
-        .overlay(alignment: .top) { Rectangle().fill(brandedPage ? Brand.rule : Palette.rule).frame(height: 1) }
+        .animation(reduceMotion ? nil : Motion.snappy, value: selection)
+        .padding(.horizontal, 4)
+        .padding(.top, 2)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
         .sensoryFeedback(.selection, trigger: selection)
     }
 }

@@ -3,9 +3,9 @@ import SwiftUI
 enum AgentPage: String, CaseIterable, Identifiable {
     case needsYou = "Needs you"
     case activity = "Activity"
-    case features = "Features"
-    case email = "Email & calendar"
-    case facts = "Facts"
+    case features = "Setup"
+    case email = "Connections"
+    case facts = "Answers"
 
     var id: String { rawValue }
 }
@@ -15,7 +15,7 @@ extension Notification.Name {
     static let stackNavigate = Notification.Name("stack.navigate")
 }
 
-/// Agents center: attention, activity, feature guide, email and calendar, standing rules and facts.
+/// Activity center: attention, activity, feature guide, email and calendar, standing rules and facts.
 @MainActor
 struct AgentHubView: View {
     var initialPage: AgentPage = .needsYou
@@ -25,6 +25,7 @@ struct AgentHubView: View {
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @Environment(\.stackReduceMotion) private var reduceMotion
 
     @State private var page: AgentPage = .needsYou
     @State private var taskID = ""
@@ -65,10 +66,7 @@ struct AgentHubView: View {
                 TaskDetailView(id: taskID, webURL: settings["web_url"].string, onBack: { taskID = "" }, onNavigate: go)
                     .id(taskID)
             } else {
-                Page {
-                    HStack { BackButton(label: "Close") { dismiss() }; Spacer() }
-                    hub
-                }
+                SheetPage(title: "Activity") { hub }
             }
         }
         .task {
@@ -96,25 +94,22 @@ struct AgentHubView: View {
     // MARK: Pages
 
     private var hub: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Your agents.").font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
-                Text("\(store.account.activeRunCount) in progress · \(store.account.attentionRunCount) need you. Updates every few seconds.")
-                    .font(Typeface.body).foregroundStyle(Palette.muted)
-            }
-            .reveal(0)
+        let pending = attention.count + unresolved.count
+        return VStack(alignment: .leading, spacing: 16) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(AgentPage.allCases) { item in
-                        let count = attention.count + unresolved.count
-                        Chip(label: item.rawValue + (item == .needsYou && count > 0 ? " (\(count))" : ""), selected: page == item) {
-                            withAnimation(Motion.fadeAnimation) { page = item }
-                            error = ""
-                            notice = ""
+                        Chip(label: item == .needsYou && pending > 0 ? "\(item.rawValue) · \(pending)" : item.rawValue,
+                             selected: page == item) {
+                            withAnimation(reduceMotion ? nil : Motion.snappy) { page = item }
                         }
                     }
                 }
+                .padding(.horizontal, Spacing.page)
             }
+            .padding(.horizontal, -Spacing.page)
+            .accessibilityLabel("Section")
+            .onChange(of: page) { _, _ in error = ""; notice = "" }
             MessageLine(text: error).fadeSwitch(!error.isEmpty)
             MessageLine(text: notice, isError: false).fadeSwitch(!notice.isEmpty)
             switch page {
@@ -134,14 +129,13 @@ struct AgentHubView: View {
             }
             if !unresolved.isEmpty {
                 Card(spacing: 8) {
-                    Text("Messages to confirm").font(Typeface.option).foregroundStyle(Palette.icon)
-                    Text("Email tracking could not tell which application these belong to.").font(Typeface.caption).foregroundStyle(Palette.muted)
-                    Chip(label: "Open Email & calendar") { page = .email }
+                    Text("To confirm").font(.headline).foregroundStyle(Palette.icon)
+                    Text("Couldn’t match some emails to an application").font(Typeface.caption).foregroundStyle(Palette.muted)
+                    Chip(label: "Open connections") { page = .email }
                 }
             }
             if attention.isEmpty, unresolved.isEmpty {
-                EmptyNote(icon: "done", title: "Nothing needs you right now.",
-                          message: "Reviews, questions and paused tasks will appear here.")
+                EmptyNote(icon: "done", title: "You’re all caught up")
             }
         }
     }
@@ -152,27 +146,28 @@ struct AgentHubView: View {
                 SectionLabel(text: "Needs you")
                 ForEach(Array(attention.enumerated()), id: \.offset) { _, run in TaskRow(run: run) { taskID = run["id"].string } }
             }
-            SectionLabel(text: "In progress")
-            ForEach(Array(active.enumerated()), id: \.offset) { _, run in TaskRow(run: run) { taskID = run["id"].string } }
-            if active.isEmpty {
-                Text("No tasks are running. Start one from Applications, Network, Resume, or Prep.")
-                    .font(Typeface.caption).foregroundStyle(Palette.muted)
+            if !active.isEmpty {
+                SectionLabel(text: "In progress")
+                ForEach(Array(active.enumerated()), id: \.offset) { _, run in TaskRow(run: run) { taskID = run["id"].string } }
             }
-            SectionLabel(text: "Recent")
-            ForEach(Array(recent.enumerated()), id: \.offset) { _, run in TaskRow(run: run) { taskID = run["id"].string } }
-            Card(tint: Palette.oat, spacing: 6) {
-                let provider = store.account.modelProviderName
-                Text("Model provider: \(provider.isEmpty ? "Not configured" : provider)")
-                    .font(Typeface.body.weight(.semibold)).foregroundStyle(Palette.ink)
-                Text(store.account.modelProviderMessage).font(Typeface.caption).foregroundStyle(Palette.muted)
+            if !recent.isEmpty {
+                SectionLabel(text: "Recent")
+                ForEach(Array(recent.enumerated()), id: \.offset) { _, run in TaskRow(run: run) { taskID = run["id"].string } }
+            }
+            if attention.isEmpty, active.isEmpty, recent.isEmpty {
+                EmptyNote(icon: "activity", title: "No activity yet")
+            }
+            if store.account.modelProviderName.isEmpty, !store.account.modelProviderMessage.isEmpty {
+                Card(spacing: 6) {
+                    StatusPill(text: "AI model not set up", tone: .warning)
+                    Text(store.account.modelProviderMessage).font(Typeface.caption).foregroundStyle(Palette.muted)
+                }
             }
         }
     }
 
     private var featuresPage: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Every agent, what it needs, and where to start it. Stack never sends email or changes your calendar without your approval.")
-                .font(Typeface.body).foregroundStyle(Palette.text)
             ForEach(store.account.features) { feature in
                 if feature.key == "email" { GmailTrackingSection() }
                 else { FeatureCardView(feature: feature, onAction: go) }
@@ -183,9 +178,9 @@ struct AgentHubView: View {
     private var emailPage: some View {
         VStack(alignment: .leading, spacing: 12) {
             GmailTrackingSection(onConnected: { await loadSettings(resetRules: false) })
-            DisclosureSection("Advanced settings", detail: "Sending, calendar and disconnect") { rulesPage }
+            DisclosureSection("Settings", detail: "Sending and calendar") { rulesPage }
             if let calendar = store.account.feature("calendar") { FeatureCardView(feature: calendar, onAction: go, compact: true) }
-            SectionLabel(text: "Messages to confirm")
+            SectionLabel(text: "To confirm")
             ForEach(Array(unresolved.enumerated()), id: \.offset) { _, event in
                 let key = event["id"].string
                 Card(spacing: 10) {
@@ -202,29 +197,25 @@ struct AgentHubView: View {
                     Text("What does it confirm?").font(Typeface.caption).foregroundStyle(Palette.muted)
                     ChoiceChips(options: ["Submitted", "Assessment", "Interview", "Offer", "Rejected"],
                                 isSelected: { eventStatus[key] == $0 }, onTap: { eventStatus[key] = $0 })
-                    StackButton(label: "Save to application",
+                    StackButton(label: "Save",
                                 disabled: busy || (eventApplication[key] ?? "").isEmpty || (eventStatus[key] ?? "").isEmpty) {
                         Task {
                             await perform("agent_resolve_event",
                                           ["id": .string(key), "application_id": .string(eventApplication[key] ?? ""),
                                            "status": .string(eventStatus[key] ?? "")],
-                                          done: "Application status updated from this message.")
+                                          done: "Status updated")
                         }
                     }
                 }
             }
-            if unresolved.isEmpty { Text("No messages need confirmation.").font(Typeface.caption).foregroundStyle(Palette.muted) }
-            SectionLabel(text: "Recent updates from email")
+            if unresolved.isEmpty { Text("Nothing to confirm").font(Typeface.caption).foregroundStyle(Palette.muted) }
+            SectionLabel(text: "From email")
             ForEach(Array(events.filter { !$0["ambiguous"].bool || $0["resolved"].bool }.prefix(10).enumerated()), id: \.offset) { _, event in
                 Card(spacing: 4) {
                     Text("\(event["status"].string.isEmpty ? "Update" : event["status"].string) · \(event["subject"].string)")
                         .font(Typeface.body.weight(.semibold)).foregroundStyle(Palette.ink)
                     Text("“\(String(event["quote"].string.prefix(200)))”").font(Typeface.caption).foregroundStyle(Palette.muted)
                 }
-            }
-            if events.isEmpty {
-                Text("Tracked updates appear here and in each application’s status history.")
-                    .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             SectionLabel(text: "Interviews")
             ForEach(Array(interviews.enumerated()), id: \.offset) { _, item in
@@ -235,12 +226,12 @@ struct AgentHubView: View {
                         TaskRow(run: run) { taskID = run["id"].string }
                     }
                     if !item["study_plan"].array.isEmpty {
-                        Chip(label: "\(item["study_plan"].array.count) practice sessions in Prep") { go("prep") }
+                        Chip(label: "\(item["study_plan"].array.count) practice sessions") { go("prep") }
                     }
                 }
             }
             if interviews.isEmpty {
-                Text("Interview invitations found by email tracking appear here, each with a calendar change for you to review.")
+                Text("Invitations from Gmail appear here")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
         }
@@ -248,30 +239,29 @@ struct AgentHubView: View {
 
     private var rulesPage: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Outbound permissions control connected accounts and external actions. You still approve every email and calendar change.")
+            Text("You approve every change")
                 .font(Typeface.body).foregroundStyle(Palette.text)
-            ToggleRow(label: "Enable outbound permissions", isOn: Binding(get: { enabled }, set: { enabled = $0; rulesDirty = true }))
+            ToggleRow(label: "Allow sending and calendar changes", isOn: Binding(get: { enabled }, set: { enabled = $0; rulesDirty = true }))
             if settings["policy"]["enabled"].bool, settings["policy"]["expires_at"].double > 0 {
-                Text("Current permissions expire \(dateTime(settings["policy"]["expires_at"].double)).")
+                Text("Expires \(dateTime(settings["policy"]["expires_at"].double))")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             ChoiceChips(options: ["send_email", "calendar_write"],
                         isSelected: { actions.contains($0) },
                         onTap: { actions = actions.toggled($0); rulesDirty = true },
                         labelFor: { $0.replacingOccurrences(of: "_", with: " ").capitalized })
-            ToggleRow(label: "Analyze up to three top matches daily", isOn: Binding(get: { analyzeTop }, set: { analyzeTop = $0; rulesDirty = true }))
-            StackField(label: "Allowed destination domains", text: Binding(get: { domains }, set: { domains = $0; rulesDirty = true }),
+            ToggleRow(label: "Analyze top matches daily", isOn: Binding(get: { analyzeTop }, set: { analyzeTop = $0; rulesDirty = true }))
+            StackField(label: "Allowed domains", text: Binding(get: { domains }, set: { domains = $0; rulesDirty = true }),
                        placeholder: "company.com", multiline: true, keyboard: .URL, autocapitalization: .never)
-            Text("Email recipients must be on this list. Use exact domains.").font(Typeface.caption).foregroundStyle(Palette.muted)
-            StackField(label: "Daily limit per action", text: Binding(get: { daily }, set: { daily = $0; rulesDirty = true }), keyboard: .numberPad)
-            StackField(label: "Follow-ups per contact (0–3)", text: Binding(get: { followups }, set: { followups = $0; rulesDirty = true }), keyboard: .numberPad)
-            Text("Permissions expire after 30 days. Follow-ups are drafted seven days apart, wait for your approval, and stop when a reply arrives.")
+            StackField(label: "Daily limit", text: Binding(get: { daily }, set: { daily = $0; rulesDirty = true }), keyboard: .numberPad)
+            StackField(label: "Follow-ups per contact", text: Binding(get: { followups }, set: { followups = $0; rulesDirty = true }), keyboard: .numberPad)
+            Text("Expires in 30 days")
                 .font(Typeface.caption).foregroundStyle(Palette.muted)
-            StackButton(label: "Save outbound permissions" + (rulesDirty ? " · unsaved changes" : ""), disabled: busy) {
+            StackButton(label: "Save", disabled: busy) {
                 Task { await savePolicy() }
             }
             if rulesDirty, !settings.object.isEmpty {
-                StackButton(label: "Discard changes", kind: .secondary) { fillRules(settings["policy"]) }
+                StackButton(label: "Discard", kind: .secondary) { fillRules(settings["policy"]) }
             }
             Text("Google").font(Typeface.title).foregroundStyle(Palette.ink)
             StackButton(label: "Allow Gmail sending", kind: .secondary, disabled: busy) { Task { await connect(["send"]) } }
@@ -281,7 +271,7 @@ struct AgentHubView: View {
                     Text("\(connection["provider"].string.capitalized) · \(connection["state"].string)")
                         .font(Typeface.option).foregroundStyle(Palette.icon)
                     StackButton(label: "Disconnect Google", kind: .secondary, disabled: busy) {
-                        Task { await perform("agent_disconnect", ["id": connection["id"]], done: "Disconnected.") }
+                        Task { await perform("agent_disconnect", ["id": connection["id"]], done: "Disconnected") }
                     }
                 }
             }
@@ -290,8 +280,8 @@ struct AgentHubView: View {
 
     private var factsPage: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Agents reuse only confirmed facts. Extract text from a resume on the Resume tab, then confirm what is accurate.")
-                .font(Typeface.body).foregroundStyle(Palette.text)
+            Text("Answers Stack can reuse on applications")
+                .font(Typeface.caption).foregroundStyle(Palette.muted)
             ForEach(Array(settings["facts"].array.enumerated()), id: \.offset) { _, fact in
                 Card(spacing: 6) {
                     Text(fact["key"].string).font(Typeface.option).foregroundStyle(Palette.icon)
@@ -300,22 +290,22 @@ struct AgentHubView: View {
                     if fact["verified"].bool {
                         Chip(label: "Confirmed", selected: true)
                     } else {
-                        StackButton(label: "Confirm this fact", kind: .secondary, disabled: busy) {
+                        StackButton(label: "Confirm", kind: .secondary, disabled: busy) {
                             var confirmed = fact
                             confirmed["verified"] = true
-                            Task { await perform("agent_save_facts", ["facts": [confirmed]], done: "Fact confirmed.") }
+                            Task { await perform("agent_save_facts", ["facts": [confirmed]], done: "Confirmed") }
                         }
                     }
                 }
             }
-            if settings["facts"].array.isEmpty { Text("No facts yet.").font(Typeface.caption).foregroundStyle(Palette.muted) }
-            StackField(label: "Fact name", text: $factKey, placeholder: "email, phone, name, work_authorization", autocapitalization: .never)
+            if settings["facts"].array.isEmpty { Text("No answers yet").font(Typeface.caption).foregroundStyle(Palette.muted) }
+            StackField(label: "Question", text: $factKey, placeholder: "Work authorization", autocapitalization: .never)
             StackField(label: "Your answer", text: $factValue, multiline: true)
-            StackButton(label: "Save confirmed fact", disabled: busy || factKey.isBlank || factValue.isBlank) {
+            StackButton(label: "Save answer", disabled: busy || factKey.isBlank || factValue.isBlank) {
                 Task {
                     await perform("agent_save_facts",
                                   ["facts": [["key": .string(factKey), "value": .string(factValue), "verified": true, "source": "User confirmed"]]],
-                                  done: "Fact saved.")
+                                  done: "Saved")
                     if error.isEmpty { factKey = ""; factValue = "" }
                 }
             }
@@ -335,7 +325,7 @@ struct AgentHubView: View {
         } else if action == "web" {
             if let url = URL(string: settings["web_url"].string), !settings["web_url"].string.isEmpty { openURL(url) }
         } else if action == "features" { page = .features; taskID = "" }
-        else if action == "Agents" { page = .activity; taskID = "" }
+        else if action == "Agents" || action == "Activity" { page = .activity; taskID = "" }
         else {
             NotificationCenter.default.post(name: .stackNavigate, object: nil, userInfo: ["destination": action])
             dismiss()
@@ -393,14 +383,14 @@ struct AgentHubView: View {
             try await store.googleConnection.connect(capabilities)
             await store.refresh()
             await loadSettings(resetRules: false)
-            notice = "Google connected."
+            notice = "Google connected"
         } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
     }
 
     private func savePolicy() async {
         guard let limit = Int(daily.trimmingCharacters(in: .whitespaces)), let count = Int(followups.trimmingCharacters(in: .whitespaces)),
               limit >= 0, count >= 0 else {
-            error = "Enter whole numbers for daily and follow-up limits."
+            error = "Use whole numbers"
             return
         }
         let policy: JSON = [
@@ -413,7 +403,7 @@ struct AgentHubView: View {
             "followup_days": settings["policy"]["followup_days"].isNull ? .number(7) : settings["policy"]["followup_days"],
             "analyze_top_matches": .bool(analyzeTop),
         ]
-        await perform("agent_save_policy", ["policy": policy], done: "Standing permissions saved for 30 days.")
+        await perform("agent_save_policy", ["policy": policy], done: "Saved")
     }
 }
 

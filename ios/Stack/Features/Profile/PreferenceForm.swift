@@ -96,12 +96,12 @@ struct MatchInputsView: View {
                                 isSelected: { form.stage == $0 }, onTap: { form.stage = form.stage == $0 ? "" : $0 })
                 }
             }
-            StackField(label: "Years of experience in this field", text: $form.years, placeholder: "For example, 2", keyboard: .numbersAndPunctuation)
-            group("Education, completed or in progress") {
+            StackField(label: "Years of experience", text: $form.years, placeholder: "2", keyboard: .numbersAndPunctuation)
+            group("Education") {
                 ChoiceChips(options: ["High school", "Associate", "Bachelor's", "Master's", "Doctorate"],
                             isSelected: { form.education == $0 }, onTap: { form.education = form.education == $0 ? "" : $0 })
             }
-            group("Open to") {
+            group("Work arrangement") {
                 ChoiceChips(options: ["Remote", "Hybrid", "On-site"],
                             isSelected: { form.modes.contains($0) }, onTap: { form.modes = form.modes.toggled($0) })
             }
@@ -110,19 +110,17 @@ struct MatchInputsView: View {
                             isSelected: { form.employmentTypes.contains($0) },
                             onTap: { form.employmentTypes = form.employmentTypes.toggled($0) })
             }
-            DisclosureSection("More preferences", detail: "Pay, exclusions, nice-to-haves", open: startOpen) {
+            DisclosureSection("More", detail: "Pay and exclusions", open: startOpen) {
                 VStack(alignment: .leading, spacing: 18) {
-                    StackField(label: "Minimum pay (USD)", text: $form.salaryMin, placeholder: "Optional", keyboard: .decimalPad)
+                    StackField(label: "Minimum pay", text: $form.salaryMin, keyboard: .decimalPad)
                     ChoiceChips(options: ["hour", "year"], isSelected: { form.salaryPeriod == $0 },
                                 onTap: { form.salaryPeriod = $0 }, labelFor: { "per " + $0 })
-                    StackField(label: "Hide these employers", text: $form.excludeCompanies, placeholder: "Separate with commas")
-                    StackField(label: "Hide jobs mentioning", text: $form.excludeTerms, placeholder: "Separate with commas")
-                    group("Nice to have, not required") {
+                    StackField(label: "Hide companies", text: $form.excludeCompanies, placeholder: "Separate with commas")
+                    StackField(label: "Hide keywords", text: $form.excludeTerms, placeholder: "Separate with commas")
+                    group("Flexible") {
                         ChoiceChips(options: niceToHave.map(\.key), isSelected: { form.soft.contains($0) },
                                     onTap: { form.soft = form.soft.toggled($0) },
                                     labelFor: { key in niceToHave.first { $0.key == key }?.label ?? key })
-                        Text("Conflicts with a requirement are hidden. Nice-to-haves only change the order.")
-                            .font(Typeface.caption).foregroundStyle(Palette.muted)
                     }
                 }
             }

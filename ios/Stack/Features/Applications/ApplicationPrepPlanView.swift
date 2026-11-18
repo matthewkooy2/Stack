@@ -7,30 +7,33 @@ struct ApplicationPrepPlanView: View {
     @Environment(AppStore.self) private var store
     @State private var plan: [JSON] = []
     @State private var sessions: [JSON] = []
+    @State private var questions: [PrepQuestion] = []
     @State private var practice: TaskTarget?
     @State private var loading = true
     @State private var error = ""
 
     var body: some View {
         SheetPage(title: "Interview plan", subtitle: application.job.title + " · " + application.job.company) {
-            if loading { ProgressView().tint(Palette.muted) }
+            if loading { ForEach(0..<3, id: \.self) { _ in SkeletonRow() } }
             MessageLine(text: error).fadeSwitch(!error.isEmpty)
-            if !error.isEmpty { StackButton(label: "Retry plan", kind: .secondary) { Task { await load() } } }
+            if !error.isEmpty { StackButton(label: "Try again", kind: .secondary) { Task { await load() } } }
             ForEach(Array(plan.enumerated()), id: \.offset) { _, row in
                 let sessionID = row["session_id"].string
                 let session = sessions.first { $0["id"].string == sessionID }
+                let problemID = row["problem_id"].string
+                let title = questions.first { $0.id == problemID }?.title ?? problemID
                 Card(spacing: 10) {
-                    Text(row["title"].string).font(Typeface.option).foregroundStyle(Palette.ink)
+                    Text(row["title"].string.isEmpty ? title : row["title"].string).font(Typeface.option).foregroundStyle(Palette.ink)
                     Text(row["reason"].string).font(Typeface.caption).foregroundStyle(Palette.muted)
                     Text((session?["data"]["elapsed_seconds"].double ?? 0) > 0 ? "Practiced" : "Ready to practice")
                         .font(Typeface.caption).foregroundStyle(Palette.muted)
-                    StackButton(label: "Practice this question", kind: .secondary, disabled: sessionID.isEmpty || loading) {
+                    StackButton(label: "Practice", kind: .secondary, disabled: sessionID.isEmpty || loading) {
                         practice = TaskTarget(id: sessionID)
                     }
                 }
             }
             if !loading, plan.isEmpty, error.isEmpty {
-                Text("No practice questions are available for this role yet.").font(Typeface.body).foregroundStyle(Palette.muted)
+                Text("No questions yet").font(Typeface.body).foregroundStyle(Palette.muted)
             }
         }
         .task { await load() }
@@ -48,6 +51,9 @@ struct ApplicationPrepPlanView: View {
             guard generation == store.sessionGeneration else { throw CancellationError() }
             plan = result["plan"].array
             sessions = try await store.call("prep_sessions")["sessions"].array
+            if plan.contains(where: { $0["title"].string.isEmpty }) {
+                questions = try await store.prep.catalog()
+            }
             error = ""
         } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
     }

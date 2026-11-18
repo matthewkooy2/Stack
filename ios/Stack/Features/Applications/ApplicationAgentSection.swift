@@ -23,10 +23,10 @@ struct ApplicationAgentSection: View {
     }
 
     private let actions = [
-        Action(kind: "jobs", label: "Explain my fit", text: "Strengths, gaps and unknowns"),
-        Action(kind: "resume", label: "Tailor my resume", text: "One page for this job; you keep or reject each change"),
-        Action(kind: "autofill", label: "Autofill saved answers", text: "Fills saved answers in supported fields; the form may autosave. You review and submit."),
-        Action(kind: "plan", label: "Build interview plan", text: "Adds practice sessions to Prep"),
+        Action(kind: "jobs", label: "Check fit", text: "Strengths and gaps"),
+        Action(kind: "resume", label: "Tailor resume", text: "For this job"),
+        Action(kind: "autofill", label: "Autofill form", text: "You review and submit"),
+        Action(kind: "plan", label: "Plan practice", text: "Questions for this job"),
     ]
 
     private var started: [JSON] {
@@ -61,7 +61,7 @@ struct ApplicationAgentSection: View {
         return fixes
     }
 
-    /// Whether some agent needs more than the shared fixes; that detail waits under Agent help.
+    /// Whether some agent needs more than the shared fixes; that detail waits under Help with this job.
     private var hasSpecificGuidance: Bool {
         shortfalls.contains { feature in feature.missingRequired.contains { !commonFixes.contains($0.fix) } }
     }
@@ -73,7 +73,7 @@ struct ApplicationAgentSection: View {
             }
             if !shortfalls.isEmpty { setupSummary }
             // Collapsed: the choices and their per-agent detail are one tap away, never in the way of Notes.
-            DisclosureSection("Agent help", detail: "You choose what starts. Review and submit applications yourself.") {
+            DisclosureSection("Help with this job", detail: "Fit, tailoring, practice") {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(actions) { action in
                         let feature = action.kind == "plan" ? nil : store.account.feature(forKind: action.kind)
@@ -92,18 +92,18 @@ struct ApplicationAgentSection: View {
                                 if unavailable {
                                     StatusPill(label: AgentLabels.featureState["unavailable"] ?? "Unavailable", tone: .quiet)
                                     if !feature.alternative.isEmpty {
-                                        Text("Meanwhile: \(feature.alternative)").font(Typeface.caption).foregroundStyle(Palette.muted)
+                                        Text(feature.alternative).font(Typeface.caption).foregroundStyle(Palette.muted)
                                     }
                                 }
                             }
                         }
                     }
-                    ListRow(label: "Mock interview for this role", icon: "chat") { showInterview = true }
+                    ListRow(label: "Mock interview", icon: "chat") { showInterview = true }
                 }
             }
             MessageLine(text: message, isError: false).fadeSwitch(!message.isEmpty)
             if offerPrep {
-                Chip(label: "Open Prep for this role") { showPrepPlan = true }
+                Chip(label: "View plan") { showPrepPlan = true }
             }
             MessageLine(text: error).fadeSwitch(!error.isEmpty)
         }
@@ -123,7 +123,7 @@ struct ApplicationAgentSection: View {
                 Text("✕ \(fix)").font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             if hasSpecificGuidance {
-                Text("Some tasks need more. Open Agent help for each one.").font(Typeface.caption).foregroundStyle(Palette.muted)
+                Text("Setup steps are in the help below").font(Typeface.caption).foregroundStyle(Palette.muted)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -140,12 +140,12 @@ struct ApplicationAgentSection: View {
         do {
             if kind == "plan" {
                 let result = try await store.call("prep_for_application", ["application_id": .string(application.id)])
-                message = "Added \(result["plan"].array.count) practice sessions to Prep."
+                message = "Practice sessions in this plan: \(result["plan"].array.count)"
                 offerPrep = true
             } else {
                 let result = try await store.call("agent_start", ["kind": .string(kind), "target_id": .string(application.id)])
                 if kind == "resume" || kind == "autofill" { task = TaskTarget(id: result["id"].string) }
-                else { message = "\(result["title"].string) started. Progress appears below and in Agents." }
+                else { message = "\(result["title"].string) started." }
             }
         } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
     }

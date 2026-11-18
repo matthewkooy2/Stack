@@ -1,114 +1,58 @@
-# Stack iOS UI style
+# Stack for iPhone
 
-This is the look to build new screens in and to move old screens toward. It was set on the launch, login and Prep
-screens. Read it before adding or restyling any SwiftUI.
+Stack has five places to work. Jobs is a deck for making a decision, Applications is a list for returning to a role, Network holds people and profile work, Resume holds documents, and Prep opens on a question. Each uses the same title, account avatar (the user's initials on the brand gradient) and bottom navigation. The shape of the content tells you where you are.
 
-## Where it is applied
+## Layout and hierarchy
 
-New look (use these as the reference): launch sequence, `Features/Access/AccessView.swift` (welcome, sign in,
-create account), `Features/Prep/PrepScreens.swift` with `PrepView.swift`, and the Resume tab's first-use screen
-(`Features/Resume/ResumeUploadScreen.swift`), the Jobs deck (`Features/Jobs/JobCard.swift`, `JobsView.swift`) and the Network tab
-(`Features/Network/NetworkView.swift`, `PresenceView.swift`).
+- Start a tab with its name and a compact account button. Put the user's work immediately below it. Keep visited tabs mounted so a draft, deck position or recording review survives a round trip.
+- Use a neutral canvas. Give a document, a group of related rows or the next practice question a raised surface. Use whitespace between sections and dividers inside lists. Reserve job photography for the deck and the Stack mark for identity.
+- Put the frequent decision on the screen. Use a contextual menu for setup and occasional management. Put consequential approvals next to the material being approved. Keep the close action reachable while a sheet scrolls.
+- Keep the existing system file picker, listing browser, permission dialogs and media playback controls. Give people a clear return to the item they came from.
 
-Everything else now follows the same look through the shared tokens and components: `Palette` resolves to `Brand`, and
-`StackButton`, `OptionRow`, `ListRow`, `Card`, `Chip`, `StackField`, `BackButton`, `SheetPage` and `ScreenHeader` in
-`Design/Components.swift` and `Design/Support.swift` draw the blue pill, hairline rows, white fields and heavy headlines.
-That covers Applications, the populated Resume view, Profile, the Interview and Practice sheets, and the sheets opened from
-Jobs and Network. New code should use `Brand` directly. `ios/README.md` still describes the old cream palette.
+## SwiftUI building blocks
 
-Do not bring back a second look on any screen.
-
-## Principles
-
-1. One thing to read and one thing to tap per screen. The user should have to think as little as possible.
-2. Big type, lots of space, no cards, no borders around content. Separate rows with a one point hairline.
-3. One accent colour, blue, used for the main action and for small labels. Everything else is black, grey or white.
-4. Say less. A headline, at most one line of detail, one main button, and at most two quiet links. If a screen
-   needs more, put the rest one tap away (an expanding row, a "Your answer" link, a sheet).
-5. Motion is smooth and continuous: nothing pops, flashes or jumps, and elements never swap mid-air.
-6. No jargon from the backend on screen. Never write "worker", "queue", "run" or "revision" for the user.
-
-## Colours
-
-Use `Brand` (in `Design/StackMark.swift`), never raw hex in a view.
-
-| Token | Hex | Use |
-| --- | --- | --- |
-| `Brand.page` | `F5F3F0` | Every screen background, set with `.background(Brand.page.ignoresSafeArea())` |
-| `Brand.ink` | `111111` | Headlines and primary text |
-| `Brand.accent` | `2563FF` | Main button, small labels, filled score dots, links that act |
-| `Brand.muted` | `5E5C58` | Secondary text and quiet links |
-| `Brand.rule` | `DAD7D2` | Hairlines, empty dots, outlines |
-
-White (`Color.white`) is used for text fields, the back button and the Google button. Errors use `Palette.danger`.
-Do not add new colours. A zero or failing score is `Palette.danger`; nothing else is red.
-
-## Type
-
-System font, tight and heavy for headlines.
-
-| Role | Spec |
+| Element | Implementation |
 | --- | --- |
-| Hero or question | `.system(size: 36, weight: .heavy)`, `.tracking(-1.8)`, `minimumScaleFactor(0.6)` |
-| Screen title | `.system(size: 36, weight: .heavy)`, `.tracking(-1.8)` |
-| Large number (timer) | `.system(size: 64, weight: .heavy).monospacedDigit()`, `.tracking(-2)` |
-| Row title | `.system(size: 20 to 22, weight: .semibold)`, `.tracking(-0.5)` |
-| Small label | `.system(.subheadline).weight(.semibold)`, in `Brand.accent` or `Brand.muted` |
-| Body and detail | `Typeface.body` or `Typeface.caption`, in `Brand.muted` for detail |
-| Button | `.system(.headline).weight(.semibold)` |
+| Page | Use `CollectionPage` for Applications, Network and Resume. Its pinned heading measures the remaining viewport so the empty or featured content can use its height. Use `Page` for other scrolling content with 20-point horizontal margins. Let long titles, prompts and field values wrap. |
+| Tab title | `ScreenHeader` uses the system large title and a separate account action. Header accessories use `HeaderIconButton(systemName:label:action:)` or `HeaderMenu(_:label:content:)`, or `HeaderIcon(_:label:)` as a custom `Menu` label: one 17-point semibold symbol in a 36-point raised circle with a hairline, 44-point hit area, press scale. |
+| Sheet | `SheetPage` pins the title and close control above its scroll view. Use its Back label for a preceding pane, and its close callback when a feature must save or confirm first. |
+| Surface | `Card` uses 16-point interior padding, a 20-point continuous corner and a very soft light-mode shadow (`elevated: false` or `.stackElevation(false)` to remove; dark mode is flat). One surface can hold a group. Radii come from `Radius`: card 20, control and field 14, button 16. |
+| Action | `StackButton` provides a 52-point primary button and a quieter secondary button. Keep a 44-point interaction area on compact controls. |
+| Selection | Use a checkmark, selected trait, text or icon change alongside color. Use a native menu for a long single-choice list and a visible selector for peer destinations. |
+| Text | Use system text styles for titles, headings, body and detail. Give form labels and long facts room at accessibility sizes. |
+| People | `Avatar(name:)` or `Avatar(initials:seed:)` picks one of six soft tints from the name (`Palette.tint(for:)`); the old `Avatar(initials:)` keeps one tint. |
+| State | `StatusPill(text:tone:)` with tones neutral, accent, success, warning, danger. One pill per row at most. |
+| Lists | `SectionHeader(title:)` (footnote semibold, muted, sentence case, optional trailing control) heads a group. `SectionLabel` is the same without a trailing control. |
+| Loading | `SkeletonBlock` and `SkeletonRow` hold the shape of loading content with a shimmer that stops under Reduce Motion. Prefer them to spinners. |
+| Empty | `CollectionEmptyState` (symbol disc, title, optional subtitle, capsule action) sits slightly above center in the height it is given. `EmptyNote` is the inline version; `SymbolDisc` is the shared disc. |
+| Fields | `StackField` uses an adaptive fill and visible focus border. Retain the keyboard dismissal action and the edited value after failure. |
 
-Long text is never set in headline type. Cut it to a sentence (see `CoachingText.headline`) and put the rest behind a tap.
+## Color
 
-## Components
+| Use | Light | Dark |
+| --- | --- | --- |
+| Page | `#F5F6F8` | `#101216` |
+| Surface | `#FFFFFF` | `#1C2027` |
+| Raised control | `#FFFFFF` | `#252A33` |
+| Primary text | `#191D25` | `#F1F3F7` |
+| Secondary text | `#586170` | `#ADB5C4` |
+| Accent text and symbols | `#2256CB` | `#8CB1FF` |
+| Primary button with white label | `#2256CB` | `#365FCA` |
 
-Use these instead of writing new ones. All are in `Features/Prep/PrepScreens.swift` unless noted.
-
-- `PrimaryPill`: the one main button. Blue, 58 pt tall, 16 pt corners, white semibold label, optional SF Symbol.
-  One per screen.
-- `QuietLinks` with `ScreenLink`: grey text links under the main button. Two at most.
-- `BrandBackButton`: round white back button, 44 pt. Prep pages that are not full screen use it; login forms have their own `AccessBackButton`.
-- `PrepQuestionScreen`, `PrepRecordingScreen`, `PrepWorkingScreen`, `PrepCoachingScreen`, `PrepDoneScreen`,
-  `PrepListScreen`, `PrepSavedAnswerScreen`: the full screens. They are plain views fed by values and closures, so the
-  Motion Lab can show them with no session, microphone or network. Keep new screens that way.
-- `StackMark` (`Design/StackMark.swift`): the coin S mark. Never draw another logo. `tiled: true` is the icon form.
-- Text fields: white, 14 pt corners, hairline border that turns blue with focus (`AccessField` in `AccessView.swift`).
-- Social sign-in: Apple's system button and a white Google button with the multicolour G (`GoogleG` asset).
-
-Layout: 24 pt side margins (`Spacing.page`), main button at the bottom, content centred or top aligned in the space above it.
-Tap targets are at least 44 pt. Set the page background on the root view so the tab bar and scroll bounce match.
+Use `Brand` and `Palette` from the design directory. For an inverted ink control use `Palette.dark` with `Palette.onDark`. Reserve danger and success colors for corresponding states. Documents, photographs and branded authentication buttons keep their own artwork.
 
 ## Motion
 
-- Entrances use `.reveal(index, delay:)` from `Design/Motion.swift`: content rises 14 pt and fades in, staggered by 0.055 s.
-- Easing is `Motion.ease(duration)`, the one shared curve. Springs only for the mark and small pops.
-- Honour Reduce Motion everywhere: read `\.stackReduceMotion`, never `accessibilityReduceMotion` alone.
-- Mark a screen with `.replayable()` so the Motion Lab can replay its entrance.
-- Colour changes never cross-fade a foreground and a background that swap contrast, because the middle frames turn
-  unreadable. The launch sequence uses an expanding mask for this; copy that approach.
-- Do the expensive build of the next screen while nothing is moving, hold its entrances (`launchHold`), then release.
-- Do not put `drawingGroup()` on the mark: it clips and blurs it when scaled.
+Tab selection takes effect immediately. A filled symbol and tinted label mark the active destination above a system bar material. A typical stage change takes 240 ms. A reveal moves six points in 230 ms, with 25 ms between siblings for at most four intervals. Buttons have a quick press-in with a slight dim and a damped spring release (`.tap` style). Spring tokens live in `Motion`: `snappy` for layout and selection, `smooth` for content swaps, `bouncyPress` for small pops, `Motion.animation(_:reduce:)` for the reduced-motion `nil`. The selected tab symbol bounces once. Use haptics for selection and completion.
 
-## Words
+Launch shows the mark while the account restores. The app becomes available when its data is ready. Read `stackReduceMotion` to honor the system setting and the preview policy. Keep the debug Motion Lab connected to the production views and offline fixtures.
 
-- Sentence case. Short. No exclamation marks, no "please", no "successfully".
-- Buttons are one to three words and start with a verb where possible: "Answer", "Done", "Next question", "Try again".
-- Errors say what happened and what to do, in one line, with the action as the button.
-- Show a score as `n/4` with filled dots, and open its reason on tap.
+For a new flow, check slow loading, empty data, failed requests, cancellations and return navigation. For a visual change, review text size, appearance, touch targets, keyboard reach and animation on a physical iPhone. See the [route audit and device walkthrough](../docs/ios-ui/README.md).
 
-## Every new screen needs
+## Copy
 
-1. Its states: loading, empty, error, success, and the case where the data is not what you expected.
-2. A Motion Lab entry in `Features/Debug/MotionLab.swift` (`LabScreen`) so it can be previewed and replayed. Keep the lab; do
-   not remove or bypass it. It is DEBUG only.
-3. A test for any parsing or logic. Model replies are free text and their layout changes, so test against real replies,
-   with names changed (see `Features/Debug/CoachingSamples.swift` and `CoachingTextTests`).
-4. A check on the simulator with real data, then on the phone. Do not hand over a screen you have only seen with made-up data.
-
-## Verifying
-
-- Build and run: follow `CLAUDE.md` (simulator) and use `scripts/ios-phone.sh` for the phone.
-- Drive the app yourself, including recording audio, rather than asking the user to test. Ask first before creating or
-  changing data on the real account.
-- A screenshot only samples a moment. For animation, record the simulator (`xcrun simctl io <id> recordVideo`) and read
-  frames, or measure with the debug timing in `Features/Debug/PrepTrace.swift`.
-- Commit subjects use `type<scope>: lowercase outcome` with no final period and no co-author line. See `docs/COMMIT_STYLE.md`.
+- Titles are one to four words. Add at most one short supporting sentence, and only when it changes what the person does next.
+- No explanations of how the system works, no disclaimers or repeated reassurance in primary UI. Put rare detail behind an About row or a footnote at the bottom of a sheet.
+- Sentence case everywhere. No trailing periods on labels, buttons, chips or one-line captions.
+- Buttons are verbs: Save, Upload resume, Start practice.
+- No debug strings, internal names or dataset credits in primary UI.

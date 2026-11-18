@@ -27,22 +27,20 @@ struct JobOnboardingView: View {
             } else if picker == "location" {
                 LocationChoiceView(onSelect: { location = $0; picker = "" }, onBack: { picker = "" })
             } else if picker == "stage" {
-                SheetPage(title: "Career stage", onClose: { picker = "" }) {
+                SheetPage(title: "Career stage", closeLabel: "Back", onClose: { picker = "" }) {
                     VStack(spacing: 0) {
                         ForEach(PreferenceForm.careerStages, id: \.self) { value in
-                            Button { stage = value; picker = "" } label: {
-                                HStack {
-                                    Text(value).foregroundStyle(Brand.ink)
-                                    Spacer()
-                                    if stage == value { Image(systemName: "checkmark").foregroundStyle(Brand.accent) }
-                                }
-                                .font(Typeface.body).frame(minHeight: 56).contentShape(Rectangle())
-                                .overlay(alignment: .bottom) { Rectangle().fill(Brand.rule).frame(height: 1) }
-                            }.buttonStyle(.plain)
+                            JobChoiceRow(label: value, selected: stage == value,
+                                         showsRule: value != PreferenceForm.careerStages.last) { stage = value; picker = "" }
                         }
                     }
-                    Button("Skip for now") { stage = ""; picker = "" }
-                        .font(Typeface.caption).foregroundStyle(Brand.muted).frame(minHeight: 44)
+                    .padding(.horizontal, 16)
+                    .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                    .stackElevation()
+                    if !stage.isEmpty {
+                        Button("Clear") { stage = ""; picker = "" }
+                            .font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent).frame(minHeight: 44)
+                    }
                 }
             } else if finished {
                 ResumeUploadScreen(uploading: uploader.isBusy, fileName: uploader.fileName, disabled: store.busy,
@@ -50,7 +48,7 @@ struct JobOnboardingView: View {
                                    progress: uploader.progress, onUpload: chooseResume,
                                    onRetry: uploader.canRetry ? { retryUpload() } : nil)
                     .safeAreaInset(edge: .bottom, spacing: 0) {
-                        Button("Skip for now", action: onDone)
+                        Button("Not now", action: onDone)
                             .font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.muted)
                             .frame(maxWidth: .infinity, minHeight: 44).disabled(uploader.isBusy)
                             .padding(.horizontal, Spacing.page).padding(.bottom, 16)
@@ -58,27 +56,40 @@ struct JobOnboardingView: View {
                     }
             } else {
                 VStack(spacing: 0) {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text("A little about\nyour search.")
-                                .font(Typeface.display).tracking(-1.8).foregroundStyle(Brand.ink).reveal(0)
-                            Text("This helps us get started.")
-                                .font(Typeface.body).foregroundStyle(Brand.muted).padding(.top, 12).reveal(1)
-                            VStack(alignment: .leading, spacing: 24) {
-                                selection("Role or job title", value: role.isEmpty ? "Choose a role" : role) { picker = "role" }
-                                selection("City or state", value: location.isEmpty ? "Choose a location" : location) { picker = "location" }
-                                selection("Career stage", value: stage.isEmpty ? "Choose your stage" : stage) { picker = "stage" }
-                            }.padding(.top, 36).reveal(2)
+                    GeometryReader { viewport in
+                        ScrollView {
+                            VStack(spacing: 0) {
+                                Spacer(minLength: 16)
+                                JobOnboardingHero().padding(.bottom, 28)
+                                Text("Find jobs")
+                                    .font(Typeface.display).tracking(-1.2).foregroundStyle(Brand.ink)
+                                    .accessibilityAddTraits(.isHeader).reveal(0)
+                                Text("Tell Stack what you\u{2019}re looking for")
+                                    .font(Typeface.body).foregroundStyle(Brand.muted)
+                                    .multilineTextAlignment(.center).padding(.top, 6).reveal(1)
+                                VStack(spacing: 0) {
+                                    selection("Role", symbol: "briefcase", placeholder: "Any role", value: role) { picker = "role" }
+                                    selection("Location", symbol: "mappin.and.ellipse", placeholder: "Anywhere", value: location) { picker = "location" }
+                                    selection("Career stage", symbol: "graduationcap", placeholder: "Optional", value: stage, last: true) { picker = "stage" }
+                                }
+                                .padding(.horizontal, 16)
+                                .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                                .stackElevation()
+                                .padding(.top, 28).reveal(2)
+                                Spacer(minLength: 24)
+                            }
+                            .padding(.horizontal, Spacing.page)
+                            .frame(maxWidth: .infinity, minHeight: viewport.size.height)
                         }
-                        .padding(.horizontal, Spacing.page).padding(.top, 40).padding(.bottom, 24)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }.scrollIndicators(.hidden)
+                        .scrollIndicators(.hidden)
+                        .scrollBounceBehavior(.basedOnSize)
+                    }
                     VStack(spacing: 4) {
                         MessageLine(text: error).fadeSwitch(!error.isEmpty)
                         StackButton(label: working ? "Saving…" : "Continue", disabled: working) {
                             Task { await save() }
                         }
-                        Button("Skip for now", action: showResume)
+                        Button("Not now", action: showResume)
                             .font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.muted)
                             .frame(maxWidth: .infinity, minHeight: 44).disabled(working)
                     }
@@ -95,15 +106,30 @@ struct JobOnboardingView: View {
         .replayable()
     }
 
-    private func selection(_ label: String, value: String, action: @escaping () -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            (Text(label).fontWeight(.semibold) + Text(" (optional)").foregroundColor(Brand.muted))
-                .font(Typeface.caption).foregroundStyle(Brand.ink)
-            Button(action: action) {
-                HStack { Text(value).foregroundStyle(Brand.muted); Spacer(); Image(systemName: "chevron.down").foregroundStyle(Brand.muted) }
-                    .padding(.horizontal, 16).frame(height: 54).background(.white, in: RoundedRectangle(cornerRadius: 14))
-            }.buttonStyle(.plain)
+    private func selection(_ label: String, symbol: String, placeholder: String, value: String, last: Bool = false,
+                           action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: symbol).font(.system(size: 16, weight: .medium)).foregroundStyle(Brand.accent)
+                    .frame(width: 34, height: 34).background(Palette.halo, in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(label).font(Typeface.caption).foregroundStyle(Brand.muted)
+                    Text(value.isEmpty ? placeholder : value).font(Typeface.body)
+                        .foregroundStyle(value.isEmpty ? Brand.muted : Brand.ink).lineLimit(2)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Brand.muted.opacity(0.7))
+            }
+            .multilineTextAlignment(.leading)
+            .padding(.vertical, 12)
+            .frame(minHeight: 64)
+            .contentShape(Rectangle())
+            .overlay(alignment: .bottom) { if !last { Rectangle().fill(Brand.rule.opacity(0.7)).frame(height: 0.5) } }
         }
+        .buttonStyle(.tap(scale: 0.985, dim: 1))
+        .accessibilityLabel(label)
+        .accessibilityValue(value.isEmpty ? placeholder : value)
+        .accessibilityHint("Optional")
     }
 
     private func showResume() {
@@ -151,5 +177,50 @@ struct JobOnboardingView: View {
             _ = try await store.callAccount("upload_resume", ["name": .string(file.name), "content": .string(file.content)], timeout: 90)
         }
         if uploaded { onDone() }
+    }
+}
+
+/// Three slightly fanned mini job cards that open out as the screen appears. Decorative.
+@MainActor
+private struct JobOnboardingHero: View {
+    @Environment(\.stackReduceMotion) private var reduceMotion
+    @State private var fanned = false
+
+    var body: some View {
+        ZStack {
+            miniCard(tint: Palette.tints[1], angle: -11, x: -62, y: 8)
+            miniCard(tint: Palette.tints[3], angle: 11, x: 62, y: 8)
+            miniCard(tint: Palette.tints[0], angle: 0, x: 0, y: -4)
+        }
+        .frame(height: 150)
+        .scaleEffect(reduceMotion || fanned ? 1 : 0.92)
+        .opacity(reduceMotion || fanned ? 1 : 0)
+        .accessibilityHidden(true)
+        .onAppear {
+            guard !reduceMotion else { fanned = true; return }
+            withAnimation(Motion.smooth.delay(0.05)) { fanned = true }
+        }
+    }
+
+    private func miniCard(tint: Palette.Tint, angle: Double, x: CGFloat, y: CGFloat) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        return VStack(alignment: .leading, spacing: 0) {
+            LinearGradient(colors: [tint.fill, tint.ink.opacity(0.55)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                .frame(height: 66)
+            VStack(alignment: .leading, spacing: 7) {
+                Capsule().fill(Brand.ink.opacity(0.78)).frame(width: 62, height: 7)
+                Capsule().fill(Palette.rule).frame(width: 44, height: 6)
+                Capsule().fill(tint.fill).frame(width: 34, height: 12).padding(.top, 3)
+            }
+            .padding(12)
+            Spacer(minLength: 0)
+        }
+        .frame(width: 104, height: 138)
+        .background(Palette.surface, in: shape)
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(Palette.rule.opacity(0.5), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.10), radius: 10, y: 5)
+        .rotationEffect(.degrees(reduceMotion || fanned ? angle : 0))
+        .offset(x: reduceMotion || fanned ? x : 0, y: y)
     }
 }

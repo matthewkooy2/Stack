@@ -69,6 +69,7 @@ final class PrepModel {
 
     // Server state
     var loaded = false
+    private(set) var loadingCatalog = false
     var sessions: [JSON] = []
     var catalog: [PrepQuestion] = []
     var current: JSON = [:]
@@ -202,8 +203,11 @@ final class PrepModel {
 
     // MARK: Loading
 
-    func load() async {
-        guard store != nil, !loaded else { return }
+    func load(retry: Bool = false) async {
+        guard store != nil, !loadingCatalog, !loaded || retry else { return }
+        loadingCatalog = true
+        error = ""
+        defer { loadingCatalog = false }
         do {
             catalog = try await sessionRequest { try await transport.catalog() }
             await reload()
@@ -664,7 +668,7 @@ final class PrepModel {
             }
         } catch {
             fail(error)
-            if !(error is CancellationError) { self.error = "Your answer and coaching remain available. " + error.localizedDescription }
+            if !(error is CancellationError) { self.error = "Your answer and feedback are saved. " + error.localizedDescription }
         }
     }
 

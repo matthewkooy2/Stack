@@ -171,24 +171,24 @@ final class ScreenFlowUITests: XCTestCase {
     func testSettingsDetailsDraftSurvivesBackAndReopen() {
         let app = launch("settings")
         XCTAssertTrue(row(app, "Your details").waitForExistence(timeout: 10))
-        XCTAssertTrue(row(app, "Job matching").exists)
+        XCTAssertTrue(row(app, "Job preferences").exists)
         XCTAssertTrue(row(app, "Account").exists)
         capture("settings-hub")
 
         row(app, "Your details").tap()
-        let name = field(app, "Your name")
+        let name = field(app, "Name")
         XCTAssertTrue(name.waitForExistence(timeout: 5))
         name.tap()
         name.typeText(" Lovelace")
         capture("settings-details-editing")
 
         app.buttons["Back"].tap()
-        XCTAssertTrue(app.buttons["Save changes"].waitForExistence(timeout: 5), "an unsaved edit offers Save on the hub")
+        XCTAssertTrue(app.buttons["Save"].waitForExistence(timeout: 5), "an unsaved edit offers Save on the hub")
         capture("settings-hub-unsaved")
 
         row(app, "Your details").tap()
-        XCTAssertTrue(field(app, "Your name").waitForExistence(timeout: 5))
-        XCTAssertTrue(text(field(app, "Your name")).contains("Lovelace"), "the draft survives going back and reopening")
+        XCTAssertTrue(field(app, "Name").waitForExistence(timeout: 5))
+        XCTAssertTrue(text(field(app, "Name")).contains("Lovelace"), "the draft survives going back and reopening")
         capture("settings-details-draft-retained")
 
         // The model settings request failed once at launch; its error stays visible with the picker collapsed.
@@ -222,9 +222,9 @@ final class ScreenFlowUITests: XCTestCase {
         capture("resume-details-nested")
         closeTop(app)
 
-        XCTAssertTrue(row(app, "Format").waitForExistence(timeout: 5))
-        tap(row(app, "Format"), in: app, "Format")
-        XCTAssertTrue(app.staticTexts["Tailoring format"].waitForExistence(timeout: 5))
+        XCTAssertTrue(row(app, "Template").waitForExistence(timeout: 5))
+        tap(row(app, "Template"), in: app, "Template")
+        XCTAssertTrue(app.staticTexts["Resume template"].waitForExistence(timeout: 5))
         capture("resume-format-nested")
         closeTop(app)
 
@@ -258,21 +258,16 @@ final class ScreenFlowUITests: XCTestCase {
         let app = launch("network")
         let presence = app.buttons["network-presence-tab"]
         let network = app.buttons["network-roster-tab"]
-        XCTAssertTrue(presence.waitForExistence(timeout: 10))
-        XCTAssertTrue(network.exists)
-        XCTAssertEqual(presence.label, "Your Presence")
-        XCTAssertEqual(network.label, "Your Network")
-        capture("presence-initial-no-review")
-
-        network.tap()
+        XCTAssertTrue(network.waitForExistence(timeout: 10))
+        XCTAssertTrue(network.isSelected, "Network opens on People")
+        XCTAssertEqual(network.label, "Contacts")
+        XCTAssertEqual(presence.label, "Profiles")
         XCTAssertTrue(app.staticTexts["network-empty"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["network-contact-contact-1"].exists, "sample account catalog contacts are not the real roster")
         let contacts = app.buttons["network-your-contacts"]
         XCTAssertTrue(contacts.exists)
         capture("network-real-empty-roster")
         contacts.tap()
-        XCTAssertTrue(app.buttons["Add a contact"].waitForExistence(timeout: 5))
-        app.buttons["Add a contact"].tap()
         let name = field(app, "Contact name")
         XCTAssertTrue(name.waitForExistence(timeout: 5))
         name.tap()
@@ -280,7 +275,7 @@ final class ScreenFlowUITests: XCTestCase {
         capture("network-contact-draft")
         closeTop(app)
 
-        XCTAssertTrue(contacts.waitForExistence(timeout: 5), "closing tools retains Your Network")
+        XCTAssertTrue(contacts.waitForExistence(timeout: 5), "closing the form retains People")
         presence.tap()
         network.tap()
         contacts.tap()
@@ -290,21 +285,24 @@ final class ScreenFlowUITests: XCTestCase {
         closeTop(app)
 
         presence.tap()
-        app.buttons["network-options"].tap()
-        app.buttons["LinkedIn review"].tap()
-        XCTAssertTrue(field(app, "LinkedIn profile URL").waitForExistence(timeout: 5))
-        app.buttons["Continue"].tap()
-        XCTAssertTrue(field(app, "Role (optional)").waitForExistence(timeout: 5))
+        capture("presence-initial-no-review")
+        tap(app.buttons["presence-start-review"], in: app, "start-linkedin-review")
+        XCTAssertTrue(field(app, "Target role").waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["linkedin-choose-pdf"].isHittable)
+        let firstStep = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", "On a computer, open linkedin.com and go to your profile.")).firstMatch
+        XCTAssertTrue(firstStep.waitForExistence(timeout: 5))
         capture("presence-linkedin-setup-preserved")
         app.buttons["Back"].tap()
-        XCTAssertTrue(field(app, "LinkedIn profile URL").waitForExistence(timeout: 5))
-        app.buttons["Back"].tap()
         XCTAssertTrue(presence.waitForExistence(timeout: 5))
-        XCTAssertFalse(contacts.isHittable, "return from LinkedIn retains Your Presence")
+        XCTAssertFalse(contacts.isHittable, "return from LinkedIn retains Presence")
     }
 
     func testPresencePlatformRowsOpenCorrectEditorsAndRetainSeparateDrafts() {
         let app = launch("network")
+        let presence = app.buttons["network-presence-tab"]
+        XCTAssertTrue(presence.waitForExistence(timeout: 10))
+        presence.tap()
         let github = app.buttons["presence-github"]
         XCTAssertTrue(github.waitForExistence(timeout: 10))
         github.tap()
@@ -333,6 +331,7 @@ final class ScreenFlowUITests: XCTestCase {
         closeTop(app)
 
         XCTAssertTrue(github.waitForExistence(timeout: 5))
+        XCTAssertEqual(github.value as? String, "GitHub session draft")
         github.tap()
         row(app, "Bio").tap()
         XCTAssertTrue(field(app, "Draft").waitForExistence(timeout: 5))
@@ -344,20 +343,32 @@ final class ScreenFlowUITests: XCTestCase {
 
     // MARK: Applications
 
+    func testSingleTrackedRoleShowsItsActualHistoryAndOpensInterviewPractice() {
+        let app = launch("collections-one")
+        let role = row(app, "Product designer")
+        XCTAssertTrue(role.waitForExistence(timeout: 10))
+        XCTAssertTrue(role.label.contains("Northwind"))
+        XCTAssertTrue(role.label.contains("Saved") && role.label.contains("Applied") && role.label.contains("Interview"))
+        role.tap()
+        let practice = app.buttons["Practice interview"]
+        tap(practice, in: app, "interview-practice")
+        XCTAssertTrue(app.staticTexts["Mock interview"].waitForExistence(timeout: 5))
+    }
+
     private func openApplicationHelp(_ app: XCUIApplication) {
         let application = row(app, "Senior Product Data Analyst")
         XCTAssertTrue(application.waitForExistence(timeout: 10))
         application.tap()
-        tap(row(app, "Agent help"), in: app, "agent-help")
+        tap(row(app, "Help with this job"), in: app, "job-help")
     }
 
     func testAutofillStartsWithoutModelAndOpensReviewTask() {
         let app = launch("applications")
         openApplicationHelp(app)
-        let autofill = row(app, "Autofill saved answers")
+        let autofill = row(app, "Autofill form")
         XCTAssertTrue(reveal(autofill, in: app, "autofill-action"))
         XCTAssertTrue(autofill.isEnabled, "autofill does not require a model provider")
-        XCTAssertTrue(autofill.label.contains("may autosave"))
+        XCTAssertTrue(autofill.label.contains("review and submit"))
         tap(autofill, in: app, "start-autofill")
         XCTAssertTrue(app.staticTexts["Fixture autofill waiting for your review."].firstMatch.waitForExistence(timeout: 10),
                       "starting autofill opens its task, using the returned task ID")
@@ -367,7 +378,7 @@ final class ScreenFlowUITests: XCTestCase {
     func testMixedAutofillAndModelSetupIsDeduplicatedAndUnavailableActionIsDisabled() {
         let app = launch("applications-autofill-unavailable")
         openApplicationHelp(app)
-        let autofill = row(app, "Autofill saved answers")
+        let autofill = row(app, "Autofill form")
         XCTAssertTrue(reveal(autofill, in: app, "unavailable-autofill-action"))
         XCTAssertFalse(autofill.isEnabled)
         let browserFix = app.staticTexts["✕ Configure the browser worker for autofill."].firstMatch
@@ -382,29 +393,35 @@ final class ScreenFlowUITests: XCTestCase {
         let application = row(app, "Senior Product Data Analyst")
         XCTAssertTrue(application.waitForExistence(timeout: 10))
         capture("applications-list-long-title")
-
+        app.buttons["Application tools"].tap()
+        XCTAssertTrue(app.buttons["Gmail tracking"].isHittable)
+        XCTAssertTrue(app.buttons["Calendar"].isHittable)
+        app.buttons["Reminders"].tap()
+        XCTAssertTrue(app.staticTexts["Reminders"].waitForExistence(timeout: 5))
+        closeTop(app)
+        XCTAssertTrue(application.waitForExistence(timeout: 5))
         application.tap()
         XCTAssertTrue(app.buttons["Notes"].waitForExistence(timeout: 5))
         // Disclosure rows announce "title, detail", so match on the title's start. The detail sheet is long,
         // so each row and the setup guidance are scrolled into view rather than assumed on screen.
         XCTAssertTrue(reveal(row(app, "Resume"), in: app, "resume-row"), "the Resume row is reachable")
-        XCTAssertTrue(reveal(row(app, "Status history"), in: app, "history-row"), "the Status history row is reachable")
+        XCTAssertTrue(reveal(app.staticTexts["Activity"].firstMatch, in: app, "activity-feed"), "the Activity feed is reachable")
         let setup = app.staticTexts["✕ Connect a model provider in Agents."].firstMatch
         XCTAssertTrue(reveal(setup, in: app, "setup-guidance"), "required setup guidance is shown and reachable")
         let fixCount = app.staticTexts.matching(NSPredicate(format: "label == %@", "✕ Connect a model provider in Agents.")).count
         XCTAssertEqual(fixCount, 1, "the shared setup fix is said once, not per task")
-        XCTAssertFalse(row(app, "Explain my fit").exists, "the task choices stay collapsed until asked for")
+        XCTAssertFalse(row(app, "Check fit").exists, "the task choices stay collapsed until asked for")
         capture("applications-detail-setup-guidance")
 
         // The choices, and the no-start/no-send assurance, are one tap away.
-        tap(row(app, "Agent help"), in: app, "agent-help")
-        XCTAssertTrue(reveal(row(app, "Explain my fit"), in: app, "explain-fit"), "the task choices open on demand")
+        tap(row(app, "Help with this job"), in: app, "job-help")
+        XCTAssertTrue(reveal(row(app, "Check fit"), in: app, "explain-fit"), "the task choices open on demand")
         XCTAssertEqual(app.staticTexts.matching(NSPredicate(format: "label == %@", "✕ Connect a model provider in Agents.")).count, 1,
                        "opening the choices does not repeat the shared fix")
         capture("applications-agent-help-open")
 
         tap(app.buttons["Notes"], in: app, "Notes")
-        let notes = field(app, "Your notes")
+        let notes = field(app, "Notes")
         XCTAssertTrue(notes.waitForExistence(timeout: 5))
         tap(notes, in: app, "the notes field")
         notes.typeText("Follow up with the recruiter on Friday")
@@ -419,8 +436,8 @@ final class ScreenFlowUITests: XCTestCase {
         XCTAssertTrue(reveal(failure, in: app, "save-failure-message"), "the save error is visible on screen")
         capture("applications-notes-save-failed")
 
-        XCTAssertTrue(reveal(field(app, "Your notes"), in: app, "notes-field"), "the notes field is reachable after the failure")
-        XCTAssertTrue(text(field(app, "Your notes")).contains("Follow up"), "the note stays after the failed save")
+        XCTAssertTrue(reveal(field(app, "Notes"), in: app, "notes-field"), "the notes field is reachable after the failure")
+        XCTAssertTrue(text(field(app, "Notes")).contains("Follow up"), "the note stays after the failed save")
         tap(save, in: app, "Save notes (retry)")
         let saved = app.staticTexts["Saved to your Stack."]
         require(app, "the retry confirms the save", timeout: 8) { saved.exists }
@@ -487,8 +504,8 @@ final class ScreenFlowUITests: XCTestCase {
 
     func testWelcomeIsShortAndRecoveryCanBeCancelled() {
         let welcome = launch("onboarding")
-        XCTAssertTrue(welcome.buttons["Create an account"].waitForExistence(timeout: 10))
-        XCTAssertTrue(welcome.buttons["Create an account"].isHittable)
+        XCTAssertTrue(welcome.buttons["Create account"].waitForExistence(timeout: 10))
+        XCTAssertTrue(welcome.buttons["Create account"].isHittable)
         XCTAssertTrue(welcome.buttons["Sign in"].waitForExistence(timeout: 5))
         XCTAssertTrue(welcome.buttons["Sign in"].isHittable)
         XCTAssertTrue(welcome.buttons["Sign in"].exists)
@@ -496,8 +513,8 @@ final class ScreenFlowUITests: XCTestCase {
         welcome.terminate()
 
         let app = launch("recovery")
-        let openButton = app.buttons["Use my existing Stack account"]
-        let usernameField = field(app, "Existing Stack username")
+        let openButton = app.buttons["Use existing account"]
+        let usernameField = field(app, "Username")
         XCTAssertTrue(openButton.waitForExistence(timeout: 10))
         XCTAssertFalse(usernameField.exists, "recovery starts collapsed")
         capture("recovery-collapsed")
@@ -509,7 +526,7 @@ final class ScreenFlowUITests: XCTestCase {
         XCTAssertTrue(cancel.waitForExistence(timeout: 5))
         tap(cancel, in: app, "recovery-cancel")
         require(app, "the recovery fields disappeared after Cancel", timeout: 5) {
-            !usernameField.exists && !field(app, "Existing Stack password").exists
+            !usernameField.exists && !field(app, "Password").exists
         }
         XCTAssertTrue(openButton.waitForExistence(timeout: 5), "the collapsed trigger is back")
         capture("recovery-cancelled")

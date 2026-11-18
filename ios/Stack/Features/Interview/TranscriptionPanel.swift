@@ -37,9 +37,9 @@ struct TranscriptionPanel: View {
         VStack(alignment: .leading, spacing: 12) {
             Card(tint: Palette.oat, spacing: 12) {
                 Text("Record an answer").font(Typeface.option).foregroundStyle(Palette.icon)
-                Text("Speak in English for up to five minutes. Review and correct the transcript before using it.")
+                Text("English · 5 minutes max")
                     .font(Typeface.caption).foregroundStyle(Palette.text)
-                Text(runtime["status"].string == "ready" ? "Transcription ready." :
+                Text(runtime["status"].string == "ready" ? "Transcription ready" :
                         (runtime["message"].string.isEmpty ? "Checking transcription…" : runtime["message"].string))
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
                 if runtime["status"].string == "unavailable" {
@@ -50,7 +50,7 @@ struct TranscriptionPanel: View {
                 } else {
                     StackButton(label: "Record", icon: "mic", disabled: busy || dirty || disabled || recorder.finalizing || pendingUpload != nil) { Task { await record() } }
                 }
-                Text("Your recording stays on this phone until you delete it. Leaving this screen or locking your phone stops recording.")
+                Text("Audio stays on this iPhone until you delete it")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             MessageLine(text: error.isEmpty ? recorder.error : error).fadeSwitch(!(error.isEmpty && recorder.error.isEmpty))
@@ -58,7 +58,7 @@ struct TranscriptionPanel: View {
             MessageLine(text: recorder.stopNotice, isError: false).fadeSwitch(!recorder.stopNotice.isEmpty)
             if recorder.permissionDenied {
                 StackButton(label: "Open microphone settings", kind: .secondary) { AppSettings.open() }
-                Text("After allowing microphone access, return and tap Record. You can also type your answer.")
+                Text("Allow microphone access or type your answer")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             if let pending = pendingUpload {
@@ -73,7 +73,7 @@ struct TranscriptionPanel: View {
                 }
             }
             if !phoneRecordings.isEmpty {
-                SectionLabel(text: "Saved on this phone")
+                SectionLabel(text: "Saved on this iPhone")
                 ForEach(phoneRecordings, id: \.clientID) { saved in
                     Chip(label: RecordingStore.transcript(at: saved.url) == nil ? "Saved audio" : "Phone transcript") {
                         guard !busy, !dirty, !recorder.isRecording else { return }
@@ -141,14 +141,14 @@ struct TranscriptionPanel: View {
                  + (percent.isNull ? "" : " · \(Int(percent.double.rounded()))%"))
                 .font(Typeface.option).foregroundStyle(Palette.icon)
             if current["phone_finalizing"].bool {
-                Text("Your recording and live transcript are saved on this phone while on-device recognition finishes.")
+                Text("Saved on this iPhone while it finishes")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
             } else if current["phone_preview"].bool {
-                Text("On-device recognition did not finish. Your audio and transcript preview are saved on this phone.")
+                Text("Couldn’t finish. Your audio is saved on this iPhone")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             if transcribing {
-                Text("Working on your transcript…").font(Typeface.caption).foregroundStyle(Palette.muted).breathe(true)
+                Text(status == "queued" ? "Waiting for transcription" : "Working on your transcript…").font(Typeface.caption).foregroundStyle(Palette.muted).breathe(true)
             }
             if !current["error"].string.isEmpty { MessageLine(text: current["error"].string) }
             if status == "completed" {
@@ -236,7 +236,7 @@ struct TranscriptionPanel: View {
             await saved.finalized.value
             guard boundGeneration == store.sessionGeneration else { return }
             phoneRecordings = RecordingStore.pending(owner: owner)
-            notice = "Recording cancelled. The partial audio stays on this phone."
+            notice = "Recording cancelled"
             return
         }
         pendingUpload = saved

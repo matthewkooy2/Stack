@@ -16,24 +16,27 @@ struct GmailTrackingSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(connected ? "Gmail tracking is on." : "Track applications automatically.")
-                .font(.system(size: 22, weight: .semibold)).tracking(-0.5).foregroundStyle(Brand.ink)
-            Text(connected ? "Find applications from any job search, then track them here." : "Connect Gmail once. Stack keeps your application status up to date.")
-                .font(Typeface.body).foregroundStyle(Brand.muted)
             if connected {
-                PrimaryPill(title: "Scan Gmail", icon: "magnifyingglass") { showScan = true }
+                Label("Gmail connected", systemImage: "checkmark.circle")
+                    .font(.headline).foregroundStyle(Brand.ink)
+            } else {
+                Text("Track applications from Gmail")
+                    .font(Typeface.body).foregroundStyle(Brand.muted)
+            }
+            if connected {
+                StackButton(label: "Scan Gmail", icon: "magnifyingglass") { showScan = true }
                 if let onManage { QuietLinks(links: [ScreenLink("Manage connection", action: onManage)]) }
             } else {
-                PrimaryPill(title: connecting ? "Connecting…" : "Connect Gmail", icon: "envelope",
+                StackButton(label: connecting ? "Connecting…" : "Connect Gmail", icon: "envelope",
                             disabled: connecting || unavailable || store.busy) {
                     Task { await connect() }
                 }
                 if unavailable {
-                    Text("Gmail connection is temporarily unavailable. Try again later.")
+                    Text("Gmail unavailable")
                         .font(Typeface.caption).foregroundStyle(Brand.muted)
                 }
                 DisclosureGroup("What can Stack read?") {
-                    Text("Google grants read access to your mailbox. Stack processes only messages related to your applications and selected contacts.")
+                    Text("Read-only. Stack reads only messages about your applications and contacts.")
                         .font(Typeface.caption).foregroundStyle(Brand.muted).padding(.top, 8)
                 }
                 .font(Typeface.caption).foregroundStyle(Brand.muted)
@@ -52,7 +55,7 @@ struct GmailTrackingSection: View {
         do {
             try await store.googleConnection.connect(["read"])
             try await store.callAccount("bootstrap")
-            guard connected else { throw APIError(message: "Gmail tracking could not finish. Try connecting again.") }
+            guard connected else { throw APIError(message: "Couldn\u{2019}t connect Gmail. Try again") }
             await onConnected?()
         } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
     }

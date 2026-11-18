@@ -21,29 +21,29 @@ final class JobScoreCopyTests: XCTestCase {
 
     func testScoredResultShowsScoreReasonsAndOnlyConfirmedEvidence() {
         let copy = JobScoreCopy(result: scored)
-        XCTAssertEqual(copy.headline, "Job score: 62")
+        XCTAssertEqual(copy.headline, "Match score 62")
         XCTAssertEqual(copy.components, "Skills 71 · Job title 33")
         XCTAssertEqual(copy.shown, ["Python", "AWS"])
         XCTAssertEqual(copy.listedOnly, ["Docker"])
         XCTAssertEqual(copy.missing, ["Data analysis"])
         XCTAssertEqual(copy.missingRequired, ["Data analysis"])
         XCTAssertEqual(copy.phrasesMissing, ["cpa license"])
-        XCTAssertEqual(copy.experience, "The listing asks for 2+ years; your confirmed dates count about 3 (internships count half).")
+        XCTAssertEqual(copy.experience, "Listing asks for 2+ years. Years counted from your confirmed roles: 3.")
     }
 
     func testThinListingAndUnknownContractShowNoNumber() {
         let thin = JobScoreCopy(result: ["contract": "stack.job_score", "version": 1, "status": "insufficient_job", "score": nil, "components": [], "requirements": [], "missing_required": []])
         XCTAssertFalse(thin.isScored)
-        XCTAssertEqual(thin.headline, "This listing has too little to compare")
+        XCTAssertEqual(thin.headline, "Too little in this listing to compare")
         XCTAssertEqual(thin.components, "")
 
         var newer = scored
         newer["version"] = 2
         let unknown = JobScoreCopy(result: newer)
         XCTAssertFalse(unknown.isSupported)
-        XCTAssertEqual(unknown.headline, "Update Stack to see this score")
+        XCTAssertEqual(unknown.headline, "Update Stack to see the match")
         XCTAssertTrue(unknown.shown.isEmpty && unknown.missingRequired.isEmpty)
 
-        XCTAssertEqual(JobScoreCopy(result: .null).headline, "Update Stack to see this score")
+        XCTAssertEqual(JobScoreCopy(result: .null).headline, "Update Stack to see the match")
     }
 }

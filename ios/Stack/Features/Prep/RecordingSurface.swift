@@ -84,7 +84,7 @@ struct RecordingLevelBars: View {
                 HStack(alignment: .center, spacing: gap) {
                     ForEach(0..<PCMLevelTracker.barCount, id: \.self) { index in
                         RoundedRectangle(cornerRadius: width / 2, style: .continuous)
-                            .fill(running ? (snapshot.quality == .clipping ? Palette.danger : Palette.dark) : Palette.ring)
+                            .fill(running ? (snapshot.quality == .clipping ? Palette.danger : Brand.accent) : Palette.ring)
                             .frame(width: width, height: Self.barHeight(level: bars[index], minHeight: minHeight, maxHeight: maxHeight))
                     }
                 }
@@ -123,9 +123,9 @@ struct RecordingLevelBars: View {
         guard running else { return "" }
         switch quality {
         case .waiting, .good: return "Listening"
-        case .quiet: return "Input is quiet. Move closer or speak up."
-        case .silent: return "No sound detected. Check that the microphone is not covered."
-        case .clipping: return "Too loud. Move back a little."
+        case .quiet: return "Quiet. Move closer"
+        case .silent: return "No sound. Check the microphone"
+        case .clipping: return "Too loud. Move back"
         }
     }
 
@@ -187,11 +187,11 @@ struct LiveTranscriptControl: View {
             .buttonStyle(.tap(scale: 0.98))
             .accessibilityLabel("Live transcription")
             .accessibilityValue(shown ? "On" : "Off")
-            .accessibilityHint("Only changes whether the text is shown. Recording and transcription continue.")
+            .accessibilityHint("Recording continues either way")
             if shown {
                 LiveTranscriptText(text: recorder.liveText, height: textHeight)
             } else {
-                Text("Transcribing on this iPhone. Hiding the text does not stop it.")
+                Text("Still transcribing on this iPhone")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
                     .transition(.asymmetric(insertion: .opacity, removal: .identity))
             }
@@ -210,7 +210,7 @@ struct LiveTranscriptControl: View {
             .disabled(true)
             .accessibilityLabel("Live transcription unavailable")
             .accessibilityHint(recorder.engineMessage)
-            Text("\(recorder.engineMessage) Live text cannot be shown, but your audio is still recorded and saved.")
+            Text("\(recorder.engineMessage) Audio is still saved.")
                 .font(Typeface.caption).foregroundStyle(Palette.muted)
         }
     }
@@ -313,22 +313,12 @@ struct RecordingSurface: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.stack) {
-            ViewThatFits(in: .horizontal) {
-                HStack {
-                    Text(title).font(Typeface.button.weight(.semibold)).foregroundStyle(Palette.ink)
-                    Spacer(minLength: 12)
-                    brand
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(Typeface.button.weight(.semibold)).foregroundStyle(Palette.ink)
-                    brand
-                }
-            }
+            Text(title).font(Typeface.button.weight(.semibold)).foregroundStyle(Palette.ink)
             VStack(alignment: .leading, spacing: 8) {
                 ZStack(alignment: .leading) {
                     Capsule().fill(Palette.halo)
                     GeometryReader { proxy in
-                        Capsule().fill(Palette.muted).frame(width: proxy.size.width * fraction)
+                        Capsule().fill(Brand.accent).frame(width: proxy.size.width * fraction)
                     }
                 }
                 .frame(height: 4)
@@ -339,7 +329,7 @@ struct RecordingSurface: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Question \(questionNumber) of \(questionCount)")
 
-            Text(prompt).font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
+            Text(prompt).font(Typeface.title).foregroundStyle(Palette.ink)
                 .accessibilityAddTraits(.isHeader)
 
             Spacer(minLength: compact ? 8 : 24)
@@ -349,8 +339,8 @@ struct RecordingSurface: View {
                                    maxHeight: compact ? 64 : 104)
                 VStack(spacing: 6) {
                     HStack(spacing: 10) {
-                        Circle().fill(recorder.isRecording && !recorder.isPaused ? Palette.icon : Color.clear)
-                            .overlay(Circle().stroke(Palette.icon, lineWidth: 1.5))
+                        Circle().fill(recorder.isRecording && !recorder.isPaused ? Palette.danger : Color.clear)
+                            .overlay(Circle().stroke(recorder.isRecording && !recorder.isPaused ? Palette.danger : Palette.icon, lineWidth: 1.5))
                             .frame(width: 10, height: 10)
                             .animation(reduceMotion ? nil : Motion.fadeAnimation, value: recorder.isPaused)
                             .accessibilityHidden(true)
@@ -379,29 +369,23 @@ struct RecordingSurface: View {
             VStack(spacing: Spacing.option) {
                 Button(action: onStop) {
                     HStack(spacing: 14) {
-                        RoundedRectangle(cornerRadius: 3, style: .continuous).fill(Palette.icon).frame(width: 18, height: 18)
-                        Text("Stop recording").font(Typeface.button).foregroundStyle(Palette.icon)
+                        RoundedRectangle(cornerRadius: 3, style: .continuous).fill(.white).frame(width: 18, height: 18)
+                        Text("Stop recording").font(.headline).foregroundStyle(.white)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 64)
-                    .background(Palette.button, in: Capsule())
-                    .overlay(Capsule().stroke(Palette.dark.opacity(0.4), lineWidth: 1))
-                    .contentShape(Capsule())
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .background(Palette.button, in: RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
+                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.tap)
+                .buttonStyle(.tap(scale: 0.97))
                 .disabled(busy || !live)
                 .accessibilityLabel("Stop recording")
-                .accessibilityHint("Saves your answer and moves to review.")
+                .accessibilityHint("Saves your answer")
                 StackButton(label: recorder.isPaused ? "Resume" : "Pause", kind: .secondary,
                             disabled: busy || !live, action: onTogglePause)
-                Text("Take your time. Up to five minutes. A phone call or locking your phone stops and keeps the recording.")
+                Text("Up to 5 minutes")
                     .font(Typeface.caption).foregroundStyle(Palette.muted).multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
             }
         }
-    }
-
-    private var brand: some View {
-        Text("STACK").font(.system(.footnote).weight(.semibold)).tracking(3).foregroundStyle(Palette.ink)
-            .accessibilityHidden(true)
     }
 }

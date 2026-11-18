@@ -1,30 +1,46 @@
 #if DEBUG
 import SwiftUI
 import UIKit
+import TabularData
 
-/// Offline UI-test host for the real Settings, Resume, Network, Applications, Jobs-detail and sign-in
-/// screens. Excluded entirely from Release builds. It never signs in, adopts a token or reaches a live
-/// service: every request goes through `ScreenFlowURLProtocol`, which answers from a fictional account.
-/// Chosen with the launch argument `--screen-flow=<settings|resume|resume-upload|network|applications|jobs|onboarding|recovery>`.
-@MainActor
-struct ScreenFlowUITestScene: View {
-    @State private var store = ScreenFlowUITestScene.makeStore()
+/// Alternate sample populations for reviewing the production collection screens on a phone.
+enum CollectionSampleSize: String, CaseIterable {
+    case empty = "Empty", one = "One", two = "Two", full = "Full"
 
-    static var flow: String {
-        let prefix = "--screen-flow="
-        return ProcessInfo.processInfo.arguments.first { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) } ?? ""
+    var flow: String { "collections-" + rawValue.lowercased() }
+    var count: Int {
+        switch self {
+        case .empty: return 0
+        case .one: return 1
+        case .two: return 2
+        case .full: return 12
+        }
     }
+}
 
-    private static func makeStore() -> AppStore { makeStore(flow: flow) }
+/// Each active preview owns its offline server. A delayed response from another preview stays with its original store.
+@MainActor
+final class ScreenFlowFixture: ObservableObject {
+    let store: AppStore
+    private let host: String
+    private let cacheFile: URL
 
-    static func makeStore(flow: String) -> AppStore {
+    init(flow: String) {
+        let server = ScreenFlowServer()
+        let host = UUID().uuidString.lowercased() + ".stack.invalid"
+        self.host = host
+        ScreenFlowURLProtocol.register(server, host: host)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ScreenFlowURLProtocol.self]
-        let api = APIClient(origin: URL(string: "https://stack.invalid")!, session: URLSession(configuration: configuration))
-        let store = AppStore(api: api)
-        if ProcessInfo.processInfo.arguments.contains("--reset-resume-drafts") { FileResumeDraftStore.shared.removeAll() }
-        ScreenFlowServer.shared.reset(flow: flow)
-        store.account = AccountState(raw: ScreenFlowServer.shared.snapshot())
+        let session = URLSession(configuration: configuration)
+        let api = APIClient(origin: URL(string: "https://" + host)!, session: session, linkedinSession: session)
+        cacheFile = FileManager.default.temporaryDirectory.appendingPathComponent(host + "-job-feed.json")
+        store = AppStore(api: api, jobFeedCache: JobFeedCache(file: cacheFile))
+        if flow == "resume-review", ProcessInfo.processInfo.arguments.contains("--reset-resume-drafts") {
+            FileResumeDraftStore.shared.removeAll()
+        }
+        server.reset(flow: flow)
+        store.account = AccountState(raw: server.snapshot())
         switch flow {
         case "onboarding":
             store.phase = .signedOut
@@ -34,7 +50,32 @@ struct ScreenFlowUITestScene: View {
         default:
             store.phase = .ready
         }
-        return store
+    }
+
+    deinit {
+        ScreenFlowURLProtocol.remove(host: host)
+        try? FileManager.default.removeItem(at: cacheFile)
+    }
+}
+
+/// Offline UI-test host for the real Settings, Resume, Network, Applications, Jobs-detail and sign-in
+/// screens. Excluded entirely from Release builds. It never signs in, adopts a token or reaches a live
+/// service: every request goes through `ScreenFlowURLProtocol`, which answers from a fictional account.
+/// Chosen with the launch argument `--screen-flow=<settings|resume|resume-upload|network|applications|jobs|onboarding|recovery>`.
+@MainActor
+struct ScreenFlowUITestScene: View {
+    @StateObject private var fixture = ScreenFlowFixture(flow: ScreenFlowUITestScene.flow)
+
+    static var flow: String {
+        let prefix = "--screen-flow="
+        return ProcessInfo.processInfo.arguments.first { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) } ?? ""
+    }
+
+    /// `--screen-tab=<jobs|applications|network|resume|prep>` opens the tabbed flows on that tab, for screenshots.
+    static var tab: StackTab? {
+        let prefix = "--screen-tab="
+        let name = ProcessInfo.processInfo.arguments.first { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) }
+        return StackTab.allCases.first { $0.rawValue.lowercased() == name }
     }
 
     var body: some View {
@@ -42,8 +83,8 @@ struct ScreenFlowUITestScene: View {
             Palette.page.ignoresSafeArea()
             screen
         }
-        .environment(store)
-        .tint(Palette.dark)
+        .environment(fixture.store)
+        .tint(Brand.accent)
         .environment(\.stackMotionPolicy, ProcessInfo.processInfo.arguments.contains("--reduced-card-motion") ? .reduced : .system)
         .transaction { if ProcessInfo.processInfo.arguments.contains("--disable-draft-animations") { $0.animation = nil; $0.disablesAnimations = true } }
     }
@@ -66,7 +107,8 @@ struct ScreenFlowUITestScene: View {
                                  onDone: {}, onAnother: {})
         case "applications", "applications-autofill-unavailable": ApplicationsView(onProfile: {}, onNavigate: { _ in })
         case "jobs": ScreenFlowJobHost(job: Job(ScreenFlowServer.job))
-        case "deck", "deck-paging", "deck-reference": MainTabs()
+        case "deck", "deck-paging", "deck-reference": MainTabs(selection: Self.tab ?? .jobs)
+        case let flow where CollectionSampleSize.allCases.contains(where: { $0.flow == flow }): MainTabs(selection: Self.tab ?? .applications)
         case "job-onboarding-preview": JobOnboardingGate(required: true)
         case "job-filters-preview": JobFiltersSheet(search: JobSearch()) { _, _ in {} }
         case "onboarding": AccessView()
@@ -138,7 +180,6 @@ private struct ScreenFlowJobHost: View {
 /// The fictional account and the fixture's server rules. Fails each flow's first risky request once so
 /// the recovery paths are exercised: a model-settings load, a LinkedIn profile load and a notes save.
 final class ScreenFlowServer: @unchecked Sendable {
-    static let shared = ScreenFlowServer()
 
     static let resumeName = "Ada Example - Senior Product Data Analyst Resume 2026 (reviewed, final version for analytics roles).pdf"
     static let jobTitle = "Senior Product Data Analyst, Growth Experimentation and Marketplace Insights (Hybrid)"
@@ -152,6 +193,12 @@ final class ScreenFlowServer: @unchecked Sendable {
 
     private let lock = NSLock()
     private var flow = ""
+    private var outreachContacts: [JSON] = []
+    private var outreachPolicy: JSON = [:]
+    private var sampleRoles: [JSON] = []
+    private var sampleFiles: [JSON] = []
+    private var sampleDocuments: [String: Data] = [:]
+    private var sampleDefault = ""
     private var notes = ""
     private var linkedInLoads = 0
     private var notesSaves = 0
@@ -202,6 +249,19 @@ final class ScreenFlowServer: @unchecked Sendable {
     func reset(flow: String) {
         lock.lock(); defer { lock.unlock() }
         self.flow = flow
+        sampleRoles = []
+        sampleFiles = []
+        sampleDocuments = [:]
+        sampleDefault = ""
+        outreachContacts = []
+        outreachPolicy = ["followup_limit": 1, "followup_days": 7]
+        if let sampleSize {
+            let examples = collectionSamples(sampleSize)
+            sampleRoles = examples.roles
+            sampleFiles = examples.files
+            outreachContacts = examples.people
+            sampleDefault = sampleFiles.first?["id"].string ?? ""
+        }
         onboardingProfile = [:]
         notes = ""
         linkedInLoads = 0
@@ -216,7 +276,7 @@ final class ScreenFlowServer: @unchecked Sendable {
             arguments.first { $0.hasPrefix("--\(name)=") }.map { String($0.dropFirst(name.count + 3)) }
         }
         reviewUser = argument("resume-review-user") ?? "fixture-user"
-        if arguments.contains("--reset-resume-drafts") {
+        if flow == "resume-review", arguments.contains("--reset-resume-drafts") {
             reviewPersistence.removePersistentDomain(forName: "StackOfflineResumeReviewServer")
         }
         reviewValues = arguments.contains("--resume-review-empty") ? [:] : Self.reviewFixture
@@ -225,7 +285,7 @@ final class ScreenFlowServer: @unchecked Sendable {
         reviewConfirmed = false
         reviewDetailsConfirmed = false
         reviewUnavailable = arguments.contains("--resume-review-unavailable")
-        if !arguments.contains("--resume-review-empty"),
+        if flow == "resume-review", !arguments.contains("--resume-review-empty"),
            let data = reviewPersistence.data(forKey: reviewPersistenceKey),
            let saved = try? JSONDecoder().decode(JSON.self, from: data) {
             reviewValues = saved["values"].object.mapValues { $0.string }
@@ -273,8 +333,12 @@ final class ScreenFlowServer: @unchecked Sendable {
 
     private static func deckJob(_ id: String, _ title: String, _ url: String) -> JSON {
         ["id": .string(id), "title": .string(title), "company": "Northwind Analytics", "location": "Chicago, IL",
-         "mode": "Hybrid", "posted": "1 day ago", "listing_url": .string(url), "fit": "Fixture fit note.",
-         "description": "Fixture description."]
+         "mode": "Hybrid", "employment_type": "Full-time", "salary": "$118K - $142K", "posted": "1 day ago",
+         "listing_url": .string(url), "fit": "Your SQL and experimentation work lines up with the core of this role.",
+         "description": "Partner with product and finance to model platform usage, design experiments and turn results into roadmap decisions.",
+         "highlights": ["responsibilities": ["Own the metrics behind the analytics platform", "Design and read out A/B tests",
+                                             "Present findings to product leadership"]],
+         "tags": ["SQL", "Python", "Experimentation", "Looker"]]
     }
 
     /// `paging` serves the deck in two pages: the first holds one job and a cursor, the second (answered late, see
@@ -346,6 +410,50 @@ final class ScreenFlowServer: @unchecked Sendable {
         return buildSnapshot()
     }
 
+    private var sampleSize: CollectionSampleSize? { CollectionSampleSize.allCases.first { $0.flow == flow } }
+
+    private func collectionSamples(_ size: CollectionSampleSize) -> (roles: [JSON], files: [JSON], people: [JSON]) {
+        let names = ["Ada Park", "Mina Ellis", "Jules Chen", "Robin Price", "Ana Vega", "Eli Wilson",
+                     "Clara Moss", "Max Reed", "Lou Kim", "Nia Jones", "Pat Diaz", "Jin Hart"]
+        let companies = ["Northwind", "Elm Studio", "Lake Street", "Rook", "Fieldwork", "Brightwater"]
+        let titles = ["Product designer", "Research lead", "Design engineer", "Senior product designer"]
+        let stages = ["Interview", "Saved", "Submitted", "Offer", "Saved"]
+        var roles: [JSON] = [], files: [JSON] = [], people: [JSON] = []
+        let today = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
+        for index in 0..<size.count {
+            let id = index + 1
+            let company = companies[index % companies.count]
+            let role = titles[index % titles.count]
+            let status = stages[index % stages.count]
+            let date = today - Double(index + 1) * 86_400
+            var job = Self.job
+            job["id"] = .string("sample-job-\(id)")
+            job["company"] = .string(company)
+            job["title"] = .string(role)
+            var history: [JSON] = [["status": "Saved", "at": .number(date - 5 * 86_400), "source": "You"]]
+            if status == "Interview" || status == "Offer" {
+                history.append(["status": "Submitted", "at": .number(date - 2 * 86_400), "source": "You"])
+            }
+            if status != "Saved" {
+                history.append(["status": .string(status), "at": .number(date), "source": "You"])
+            }
+            roles.append(["id": .string("application-\(id)"), "job": job, "status": .string(status),
+                          "history": .array(history), "created_at": history[0]["at"], "demo": false])
+            let fileID = "resume-\(id)"
+            let suffix = index == 1 ? "docx" : "pdf"
+            let name = index == 0 ? "Ada Example.pdf" : "\(company) \(role).\(suffix)"
+            let document = index == 1 ? Self.sampleWordDocument : Self.makePDF(role: role, company: company)
+            sampleDocuments[fileID] = document
+            files.append(["id": .string(fileID), "name": .string(name), "created_at": .number(date),
+                          "size": .number(Double(document.count)), "details_status": "Confirmed"])
+            let relationship = index == 0 ? "Met at the design meetup." : ""
+            people.append(["relationship": .string(relationship), "id": .string("person-\(id)"), "name": .string(names[index]),
+                           "email": .string("contact\(id)@example.invalid"), "role": .string(role),
+                           "company": .string(company)])
+        }
+        return (roles, files, people)
+    }
+
     private func buildSnapshot() -> JSON {
         let preferences: JSON = [
             "stage": "Student", "years": "1", "education": "Bachelor's", "modes": ["Remote"],
@@ -400,7 +508,7 @@ final class ScreenFlowServer: @unchecked Sendable {
             "checks": [["key": "browser", "label": "Browser worker", "ok": .bool(!browserUnavailable), "optional": false,
                         "fix": "Configure the browser worker for autofill.", "action": ""]],
         ]]
-        return [
+        var snapshot: JSON = [
             "user_id": .string(reviewUser), "profile": profile,
             "resumes": flow == "resume-upload" || onboarding ? .array(uploaded) : .array(resumes),
             "selected_resume": flow == "resume-upload" || onboarding ? .string(uploadedName.isEmpty ? "" : "resume-uploaded") : "resume-1",
@@ -409,6 +517,12 @@ final class ScreenFlowServer: @unchecked Sendable {
                        "model_provider": ["provider": "", "message": ""]],
             "tailored_resumes": [], "saved_search": [:], "decisions": .array(decisions), "reminders": [],
         ]
+        if sampleSize != nil {
+            snapshot["applications"] = .array(sampleRoles)
+            snapshot["resumes"] = .array(sampleFiles)
+            snapshot["selected_resume"] = .string(sampleDefault)
+        }
+        return snapshot
     }
 
     private static var autofillRun: JSON {
@@ -468,6 +582,29 @@ final class ScreenFlowServer: @unchecked Sendable {
         case "save_profile":
             if flow == "job-onboarding-preview" { onboardingProfile = body }
             return ok(buildSnapshot())
+        case "upload_resume" where sampleSize != nil:
+            guard let data = Data(base64Encoded: body["content"].string), !data.isEmpty else {
+                return fail("Couldn't read this document.")
+            }
+            let id = UUID().uuidString
+            sampleFiles.append(["id": .string(id), "name": body["name"], "size": .number(Double(data.count)),
+                                "created_at": .number(Date().timeIntervalSince1970), "details_status": "Needs review"])
+            sampleDocuments[id] = data
+            if sampleDefault.isEmpty { sampleDefault = id }
+            return ok(buildSnapshot())
+        case "change_resume" where sampleSize != nil:
+            let id = body["id"].string
+            guard let index = sampleFiles.firstIndex(where: { $0["id"].string == id }) else { return fail("Resume not found.") }
+            switch body["action"].string {
+            case "select": sampleDefault = id
+            case "rename": sampleFiles[index]["name"] = body["name"]
+            case "delete":
+                sampleFiles.remove(at: index)
+                sampleDocuments[id] = nil
+                if sampleDefault == id { sampleDefault = sampleFiles.first?["id"].string ?? "" }
+            default: return fail("Invalid resume action.")
+            }
+            return ok(buildSnapshot())
         case "upload_resume":
             guard ["resume-upload", "job-onboarding-preview"].contains(flow) else { return ok(buildSnapshot()) }
             uploadedName = body["name"].string
@@ -497,10 +634,49 @@ final class ScreenFlowServer: @unchecked Sendable {
                 return fail(Self.modelFailure)
             }
             let options: [JSON] = [["selection": "codex-cli", "message": "Ready"], ["selection": "local", "message": "Not installed"]]
-            return ok(["policy": ["followup_limit": 1, "followup_days": 7], "model_selection": "codex-cli",
+            return ok(["policy": outreachPolicy, "model_selection": "codex-cli",
                        "model_options": .array(options)])
-        case "agent_contacts", "agent_save_contact", "agent_import_contacts", "agent_stop_contact":
-            return ok(["contacts": []])
+        case "agent_save_policy":
+            outreachPolicy = body["policy"]
+            return ok(["policy": outreachPolicy])
+        case "agent_contacts":
+            return ok(["contacts": .array(outreachContacts)])
+        case "agent_save_contact":
+            do {
+                var contact = try Self.fixtureContact(body["data"])
+                let id = body["id"].string
+                if id.isEmpty {
+                    contact["id"] = .string(UUID().uuidString)
+                    outreachContacts.append(contact)
+                } else {
+                    guard let index = outreachContacts.firstIndex(where: { $0["id"].string == id }) else {
+                        return fail("Contact not found.")
+                    }
+                    contact["id"] = .string(id)
+                    contact["stopped"] = outreachContacts[index]["stopped"]
+                    outreachContacts[index] = contact
+                }
+                return ok(["contacts": .array(outreachContacts)])
+            } catch { return fail(error.localizedDescription) }
+        case "agent_import_contacts":
+            do {
+                let rows = try Self.importedContacts(body["content"].string)
+                var known = Set(outreachContacts.map { $0["email"].string.lowercased() })
+                for var row in rows {
+                    let email = row["email"].string
+                    if !email.isEmpty && !known.insert(email).inserted { continue }
+                    row["id"] = .string(UUID().uuidString)
+                    outreachContacts.append(row)
+                }
+                return ok(["contacts": .array(outreachContacts)])
+            } catch { return fail(error.localizedDescription) }
+        case "agent_stop_contact":
+            guard let index = outreachContacts.firstIndex(where: { $0["id"] == body["id"] }) else {
+                return fail("Contact not found.")
+            }
+            outreachContacts[index]["stopped"] = true
+            outreachContacts[index]["next_at"] = 0
+            return ok(["contacts": .array(outreachContacts)])
         case "agent_linkedin_profile":
             if !body["url"].isNull {
                 return ok(["url": body["url"], "target_role": body["target_role"]])
@@ -528,6 +704,12 @@ final class ScreenFlowServer: @unchecked Sendable {
         case "swipe":
             decisions.append(["job_id": body["job_id"], "action": body["action"]])
             return ok(buildSnapshot())
+        case "read_resume" where sampleSize != nil:
+            let id = body["id"].string
+            guard let data = sampleDocuments[id], let file = sampleFiles.first(where: { $0["id"].string == id }) else {
+                return fail("Resume not found.")
+            }
+            return ok(["name": file["name"], "content": .string(data.base64EncodedString())])
         case "read_resume":
             return ok(["name": .string(Self.resumeName), "content": .string(Self.pdfBase64())])
         case "agent_extract_resume":
@@ -544,7 +726,7 @@ final class ScreenFlowServer: @unchecked Sendable {
                                "original_values": .object(reviewOriginalValues.mapValues { .string($0) }),
                                "revision": .number(Double(reviewRevision)), "confirmed": .bool(reviewConfirmed),
                                "details_confirmed": .bool(reviewDetailsConfirmed)]
-            if let data = try? JSONEncoder().encode(saved) {
+            if flow == "resume-review", let data = try? JSONEncoder().encode(saved) {
                 reviewPersistence.set(data, forKey: reviewPersistenceKey)
             }
             return ok(reviewDocument())
@@ -553,6 +735,52 @@ final class ScreenFlowServer: @unchecked Sendable {
         default:
             return ok(buildSnapshot())
         }
+    }
+
+    private static func fixtureContact(_ data: JSON) throws -> JSON {
+        var result = data
+        let name = data["name"].string.trimmingCharacters(in: .whitespacesAndNewlines)
+        let email = data["email"].string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !name.isEmpty, name.count <= 120,
+              email.isEmpty || email.range(of: #"^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$"#, options: .regularExpression) != nil else {
+            throw APIError(message: "Enter a name and a valid, verified email address.")
+        }
+        let source = data["source_url"].string
+        guard source.isEmpty || URL(string: source)?.scheme?.lowercased() == "https" else {
+            throw APIError(message: "Use an HTTPS research source.")
+        }
+        result["name"] = .string(name)
+        result["email"] = .string(email)
+        return result
+    }
+
+    private static func importedContacts(_ content: String) throws -> [JSON] {
+        guard content.utf8.count <= 200_000 else { throw APIError(message: "Import at most 200 KB at a time.") }
+        var values: [JSON] = []
+        let keys = ["name", "email", "company", "role", "relationship", "source", "source_url"]
+        let types = Dictionary(uniqueKeysWithValues: keys.map { ($0, CSVType.string) })
+        if let table = try? DataFrame(csvData: Data(content.utf8), types: types),
+           table.columns.contains(where: { $0.name.trimmingCharacters(in: .whitespaces).lowercased() == "email" }) {
+            for row in table.rows {
+                var contact: JSON = ["selected": false]
+                for column in table.columns {
+                    let key = column.name.trimmingCharacters(in: .whitespaces).lowercased()
+                    if keys.contains(key), let value = row[column.name] {
+                        contact[key] = .string(String(describing: value))
+                    }
+                }
+                values.append(contact)
+            }
+        } else {
+            let pattern = try NSRegularExpression(pattern: #"[\w.!#$%&'*+/=?^_{}|~-]+@[\w.-]+\.[A-Za-z]{2,}"#)
+            for match in pattern.matches(in: content, range: NSRange(content.startIndex..., in: content)) {
+                guard let range = Range(match.range, in: content) else { continue }
+                let email = String(content[range])
+                values.append(["name": .string(email), "email": .string(email), "selected": false])
+            }
+        }
+        guard values.count <= 200 else { throw APIError(message: "Import at most 200 contacts at a time.") }
+        return try values.map(fixtureContact)
     }
 
     /// The backend's review document: sections of `{key, label, value}` fields, a revision and the text.
@@ -610,28 +838,77 @@ final class ScreenFlowServer: @unchecked Sendable {
         return document
     }
 
-    private static func pdfBase64() -> String {
+    // A complete Office Open XML package containing the second sample's name and role.
+    private static let sampleWordDocument = Data(base64Encoded: """
+        UEsDBBQAAAAIAMQlcl10JJxTuwAAAD4BAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbJWQuQ7CMAyGX6XKiqgRAwNquwArMPAC
+        Vuq2EbkUuxxvT8o1sDHa//FZrk73SFzcnPVcq0EkrgFYD+SQyxDJZ6ULyaHkMfUQUZ+xJ1guFivQwQt5mcvUoZpqSx2OVord
+        La/ZBF+rRJZVsXkZJ1atMEZrNErW4eLbH8r8TShz8unhwUSeZYOCpjpcKCXTUnHEJHt0uQ6uIbXQBj26jCgn41+80HVG0zc/
+        tcUUNDEb3ztbfhWHxn/ugOfbmgdQSwMEFAAAAAgAxCVyXWF7L0OJAAAA8gAAAAsAAABfcmVscy8ucmVsc43POw4CIRAG4KsQ
+        DrCzWlgYoLLZ1ngBAsMjLo8MGPX2UlisxsJy5p98f0accdU9ltxCrI090pqb5KH3egRoJmDSbSoV80hcoaT7GMlD1eaqPcJ+
+        ng9AW4MrsTXZYiWnxe44uzwr/mMX56LBUzG3hLn/qPi6GLImj13yeyEL9r2eBstBCfh4Ub0AUEsDBBQAAAAIAMQlcl20rh3X
+        kgAAANcAAAARAAAAd29yZC9kb2N1bWVudC54bWxtj0ELwjAMhf9K2VnM8OChzIGH3TzpL4ht3AZNW9KOzn/vKoggXr6Q9/J4
+        pCvaBrMw+axWdj7pcmqmnKMGSGYixrQPkfzmPYIw5m2VEUoQGyUYSmn2Izs4tO0RGGff9F3R92CfdcYKqcj92aIaVuToqIMq
+        VMqb8ff2SolQzKQuhHanBsfqlhc7hz9J+NTB95X+BVBLAQIUABQAAAAIAMQlcl10JJxTuwAAAD4BAAATAAAAAAAAAAAAAACA
+        AQAAAABbQ29udGVudF9UeXBlc10ueG1sUEsBAhQAFAAAAAgAxCVyXWF7L0OJAAAA8gAAAAsAAAAAAAAAAAAAAIAB7AAAAF9y
+        ZWxzLy5yZWxzUEsBAhQAFAAAAAgAxCVyXbSuHdeSAAAA1wAAABEAAAAAAAAAAAAAAIABngEAAHdvcmQvZG9jdW1lbnQueG1s
+        UEsFBgAAAAADAAMAuQAAAF8CAAAAAA==
+        """, options: .ignoreUnknownCharacters)!
+
+    private static func pdfBase64() -> String { makePDF(role: "Data analyst", company: "Northwind Analytics").base64EncodedString() }
+
+    private static func makePDF(role: String, company: String) -> Data {
         let renderer = UIGraphicsPDFRenderer(bounds: CGRect(x: 0, y: 0, width: 612, height: 792))
-        let data = renderer.pdfData { context in
+        return renderer.pdfData { context in
             context.beginPage()
-            ("Ada Example\nData analyst" as NSString).draw(at: CGPoint(x: 48, y: 48), withAttributes: nil)
+            func line(_ text: String, y: CGFloat, size: CGFloat, bold: Bool = false) {
+                let font = bold ? UIFont.boldSystemFont(ofSize: size) : UIFont.systemFont(ofSize: size)
+                (text as NSString).draw(in: CGRect(x: 54, y: y, width: 504, height: 60),
+                                        withAttributes: [.font: font, .foregroundColor: UIColor.black])
+            }
+            line("Ada Example", y: 55, size: 34, bold: true)
+            line(role.capitalized, y: 104, size: 18)
+            line("ada@example.invalid   ·   Chicago, IL", y: 132, size: 12)
+            line("Profile", y: 194, size: 18, bold: true)
+            line("Research, design and analysis for product teams.", y: 227, size: 14)
+            line("Experience", y: 294, size: 18, bold: true)
+            line(company + "   ·   " + role.capitalized, y: 330, size: 15, bold: true)
+            line("2022–Present", y: 355, size: 12)
+            line("Planned weekly research sessions and shared findings with product teams.", y: 390, size: 14)
+            line("Skills", y: 475, size: 18, bold: true)
+            line("User interviews, prototyping, analysis and presentation", y: 511, size: 14)
         }
-        return data.base64EncodedString()
     }
+
 }
 
 /// Answers every API request from `ScreenFlowServer`. Nothing leaves the process.
 final class ScreenFlowURLProtocol: URLProtocol {
+    private static let registryLock = NSLock()
+    private static var servers: [String: ScreenFlowServer] = [:]
+
+    static func register(_ server: ScreenFlowServer, host: String) {
+        registryLock.withLock { servers[host] = server }
+    }
+
+    static func remove(host: String) {
+        registryLock.withLock { servers[host] = nil }
+    }
+
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
         let name = request.url?.lastPathComponent ?? ""
         let body = Self.body(of: request)
-        let delay = ScreenFlowServer.shared.delay(for: name, body: body)
+        guard let host = request.url?.host,
+              let server = Self.registryLock.withLock({ Self.servers[host] }) else {
+            client?.urlProtocol(self, didFailWithError: URLError(.cancelled))
+            return
+        }
+        let delay = server.delay(for: name, body: body)
         let answer = { [self] in
             guard !stopped.value else { return }
-            let (status, payload) = ScreenFlowServer.shared.respond(name, body: body)
+            let (status, payload) = server.respond(name, body: body)
             let data = (try? JSONEncoder().encode(payload)) ?? Data()
             let response = HTTPURLResponse(url: request.url ?? URL(string: "https://stack.invalid")!, statusCode: status,
                                            httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "application/json"])!

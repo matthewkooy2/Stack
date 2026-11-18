@@ -232,7 +232,7 @@ final class AudioRecorder {
         let generation = captureGeneration
         error = ""; stopNotice = ""; permissionDenied = false
         liveText = ""; onDevice = false
-        engineMessage = "PC transcription will be used."
+        engineMessage = "You can type your answer after recording."
         let granted = await requestPermission()
         guard generation == captureGeneration, !Task.isCancelled else { throw CancellationError() }
         guard granted else {
@@ -270,7 +270,7 @@ final class AudioRecorder {
                     _ = await capture.stop(cancelled: true, reason: "On-device speech could not start.")
                     speechCapture = nil
                     guard generation == captureGeneration, !Task.isCancelled else { throw CancellationError() }
-                    engineMessage = "On-device speech could not start. PC transcription will be used."
+                    engineMessage = "On-device speech could not start. You can type your answer after recording."
                     // Keep a partial file; fallback gets a new identity and never overwrites it.
                 }
             }
@@ -355,7 +355,7 @@ final class AudioRecorder {
                     catch is CancellationError { }
                     catch { self?.error = error.localizedDescription }
                 } else if !cancelled {
-                    self?.engineMessage = "On-device recognition could not finish. PC transcription will be used."
+                    self?.engineMessage = "On-device recognition could not finish. You can type your answer after recording."
                 }
                 self?.finalizing = false
             }

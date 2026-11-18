@@ -42,17 +42,40 @@ final class JobFiltersFlowTests: XCTestCase {
         XCTAssertTrue(state(app).contains("role=Product designer"))
     }
 
-    func testFiltersSheetKeepsSecondaryFiltersBehindMoreFilters() {
+    func testPayAndDatesOpensFromFilterSummaryAndReturnsWithBack() {
         let app = launch()
         app.buttons["Filters"].tap()
         XCTAssertTrue(app.buttons["Show opportunities"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["More filters"].exists)
+        let pay = app.buttons["Pay and dates"]
+        XCTAssertTrue(pay.exists)
         XCTAssertFalse(app.textFields["Minimum advertised pay (USD)"].exists)
         capture("job-filters-sheet-primary")
-        app.buttons["More filters"].tap()
-        XCTAssertTrue(app.buttons["Fewer filters"].waitForExistence(timeout: 5))
+        for _ in 0..<4 where !pay.isHittable {
+            app.scrollViews.firstMatch.swipeUp()
+        }
+        XCTAssertTrue(pay.isHittable)
+        pay.tap()
+        XCTAssertTrue(app.buttons["Back"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.textFields["Minimum advertised pay (USD)"].exists)
-        capture("job-filters-sheet-more")
+        XCTAssertFalse(app.buttons["Confirmed matches only"].exists)
+        let week = app.buttons["7"]
+        for _ in 0..<4 where !week.isHittable { app.scrollViews.firstMatch.swipeUp() }
+        week.tap()
+        capture("job-filters-pay-and-dates")
+        app.buttons["Back"].tap()
+        XCTAssertTrue(app.buttons["Show opportunities"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.textFields["Minimum advertised pay (USD)"].exists)
+        XCTAssertEqual(pay.value as? String, "Past 7 days")
+        let matching = app.buttons["Matching"]
+        for _ in 0..<4 where !matching.isHittable { app.scrollViews.firstMatch.swipeUp() }
+        matching.tap()
+        let timeline = app.buttons["Confirmed timeline matches only"]
+        for _ in 0..<4 where !timeline.isHittable { app.scrollViews.firstMatch.swipeUp() }
+        timeline.tap()
+        app.buttons["Done"].tap()
+        XCTAssertEqual(matching.value as? String, "Confirmed timeline matches only")
+        app.buttons["Close"].tap()
+        XCTAssertTrue(app.buttons["Filters"].isHittable)
     }
 
     func testSortAndResetReturnToProfile() {

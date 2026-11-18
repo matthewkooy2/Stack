@@ -228,7 +228,7 @@ final class JobDeckFeed {
             guard mine == token, source.isCurrent(), !Task.isCancelled else { return .stale }
             inFlight = nil
             guard case .array = result["jobs"] else {
-                throw APIError(message: "Stack returned an invalid jobs feed. Please retry.")
+                throw APIError(message: "Couldn\u{2019}t load jobs")
             }
             let incoming = Job.feedPage(result)
             source.animate {

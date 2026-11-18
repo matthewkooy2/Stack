@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// One agent task: context, progress, what it needs from you, review, recovery and results.
+/// One task: context, progress, what it needs from you, review, recovery and results.
 @MainActor
 struct TaskDetailView: View {
     let id: String
@@ -55,25 +55,31 @@ struct TaskDetailView: View {
         }
         .sheet(item: $preview) { PDFSheet(preview: $0) }
         .confirmationDialog("Cancel this task?", isPresented: $confirmCancel, titleVisibility: .visible) {
-            Button("Cancel task", role: .destructive) { Task { await perform("agent_cancel", ["id": .string(id)], done: "Cancelled.") } }
+            Button("Cancel task", role: .destructive) { Task { await perform("agent_cancel", ["id": .string(id)], done: "Cancelled") } }
         }
     }
 
     private var taskContent: some View {
         VStack(alignment: .leading, spacing: 16) {
-            StackButton(label: "Back to tasks", icon: "return", kind: .secondary, action: onBack)
-            if run.object.isEmpty, error.isEmpty { Text("Loading task…").font(Typeface.body).foregroundStyle(Palette.muted) }
+            BackButton(label: "Back", action: onBack)
+            if run.object.isEmpty, error.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    SkeletonBlock(width: 90, height: 22, radius: 11)
+                    SkeletonBlock(height: 28)
+                    SkeletonBlock(height: 120, radius: Radius.card)
+                }
+                .accessibilityElement(children: .ignore).accessibilityLabel("Loading task")
+            }
             MessageLine(text: error).fadeSwitch(!error.isEmpty)
             MessageLine(text: notice, isError: false).fadeSwitch(!notice.isEmpty)
             if !run.object.isEmpty {
                 header
-                happening
                 if status == "review" { reviewBox }
                 if run["needs_resume_review"].bool {
                     TailorBlocker(run: run, onNavigate: onNavigate) { next in
                         run = next
                         notice = next["status"].string == "queued"
-                            ? "Tailoring started. Stack will show you every change to keep or reject." : ""
+                            ? "Tailoring queued" : ""
                     }
                 }
                 if kind != "linkedin", kind != "autofill", status == "needs_input", !run["needs_resume_review"].bool { answersBox }
@@ -86,11 +92,12 @@ struct TaskDetailView: View {
                 if ["blocked", "failed"].contains(status) { stoppedBox }
                 if run["artifacts"]["tailor"]["final"].bool {
                     Card(tint: Palette.surfaceRaised, spacing: 8) {
-                        Text("Saved to Resume → Tailored resumes, labelled with this job.")
+                        Text("Saved to Tailored resumes")
                             .font(Typeface.caption).foregroundStyle(Palette.text)
-                        Chip(label: "Open Tailored resumes") { onNavigate("resume") }
+                        Chip(label: "View") { onNavigate("resume") }
                     }
                 }
+                happening
                 results
                 ForEach(Array(run["feedback"].array.enumerated()), id: \.offset) { _, item in
                     VStack(alignment: .leading, spacing: 4) {
@@ -107,16 +114,14 @@ struct TaskDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top) {
-                Text(run["title"].string).font(Typeface.title).foregroundStyle(Palette.ink)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                StatusPill(label: AgentLabels.runLabel(run), tone: AgentLabels.tone(for: status))
-            }
+            StatusPill(label: AgentLabels.runLabel(run), tone: AgentLabels.tone(for: status))
+            Text(run["title"].string).font(Typeface.title).foregroundStyle(Palette.ink)
+                .accessibilityAddTraits(.isHeader)
             if !run["context_label"].string.isEmpty {
                 Text(run["context_label"].string).font(Typeface.body).foregroundStyle(Palette.text)
             }
             let updated = run["updated_at"].double > 0 ? run["updated_at"].double : run["created_at"].double
-            Text("Started \(dateTime(run["created_at"].double)) · Updated \(dateTime(updated))")
+            Text("Updated \(dateTime(updated))")
                 .font(Typeface.caption).foregroundStyle(Palette.muted)
         }
     }
@@ -134,11 +139,22 @@ struct TaskDetailView: View {
             }
             if run["step_total"].int > 1 {
                 let current = run["step_number"].int
-                ForEach(Array(run["steps"].strings.enumerated()), id: \.offset) { index, label in
-                    let done = index < current - 1 || status == "completed"
-                    Text("\(done ? "✓" : (index == current - 1 ? "●" : "○")) \(label)")
-                        .font(Typeface.caption.weight(index == current - 1 ? .bold : .regular))
-                        .foregroundStyle(index == current - 1 ? Palette.ink : Palette.muted)
+                let total = run["step_total"].int
+                ProgressView(value: Double(status == "completed" ? total : min(max(current - 1, 0), total)),
+                             total: Double(total))
+                    .tint(Brand.accent)
+                    .accessibilityLabel("Task progress")
+                if !run["steps"].strings.isEmpty {
+                    DisclosureSection("All steps") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(Array(run["steps"].strings.enumerated()), id: \.offset) { index, label in
+                                let done = index < current - 1 || status == "completed"
+                                Label(label, systemImage: done ? "checkmark.circle" : "circle")
+                                    .font(Typeface.caption.weight(index == current - 1 ? .semibold : .regular))
+                                    .foregroundStyle(index == current - 1 ? Brand.accent : Palette.muted)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -147,13 +163,12 @@ struct TaskDetailView: View {
     private var reviewBox: some View {
         let step = review["step"].string
         return Card(tint: Palette.surfaceRaised, spacing: 12) {
-            SectionLabel(text: "Nothing is shared until you approve")
+            SectionLabel(text: "Review before sending")
             Text(review["title"].string).font(Typeface.title).foregroundStyle(Palette.ink)
             if step == "send" {
                 Text("To: \(review["to"].string)").font(Typeface.body).foregroundStyle(Palette.text)
-                StackField(label: "Email subject", text: Binding(get: { draft.subject }, set: { draft.subject = $0; remember() }))
-                StackField(label: "Email message", text: Binding(get: { draft.body }, set: { draft.body = $0; remember() }), multiline: true)
-                Text("Edits are yours. Stack sends exactly this text.").font(Typeface.caption).foregroundStyle(Palette.muted)
+                StackField(label: "Subject", text: Binding(get: { draft.subject }, set: { draft.subject = $0; remember() }))
+                StackField(label: "Message", text: Binding(get: { draft.body }, set: { draft.body = $0; remember() }), multiline: true)
             }
             if step == "calendar" {
                 let event = review["event"]
@@ -168,7 +183,7 @@ struct TaskDetailView: View {
             if !review["blocked"].string.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(review["blocked"].string).font(Typeface.caption).foregroundStyle(Palette.danger)
-                    Chip(label: step == "send" ? "Connect Gmail sending" : "Connect Google Calendar") {
+                    Chip(label: step == "send" ? "Allow Gmail sending" : "Connect Google Calendar") {
                         onNavigate(step == "send" ? "connect:send" : "connect:calendar")
                     }
                 }
@@ -177,11 +192,11 @@ struct TaskDetailView: View {
             StackButton(label: approveLabel(step), icon: "check", disabled: busy || !review["blocked"].string.isEmpty) {
                 Task { await approve() }
             }
-            StackButton(label: "Don’t do this · cancel task", kind: .secondary, disabled: busy) {
-                Task { await perform("agent_cancel", ["id": .string(id)], done: "Cancelled. Nothing was shared.") }
+            StackButton(label: "Cancel task", kind: .secondary, disabled: busy) {
+                Task { await perform("agent_cancel", ["id": .string(id)], done: "Cancelled") }
             }
             if let feature, !feature.alternative.isEmpty {
-                Text("Prefer to do it yourself? \(feature.alternative)").font(Typeface.caption).foregroundStyle(Palette.muted)
+                Text(feature.alternative).font(Typeface.caption).foregroundStyle(Palette.muted)
             }
         }
     }
@@ -189,7 +204,7 @@ struct TaskDetailView: View {
     private var answersBox: some View {
         let asking = requests.filter { $0["key"].string != "browser" }
         return Card(tint: Palette.surfaceRaised, spacing: 12) {
-            SectionLabel(text: requests.isEmpty ? "What stopped this task" : "Stack needs your answers")
+            SectionLabel(text: requests.isEmpty ? "Stopped" : "Questions")
             if requests.isEmpty, !run["message"].string.isEmpty {
                 Text(run["message"].string).font(Typeface.body).foregroundStyle(Palette.text)
             }
@@ -202,16 +217,13 @@ struct TaskDetailView: View {
                 Text("In the browser: \($0["label"].string)").font(Typeface.body).foregroundStyle(Palette.text)
             }
             if !asking.isEmpty {
-                Text("Answers you save are confirmed facts and can be reused on later applications. Review them in Agents → Facts.")
-                    .font(Typeface.caption).foregroundStyle(Palette.muted)
+                Text("Saved answers are reused on future applications")
+                    .font(.footnote).foregroundStyle(Palette.muted)
             }
-            StackButton(label: requests.isEmpty ? "Try again" : "Save answers and resume", icon: requests.isEmpty ? "refresh" : "",
+            StackButton(label: requests.isEmpty ? "Try again" : "Save and continue", icon: requests.isEmpty ? "refresh" : "",
                         disabled: busy) { Task { await respond() } }
             if let url = URL(string: webURL), !webURL.isEmpty {
-                StackButton(label: "Open web workspace for the browser", kind: .secondary) { openURL(url) }
-            } else {
-                Text("Browser handoff opens in the web workspace once it is hosted. Until then, complete the form on the employer site.")
-                    .font(Typeface.caption).foregroundStyle(Palette.muted)
+                StackButton(label: "Open in browser", kind: .secondary) { openURL(url) }
             }
         }
     }
@@ -220,12 +232,12 @@ struct TaskDetailView: View {
         let analysis = run["step_number"].int == 2
         let asking = requests.filter { $0["key"].string != "browser" }
         return Card(tint: Palette.surfaceRaised, spacing: 12) {
-            SectionLabel(text: analysis ? "Analysis paused" : "Stack needs your answers")
+            SectionLabel(text: analysis ? "Analysis paused" : "Questions")
             if analysis, requests.isEmpty {
                 Text(run["message"].string).font(Typeface.body).foregroundStyle(Palette.text)
-                Text("There is no question to answer. Your captured profile is saved; retry analysis without signing in again.")
+                Text("Your profile is saved. Try again")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
-                StackButton(label: "Retry analysis", disabled: false) { Task { await respond() } }
+                StackButton(label: "Try again", disabled: false) { Task { await respond() } }
             } else {
                 ForEach(Array(asking.enumerated()), id: \.offset) { _, question in
                     let key = question["key"].string
@@ -242,13 +254,13 @@ struct TaskDetailView: View {
 
     private var autofillBox: some View {
         Card(tint: Palette.surfaceRaised, spacing: 12) {
-            SectionLabel(text: "Saved-answer autofill")
+            SectionLabel(text: "Autofill")
             Text(run["message"].string).font(Typeface.body).foregroundStyle(Palette.text)
-            Text("Take control in the browser to sign in, handle verification, attach your selected resume to supported file controls and move to the next step. Other attachments need the employer site. Resume autofill to fill that page. Review every field and submit yourself; stopping this task does not submit or mark the application submitted.")
+            Text("Take control to sign in and attach your resume")
                 .font(Typeface.caption).foregroundStyle(Palette.muted)
             let report = run["artifacts"]["browser_autofill"]
             if report["truncated"].bool {
-                Text("Only the first 150 visible controls per frame were inspected. Check the remaining fields yourself.")
+                Text("Check the remaining fields yourself")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             ForEach(Array(report["fields"].array.enumerated()), id: \.offset) { _, field in
@@ -261,24 +273,24 @@ struct TaskDetailView: View {
                     StackField(label: question["label"].string,
                                text: Binding(get: { draft.values[key] ?? "" }, set: { draft.values[key] = $0; remember() }))
                 }
-                Text("Answers entered here become confirmed saved answers for this exact question. Use the displayed option text for a dropdown. Existing form values are preserved; edit them in the browser.")
+                Text("Answers are saved for this question")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
-                StackButton(label: "Save answers and refill this page", disabled: busy) { Task { await respond() } }
+                StackButton(label: "Save and refill", disabled: busy) { Task { await respond() } }
             }
-            Chip(label: "Open saved facts") { onNavigate("facts") }
+            Chip(label: "Saved answers") { onNavigate("facts") }
         }
     }
 
     private var uncertainBox: some View {
         Card(tint: Palette.surfaceRaised, spacing: 12) {
-            SectionLabel(text: "Confirm what happened")
-            Text("Stack cannot tell whether the last outbound action completed. Check your email, calendar, or the employer site, then tell Stack. It will not retry on its own.")
+            SectionLabel(text: "Check result")
+            Text("Couldn’t confirm the last action. Check your email or the company site")
                 .font(Typeface.body).foregroundStyle(Palette.text)
-            StackField(label: "What you checked (at least 10 characters)",
+            StackField(label: "What you checked",
                        text: Binding(get: { draft.evidence }, set: { draft.evidence = $0; remember() }), multiline: true)
             let ready = draft.evidence.trimmingCharacters(in: .whitespaces).count >= 10
-            StackButton(label: "It completed", disabled: busy || !ready) { Task { await reconcile("confirmed") } }
-            StackButton(label: "Nothing was sent", kind: .secondary, disabled: busy || !ready) { Task { await reconcile("not_sent") } }
+            StackButton(label: "It went through", disabled: busy || !ready) { Task { await reconcile("confirmed") } }
+            StackButton(label: "It didn’t send", kind: .secondary, disabled: busy || !ready) { Task { await reconcile("not_sent") } }
         }
     }
 
@@ -289,11 +301,11 @@ struct TaskDetailView: View {
             ForEach(feature?.missingRequired ?? []) { check in
                 VStack(alignment: .leading, spacing: 4) {
                     Text("✕ \(check.label) — \(check.fix)").font(Typeface.caption).foregroundStyle(Palette.text)
-                    if !check.action.isEmpty { Chip(label: "Fix: \(check.label)") { onNavigate(check.action) } }
+                    if !check.action.isEmpty { Chip(label: check.label) { onNavigate(check.action) } }
                 }
             }
-            StackButton(label: kind == "linkedin" && run["step_number"].int == 2 ? "Retry analysis" : "Retry now", icon: "refresh", disabled: !linkedin && busy) {
-                Task { await perform("agent_retry", ["id": .string(id)], done: "Retrying. Progress updates here automatically.") }
+            StackButton(label: kind == "linkedin" && run["step_number"].int == 2 ? "Try again" : "Try again", icon: "refresh", disabled: !linkedin && busy) {
+                Task { await perform("agent_retry", ["id": .string(id)], done: "Trying again…") }
             }
             if let feature, !feature.alternative.isEmpty {
                 Text("Meanwhile: \(feature.alternative)").font(Typeface.caption).foregroundStyle(Palette.muted)
@@ -330,7 +342,7 @@ struct TaskDetailView: View {
                 StackButton(label: "Cancel task", kind: .secondary, disabled: busy) { confirmCancel = true }
             }
             if status == "failed", !run["dismissed"].bool {
-                StackButton(label: "Dismiss from Needs you", kind: .secondary, disabled: busy) {
+                StackButton(label: "Dismiss", kind: .secondary, disabled: busy) {
                     Task { await perform("agent_dismiss", ["id": .string(id)], done: "Dismissed.") }
                 }
             }
@@ -408,9 +420,9 @@ struct TaskDetailView: View {
              "source": "User confirmed application answer"]
         }
         let message = kind == "linkedin"
-            ? "Reading your LinkedIn profile. Progress appears below."
-            : (answers.isEmpty ? "Trying again. Progress updates here automatically."
-                               : "Answers saved and confirmed. The task resumes automatically.")
+            ? "Reading your LinkedIn profile…"
+            : (answers.isEmpty ? "Trying again…"
+                               : "Resuming…")
         await perform("agent_respond", ["id": .string(id), "values": .array(answers), "reuse": true], done: message)
         if error.isEmpty {
             draft.values = [:]
@@ -428,7 +440,7 @@ struct TaskDetailView: View {
             edits = ["rejected": .array(draft.rejected.map { .string($0) })]
         }
         await perform("agent_approve", ["id": .string(id), "step": .string(step), "review_hash": review["hash"], "edits": edits],
-                      done: "Approved. Stack continues with exactly what you reviewed.")
+                      done: "Approved")
         if error.isEmpty {
             draft.editsFor = ""
             remember()
@@ -437,7 +449,7 @@ struct TaskDetailView: View {
 
     private func reconcile(_ outcome: String) async {
         await perform("agent_reconcile", ["id": .string(id), "outcome": .string(outcome), "evidence": .string(draft.evidence)],
-                      done: "Thanks. The task continues from what you confirmed.")
+                      done: "Thanks")
         if error.isEmpty {
             draft.evidence = ""
             remember()
@@ -453,7 +465,7 @@ struct ChangeRow: View {
     var onToggle: (() -> Void)?
 
     private static let labels = ["rewrite": "Reworded", "omit": "Removed", "reorder": "Reordered", "order": "Reordered",
-                                 "add": "Added from memory bank"]
+                                 "add": "Added from experience"]
 
     var body: some View {
         let kind = change["kind"].string
@@ -462,7 +474,7 @@ struct ChangeRow: View {
                 Text("\(Self.labels[kind] ?? kind) · \(change["where"].string)")
                     .font(Typeface.caption.weight(.bold)).foregroundStyle(Palette.text)
                 Spacer()
-                if let onToggle { Chip(label: rejected ? "Keep this" : "Reject", selected: rejected, action: onToggle) }
+                if let onToggle { Chip(label: rejected ? "Keep" : "Reject", selected: rejected, action: onToggle) }
             }
             if kind != "reorder", kind != "order", !change["before"].string.isEmpty {
                 Text(change["before"].string.replacingOccurrences(of: "**", with: ""))
@@ -494,7 +506,7 @@ struct DroppedList: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            SectionLabel(text: "Left out to fit one page · least relevant first")
+            SectionLabel(text: "Left out to fit one page")
             ForEach(Array(dropped.enumerated()), id: \.offset) { _, item in
                 Text("• \(item["where"].string): \(item["text"].string.replacingOccurrences(of: "**", with: ""))")
                     .font(Typeface.caption).foregroundStyle(Palette.text)
@@ -514,7 +526,7 @@ struct ArtifactView: View {
     private static let eyebrows = [
         "inspect": "Application form", "fit": "Job fit", "tailor": "Tailored resume", "fill": "Form filled",
         "submit": "Submission receipt", "research": "Contact source", "draft": "Email draft", "send": "Email sent",
-        "profile": "Profile suggestions", "coach": "Coaching", "execute": "Test results", "sync": "Gmail check",
+        "profile": "Profile suggestions", "coach": "Feedback", "execute": "Test results", "sync": "Gmail check",
         "calendar": "Calendar", "interview": "Transcript", "linkedin_pdf": "LinkedIn PDF",
     ]
 
@@ -608,7 +620,7 @@ struct ArtifactView: View {
             lines("To strengthen this: ", value["questions"].strings)
             Text(value["limitations"].string).font(Typeface.caption).foregroundStyle(Palette.muted)
             Text("Sections not read: \(value["unread_sections"].strings.joined(separator: ", "))").font(Typeface.caption).foregroundStyle(Palette.muted)
-            Text("Suggested edits are yours to review and apply on LinkedIn.").font(Typeface.caption).foregroundStyle(Palette.muted)
+            Text("Apply edits on LinkedIn when ready").font(Typeface.caption).foregroundStyle(Palette.muted)
         }
     }
 }
@@ -627,25 +639,25 @@ struct TailoredResultView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(final ? "Your tailored resume" : "Proposed tailored resume").font(Typeface.title).foregroundStyle(Palette.ink)
             if !final {
-                Text("Waiting for your review: keep or reject each change, then Stack rebuilds the PDF.")
+                Text("Review each change to build the PDF")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             if !pdf["content"].string.isEmpty {
-                StackButton(label: final ? "Preview tailored resume" : "Preview proposed resume", icon: "resume") { onPreview(pdf) }
+                StackButton(label: final ? "Preview tailored resume" : "Preview resume", icon: "resume") { onPreview(pdf) }
             } else {
                 MessageLine(text: "No PDF was generated.")
             }
             if legacy {
-                Text("Your uploaded resume is unchanged.").font(Typeface.caption).foregroundStyle(Palette.muted)
+                Text("Original unchanged").font(Typeface.caption).foregroundStyle(Palette.muted)
             } else {
-                Text("\(pdf["pages"].int) \(pdf["pages"].int == 1 ? "page" : "pages") · \(value["format"].string == "latex" ? "your LaTeX format" : "built-in LaTeX template") · your original is unchanged")
+                Text("\(pdf["pages"].int) \(pdf["pages"].int == 1 ? "page" : "pages") · \(value["format"].string == "latex" ? "your layout" : "template")")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             if !value["summary"].string.isEmpty { Text(value["summary"].string).font(Typeface.body).foregroundStyle(Palette.text) }
             if !value["score"]["after"].isNull {
                 ScoreCardView(after: value["score"]["after"], before: value["score"]["before"], title: "Score for this job")
             }
-            ChoiceChips(options: ["Changes", "Original text", "Tailored text"] + (value["tex"].string.isEmpty ? [] : ["LaTeX"]),
+            ChoiceChips(options: ["Changes", "Original", "Tailored"] + (value["tex"].string.isEmpty ? [] : ["Source"]),
                         isSelected: { comparison == $0 }, onTap: { comparison = $0 })
             switch comparison {
             case "Changes":
@@ -654,7 +666,7 @@ struct TailoredResultView: View {
                         ChangeRow(change: change, rejected: rejected.contains(change["id"].string))
                     }
                     if value["changes"].array.isEmpty, !legacy {
-                        Text("No wording or order changes were needed.").font(Typeface.body).foregroundStyle(Palette.text)
+                        Text("No changes needed").font(Typeface.body).foregroundStyle(Palette.text)
                     }
                     if !value["dropped"].array.isEmpty { DroppedList(dropped: value["dropped"].array) }
                     ForEach(value["notes"].strings, id: \.self) { Text("• \($0)").font(Typeface.caption).foregroundStyle(Palette.text) }
@@ -663,14 +675,14 @@ struct TailoredResultView: View {
                         Text(pdf["diff"].string).font(Typeface.caption).foregroundStyle(Palette.text).textSelection(.enabled)
                     }
                 }
-            case "Original text":
+            case "Original":
                 let original = pdf["original_text"].string
-                Text(original.isEmpty ? "Original text is not included in this older result." : original)
+                Text(original.isEmpty ? "Original text unavailable" : original)
                     .font(Typeface.body).foregroundStyle(Palette.text).textSelection(.enabled)
-            case "Tailored text":
+            case "Tailored":
                 Text(pdf["text"].string).font(Typeface.body).foregroundStyle(Palette.text).textSelection(.enabled)
             default:
-                Text("Select and copy this into Overleaf to keep editing it there.").font(Typeface.caption).foregroundStyle(Palette.muted)
+                Text("Copy into Overleaf to keep editing").font(Typeface.caption).foregroundStyle(Palette.muted)
                 CodeBlock(text: value["tex"].string)
             }
             if !value["cover_letter"]["content"].string.isEmpty {
@@ -700,11 +712,8 @@ struct TailorBlocker: View {
             SectionLabel(text: "One step before tailoring")
             if resumes.isEmpty {
                 Text("Upload a resume first").font(Typeface.title).foregroundStyle(Palette.ink)
-                Text("Stack tailors a resume you have uploaded, and you have none yet. Nothing has been generated.")
-                    .font(Typeface.body).foregroundStyle(Palette.text)
                 StackButton(label: "Go to the Resume tab", icon: "resume", disabled: busy) { onNavigate("resume") }
             } else if let current = current ?? store.account.resume(store.account.selectedResumeID) ?? resumes.first {
-                Text("Nothing has been generated yet.").font(Typeface.body).foregroundStyle(Palette.text)
                 TailorResumeSetup(resume: current, others: resumes.filter { store.account.canTailor($0.id) && $0.id != current.id }) { id in
                     await continueWith(id)
                 }

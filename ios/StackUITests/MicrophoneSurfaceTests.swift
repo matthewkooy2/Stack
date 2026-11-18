@@ -77,7 +77,7 @@ final class MicrophoneSurfaceUITests: XCTestCase {
         let control = app.buttons["Live transcription unavailable"]
         visible(control, in: app, requireHit: false)
         XCTAssertFalse(control.isEnabled)
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "PC transcription will be used")).firstMatch.exists)
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "You can type your answer after recording")).firstMatch.exists)
         XCTAssertTrue(app.buttons["Stop recording"].exists)
         capture("microphone-fallback")
     }

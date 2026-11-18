@@ -8,7 +8,7 @@ final class MemoryBankFlowUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["--screen-flow=memory-preview", "--disable-draft-animations", "--memory-save-fails-once"]
         app.launch()
-        let choose = app.buttons["Choose facts for tailoring"]
+        let choose = app.buttons["Choose entries"]
         XCTAssertTrue(choose.waitForExistence(timeout: 10))
         choose.tap()
         let fact = app.buttons["memory-fact-memory-1-r0"]

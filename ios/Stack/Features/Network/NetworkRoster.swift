@@ -7,18 +7,49 @@ struct NetworkContact: Identifiable, Hashable {
     let name: String
     let role: String
     let company: String
+    let email: String
+    let relationship: String
+    let stopped: Bool
+    let nextFollowup: Double
 
     init(_ json: JSON) {
         id = json["id"].string
         let suppliedName = json["name"].string.trimmingCharacters(in: .whitespacesAndNewlines)
-        name = suppliedName.isEmpty ? "Unnamed contact" : suppliedName
+        name = suppliedName.isEmpty ? "No name" : suppliedName
         role = json["role"].string.trimmingCharacters(in: .whitespacesAndNewlines)
         company = json["company"].string.trimmingCharacters(in: .whitespacesAndNewlines)
+        email = json["email"].string.trimmingCharacters(in: .whitespacesAndNewlines)
+        relationship = json["relationship"].string.trimmingCharacters(in: .whitespacesAndNewlines)
+        stopped = json["stopped"].bool
+        nextFollowup = json["next_at"].double
+    }
+
+    /// A follow-up draft is due now and outreach has not been stopped.
+    func followupDue(now: Date = Date()) -> Bool {
+        !stopped && nextFollowup > 0 && nextFollowup <= now.timeIntervalSince1970
     }
 
     var initials: String {
         name.split(whereSeparator: { $0.isWhitespace }).prefix(2).compactMap(\.first)
             .map { String($0) }.joined().uppercased()
+    }
+
+    var detail: String {
+        let work = [role, company].filter { !$0.isEmpty }.joined(separator: " · ")
+        return work.isEmpty ? email : work
+    }
+
+    var directoryLetter: String {
+        guard let letter = name.folding(options: .diacriticInsensitive, locale: .current).first,
+              letter.isLetter else { return "#" }
+        return String(letter).localizedUppercase
+    }
+
+    func matches(_ query: String) -> Bool {
+        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return term.isEmpty || [name, company, role, email, relationship].contains {
+            $0.localizedStandardContains(term)
+        }
     }
 
     static func contacts(from response: JSON) -> [Self] {

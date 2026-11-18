@@ -81,6 +81,11 @@ final class ResumeReviewFlowUITests: XCTestCase {
         if keyboard.exists, keyboard.frame.height > 0, keyboard.frame.minY < viewport.maxY {
             viewport.size.height = max(0, keyboard.frame.minY - viewport.minY)
         }
+        // The pinned action bar covers the bottom of the page; a row under it cannot be tapped.
+        let bar = app.buttons["resume-review-confirm"]
+        if bar.exists, !bar.frame.isEmpty, bar.frame.minY - 12 < viewport.maxY {
+            viewport.size.height = max(0, bar.frame.minY - 12 - viewport.minY)
+        }
         return viewport.insetBy(dx: 8, dy: 8)
     }
 
@@ -117,6 +122,8 @@ final class ResumeReviewFlowUITests: XCTestCase {
     @discardableResult
     private func show(_ target: XCUIElement, _ app: XCUIApplication, _ what: String,
                       fully: Bool = false, file: StaticString = #filePath, line: UInt = #line) -> Bool {
+        // The pinned action bar returns a moment after the keyboard goes.
+        _ = target.waitForExistence(timeout: 3)
         if fully ? fullyVisible(target, app) : tappable(target, app) { return true }
         for forward in [true, false] {
             for _ in 0..<8 {

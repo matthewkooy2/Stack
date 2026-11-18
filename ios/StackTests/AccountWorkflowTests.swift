@@ -321,10 +321,10 @@ final class AgentLabelTests: XCTestCase {
         XCTAssertEqual(AgentLabels.tone(for: "cancelled"), .quiet)
     }
 
-    func testStoppedTaskWithNothingToAnswerSaysTryAgain() {
-        XCTAssertEqual(AgentLabels.runLabel(["status": "needs_input", "has_requests": false]), "Stopped · try again")
-        XCTAssertEqual(AgentLabels.runLabel(["status": "needs_input", "has_requests": true]), "Needs your answers")
-        XCTAssertEqual(AgentLabels.runLabel(["status": "blocked", "needs_resume_review": true]), "Needs your resume")
+    func testStoppedTaskWithNothingToAnswerSaysStopped() {
+        XCTAssertEqual(AgentLabels.runLabel(["status": "needs_input", "has_requests": false]), "Stopped")
+        XCTAssertEqual(AgentLabels.runLabel(["status": "needs_input", "has_requests": true]), "Needs answers")
+        XCTAssertEqual(AgentLabels.runLabel(["status": "blocked", "needs_resume_review": true]), "Add a resume")
     }
 }
 

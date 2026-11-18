@@ -357,7 +357,7 @@ final class MicrophoneRecorderTests: XCTestCase {
         XCTAssertEqual(recordingSurfaceClock(24), "00:24")
         XCTAssertEqual(recordingSurfaceClock(-1), "00:00")
         XCTAssertEqual(RecordingLevelBars.spoken(.idle, running: false), "Not recording")
-        XCTAssertTrue(RecordingLevelBars.caption(.quiet, running: true).contains("speak up"))
+        XCTAssertTrue(RecordingLevelBars.caption(.quiet, running: true).contains("Move closer"))
         XCTAssertEqual(RecordingLevelBars.barHeight(level: 0, minHeight: 14, maxHeight: 104), 14)
         XCTAssertEqual(RecordingLevelBars.barHeight(level: 1, minHeight: 14, maxHeight: 104), 104)
         XCTAssertEqual(RecordingLevelBars.barHeight(level: 7, minHeight: 14, maxHeight: 104), 104)

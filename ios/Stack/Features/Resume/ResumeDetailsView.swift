@@ -57,6 +57,7 @@ private struct ResumeReviewScreen: View {
     @State private var editing: String?
     @State private var showSource = false
     @State private var lastReadTicket: JSON = .null
+    @State private var keyboardUp = false
 
     /// A retry changes the account's ticket before the editor's next read completes.
     private var activeProcessing: JSON {
@@ -101,10 +102,13 @@ private struct ResumeReviewScreen: View {
                 .padding(.horizontal, Spacing.page).padding(.top, 12).padding(.bottom, 24)
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if let controller, controller.loaded, selection != ResumeReviewController.originalSectionID {
+                if let controller, controller.loaded, selection != ResumeReviewController.originalSectionID, !keyboardUp {
                     actions(controller).pinnedActionBar()
                 }
             }
+            // The pinned bar would sit over the field being edited, so it waits for the keyboard to go.
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardUp = true }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardUp = false }
         }
         .task {
             guard controller == nil, !userID.isEmpty else { return }

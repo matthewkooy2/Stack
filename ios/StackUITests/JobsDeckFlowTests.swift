@@ -73,7 +73,7 @@ final class JobsDeckFlowUITests: XCTestCase {
         swipe(app, save: false)
         XCTAssertTrue(card(app, "job-charlie").waitForExistence(timeout: 5))
         card(app, "job-charlie").tap()
-        let note = app.staticTexts["This listing's link can't be opened safely in the app."]
+        let note = app.staticTexts["This link can’t be opened in the app"]
         XCTAssertTrue(note.waitForExistence(timeout: 10), "the details explain why there is no browser")
         XCTAssertFalse(app.staticTexts["stub-browser-url"].exists)
         XCTAssertFalse(app.buttons["Open application page"].exists)

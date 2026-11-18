@@ -22,7 +22,7 @@ def read_packet(stream):
     return json.loads(line)
 
 
-def complete(step, system, prompt, schema, cap):
+def complete(step: str, system: str, prompt: str, schema: dict, cap: int) -> str:
     if os.environ.get("STACK_FIRST_PARTY_AI_ONLY") == "1":
         raise ValueError("This deployment uses only Stack-hosted AI.")
     payload = json.dumps([lease_context.get(), step, system, prompt, schema, cap]).encode() + b"\n"

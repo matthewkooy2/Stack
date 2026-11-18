@@ -212,8 +212,8 @@ def _send(step: str, c: dict[str, any], system: str, payload: dict[str, any], sc
     if observe { observe("model_request", {"provider":provider,"requested_model":c["model"] or "provider default","transport":"codex exec" if provider=="codex-cli" else "claude -p" if provider=="claude-cli" else "local HTTP API" if provider in LOCAL_PROVIDERS else "HTTPS API","system":system,"input":json.loads(payload["input"]),"prompt_text":system+'\nReturn only the requested JSON.\n'+payload["input"] if provider=="codex-cli" else payload["input"],"schema":schema,"max_output_tokens":c["max_output_tokens"] if provider not in CLI_PROVIDERS else None}); }
     if cancellation is not None { cancellation.check(); }
     if provider == 'openai' and os.environ.get('STACK_STAGING_OPENAI_SOCKET') {
-        import from agents.staging_openai { complete }
-        text = complete(step, system, payload['input'], schema, c['max_output_tokens']);
+        import agents.staging_openai as staging_openai;
+        text = staging_openai.complete(step, system, payload['input'], schema, c['max_output_tokens']);
         result = {'model':c['model'], 'status':'completed'};
         received(text, 'text');
         if cancellation is not None { cancellation.check(); }

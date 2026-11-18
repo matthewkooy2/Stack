@@ -33,15 +33,11 @@ struct ResumeView: View {
     var body: some View {
         CollectionPage(title: "Resume", onProfile: onProfile) {
             if !store.account.resumes.isEmpty {
-                Button(action: chooseFile) {
-                    Image(systemName: "plus").font(.title3.weight(.medium))
-                        .frame(width: 44, height: 44).contentShape(Rectangle())
-                }
-                .foregroundStyle(Brand.accent).disabled(uploader.isBusy)
-                .accessibilityLabel("Upload a resume")
-                .accessibilityIdentifier("resume-upload")
+                HeaderIconButton(systemName: "plus", label: "Upload a resume", action: chooseFile)
+                    .disabled(uploader.isBusy)
+                    .accessibilityIdentifier("resume-upload")
             }
-            if store.account.resumes.isEmpty || store.account.resumes.count > 2 { libraryMenu }
+            libraryMenu
         } content: { height in
             if store.account.resumes.isEmpty {
                 ResumeUploadScreen(uploading: uploader.isBusy, fileName: uploader.fileName,
@@ -101,19 +97,15 @@ struct ResumeView: View {
     }
 
     private var libraryMenu: some View {
-        Menu {
+        HeaderMenu("ellipsis", label: "Resume options") {
             if store.account.resumes.isEmpty {
                 Button { showTailor = true } label: { Label("Tailor for a job", systemImage: "wand.and.stars") }
             }
             if !store.account.tailored.isEmpty {
                 Button { showTailored = true } label: { Label("Tailored resumes", systemImage: "doc.on.doc") }
             }
-            Button { showBank = true } label: { Label("Memory bank", systemImage: "archivebox") }
-        } label: {
-            Image(systemName: "ellipsis").font(.title3.weight(.semibold))
-                .foregroundStyle(Brand.ink).frame(width: 44, height: 44).contentShape(Rectangle())
+            Button { showBank = true } label: { Label("Experience", systemImage: "archivebox") }
         }
-        .accessibilityLabel("Resume options")
     }
 
     private var sortedFiles: [ResumeItem] {
@@ -127,84 +119,215 @@ struct ResumeView: View {
 
     private func library(viewportHeight: CGFloat) -> some View {
         let files = sortedFiles
-        return VStack(alignment: .leading, spacing: 16) {
+        let selected = store.account.selectedResumeID
+        let defaultFile = files.first { $0.id == selected }
+        let others = files.filter { $0.id != defaultFile?.id }
+        return VStack(alignment: .leading, spacing: Spacing.stack) {
             StoreMessages()
             if uploader.isBusy {
-                ProgressView(uploader.progress).font(Typeface.caption)
+                HStack(spacing: 10) {
+                    ProgressView()
+                    Text(uploader.progress).font(Typeface.caption).foregroundStyle(Brand.muted)
+                }
             } else if uploader.phase == .failed {
-                MessageLine(text: uploader.message).accessibilityIdentifier("resume-upload-error")
-                if uploader.canRetry {
-                    Button("Try again", action: retryUpload)
-                        .frame(minHeight: 44).foregroundStyle(Brand.accent)
-                        .accessibilityHint(uploader.fileName)
-                        .accessibilityIdentifier("resume-upload-retry")
+                VStack(alignment: .leading, spacing: 4) {
+                    MessageLine(text: uploader.message).accessibilityIdentifier("resume-upload-error")
+                    if uploader.canRetry {
+                        Button("Try again", action: retryUpload)
+                            .frame(minHeight: 44).foregroundStyle(Brand.accent)
+                            .accessibilityHint(uploader.fileName)
+                            .accessibilityIdentifier("resume-upload-retry")
+                    }
                 }
             }
+
+            tailorCard
 
             if files.count <= 2 {
                 let featured = files.count == 1
                 let columns = featured || typeSize.isAccessibilitySize ? 1 : 2
-                let coverHeight = featured ? min(340, max(176, viewportHeight * 0.46)) : 144
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .topLeading), count: columns),
-                          alignment: .leading, spacing: 18) {
+                let coverHeight = featured ? min(300, max(176, viewportHeight * 0.40)) : 150
+                VStack(alignment: .leading, spacing: 12) {
+                    if !featured { SectionHeader(title: "Resumes · \(files.count)") }
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: columns),
+                              alignment: .leading, spacing: 12) {
+                        ForEach(files) { resume in
+                            shelfFile(resume, height: coverHeight, showsDefault: !featured)
+                        }
+                    }
                     ForEach(files) { resume in
-                        shelfFile(resume, height: coverHeight, featured: featured)
+                        processingStatus(resume, showName: files.count > 1)
                     }
                 }
-                .padding(.top, featured ? min(32, viewportHeight * 0.04) : 12)
-                ForEach(files) { resume in
-                    processingStatus(resume, showName: files.count > 1)
-                }
-                Divider()
-                VStack(alignment: .leading, spacing: 0) {
-                    ListRow(label: "Tailor for a job", icon: "sparkles") { showTailor = true }
-                    if !store.account.tailored.isEmpty {
-                        ListRow(label: "Tailored resumes", icon: "resume", detail: "\(store.account.tailored.count) saved") { showTailored = true }
-                    }
-                    ListRow(label: "Memory bank", icon: "star") { showBank = true }
-                }
+                libraryLinks
             } else {
-                let layout = typeSize.isAccessibilitySize
-                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: 2))
-                    : AnyLayout(HStackLayout(alignment: .firstTextBaseline))
-                layout {
-                    Text("\(files.count) files").font(.subheadline.weight(.semibold)).foregroundStyle(Brand.muted)
-                    if !typeSize.isAccessibilitySize { Spacer() }
-                    tailorAction
-                }
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(files) { resume in
-                        compactFile(resume)
-                        processingStatus(resume, showName: false)
-                        Divider()
+                if let defaultFile {
+                    VStack(alignment: .leading, spacing: 8) {
+                        SectionHeader(title: "Default resume")
+                        defaultCard(defaultFile)
+                        processingStatus(defaultFile, showName: false)
                     }
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    SectionHeader(title: defaultFile == nil ? "All resumes · \(files.count)" : "Other resumes · \(others.count)")
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(others.enumerated()), id: \.element.id) { index, resume in
+                            if index > 0 { Divider().padding(.leading, 52) }
+                            compactFile(resume)
+                            processingStatus(resume, showName: false)
+                        }
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 4)
+                    .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                    .stackElevation()
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private var tailorAction: some View {
+    private var tailorCard: some View {
         Button { showTailor = true } label: {
-            Label("Tailor for a job", systemImage: "wand.and.stars")
-                .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+            HStack(spacing: 14) {
+                Image(systemName: "wand.and.stars").font(.title3.weight(.semibold))
+                    .foregroundStyle(.white).frame(width: 44, height: 44)
+                    .background(.white.opacity(0.18), in: Circle())
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Tailor for a job").font(.headline).foregroundStyle(.white)
+                    Text("Match a resume to a saved job").font(.footnote).foregroundStyle(.white.opacity(0.85))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.forward").font(.footnote.weight(.bold))
+                    .foregroundStyle(.white.opacity(0.85)).accessibilityHidden(true)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity)
+            .background(Brand.gradient, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .stackElevation()
+            .contentShape(Rectangle())
         }
-        .foregroundStyle(Brand.accent)
+        .buttonStyle(.tap(scale: 0.98))
+        .accessibilityLabel("Tailor for a job")
         .accessibilityHint(store.account.applications.contains { !$0.isDemo } ? "Score or rewrite for a saved job" : "Save a job from Jobs first")
     }
 
-    private func shelfFile(_ resume: ResumeItem, height: CGFloat, featured: Bool) -> some View {
+    /// Quiet entry points under the shelf; with a longer library these live in the header menu.
+    private var libraryLinks: some View {
+        VStack(spacing: 0) {
+            if !store.account.tailored.isEmpty {
+                libraryLink("Tailored resumes", symbol: "doc.on.doc", detail: "\(store.account.tailored.count)") { showTailored = true }
+                Divider().padding(.leading, 52)
+            }
+            libraryLink("Experience", symbol: "archivebox", detail: "") { showBank = true }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 4)
+        .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+        .stackElevation()
+    }
+
+    private func libraryLink(_ title: String, symbol: String, detail: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: symbol).font(.body.weight(.medium)).foregroundStyle(Brand.accent)
+                    .frame(width: 40, height: 40).background(Palette.halo, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    .accessibilityHidden(true)
+                Text(title).font(.body.weight(.medium)).foregroundStyle(Brand.ink)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if !detail.isEmpty { Text(detail).font(.subheadline).foregroundStyle(Brand.muted) }
+                Image(systemName: "chevron.forward").font(.caption.weight(.semibold))
+                    .foregroundStyle(Brand.muted).accessibilityHidden(true)
+            }
+            .padding(.vertical, 10).frame(minHeight: 56).contentShape(Rectangle())
+        }
+        .buttonStyle(.tap(scale: 0.985))
+        .accessibilityLabel(detail.isEmpty ? title : "\(title), \(detail)")
+    }
+
+    // MARK: Files
+
+    private func isDefault(_ resume: ResumeItem) -> Bool { resume.id == store.account.selectedResumeID }
+
+    private func metaLine(_ resume: ResumeItem) -> String {
+        [verifiedTypes[resume.id] ?? resume.fileKind, resume.shortLibraryDate].filter { !$0.isEmpty }.joined(separator: " · ")
+    }
+
+    /// Only states that need attention get a pill; a confirmed resume is the normal case.
+    @ViewBuilder
+    private func statePill(_ resume: ResumeItem) -> some View {
+        switch resume.detailsStatus {
+        case "Review", "Needs review": StatusPill(text: "Needs review", tone: .warning)
+        case "Processing": StatusPill(text: "Processing", tone: .accent).shimmer()
+        case "Import failed": StatusPill(text: "Import failed", tone: .danger)
+        default: EmptyView()
+        }
+    }
+
+    private func pills(_ resume: ResumeItem, showsDefault: Bool) -> some View {
+        HStack(spacing: 6) {
+            if showsDefault && isDefault(resume) { StatusPill(text: "Default", tone: .accent) }
+            statePill(resume)
+        }
+    }
+
+    private func shelfFile(_ resume: ResumeItem, height: CGFloat, showsDefault: Bool) -> some View {
         Button { managing = resume } label: {
-            VStack(alignment: featured ? .center : .leading, spacing: featured ? 18 : 10) {
+            VStack(alignment: .leading, spacing: 12) {
                 ResumeDocumentCover(resume: resume, isActive: isActive) { format in
                     verifiedTypes[resume.id] = format
                 }
                 .id(resume.size)
                 .frame(height: height)
-                .frame(maxWidth: .infinity, alignment: .center)
-                fileCaption(resume, compact: false, centered: featured)
+                .padding(.vertical, 18).padding(.horizontal, 12)
+                .frame(maxWidth: .infinity)
+                .background(Brand.page, in: RoundedRectangle(cornerRadius: Radius.control + 2, style: .continuous))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(resume.displayName).font(.headline).foregroundStyle(Brand.ink)
+                        .lineLimit(2).multilineTextAlignment(.leading)
+                    if !metaLine(resume).isEmpty {
+                        Text(metaLine(resume)).font(.footnote).foregroundStyle(Brand.muted)
+                    }
+                    pills(resume, showsDefault: showsDefault).padding(.top, 3)
+                }
+                .padding(.horizontal, 4).padding(.bottom, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .padding(8)
             .frame(maxWidth: .infinity)
+            .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .stackElevation()
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.tap(scale: 0.985))
+        .accessibilityLabel(resume.name)
+        .accessibilityValue(fileAccessibilityValue(resume))
+        .accessibilityHint("Open file actions")
+    }
+
+    private func defaultCard(_ resume: ResumeItem) -> some View {
+        Button { managing = resume } label: {
+            HStack(spacing: 16) {
+                ResumeDocumentCover(resume: resume, isActive: isActive) { format in
+                    verifiedTypes[resume.id] = format
+                }
+                .id(resume.size)
+                .frame(width: 76, height: 100)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(resume.displayName).font(.headline).foregroundStyle(Brand.ink)
+                        .lineLimit(2).multilineTextAlignment(.leading)
+                    if !metaLine(resume).isEmpty {
+                        Text(metaLine(resume)).font(.footnote).foregroundStyle(Brand.muted)
+                    }
+                    pills(resume, showsDefault: true).padding(.top, 4)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.forward").font(.caption.weight(.semibold))
+                    .foregroundStyle(Brand.muted).accessibilityHidden(true)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity)
+            .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .stackElevation()
             .contentShape(Rectangle())
         }
         .buttonStyle(.tap(scale: 0.985))
@@ -214,41 +337,31 @@ struct ResumeView: View {
     }
 
     private func compactFile(_ resume: ResumeItem) -> some View {
-        Button { managing = resume } label: {
+        let tint = Palette.tint(for: resume.fileKind.isEmpty ? "document" : resume.fileKind)
+        return Button { managing = resume } label: {
             HStack(spacing: 12) {
-                Image(systemName: "doc.text")
-                    .font(.title3).foregroundStyle(Brand.accent)
-                    .frame(width: 28).accessibilityHidden(true)
-                fileCaption(resume, compact: true)
+                Image(systemName: "doc.text.fill").font(.body)
+                    .foregroundStyle(tint.ink)
+                    .frame(width: 40, height: 40)
+                    .background(tint.fill, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(resume.displayName).font(.body.weight(.medium)).foregroundStyle(Brand.ink).lineLimit(1)
+                    if !metaLine(resume).isEmpty {
+                        Text(metaLine(resume)).font(.footnote).foregroundStyle(Brand.muted).lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                statePill(resume)
                 Image(systemName: "chevron.forward").font(.caption.weight(.semibold))
                     .foregroundStyle(Brand.muted).accessibilityHidden(true)
             }
-            .padding(.vertical, 12).frame(minHeight: 58).contentShape(Rectangle())
+            .padding(.vertical, 10).frame(minHeight: 56).contentShape(Rectangle())
         }
-        .buttonStyle(.tap(scale: 0.99))
+        .buttonStyle(.tap(scale: 0.985))
         .accessibilityLabel(resume.name)
         .accessibilityValue(fileAccessibilityValue(resume))
         .accessibilityHint("Open file actions")
-    }
-
-    private func fileCaption(_ resume: ResumeItem, compact: Bool, centered: Bool = false) -> some View {
-        let isDefault = resume.id == store.account.selectedResumeID
-        let status = resume.detailsStatus == "Review" ? "Needs review" : resume.detailsStatus
-        let metadata = [verifiedTypes[resume.id] ?? "", resume.librarySize, resume.libraryDate]
-            .filter { !$0.isEmpty }.joined(separator: " · ")
-        return VStack(alignment: centered ? .center : .leading, spacing: 4) {
-            Text(resume.name).font(centered ? .title3.weight(.semibold) : .headline)
-                .lineLimit(compact ? 1 : 2).truncationMode(.middle).foregroundStyle(Brand.ink)
-            if !metadata.isEmpty {
-                Text(metadata).font(.footnote).foregroundStyle(Brand.muted)
-            }
-            if isDefault || !status.isEmpty {
-                Text([isDefault ? "Default" : "", status].filter { !$0.isEmpty }.joined(separator: " · "))
-                    .font(.caption.weight(.medium)).foregroundStyle(isDefault ? Brand.accent : Brand.muted)
-            }
-        }
-        .multilineTextAlignment(centered ? .center : .leading)
-        .frame(maxWidth: .infinity, alignment: centered ? .center : .leading)
     }
 
     private func fileAccessibilityValue(_ resume: ResumeItem) -> String {
@@ -304,7 +417,7 @@ struct ResumeView: View {
             guard generation == store.sessionGeneration, store.phase == .ready else { throw CancellationError() }
             _ = try await store.callAccount("upload_resume", ["name": .string(file.name), "content": .string(file.content)], timeout: 90)
         }
-        if uploaded { store.notice = "Your resume is saved privately." }
+        if uploaded { store.notice = "Resume saved" }
     }
 }
 
@@ -407,12 +520,18 @@ struct ManageResumeSheet: View {
     @State private var seeded = false
 
     var body: some View {
-        SheetPage(title: resume.name) {
+        SheetPage(title: resume.displayName, subtitle: [resume.fileKind, resume.shortLibraryDate].filter { !$0.isEmpty }.joined(separator: " · ")) {
             VStack(spacing: 0) {
                 ListRow(label: opening ? "Opening…" : "Preview", icon: "resume") { Task { await open() } }
-                ListRow(label: "Review details", icon: "check", detail: resume.detailsStatus) { details = resume }
+                ListRow(label: "Review details", icon: "check") { details = resume } trailing: {
+                    HStack(spacing: 8) {
+                        if ["Review", "Needs review"].contains(resume.detailsStatus) { StatusPill(text: "Needs review", tone: .warning) }
+                        GlyphView(name: "chevron", size: 13, color: Palette.muted)
+                    }
+                }
                 let format = store.account.format(of: resume.id)
-                ListRow(label: "Format", icon: "resume", detail: format["kind"].string == "upload" ? "Uploaded design" : format["label"].string) { formatting = resume }
+                let template = ResumeTemplate.label(for: format["template"].string, fallback: format["label"].string)
+                ListRow(label: "Template", icon: "resume", detail: format["kind"].string == "upload" ? "Your layout" : template) { formatting = resume }
                 if resume.id != store.account.selectedResumeID {
                     ListRow(label: "Use as default resume", icon: "check") {
                         Task { if await store.mutate("change_resume", ["id": .string(resume.id), "action": "select"]) { dismiss() } }
@@ -428,7 +547,7 @@ struct ManageResumeSheet: View {
                         Task { if await store.mutate("change_resume", ["id": .string(resume.id), "action": "rename", "name": .string(name)]) { dismiss() } }
                     }
                     Button(role: .destructive) { confirmDelete = true } label: {
-                        Label("Delete this resume", systemImage: "trash").frame(minHeight: 44)
+                        Label("Delete resume", systemImage: "trash").frame(minHeight: 44)
                     }
                     .disabled(store.busy)
                 }
@@ -440,10 +559,10 @@ struct ManageResumeSheet: View {
         .sheet(item: $formatting) { resume in ResumeFormatView(resume: resume).environment(store) }
         .confirmationDialog("Delete this resume?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
-                Task { if await store.mutate("change_resume", ["id": .string(resume.id), "action": "delete"], notice: "Resume deleted.") { dismiss() } }
+                Task { if await store.mutate("change_resume", ["id": .string(resume.id), "action": "delete"], notice: "Resume deleted") { dismiss() } }
             }
         } message: {
-            Text("This removes the file from your Stack account.")
+            Text("This can't be undone")
         }
     }
 

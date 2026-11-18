@@ -19,10 +19,6 @@ struct ProcessingStatusView: View {
                     .font(Typeface.caption)
                     .foregroundStyle(status == "failed" ? Palette.danger : Palette.dark)
                     .breathe(["queued", "parsing", "compiling"].contains(status), minimum: 0.6)
-                if ["queued", "parsing", "compiling"].contains(status) {
-                    Text("Processing continues in the background.")
-                        .font(Typeface.caption).foregroundStyle(Palette.muted)
-                }
                 if !processing["error"].string.isEmpty {
                     Text(processing["error"].string).font(Typeface.caption).foregroundStyle(Palette.danger)
                 }
@@ -49,9 +45,9 @@ struct ProcessingStatusView: View {
         switch status {
         case "queued": return "Saved · Waiting to process"
         case "parsing": return kind == ResumeLane.source ? "Reading your file…" : "Reading resume…"
-        case "compiling": return "Preparing your design…"
-        case "completed": return kind == ResumeLane.source ? "Design ready" : "Resume ready to review"
-        case "failed": return kind == ResumeLane.source ? "Couldn’t prepare the design" : "Couldn’t read resume details"
+        case "compiling": return "Preparing your template…"
+        case "completed": return kind == ResumeLane.source ? "Template ready" : "Resume ready to review"
+        case "failed": return kind == ResumeLane.source ? "Couldn’t prepare the template" : "Couldn’t read resume details"
         default: return status
         }
     }
@@ -78,20 +74,25 @@ extension View {
     func pollsWhileProcessing(_ active: Bool) -> some View { modifier(ProcessingPoll(active: active)) }
 }
 
-/// The built-in designs in picker order: Jake plus the five requested designs. The server keeps legacy Classic
-/// readable for saved resumes and older clients; it is not offered here.
+/// The built-in templates in picker order. The server keeps legacy Classic readable for saved resumes and
+/// older clients; it is not offered here.
 struct ResumeTemplate: Identifiable, Hashable {
     let key: String
     let label: String
     var id: String { key }
 
+    /// The display name for a template key, falling back to the server's label.
+    static func label(for key: String, fallback: String = "") -> String {
+        all.first { $0.key == key }?.label ?? fallback
+    }
+
     static let all: [ResumeTemplate] = [
-        ResumeTemplate(key: "jake", label: "Jake's Resume"),
-        ResumeTemplate(key: "awesome-cv", label: "Awesome-CV"),
-        ResumeTemplate(key: "bill-ryan", label: "Bill Ryan's Elegant Resume"),
-        ResumeTemplate(key: "sb2nov", label: "Sourabh Bajaj's Resume"),
-        ResumeTemplate(key: "deedy", label: "Deedy Resume"),
-        ResumeTemplate(key: "jan-kuster", label: "Jan Kuster's Classic CV"),
+        ResumeTemplate(key: "jake", label: "Compact"),
+        ResumeTemplate(key: "awesome-cv", label: "Modern"),
+        ResumeTemplate(key: "bill-ryan", label: "Elegant"),
+        ResumeTemplate(key: "sb2nov", label: "Professional"),
+        ResumeTemplate(key: "deedy", label: "Two column"),
+        ResumeTemplate(key: "jan-kuster", label: "Traditional"),
     ]
 }
 
@@ -124,8 +125,9 @@ struct ResumeDesignMenu: View {
                 Image(systemName: "chevron.up.chevron.down").font(.caption).foregroundStyle(Palette.muted)
             }
             .padding(.horizontal, 14).padding(.vertical, 10)
-            .frame(minHeight: 48)
-            .background(Palette.field, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .frame(minHeight: 52)
+            .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
+            .stackElevation()
         }
     }
 }
@@ -153,7 +155,7 @@ struct ResumeTemplatePicker: View {
             ResumeDesignMenu(selectedKey: ["builtin", "records"].contains(kind) ? format["template"].string : "",
                              choose: choose)
                 .disabled(working)
-            Chip(label: working ? "Working…" : "Preview design") { Task { await open() } }
+            Chip(label: working ? "Working…" : "Preview template") { Task { await open() } }
                 .disabled(working || building)
                 .accessibilityIdentifier("resume-template-preview")
             MessageLine(text: notice, isError: false).fadeSwitch(!notice.isEmpty)
@@ -172,7 +174,7 @@ struct ResumeTemplatePicker: View {
         Task {
             do {
                 try await store.callAccount("use_resume_template", ["id": .string(resume.id), "template": .string(key)], timeout: 60)
-                notice = "Design saved."
+                notice = "Template saved"
             } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
             working = false
             onSaving(false)
@@ -216,24 +218,20 @@ struct TailorResumeSetup: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if ready {
-                Text("Choose a design").font(Typeface.option).foregroundStyle(Brand.ink)
-                Text("Stack writes your confirmed details for this job into the design you choose.")
-                    .font(Typeface.caption).foregroundStyle(Brand.muted)
+                SectionHeader(title: "Template")
                 ResumeTemplatePicker(resume: current, onSaving: { savingDesign = $0 })
-                StackButton(label: continuing ? "Starting…" : "Continue tailoring", icon: "check",
+                StackButton(label: continuing ? "Starting…" : "Tailor resume", icon: "check",
                             disabled: continuing || savingDesign || designBuilding || store.busy) {
                     Task { await go(resume.id) }
                 }
                 .accessibilityIdentifier("tailor-setup-continue")
             } else {
-                Text("Confirm the details in \(current.name)").font(Typeface.option).foregroundStyle(Brand.ink)
+                Text("Confirm \(current.displayName)").font(Typeface.option).foregroundStyle(Brand.ink)
                 ProcessingStatusView(resumeID: resume.id, kind: ResumeLane.structured, processing: reading)
-                Text("Stack tailors only from details you confirm. Then you choose a design.")
-                    .font(Typeface.caption).foregroundStyle(Brand.muted)
                 StackButton(label: "Review details", icon: "check", disabled: continuing) { details = current }
                     .accessibilityIdentifier("tailor-setup-details")
                 ForEach(others) { other in
-                    StackButton(label: "Use \(other.name) instead", icon: "resume", kind: .secondary, disabled: continuing) {
+                    StackButton(label: "Use \(other.displayName) instead", icon: "resume", kind: .secondary, disabled: continuing) {
                         Task { await go(other.id) }
                     }
                 }

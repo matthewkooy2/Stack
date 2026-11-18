@@ -3,8 +3,8 @@ import SwiftUI
 /// Labels and tones for agent task state, shared by the hub, task detail and application screens.
 enum AgentLabels {
     static let status: [String: String] = [
-        "queued": "Queued", "running": "Working", "waiting": "Ready", "needs_input": "Needs your answers",
-        "blocked": "Paused · setup", "review": "Needs your review", "uncertain": "Confirm what happened",
+        "queued": "Queued", "running": "Working", "waiting": "Ready", "needs_input": "Needs answers",
+        "blocked": "Needs setup", "review": "Review", "uncertain": "Check result",
         "failed": "Stopped", "completed": "Done", "cancelled": "Cancelled",
     ]
     static let featureState: [String: String] = ["ready": "Ready", "setup": "Needs setup", "unavailable": "Unavailable"]
@@ -16,9 +16,9 @@ enum AgentLabels {
 
     /// A task paused until its resume is ready (confirmed details) is not waiting for answers; say what it needs.
     static func runLabel(_ run: JSON) -> String {
-        if run["needs_resume_review"].bool { return "Needs your resume" }
+        if run["needs_resume_review"].bool { return "Add a resume" }
         if run["status"].string == "needs_input", run["has_requests"].isNull == false, !run["has_requests"].bool {
-            return "Stopped · try again"
+            return "Stopped"
         }
         return statusLabel(run["status"].string)
     }
@@ -67,30 +67,34 @@ struct TaskRow: View {
 
     var body: some View {
         Button(action: onOpen) {
-            VStack(alignment: .leading, spacing: 8) {
-                StatusPill(label: AgentLabels.runLabel(run), tone: AgentLabels.tone(for: run["status"].string))
-                Text(run["title"].string).font(.headline).foregroundStyle(Palette.ink)
-                if !run["context_label"].string.isEmpty {
-                    Text(run["context_label"].string).font(Typeface.caption).foregroundStyle(Palette.muted)
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 6) {
+                    StatusPill(label: AgentLabels.runLabel(run), tone: AgentLabels.tone(for: run["status"].string))
+                        .shimmer(AgentLabels.active.contains(run["status"].string))
+                    Text(run["title"].string).font(.headline).foregroundStyle(Palette.ink)
+                        .multilineTextAlignment(.leading)
+                    if !run["context_label"].string.isEmpty {
+                        Text(run["context_label"].string).font(.footnote).foregroundStyle(Palette.muted)
+                    }
+                    if !stepLine.isEmpty { Text(stepLine).font(.footnote).foregroundStyle(Palette.muted) }
+                    if run["attention"].bool, !run["message"].string.isEmpty {
+                        Text(run["message"].string).font(.subheadline).foregroundStyle(Palette.text).lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                    } else if !run["explanation"].string.isEmpty {
+                        Text(run["explanation"].string).font(.subheadline).foregroundStyle(Palette.text).lineLimit(2)
+                            .multilineTextAlignment(.leading)
+                    }
+                    Text(dateTime(run["updated_at"].double > 0 ? run["updated_at"].double : run["created_at"].double))
+                        .font(.footnote).foregroundStyle(Palette.muted)
                 }
-                if !stepLine.isEmpty { Text(stepLine).font(Typeface.caption).foregroundStyle(Palette.muted) }
-                if !run["explanation"].string.isEmpty {
-                    Text(run["explanation"].string).font(.subheadline).foregroundStyle(Palette.text).lineLimit(2)
-                }
-                if run["attention"].bool, !run["message"].string.isEmpty {
-                    Text(run["message"].string).font(Typeface.caption).foregroundStyle(Palette.text)
-                }
-                HStack {
-                    Text("Updated \(dateTime(run["updated_at"].double > 0 ? run["updated_at"].double : run["created_at"].double))")
-                        .font(Typeface.caption).foregroundStyle(Palette.muted)
-                    Spacer()
-                    Text(run["next_action"].string == "review" ? "Review" : (run["attention"].bool ? "Respond" : "Details"))
-                        .font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
-                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.forward").font(.caption.weight(.semibold))
+                    .foregroundStyle(Palette.muted).padding(.top, 4).accessibilityHidden(true)
             }
-            .padding(18)
+            .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Palette.surface, in: RoundedRectangle(cornerRadius: Spacing.radius, style: .continuous))
+            .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .stackElevation()
         }
         .buttonStyle(.tap(scale: 0.985))
         .accessibilityLabel("Open task \(run["title"].string), \(AgentLabels.runLabel(run))")
@@ -119,14 +123,6 @@ struct FeatureCardView: View {
                            tone: AgentLabels.featureTone(feature.state))
             }
             Text(feature.summary).font(Typeface.body).foregroundStyle(Palette.text)
-            if !compact {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Needs: \(feature.input)")
-                    Text("Your control: \(feature.review)")
-                    Text("Start from: \(feature.whereToStart)")
-                }
-                .font(Typeface.caption).foregroundStyle(Palette.muted)
-            }
             ForEach(feature.checks.filter { !compact || !$0.ok }) { check in
                 VStack(alignment: .leading, spacing: 4) {
                     Text("\(check.ok ? "✓" : (check.optional ? "○" : "✕")) \(check.label)\(check.optional && !check.ok ? " (optional)" : "")")
@@ -136,14 +132,14 @@ struct FeatureCardView: View {
                         Text(check.fix).font(Typeface.caption).foregroundStyle(Palette.muted)
                     }
                     if !check.ok, !check.action.isEmpty {
-                        Chip(label: "Fix: \(check.label)") { onAction(check.action) }
+                        Chip(label: "\(check.label)") { onAction(check.action) }
                     }
                 }
             }
             if feature.state != "ready", !feature.alternative.isEmpty {
                 Text("Meanwhile: \(feature.alternative)").font(Typeface.caption).foregroundStyle(Palette.text)
                     .padding(12).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Palette.oat, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .background(Brand.page, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
             }
         }
     }
@@ -156,7 +152,7 @@ extension FeatureCheck: Identifiable { var id: String { key } }
 struct ScoreCardView: View {
     let after: JSON
     var before: JSON = [:]
-    var title = "Resume score"
+    var title = "Resume match"
     @Environment(\.stackReduceMotion) private var reduceMotion
     @State private var open = false
 
@@ -168,10 +164,10 @@ struct ScoreCardView: View {
             Text(scoreLine("Job match", before: before["match"], after: after["match"])).font(Typeface.body.weight(.semibold)).foregroundStyle(Palette.ink)
             Text(scoreLine("Resume quality", before: before["quality"], after: after["quality"])).font(Typeface.body.weight(.semibold)).foregroundStyle(Palette.ink)
             if !required.isEmpty {
-                Text("Missing required: \(required.prefix(4).map { $0["term"].string }.joined(separator: ", "))")
+                Text("Missing: \(required.prefix(4).map { $0["term"].string }.joined(separator: ", "))")
                     .font(Typeface.caption).foregroundStyle(Palette.text)
             }
-            Button(open ? "Hide score details" : "Score details") { withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { open.toggle() } }
+            Button(open ? "Hide details" : "Details") { withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { open.toggle() } }
                 .font(Typeface.caption.weight(.semibold)).foregroundStyle(Palette.dark)
             if open { details(missing) }
         }
@@ -183,29 +179,29 @@ struct ScoreCardView: View {
             Text("Job match · " + components(after["match_components"].array, before["match_components"].array))
             Text("Quality · " + components(after["quality_components"].array, before["quality_components"].array))
             if missing.isEmpty {
-                Text("Every skill the listing names appears on your resume.")
+                Text("You cover every listed skill")
             } else {
-                Text("Missing from your resume (add only if true): " + missing.map {
+                Text("Not on your resume: " + missing.map {
                     $0["term"].string + ($0["supported"].bool ? " · in your facts" : "") + ($0["required"].bool ? " · required" : "")
                 }.joined(separator: ", "))
             }
             if !after["listed_only"].strings.isEmpty {
-                Text("Only on your skills line: \(after["listed_only"].strings.joined(separator: ", ")). Show them in a bullet where your work used them.")
+                Text("Only in your skills list: \(after["listed_only"].strings.joined(separator: ", "))")
             }
             let absent = after["keywords"].array.filter { !$0["found"].bool }.map { $0["term"].string }
-            if !absent.isEmpty { Text("Listing phrases not on your resume: " + absent.joined(separator: ", ")) }
+            if !absent.isEmpty { Text("Missing phrases: " + absent.joined(separator: ", ")) }
             let stuffed = after["stuffed"].array
             if !stuffed.isEmpty {
-                Text("Repeated too often: " + stuffed.map { "\($0["term"].string) ×\($0["count"].int)" }.joined(separator: ", "))
+                Text("Overused: " + stuffed.map { "\($0["term"].string) ×\($0["count"].int)" }.joined(separator: ", "))
             }
             let years = after["requirements"]["years"]
             if years["min"].int > 0 {
-                Text("The listing asks for \(years["min"].int)+ years; Stack counts about \(after["requirements"]["resume_years"].int) from your dates (internships count half).")
+                Text("Listing asks for \(years["min"].int)+ years. You have about \(after["requirements"]["resume_years"].int).")
             }
             ForEach(Array(after["issues"].array.prefix(6).enumerated()), id: \.offset) { _, issue in
                 Text("• \(issue["where"].string): \(issue["detail"].string) — “\(issue["text"].string)”")
             }
-            Text("Stack's own weights, computed without AI. A guide to tailoring, not a prediction of hiring.")
+            Text("Estimated by Stack. Not a hiring prediction")
                 .foregroundStyle(Palette.muted)
         }
         .font(Typeface.caption)
@@ -214,7 +210,7 @@ struct ScoreCardView: View {
     }
 
     private func scoreLine(_ label: String, before: JSON, after: JSON) -> String {
-        if after.isNull { return "\(label): not enough information" }
+        if after.isNull { return "\(label): not enough to score" }
         if before.isNull || before == after { return "\(label): \(after.string)" }
         let change = after.int - before.int
         return "\(label): \(before.string) → \(after.string) (\(change > 0 ? "+" : "")\(change))"
@@ -245,11 +241,11 @@ struct AgentFeedbackForm: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Agent feedback").font(Typeface.section).foregroundStyle(Palette.ink)
+            Text("Feedback").font(Typeface.section).foregroundStyle(Palette.ink)
             ChoiceChips(options: ["good", "mixed", "bad"], isSelected: { rating == $0 },
                         onTap: { rating = $0; message = "" }, labelFor: { $0.capitalized })
-            StackField(label: "What worked or needs improvement?", text: $note, multiline: true)
-            StackButton(label: "Save agent feedback", icon: "chat", disabled: working || rating.isEmpty || note.isBlank) {
+            StackField(label: "Feedback", text: $note, multiline: true)
+            StackButton(label: "Send feedback", icon: "chat", disabled: working || rating.isEmpty || note.isBlank) {
                 working = true
                 error = ""
                 message = ""
@@ -259,7 +255,7 @@ struct AgentFeedbackForm: View {
                                                                "rating": .string(rating), "note": .string(note)])
                         note = ""
                         rating = ""
-                        message = "Feedback saved."
+                        message = "Thanks"
                     } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
                     working = false
                 }

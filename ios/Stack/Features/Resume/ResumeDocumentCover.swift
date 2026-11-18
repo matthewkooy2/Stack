@@ -17,7 +17,10 @@ struct ResumeDocumentCover: View {
         Group {
             if let image {
                 Image(uiImage: image).resizable().scaledToFit()
-                    .shadow(color: .black.opacity(0.13), radius: 3, y: 2)
+                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Brand.rule.opacity(0.8), lineWidth: 0.5))
+                    .shadow(color: .black.opacity(0.10), radius: 10, y: 5)
+                    .shadow(color: .black.opacity(0.06), radius: 1.5, y: 1)
             } else {
                 ResumePaper(type: fileType)
             }
@@ -60,6 +63,29 @@ struct ResumeDocumentCover: View {
 extension ResumeItem {
     var librarySize: String {
         size > 0 ? ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file) : ""
+    }
+
+    /// "Nov 17", with the year only when it is not this one.
+    var shortLibraryDate: String {
+        guard createdAt > 0 else { return "" }
+        let date = Date(timeIntervalSince1970: createdAt)
+        let sameYear = Calendar.current.isDate(date, equalTo: .now, toGranularity: .year)
+        return sameYear ? date.formatted(.dateTime.month(.abbreviated).day()) : date.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    /// The name without a trailing file extension.
+    var displayName: String {
+        let url = URL(fileURLWithPath: name)
+        let ext = url.pathExtension.lowercased()
+        guard ["pdf", "docx", "doc", "txt", "rtf", "pages", "tex", "zip"].contains(ext) else { return name }
+        let stem = url.deletingPathExtension().lastPathComponent
+        return stem.isEmpty ? name : stem
+    }
+
+    /// "PDF" or "DOCX" from the file name, or empty.
+    var fileKind: String {
+        let ext = URL(fileURLWithPath: name).pathExtension.uppercased()
+        return ["PDF", "DOCX", "DOC", "TXT", "RTF", "PAGES", "TEX", "ZIP"].contains(ext) ? ext : ""
     }
 
     var libraryDate: String {
@@ -108,7 +134,8 @@ struct ResumePaper: View {
             }
         }
         .aspectRatio(0.76, contentMode: .fit)
-        .shadow(color: .black.opacity(0.07), radius: 4, y: 2)
+        .shadow(color: .black.opacity(0.09), radius: 10, y: 5)
+        .shadow(color: .black.opacity(0.05), radius: 1.5, y: 1)
         .accessibilityHidden(true)
     }
 }

@@ -287,10 +287,8 @@ final class ScreenFlowUITests: XCTestCase {
         presence.tap()
         capture("presence-initial-no-review")
         tap(app.buttons["presence-start-review"], in: app, "start-linkedin-review")
-        XCTAssertTrue(field(app, "Target role (optional)").waitForExistence(timeout: 5))
+        XCTAssertTrue(field(app, "Target role").waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["linkedin-choose-pdf"].isHittable)
-        let instructions = app.buttons["How to get your LinkedIn PDF"]
-        tap(instructions, in: app, "linkedin-pdf-instructions")
         let firstStep = app.descendants(matching: .any)
             .matching(NSPredicate(format: "label CONTAINS %@", "On a computer, open linkedin.com and go to your profile.")).firstMatch
         XCTAssertTrue(firstStep.waitForExistence(timeout: 5))

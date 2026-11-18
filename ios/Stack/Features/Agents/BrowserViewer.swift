@@ -42,16 +42,16 @@ final class RemoteBrowserModel {
 
     var statusText: String {
         let mode = control["mode"].string
-        if mode == "pausing" { return "Pausing agent…" }
-        if mode == "stopping" { return "Stopping task…" }
+        if mode == "pausing" { return "Pausing…" }
+        if mode == "stopping" { return "Stopping…" }
         if mode == "stopped" { return "Task stopped" }
         if connection == "unavailable" { return "Browser unavailable" }
-        if !relaxed && (connection == "unconfirmed" || !safe) { return "Input unconfirmed" }
+        if !relaxed && (connection == "unconfirmed" || !safe) { return "Input not confirmed" }
         if connection != "connected" { return "Reconnecting…" }
-        if !relaxed && age >= 5000 { return "Waiting for a fresh view…" }
+        if !relaxed && age >= 5000 { return "Refreshing…" }
         if owned { return "You have control" }
-        if mode == "user" { return "Another viewer has control" }
-        return "Agent has browser control"
+        if mode == "user" { return "Someone else has control" }
+        return "Stack has control"
     }
 
     func open(store: AppStore, id: String, linkedin: Bool = false, onChanged: @escaping () -> Void) {
@@ -204,7 +204,7 @@ final class RemoteBrowserModel {
             } catch {
                 guard self.epoch == observed, !(error is CancellationError) else { return }
                 self.safe = false
-                self.error = "Input was not confirmed. Take control again before continuing."
+                self.error = "Take control again to continue"
                 self.connection = "unconfirmed"
             }
         }
@@ -220,7 +220,7 @@ final class RemoteBrowserModel {
         if name == "resume" {
             await chain?.value
             guard relaxed || safe else {
-                error = "Reconnect to confirm your last input before resuming."
+                error = "Reconnect to continue"
                 return
             }
         } else {
@@ -242,7 +242,7 @@ final class RemoteBrowserModel {
         } catch {
             if !(error is CancellationError) {
                 self.error = error.localizedDescription.isEmpty
-                    ? "Control could not be confirmed. Reconnect before continuing." : error.localizedDescription
+                    ? "Reconnect to continue" : error.localizedDescription
             }
         }
     }
@@ -298,17 +298,15 @@ struct RemoteBrowserView: View {
                         if model.owned {
                             if task["kind"].string == "autofill" {
                                 ForEach(Array(task["artifacts"]["browser_autofill"]["fields"].array.filter { !$0["upload_token"].string.isEmpty }.enumerated()), id: \.offset) { _, field in
-                                    StackButton(label: "Attach selected resume: " + task["resume_name"].string,
+                                    StackButton(label: "Attach " + task["resume_name"].string,
                                                 disabled: !model.canInput || task["resume_id"].string.isEmpty) {
                                         flush()
                                         model.send(["type":"upload_resume", "upload_token":field["upload_token"]])
                                     }
                                 }
                             }
-                            Text("Tap a field to focus it, type below, and send. Swipe the page to scroll. Closing this view leaves the agent paused.")
-                                .font(Typeface.caption).foregroundStyle(Palette.muted)
                             HStack(spacing: 8) {
-                                TextField("Text to type", text: $text)
+                                TextField("Type here", text: $text)
                                     .focused($keyboardFocused)
                                     .toolbar {
                                         if keyboardFocused {
@@ -332,13 +330,10 @@ struct RemoteBrowserView: View {
                                     keyboardFocused.toggle()
                                 }
                                 .disabled(!keyboardFocused && !model.canInput)
-                                .accessibilityHint("Keeps unsent text without sending it to the remote browser")
                             }
                             FlowLayout(spacing: 8) {
                                 Chip(label: "Backspace") { flush(); model.send(["type": "key", "key": "Backspace"]) }
-                                    .accessibilityHint("Deletes before the cursor in the remote field")
                                 Chip(label: "Delete") { flush(); model.send(["type": "key", "key": "Delete"]) }
-                                    .accessibilityHint("Deletes after the cursor in the remote field")
                                 Chip(label: "Select all") { flush(); model.send(["type": "key", "key": "SelectAll"]) }
                                 Chip(label: "Tab") { flush(); model.send(["type": "key", "key": "Tab"]) }
                                 Chip(label: "Enter") { flush(); model.send(["type": "key", "key": "Enter"]) }
@@ -374,9 +369,9 @@ struct RemoteBrowserView: View {
     }
 
     private var taskStatus: some View {
-        let labels = ["running": "Agent is working", "queued": "Queued for the agent", "needs_input": "Your input is needed",
-                      "paused": "Task paused", "review": "Waiting for approval", "uncertain": "Check what happened",
-                      "blocked": "Task blocked", "cancelled": "Task cancelled", "failed": "Task failed", "completed": "Task finished"]
+        let labels = ["running": "Working", "queued": "Queued", "needs_input": "Needs you",
+                      "paused": "Paused", "review": "Needs approval", "uncertain": "Check result",
+                      "blocked": "Blocked", "cancelled": "Cancelled", "failed": "Failed", "completed": "Done"]
         let live = task["id"].string == id ? task : [:]
         return VStack(alignment: .leading, spacing: 4) {
             Text(labels[live["status"].string] ?? "Waiting for task status").font(Typeface.body.weight(.semibold)).foregroundStyle(Palette.ink)
@@ -426,7 +421,7 @@ struct RemoteBrowserView: View {
     private var controls: some View {
         HStack(spacing: 10) {
             if model.owned, model.relaxed || model.safe {
-                StackButton(label: "Resume agent", disabled: !model.relaxed && (model.busy || model.connection != "connected")) {
+                StackButton(label: "Resume", disabled: !model.relaxed && (model.busy || model.connection != "connected")) {
                     flush()
                     Task { await model.act("resume") }
                 }

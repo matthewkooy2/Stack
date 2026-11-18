@@ -18,12 +18,17 @@ struct ResumeFormatView: View {
     private var source: JSON { store.account.processing(of: resume.id)["source"] }
 
     var body: some View {
-        SheetPage(title: "Tailoring format", subtitle: resume.name) {
+        SheetPage(title: "Resume template", subtitle: resume.displayName) {
             ProcessingStatusView(resumeID: resume.id, kind: "source", processing: source)
-            Card(spacing: 10) {
-                let label = kind == "upload" ? "Uploaded design" : (format["label"].string.isEmpty ? "Not set" : format["label"].string)
-                Text(label + (format["file"].string.isEmpty ? "" : " · \(format["file"].string)"))
-                    .font(Typeface.option).foregroundStyle(Palette.icon)
+            Card(spacing: 6) {
+                let label = kind == "upload" ? "Your layout" : ResumeTemplate.label(for: format["template"].string,
+                                                                                    fallback: format["label"].string.isEmpty ? "Not set" : format["label"].string)
+                HStack {
+                    Text(label + (format["file"].string.isEmpty ? "" : " · \(format["file"].string)"))
+                        .font(.headline).foregroundStyle(Palette.icon)
+                    Spacer(minLength: 8)
+                    if !kind.isEmpty && kind != "records" { StatusPill(text: "In use", tone: .success) }
+                }
                 if !kind.isEmpty && kind != "records" {
                     let pages = format["pages"].int
                     let summary = format["summary"]
@@ -36,45 +41,44 @@ struct ResumeFormatView: View {
                                   bullets > 0 ? "\(bullets) \(bullets == 1 ? "bullet" : "bullets")" : ""]
                         .filter { !$0.isEmpty }
                     if !counts.isEmpty {
-                        Text(counts.joined(separator: " · ")).font(Typeface.caption).foregroundStyle(Palette.muted)
+                        Text(counts.joined(separator: " · ")).font(.footnote).foregroundStyle(Palette.muted)
                     }
                 }
                 if !format["skipped"].strings.isEmpty {
-                    Text("Not used from your .zip: \(format["skipped"].strings.prefix(5).joined(separator: ", "))")
-                        .font(Typeface.caption).foregroundStyle(Palette.muted)
+                    Text("Skipped: \(format["skipped"].strings.prefix(5).joined(separator: ", "))")
+                        .font(.footnote).foregroundStyle(Palette.muted)
                 }
-                Text(kind == "upload"
-                     ? "Stack edits the content of your uploaded source and keeps its layout."
-                     : "Built from your confirmed resume details. Confirm those details before choosing a template.")
-                    .font(Typeface.caption).foregroundStyle(Palette.text)
             }
             if kind == "upload" {
-                StackButton(label: "Replace source file", icon: "upload", kind: .secondary, disabled: working) { importing = true }
+                StackButton(label: "Replace layout", icon: "upload", kind: .secondary, disabled: working) { importing = true }
             }
-            SectionLabel(text: "Built-in templates")
+            SectionHeader(title: "Templates")
             ResumeDesignMenu(selectedKey: ["builtin", "records"].contains(kind) ? format["template"].string : "") { key in
                 change("use_resume_template", ["id": .string(resume.id), "template": .string(key)],
-                       done: "Template saved.")
+                       done: "Template saved")
             }
             .disabled(working || (store.account.resume(resume.id) ?? resume).detailsStatus != "Confirmed")
-            if !kind.isEmpty && kind != "records" {
-                Chip(label: "Remove format") {
-                    change("use_resume_template", ["id": .string(resume.id), "template": ""],
-                           done: "Removed. Choose a template to tailor this resume again.")
-                }
-                .disabled(working)
-            }
             if !kind.isEmpty || resume.detailsStatus == "Confirmed" {
                 FlowLayout(spacing: 8) {
-                    Chip(label: "Preview format") { Task { await open(showSource: false) } }
+                    Chip(label: "Preview") { Task { await open(showSource: false) } }
                     if kind != "records" {
-                        Chip(label: showTex ? "Hide source file" : "View source file", selected: showTex) {
+                        Chip(label: showTex ? "Hide source" : "View source", selected: showTex) {
                             if showTex { showTex = false } else { Task { await open(showSource: true) } }
                         }
                     }
+                    if !kind.isEmpty && kind != "records" {
+                        Chip(label: "Remove template") {
+                            change("use_resume_template", ["id": .string(resume.id), "template": ""],
+                                   done: "Removed")
+                        }
+                        .disabled(working)
+                    }
                 }
             }
-            if working { Text("Preparing your design…").font(Typeface.caption).foregroundStyle(Palette.muted) }
+            if resume.detailsStatus != "Confirmed" && kind != "upload" {
+                Text("Confirm your details to choose a template").font(.footnote).foregroundStyle(Palette.muted)
+            }
+            if working { HStack(spacing: 8) { ProgressView(); Text("Preparing…").font(.footnote).foregroundStyle(Palette.muted) } }
             MessageLine(text: notice, isError: false).fadeSwitch(!notice.isEmpty)
             MessageLine(text: error).fadeSwitch(!error.isEmpty)
             if showTex, !tex.isEmpty { CodeBlock(text: tex) }
@@ -107,7 +111,7 @@ struct ResumeFormatView: View {
         error = ""
         notice = ""
         guard DocumentKinds.isLatexSource(url) else {
-            error = "Choose a .tex file, or the source .zip from Overleaf (Menu → Download → Source)."
+            error = "Choose a .tex file or a source .zip"
             return
         }
         working = true
@@ -117,7 +121,7 @@ struct ResumeFormatView: View {
             try await store.callAccount("upload_resume_source",
                                         ["id": .string(resume.id), "name": .string(file.name), "content": .string(file.content)],
                                         timeout: 90)
-            notice = "Source saved. Compilation continues if you close Stack."
+            notice = "Layout saved"
         } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
     }
 
@@ -148,9 +152,12 @@ struct TailoredResumesSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("One per job. Your uploads are never changed.").font(Typeface.caption).foregroundStyle(Palette.muted)
             if store.account.tailored.isEmpty {
-                Text("Tailored resumes appear here.").font(Typeface.body).foregroundStyle(Palette.text)
+                VStack(spacing: 12) {
+                    SymbolDisc(systemName: "doc.on.doc", size: 64)
+                    Text("No tailored resumes yet").font(Typeface.section).foregroundStyle(Palette.ink)
+                }
+                .frame(maxWidth: .infinity).padding(.vertical, 40)
             }
             ForEach(store.account.tailored) { item in card(item) }
             MessageLine(text: error).fadeSwitch(!error.isEmpty)
@@ -158,25 +165,25 @@ struct TailoredResumesSection: View {
         .sheet(item: $preview) { PDFSheet(preview: $0) }
         .confirmationDialog("Delete this tailored resume?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }),
                             titleVisibility: .visible) {
-            Button("Delete tailored resume", role: .destructive) {
+            Button("Delete", role: .destructive) {
                 if let target = deleting { Task { await remove(target) } }
                 deleting = nil
             }
-        } message: { Text("Your upload stays.") }
+        }
     }
 
     private func card(_ item: TailoredResume) -> some View {
         Card(spacing: 10) {
-            Text(item.jobTitle.isEmpty ? item.name : item.jobTitle).font(Typeface.option).foregroundStyle(Palette.icon)
-            Text(item.company.isEmpty ? "Tailored resume" : "Tailored for \(item.company)").font(Typeface.caption).foregroundStyle(Palette.text)
-            Text("\(shortDate(item.createdAt)) · \(item.pages) \(item.pages == 1 ? "page" : "pages")" + (item.sourceName.isEmpty ? "" : " · from \(item.sourceName)"))
-                .font(Typeface.caption).foregroundStyle(Palette.muted)
+            Text(item.jobTitle.isEmpty ? item.name : item.jobTitle).font(.headline).foregroundStyle(Palette.icon)
+            Text([item.company, shortDate(item.createdAt), "\(item.pages) \(item.pages == 1 ? "page" : "pages")"]
+                .filter { !$0.isEmpty }.joined(separator: " · "))
+                .font(.footnote).foregroundStyle(Palette.muted)
             if !item.score["after"].isNull {
-                ScoreCardView(after: item.score["after"], before: item.score["before"], title: "Score for this job")
+                ScoreCardView(after: item.score["after"], before: item.score["before"], title: "Job match")
             }
             FlowLayout(spacing: 8) {
-                Chip(label: working == item.id ? "Working…" : "Preview PDF") { Task { await open(item, source: false) } }
-                Chip(label: shown.contains(item.id) ? "Hide source file" : "View source file", selected: shown.contains(item.id)) {
+                Chip(label: working == item.id ? "Working…" : "Preview") { Task { await open(item, source: false) } }
+                Chip(label: shown.contains(item.id) ? "Hide source" : "View source", selected: shown.contains(item.id)) {
                     if shown.contains(item.id) { shown.remove(item.id) } else { Task { await open(item, source: true) } }
                 }
                 Chip(label: "Delete") { deleting = item }

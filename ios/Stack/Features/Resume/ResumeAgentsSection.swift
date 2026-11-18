@@ -43,12 +43,10 @@ struct ResumeAgentsSection: View {
                         BackButton(label: "Close") { dismiss() }
                         Spacer()
                         if store.account.feature("profile") != nil {
-                            Menu { Button("Profile suggestions") { showProfile = true } } label: {
-                                Image(systemName: "ellipsis").foregroundStyle(Brand.ink).frame(width: 44, height: 44).background(Palette.backChip, in: Circle())
-                            }.accessibilityLabel("More options")
+                            HeaderMenu("ellipsis", label: "More options") { Button("Profile suggestions") { showProfile = true } }
                         }
                     }.padding(.bottom, 16)
-                    Text("Tailor your resume").font(Typeface.display).tracking(-1.8).foregroundStyle(Brand.ink).padding(.bottom, 16)
+                    Text("Tailor resume").font(Typeface.display).tracking(-1.8).foregroundStyle(Brand.ink).padding(.bottom, 20)
                     if store.account.resumes.isEmpty {
                         StackButton(label: uploader.isBusy ? uploader.progress : "Upload a resume", disabled: uploader.isBusy) {
                             if uploader.begin() { uploadGeneration = store.sessionGeneration; importing = true }
@@ -62,33 +60,45 @@ struct ResumeAgentsSection: View {
                                 }])
                             }
                         }
-                    } else {
-                        row(title: "Resume", label: resume?.name ?? "Choose a resume", action: { showResumes = true })
                     }
-                    row(title: "Saved job", label: job.map { "\($0.job.title) · \($0.job.company)" } ?? "Choose a saved job", action: { showJobs = true })
+                    VStack(spacing: 0) {
+                        if !store.account.resumes.isEmpty {
+                            pickerRow(title: "Resume", symbol: "doc.text.fill", value: resume?.displayName ?? "Choose a resume", action: { showResumes = true })
+                            Divider().padding(.leading, 52)
+                        }
+                        pickerRow(title: "Job", symbol: "briefcase.fill", value: job.map { "\($0.job.title) · \($0.job.company)" } ?? "Choose a job", action: { showJobs = true })
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 4)
+                    .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                    .stackElevation()
                     if applications.isEmpty {
                         Button("Browse jobs") { onNavigate("jobs") }
                             .font(.subheadline.weight(.semibold)).foregroundStyle(Brand.accent)
                             .frame(minHeight: 44)
                     }
                     if let job {
-                        if let score = scores[job.id] { JobScoreCardView(result: score["job_score"]) }
-                        Button("Check job fit") { Task { await score(job) } }
-                            .font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
-                            .frame(minHeight: 44).disabled(working || resume == nil)
+                        VStack(alignment: .leading, spacing: 12) {
+                            SectionHeader(title: "Job match") {
+                                Button(scores[job.id] == nil ? "Check" : "Recheck") { Task { await score(job) } }
+                                    .font(.footnote.weight(.semibold)).foregroundStyle(Brand.accent)
+                                    .frame(minHeight: 44).disabled(working || resume == nil)
+                            }
+                            if let score = scores[job.id] { JobScoreCardView(result: score["job_score"]) }
+                        }
+                        .padding(.top, 8)
                     }
                     if let pdf {
-                        DisclosureSection("Resume preview") {
+                        DisclosureSection("Preview") {
                             PDFKitView(data: pdf).id(resumeID)
                                 .frame(height: 260).frame(maxWidth: .infinity)
-                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .clipShape(RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
                                 .accessibilityLabel("Resume preview")
                         }
                     }
                     MessageLine(text: error).fadeSwitch(!error.isEmpty)
                 }.padding(.horizontal, Spacing.page).padding(.top, 12).padding(.bottom, 24)
             }.safeAreaInset(edge: .bottom) {
-                StackButton(label: working ? "Preparing…" : "Tailor resume", disabled: working || job == nil || resume == nil) {
+                StackButton(label: working ? "Preparing…" : "Tailor", disabled: working || job == nil || resume == nil) {
                     Task { await start() }
                 }.padding(.horizontal, Spacing.page).padding(.vertical, 12).background(Brand.page)
             }
@@ -113,7 +123,7 @@ struct ResumeAgentsSection: View {
         .task(id: resumeID) { await loadPDF() }
         .sheet(isPresented: $showJobs) {
             SheetPage(title: "Choose a job") {
-                if applications.isEmpty { Text("Save a job first.").foregroundStyle(Brand.muted) }
+                if applications.isEmpty { Text("Save a job first").foregroundStyle(Brand.muted) }
                 ForEach(applications) { item in
                     ListRow(label: item.job.title, icon: "applications", detail: item.job.company) { jobID = item.id; showJobs = false }
                 }
@@ -122,7 +132,7 @@ struct ResumeAgentsSection: View {
         .sheet(isPresented: $showResumes) {
             SheetPage(title: "Choose a resume") {
                 ForEach(store.account.resumes) { item in
-                    ListRow(label: item.name, icon: "resume", detail: item.detailsStatus) { resumeID = item.id; showResumes = false }
+                    ListRow(label: item.displayName, icon: "resume", detail: ["Review", "Needs review", "Processing"].contains(item.detailsStatus) ? "Needs review" : "") { resumeID = item.id; showResumes = false }
                 }
             }
         }
@@ -133,10 +143,10 @@ struct ResumeAgentsSection: View {
                     ForEach(Array(store.account.runViews.filter { $0["target_id"].string == "self" && $0["kind"].string == "profile" }.prefix(1).enumerated()), id: \.offset) { _, run in
                         TaskRow(run: run) { onOpenTask(run["id"].string) }
                     }
-                    StackButton(label: "Suggest headline & about", kind: .secondary, disabled: working || profile.state == "unavailable") {
+                    StackButton(label: "Suggest headline", kind: .secondary, disabled: working || profile.state == "unavailable") {
                         Task {
                             working = true; defer { working = false }
-                            do { let result = try await store.call("agent_start", ["kind": "profile", "target_id": "self"]); profileMessage = "\(result["title"].string) started." }
+                            do { let result = try await store.call("agent_start", ["kind": "profile", "target_id": "self"]); profileMessage = "\(result["title"].string) started" }
                             catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
                         }
                     }
@@ -147,7 +157,7 @@ struct ResumeAgentsSection: View {
         }
         .sheet(isPresented: $showSetup) {
             if let resume {
-                SheetPage(title: "Prepare your resume") {
+                SheetPage(title: "Before you tailor") {
                     TailorResumeSetup(resume: resume, others: store.account.resumes.filter { store.account.canTailor($0.id) && $0.id != resume.id }) { chosen in
                         resumeID = chosen; showSetup = false; await start(prepared: true)
                     }
@@ -164,18 +174,25 @@ struct ResumeAgentsSection: View {
         .id(startedTask)
     }
 
-    private func row(title: String, label: String, action: @escaping () -> Void) -> some View {
+    private func pickerRow(title: String, symbol: String, value: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(Typeface.caption).foregroundStyle(Brand.muted)
-                    Text(label).font(.headline).foregroundStyle(Brand.ink).multilineTextAlignment(.leading)
+            HStack(spacing: 12) {
+                Image(systemName: symbol).font(.body).foregroundStyle(Brand.accent)
+                    .frame(width: 40, height: 40).background(Palette.halo, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.footnote).foregroundStyle(Brand.muted)
+                    Text(value).font(.body.weight(.medium)).foregroundStyle(Brand.ink)
+                        .multilineTextAlignment(.leading).lineLimit(2)
                 }
-                Spacer()
-                Text("Change").font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
-            }.frame(minHeight: 72).contentShape(Rectangle())
-                .overlay(alignment: .bottom) { Rectangle().fill(Brand.rule).frame(height: 1) }
-        }.buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.up.chevron.down").font(.caption.weight(.semibold))
+                    .foregroundStyle(Brand.muted).accessibilityHidden(true)
+            }
+            .padding(.vertical, 10).frame(minHeight: 64).contentShape(Rectangle())
+        }
+        .buttonStyle(.tap(scale: 0.985))
+        .accessibilityLabel("\(title), \(value)")
     }
 
     private func loadPDF() async {

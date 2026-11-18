@@ -20,8 +20,6 @@ struct GmailScanView: View {
             } else {
                 if scanning {
                     ProgressView("Scanning Gmail…").tint(Brand.accent)
-                    Text("The scan continues if you close this screen.")
-                        .font(Typeface.body).foregroundStyle(Brand.muted)
                     QuietLinks(links: [ScreenLink("Stop scan") { Task { await stop() } }])
                         .disabled(busy)
                 } else if resumable {
@@ -30,9 +28,9 @@ struct GmailScanView: View {
                     }
                     QuietLinks(links: [ScreenLink("New scan") { scan = [:] }])
                 } else {
-                    DatePicker("Search since", selection: $since, in: Date(timeIntervalSince1970: 0)...Date(), displayedComponents: .date)
+                    DatePicker("Since", selection: $since, in: Date(timeIntervalSince1970: 0)...Date(), displayedComponents: .date)
                         .tint(Brand.accent)
-                    Text("Checks confirmations, updates and interview invitations through today.")
+                    Text("Finds confirmations, updates and invitations")
                         .font(Typeface.body).foregroundStyle(Brand.muted)
                     PrimaryPill(title: "Start scan", icon: "magnifyingglass", disabled: busy) {
                         Task { await start() }
@@ -41,12 +39,12 @@ struct GmailScanView: View {
                 if !scan.object.isEmpty {
                     VStack(alignment: .leading, spacing: 6) {
                         if !scanning {
-                            Text(scan["status"].string == "completed" ? "Scan complete." : scan["message"].string)
+                            Text(scan["status"].string == "completed" ? "Scan complete" : scan["message"].string)
                                 .font(Typeface.option).foregroundStyle(Brand.ink)
                         }
-                        Text("\(scan["scan"]["scanned"].int) emails checked · \(scan["scan"]["imported"].int) imported · \(scan["scan"]["updated"].int) updates")
+                        Text("\(scan["scan"]["scanned"].int) checked · \(scan["scan"]["imported"].int) imported")
                             .font(Typeface.caption).foregroundStyle(Brand.muted)
-                        Text("Google Calendar changes require your approval.")
+                        Text("You approve Calendar changes")
                             .font(Typeface.caption).foregroundStyle(Brand.muted)
                     }
                 }
@@ -129,7 +127,7 @@ private struct GmailScanReviewRow: View {
             Text(String((event["quote"].string.isEmpty ? event["excerpt"].string : event["quote"].string).prefix(600)))
                 .font(Typeface.caption).foregroundStyle(Brand.muted)
             Picker("Application", selection: $applicationID) {
-                Text("Import a new application").tag("")
+                Text("New application").tag("")
                 ForEach(store.account.applications.filter { !$0.isDemo }) { app in
                     Text("\(app.job.company) · \(app.job.title)").tag(app.id)
                 }

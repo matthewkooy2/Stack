@@ -15,7 +15,7 @@ struct ApplicationPrepPlanView: View {
         SheetPage(title: "Interview plan", subtitle: application.job.title + " · " + application.job.company) {
             if loading { ProgressView().tint(Palette.muted) }
             MessageLine(text: error).fadeSwitch(!error.isEmpty)
-            if !error.isEmpty { StackButton(label: "Retry", kind: .secondary) { Task { await load() } } }
+            if !error.isEmpty { StackButton(label: "Try again", kind: .secondary) { Task { await load() } } }
             ForEach(Array(plan.enumerated()), id: \.offset) { _, row in
                 let sessionID = row["session_id"].string
                 let session = sessions.first { $0["id"].string == sessionID }
@@ -30,7 +30,7 @@ struct ApplicationPrepPlanView: View {
                 }
             }
             if !loading, plan.isEmpty, error.isEmpty {
-                Text("No questions for this role yet.").font(Typeface.body).foregroundStyle(Palette.muted)
+                Text("No questions yet").font(Typeface.body).foregroundStyle(Palette.muted)
             }
         }
         .task { await load() }

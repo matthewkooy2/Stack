@@ -430,6 +430,7 @@ struct ApplicationDetailView: View {
     @State var reminderDate = Date().addingTimeInterval(86_400)
     @State var showReminder = false
     @State private var practicing = false
+    @State private var keyboardUp = false
 
     private var application: Application? { store.account.applications.first { $0.id == applicationID } }
 
@@ -463,8 +464,20 @@ struct ApplicationDetailView: View {
                     if !store.error.isEmpty { MessageLine(text: store.error) }
                     if !store.notice.isEmpty { MessageLine(text: store.notice, isError: false) }
                     if !app.isDemo { ApplicationAgentSection(application: app) }
-                    actions(app)
                 }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    if !keyboardUp {
+                        actions(app)
+                            .padding(.horizontal, Spacing.page)
+                            .padding(.top, 12)
+                            .padding(.bottom, 8)
+                            .frame(maxWidth: .infinity)
+                            .background(.bar)
+                            .overlay(alignment: .top) { Divider() }
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardUp = true }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in keyboardUp = false }
                 .onAppear { if !loadedNotes { notes = app.notes; loadedNotes = true } }
             } else {
                 SheetPage(title: "Application unavailable") {
@@ -539,7 +552,6 @@ struct ApplicationDetailView: View {
             }
             StackButton(label: "Add reminder", icon: "bell", kind: .secondary) { showReminder = true }
         }
-        .padding(.top, 4)
     }
 
     private func resumeName(for app: Application) -> String {

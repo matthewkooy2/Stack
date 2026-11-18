@@ -488,34 +488,46 @@ struct HeaderMenu<Content: View>: View {
     }
 }
 
+/// The signed-in person's own initials on the brand gradient. Other people use `Avatar(name:)` tints.
+@MainActor
+struct UserAvatar: View {
+    let name: String
+    var size: CGFloat = 36
+
+    var body: some View {
+        let initials = name.stackInitials
+        Group {
+            if initials.isEmpty {
+                Image(systemName: "person.fill").font(.system(size: size * 0.44, weight: .semibold))
+            } else {
+                Text(initials).font(.system(size: size * 0.39, weight: .semibold, design: .rounded))
+            }
+        }
+        .foregroundStyle(.white)
+        .frame(width: size, height: size)
+        .background(Brand.gradient, in: Circle())
+        .overlay(Circle().strokeBorder(.white.opacity(0.18), lineWidth: 0.5))
+        .accessibilityHidden(true)
+    }
+}
+
 @MainActor
 private struct AccountButton: View {
     @Environment(AppStore.self) private var store
     let action: () -> Void
 
     var body: some View {
-        let initials = store.account.name.stackInitials
         Button(action: action) {
-            Group {
-                if initials.isEmpty {
-                    Image(systemName: "person.fill").font(.system(size: 16, weight: .semibold))
-                } else {
-                    Text(initials).font(.system(size: 14, weight: .semibold, design: .rounded))
+            UserAvatar(name: store.account.name, size: 36)
+                .overlay(alignment: .topTrailing) {
+                    if store.account.attentionRunCount > 0 {
+                        Circle().fill(Palette.danger).frame(width: 10, height: 10)
+                            .overlay(Circle().stroke(Brand.page, lineWidth: 1.5))
+                            .offset(x: 1, y: -1)
+                    }
                 }
-            }
-            .foregroundStyle(.white)
-            .frame(width: 36, height: 36)
-            .background(Brand.gradient, in: Circle())
-            .overlay(Circle().strokeBorder(.white.opacity(0.18), lineWidth: 0.5))
-            .overlay(alignment: .topTrailing) {
-                if store.account.attentionRunCount > 0 {
-                    Circle().fill(Palette.danger).frame(width: 10, height: 10)
-                        .overlay(Circle().stroke(Brand.page, lineWidth: 1.5))
-                        .offset(x: 1, y: -1)
-                }
-            }
-            .frame(width: 44, height: 44)
-            .contentShape(Rectangle())
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.tap(scale: 0.92, dim: 1))
         .accessibilityLabel(store.account.attentionRunCount > 0

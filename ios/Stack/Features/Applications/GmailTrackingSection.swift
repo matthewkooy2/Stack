@@ -20,7 +20,7 @@ struct GmailTrackingSection: View {
                 Label("Gmail connected", systemImage: "checkmark.circle")
                     .font(.headline).foregroundStyle(Brand.ink)
             } else {
-                Text("Import applications and track replies from Gmail.")
+                Text("Track applications from Gmail")
                     .font(Typeface.body).foregroundStyle(Brand.muted)
             }
             if connected {
@@ -32,11 +32,11 @@ struct GmailTrackingSection: View {
                     Task { await connect() }
                 }
                 if unavailable {
-                    Text("Gmail is unavailable. Try again later.")
+                    Text("Gmail unavailable")
                         .font(Typeface.caption).foregroundStyle(Brand.muted)
                 }
                 DisclosureGroup("What can Stack read?") {
-                    Text("Google grants mailbox read access. Stack processes messages about your applications and selected contacts only.")
+                    Text("Read-only. Stack reads only messages about your applications and contacts.")
                         .font(Typeface.caption).foregroundStyle(Brand.muted).padding(.top, 8)
                 }
                 .font(Typeface.caption).foregroundStyle(Brand.muted)
@@ -55,7 +55,7 @@ struct GmailTrackingSection: View {
         do {
             try await store.googleConnection.connect(["read"])
             try await store.callAccount("bootstrap")
-            guard connected else { throw APIError(message: "Gmail tracking could not finish. Try connecting again.") }
+            guard connected else { throw APIError(message: "Couldn\u{2019}t connect Gmail. Try again") }
             await onConnected?()
         } catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
     }

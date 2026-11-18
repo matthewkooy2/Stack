@@ -115,7 +115,7 @@ struct ApplicationCalendarView: View {
             }
             if !loading, !connected {
                 Card(tint: Palette.oat, spacing: 8) {
-                    Text("Add approved interview events to Google Calendar.")
+                    Text("Add interviews to Google Calendar")
                         .font(Typeface.caption).foregroundStyle(Palette.text)
                     StackButton(label: "Connect Google Calendar", icon: "link", kind: .secondary) { Task { await connect() } }
                 }

@@ -124,7 +124,7 @@ struct ProfileView: View {
             if account.name.isBlank {
                 SymbolDisc(systemName: "person.fill", size: 84)
             } else {
-                Avatar(name: account.name, size: 84)
+                UserAvatar(name: account.name, size: 84)
             }
             VStack(spacing: 4) {
                 Text(account.name.isBlank ? "Your account" : account.name)

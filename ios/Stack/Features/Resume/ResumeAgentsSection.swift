@@ -76,14 +76,43 @@ struct ResumeAgentsSection: View {
                             .font(.subheadline.weight(.semibold)).foregroundStyle(Brand.accent)
                             .frame(minHeight: 44)
                     }
+                    if let resume {
+                        let format = store.account.format(of: resume.id)
+                        let kind = format["kind"].string
+                        VStack(alignment: .leading, spacing: 8) {
+                            SectionHeader(title: "Template")
+                            ResumeTemplateStrip(selectedKey: ["builtin", "records"].contains(kind) ? format["template"].string : "",
+                                                disabled: working || resume.detailsStatus != "Confirmed") { key in
+                                Task { await useTemplate(key) }
+                            }
+                            if resume.detailsStatus != "Confirmed" {
+                                Text("Confirm your details to choose").font(.footnote).foregroundStyle(Brand.muted)
+                            }
+                        }
+                        .padding(.top, 8)
+                    }
                     if let job {
-                        VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 8) {
                             SectionHeader(title: "Job match") {
                                 Button(scores[job.id] == nil ? "Check" : "Recheck") { Task { await score(job) } }
                                     .font(.footnote.weight(.semibold)).foregroundStyle(Brand.accent)
                                     .frame(minHeight: 44).disabled(working || resume == nil)
                             }
-                            if let score = scores[job.id] { JobScoreCardView(result: score["job_score"]) }
+                            if let score = scores[job.id] {
+                                JobScoreCardView(result: score["job_score"])
+                            } else {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "chart.bar.fill").font(.body).foregroundStyle(Brand.accent)
+                                        .frame(width: 40, height: 40)
+                                        .background(Palette.halo, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                                        .accessibilityHidden(true)
+                                    Text("Check how well this resume fits").font(.subheadline).foregroundStyle(Brand.muted)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .padding(12)
+                                .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                                .stackElevation()
+                            }
                         }
                         .padding(.top, 8)
                     }
@@ -193,6 +222,14 @@ struct ResumeAgentsSection: View {
         }
         .buttonStyle(.tap(scale: 0.985))
         .accessibilityLabel("\(title), \(value)")
+    }
+
+    /// Saves the chosen built-in template for this resume (the same call the template sheet makes).
+    private func useTemplate(_ key: String) async {
+        guard !working, !resumeID.isEmpty else { return }
+        working = true; error = ""; defer { working = false }
+        do { try await store.callAccount("use_resume_template", ["id": .string(resumeID), "template": .string(key)], timeout: 60) }
+        catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
     }
 
     private func loadPDF() async {

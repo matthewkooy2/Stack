@@ -96,6 +96,91 @@ struct ResumeTemplate: Identifiable, Hashable {
     ]
 }
 
+/// A small page drawing that hints at each template's layout.
+struct ResumeTemplateThumb: View {
+    let key: String
+
+    var body: some View {
+        Canvas { context, size in
+            let w = size.width, h = size.height
+            let ink = Brand.ink.opacity(0.55)
+            let rule = Brand.rule
+            let accent = Brand.accent
+            func bar(_ x: CGFloat, _ y: CGFloat, _ width: CGFloat, _ color: Color, _ height: CGFloat = 2.5) {
+                context.fill(Path(roundedRect: CGRect(x: w * x, y: h * y, width: w * width, height: height), cornerRadius: 1), with: .color(color))
+            }
+            func lines(_ x: CGFloat, _ y: CGFloat, _ width: CGFloat, count: Int) {
+                for i in 0..<count { bar(x, y + CGFloat(i) * 0.065, i % 3 == 2 ? width * 0.7 : width, rule, 2) }
+            }
+            switch key {
+            case "awesome-cv":
+                context.fill(Path(CGRect(x: 0, y: 0, width: w, height: h * 0.2)), with: .color(accent.opacity(0.85)))
+                bar(0.12, 0.08, 0.45, .white, 3)
+                lines(0.12, 0.3, 0.76, count: 3); bar(0.12, 0.52, 0.3, accent); lines(0.12, 0.6, 0.76, count: 4)
+            case "bill-ryan":
+                bar(0.3, 0.1, 0.4, ink, 3); bar(0.1, 0.2, 0.8, rule, 1)
+                bar(0.1, 0.3, 0.25, accent); lines(0.1, 0.38, 0.8, count: 3); bar(0.1, 0.6, 0.25, accent); lines(0.1, 0.68, 0.8, count: 3)
+            case "sb2nov":
+                bar(0.1, 0.1, 0.5, ink, 3.5); bar(0.1, 0.18, 0.35, rule)
+                bar(0.1, 0.3, 0.8, accent, 1); lines(0.1, 0.36, 0.8, count: 3); bar(0.1, 0.58, 0.8, accent, 1); lines(0.1, 0.64, 0.8, count: 4)
+            case "deedy":
+                bar(0.1, 0.08, 0.5, ink, 3.5)
+                lines(0.1, 0.22, 0.34, count: 8); lines(0.55, 0.22, 0.35, count: 8)
+                bar(0.1, 0.18, 0.2, accent); bar(0.55, 0.18, 0.2, accent)
+            case "jan-kuster":
+                bar(0.25, 0.1, 0.5, ink, 3); bar(0.1, 0.19, 0.8, ink.opacity(0.6), 1)
+                lines(0.1, 0.3, 0.8, count: 4); bar(0.1, 0.58, 0.8, ink.opacity(0.6), 1); lines(0.1, 0.65, 0.8, count: 4)
+            default: // jake
+                bar(0.28, 0.1, 0.44, ink, 3.5); bar(0.2, 0.18, 0.6, rule)
+                bar(0.1, 0.3, 0.3, accent); lines(0.1, 0.38, 0.8, count: 3); bar(0.1, 0.6, 0.3, accent); lines(0.1, 0.68, 0.8, count: 3)
+            }
+        }
+        .background(Palette.surfaceRaised)
+        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(Brand.rule, lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.08), radius: 6, y: 3)
+        .accessibilityHidden(true)
+    }
+}
+
+/// The six templates as small pages in a row; the chosen one is ringed.
+struct ResumeTemplateStrip: View {
+    let selectedKey: String
+    var disabled = false
+    let choose: (String) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(alignment: .top, spacing: 14) {
+                ForEach(ResumeTemplate.all) { template in
+                    let selected = template.key == selectedKey
+                    Button { if !disabled { choose(template.key) } } label: {
+                        VStack(spacing: 8) {
+                            ResumeTemplateThumb(key: template.key)
+                                .frame(width: 72, height: 94)
+                                .padding(4)
+                                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                    .strokeBorder(selected ? Brand.accent : Color.clear, lineWidth: 2))
+                            Text(template.label).font(.footnote.weight(selected ? .semibold : .regular))
+                                .foregroundStyle(selected ? Brand.accent : Brand.muted).lineLimit(1)
+                        }
+                        .frame(width: 84)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.tap(scale: 0.96))
+                    .accessibilityLabel(template.label)
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                    .accessibilityIdentifier("resume-template-\(template.key)")
+                }
+            }
+            .padding(.horizontal, Spacing.page).padding(.vertical, 6)
+        }
+        .padding(.horizontal, -Spacing.page)
+        .opacity(disabled ? 0.8 : 1)
+        .sensoryFeedback(.selection, trigger: selectedKey)
+    }
+}
+
 /// Both format entry points use the same options and real template IDs.
 struct ResumeDesignMenu: View {
     let selectedKey: String

@@ -171,11 +171,35 @@ private struct ResumeReviewScreen: View {
         }
     }
 
+    /// One compact card for the review state, a restored draft and the reader's warnings.
+    private func banner(_ controller: ResumeReviewController) -> some View {
+        let tone = statusTone(controller)
+        let color: Color = tone == .success ? Palette.success : (tone == .danger ? Palette.danger : Palette.warning)
+        let symbol = tone == .success ? "checkmark.circle.fill" : "exclamationmark.circle.fill"
+        return HStack(alignment: .top, spacing: 10) {
+            Image(systemName: symbol).font(.body.weight(.semibold)).foregroundStyle(color)
+                .padding(.top, 1).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(controller.statusLabel).font(.subheadline.weight(.semibold)).foregroundStyle(color)
+                    .accessibilityIdentifier("resume-review-state")
+                    .accessibilityValue(controller.statusID)
+                if controller.restoredDraft && !controller.hasConflict {
+                    Text("Restored your unsaved edits").font(.footnote).foregroundStyle(Palette.text)
+                        .accessibilityIdentifier("resume-review-restored")
+                }
+                ForEach(Array(controller.warnings.enumerated()), id: \.offset) { _, warning in
+                    Text(warning).font(.footnote).foregroundStyle(Palette.text)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 12)
+        .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
+    }
+
     private func statusBlock(_ controller: ResumeReviewController) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            StatusPill(text: controller.statusLabel, tone: statusTone(controller))
-                .accessibilityIdentifier("resume-review-state")
-                .accessibilityValue(controller.statusID)
+            banner(controller)
             if controller.hasConflict {
                 Card(tint: Palette.oat, spacing: 12) {
                     Text("Changed since you started editing. Your edits stay on this device")
@@ -188,17 +212,10 @@ private struct ResumeReviewScreen: View {
                 }
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("resume-review-conflict")
-            } else if controller.restoredDraft {
-                Text("Restored your unsaved edits")
-                    .font(Typeface.caption).foregroundStyle(Palette.muted)
-                    .accessibilityIdentifier("resume-review-restored")
             }
             if !controller.draftError.isEmpty {
                 Text(controller.draftError).font(Typeface.caption).foregroundStyle(Palette.danger)
                     .accessibilityIdentifier("resume-review-draft-error")
-            }
-            ForEach(Array(controller.warnings.enumerated()), id: \.offset) { _, warning in
-                Text(warning).font(Typeface.caption).foregroundStyle(Palette.text)
             }
         }
     }
@@ -211,6 +228,7 @@ private struct ResumeReviewScreen: View {
         return VStack(alignment: .leading, spacing: 12) {
             ForEach(summaries) { summary in
                 VStack(alignment: .leading, spacing: 0) {
+                    ZStack(alignment: .trailing) {
                     Button {
                         withAnimation(reduceMotion ? nil : Motion.fadeAnimation) {
                             selection = selection == summary.id ? nil : summary.id
@@ -234,17 +252,18 @@ private struct ResumeReviewScreen: View {
                         .accessibilityLabel("\(summary.title == "Work experience" ? "Experience" : summary.title), \(summary.detail)")
                         .accessibilityValue(selection == summary.id ? "Expanded" : "Collapsed")
                         .accessibilityIdentifier("resume-review-section-\(summary.id)")
-                    if selection == summary.id {
-                        HStack {
-                            Spacer()
+                        if selection == summary.id {
                             Button(editing == summary.id ? "Done" : "Edit") {
                                 withAnimation(reduceMotion ? nil : Motion.fadeAnimation) {
                                     editing = editing == summary.id ? nil : summary.id
                                 }
-                            }.font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
+                            }.font(.subheadline.weight(.semibold)).foregroundStyle(Brand.accent)
                                 .frame(minWidth: 44, minHeight: 44)
+                                .padding(.trailing, 30)
                                 .accessibilityIdentifier("resume-review-edit-\(summary.id)")
                         }
+                    }
+                    if selection == summary.id {
                         if editing == summary.id {
                             ResumeSectionEditor(controller: controller, sectionKey: summary.id, inline: true) {
                                 withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { editing = nil }

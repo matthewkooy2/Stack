@@ -24,7 +24,7 @@ private struct TailoringSuggestion: Identifiable {
     var label: String {
         if isOrder { return "BULLET ORDER" }
         if kind == "omit" { return "REMOVE CONTENT" }
-        return kind == "add" ? "FROM MEMORY BANK" : "WORDING"
+        return kind == "add" ? "FROM EXPERIENCE" : "WORDING"
     }
     var title: String {
         if !value["title"].string.isEmpty { return value["title"].string }

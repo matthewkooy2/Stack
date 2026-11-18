@@ -336,14 +336,23 @@ struct ResumeView: View {
         .accessibilityHint("Open file actions")
     }
 
+    /// PDF is rose, Word is blue, anything else neutral, each with its own symbol.
+    private func fileTile(for resume: ResumeItem) -> (symbol: String, tint: Palette.Tint) {
+        switch verifiedTypes[resume.id] ?? resume.fileKind {
+        case "PDF": return ("doc.richtext.fill", Palette.tints[4])
+        case "DOCX", "DOC": return ("doc.text.fill", Palette.tints[0])
+        default: return ("doc.fill", Palette.Tint(fill: Palette.muted.opacity(0.12), ink: Palette.muted))
+        }
+    }
+
     private func compactFile(_ resume: ResumeItem) -> some View {
-        let tint = Palette.tint(for: resume.fileKind.isEmpty ? "document" : resume.fileKind)
+        let tile = fileTile(for: resume)
         return Button { managing = resume } label: {
             HStack(spacing: 12) {
-                Image(systemName: "doc.text.fill").font(.body)
-                    .foregroundStyle(tint.ink)
+                Image(systemName: tile.symbol).font(.body)
+                    .foregroundStyle(tile.tint.ink)
                     .frame(width: 40, height: 40)
-                    .background(tint.fill, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    .background(tile.tint.fill, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(resume.displayName).font(.body.weight(.medium)).foregroundStyle(Brand.ink).lineLimit(1)

@@ -122,7 +122,7 @@ struct PrepView: View {
     }
 
     private var home: some View {
-        VStack(alignment: .leading, spacing: Spacing.stack) {
+        VStack(alignment: .leading, spacing: 20) {
             ScreenHeader(title: StackTab.prep.rawValue, onProfile: onProfile) { EmptyView() }
                 .reveal(0)
             hero.reveal(1)
@@ -137,7 +137,7 @@ struct PrepView: View {
 
     /// Today's question: topic menu, the question, one primary action and two quieter ones.
     private var hero: some View {
-        Card(tint: Palette.surface, spacing: 18) {
+        Card(tint: Palette.surface, spacing: 14) {
             if let session = model.continuing {
                 ProgressPill(text: "Continue · \(session.label)", symbol: "arrow.uturn.forward")
                 prompt(session.prompt)
@@ -214,37 +214,52 @@ struct PrepView: View {
         .accessibilityLabel("Topic: \(model.focus.shortName)")
     }
 
-    /// Streak and this week, from the saved sessions.
+    /// Streak and this week, from the saved sessions. With no practice yet, one encouraging row instead.
     @ViewBuilder
     private var progressCard: some View {
         if model.loaded {
             let week = model.week
             let days = week.filter { $0.practiced }.count
-            Card(spacing: 16) {
-                HStack(alignment: .top, spacing: 12) {
-                    stat(symbol: "flame.fill", tint: 3, value: model.streak, label: "day streak")
-                    Divider().frame(height: 44)
-                    stat(symbol: "calendar", tint: 0, value: days, label: "this week")
-                }
-                if !week.isEmpty {
-                    HStack(spacing: 0) {
-                        ForEach(Array(week.enumerated()), id: \.offset) { _, day in
-                            VStack(spacing: 6) {
-                                Image(systemName: day.practiced ? "checkmark" : "circle.fill")
-                                    .font(.system(size: day.practiced ? 12 : 6, weight: .bold))
-                                    .foregroundStyle(day.practiced ? Color.white : Palette.rule)
-                                    .frame(width: 28, height: 28)
-                                    .background(day.practiced ? Palette.button : Palette.page, in: Circle())
-                                Text(day.label).font(.caption2.weight(.medium)).foregroundStyle(Palette.muted)
-                            }
-                            .frame(maxWidth: .infinity)
-                        }
+            let streak = model.streak
+            if days == 0 && streak == 0 {
+                Card(spacing: 0) {
+                    HStack(spacing: 12) {
+                        TintDisc(systemName: "flame.fill", tint: 3, size: 40)
+                        Text("Answer one question to start a streak").font(.subheadline.weight(.medium))
+                            .foregroundStyle(Brand.ink).fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
                     }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Practiced \(days) of 7 days this week")
                 }
+            } else {
+                let today = (Calendar.current.component(.weekday, from: Date()) + 5) % 7
+                Card(spacing: 12) {
+                    HStack(alignment: .top, spacing: 12) {
+                        stat(symbol: "flame.fill", tint: 3, value: streak, label: "day streak")
+                        Divider().frame(height: 44)
+                        stat(symbol: "calendar", tint: 0, value: days, label: "this week")
+                    }
+                    if !week.isEmpty {
+                        HStack(spacing: 0) {
+                            ForEach(Array(week.enumerated()), id: \.offset) { index, day in
+                                VStack(spacing: 4) {
+                                    Image(systemName: day.practiced ? "checkmark" : "circle.fill")
+                                        .font(.system(size: day.practiced ? 11 : 5, weight: .bold))
+                                        .foregroundStyle(day.practiced ? Color.white : Palette.rule)
+                                        .frame(width: 26, height: 26)
+                                        .background(day.practiced ? Palette.button : Palette.page, in: Circle())
+                                        .overlay(Circle().strokeBorder(Brand.accent, lineWidth: index == today ? 2 : 0).padding(-3))
+                                    Text(day.label).font(.caption2.weight(.medium))
+                                        .foregroundStyle(index == today ? Brand.accent : Palette.muted)
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+                        }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Practiced \(days) of 7 days this week")
+                    }
+                }
+                .animation(Motion.animation(Motion.smooth, reduce: reduceMotion), value: days)
             }
-            .animation(Motion.animation(Motion.smooth, reduce: reduceMotion), value: days)
         }
     }
 

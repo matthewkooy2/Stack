@@ -86,21 +86,18 @@ struct LinkedInPDFUploadScreen: View {
                     }
                     .reveal(0)
 
-                    DisclosureSection("How to get your LinkedIn PDF") {
-                        VStack(alignment: .leading, spacing: 0) {
-                            ForEach(Array(LinkedInPDF.steps.enumerated()), id: \.offset) { index, step in
-                                HStack(alignment: .firstTextBaseline, spacing: 14) {
-                                    Text("\(index + 1)").font(.system(.subheadline).weight(.semibold))
-                                        .foregroundStyle(Brand.accent).frame(width: 18, alignment: .leading)
-                                    Text(step).font(Typeface.body).foregroundStyle(Brand.ink)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                                .padding(.vertical, 12)
-                                .accessibilityElement(children: .combine)
-                                if index < LinkedInPDF.steps.count - 1 {
-                                    Rectangle().fill(Brand.rule).frame(height: 1)
-                                }
+                    Card(spacing: 4) {
+                        Text("How to get your LinkedIn PDF").font(.headline).foregroundStyle(Brand.ink)
+                            .accessibilityAddTraits(.isHeader).padding(.bottom, 6)
+                        ForEach(Array(LinkedInPDF.steps.enumerated()), id: \.offset) { index, step in
+                            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                                Text("\(index + 1)").font(.footnote.weight(.bold)).foregroundStyle(Brand.accent)
+                                    .frame(width: 24, height: 24).background(Palette.halo, in: Circle())
+                                Text(step).font(.subheadline).foregroundStyle(Brand.ink)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
+                            .padding(.vertical, 6)
+                            .accessibilityElement(children: .combine)
                         }
                     }
                     .accessibilityIdentifier("linkedin-pdf-steps")
@@ -184,10 +181,7 @@ struct LinkedInReviewScreen: View {
                     }
 
                     if !content.rewrites.isEmpty {
-                        VStack(alignment: .leading, spacing: 10) {
-                            SectionHeader(title: "Suggested wording")
-                            LinkedInRewriteEditor(taskID: taskID, rewrites: content.rewrites).id(content.rewrites)
-                        }
+                        LinkedInRewriteEditor(taskID: taskID, rewrites: content.rewrites).id(content.rewrites)
                         .reveal(2)
                     }
 

@@ -158,7 +158,9 @@ struct NetworkView: View {
             let columns = Array(repeating: GridItem(.flexible(), spacing: 12), count: typeSize.isAccessibilitySize ? 1 : 2)
             LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
                 ForEach(sortedContacts) { contact in personCard(contact) }
+                addTile
             }
+            profilesSuggestion
         } else {
             searchField
             directory
@@ -226,8 +228,8 @@ struct NetworkView: View {
                         Text(contact.email).font(.footnote).foregroundStyle(Brand.muted).lineLimit(1)
                     }
                 }
+                Spacer(minLength: 0)
                 if !contact.relationship.isEmpty {
-                    Spacer(minLength: 0)
                     Text(contact.relationship).font(.footnote).foregroundStyle(Brand.muted).lineLimit(3)
                         .padding(.top, 10)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -236,7 +238,7 @@ struct NetworkView: View {
             }
             .multilineTextAlignment(.leading)
             .padding(16)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .frame(maxWidth: .infinity, minHeight: 190, maxHeight: .infinity, alignment: .topLeading)
             .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
             .stackElevation()
             .contentShape(Rectangle())
@@ -244,6 +246,48 @@ struct NetworkView: View {
         .buttonStyle(.tap(scale: 0.97))
         .contextMenu { contactActions(contact) }
         .accessibilityIdentifier("network-contact-\(contact.id)")
+    }
+
+    private var addTile: some View {
+        Button { sheet = .add } label: {
+            VStack(spacing: 10) {
+                Image(systemName: "plus").font(.system(size: 20, weight: .semibold)).foregroundStyle(Brand.accent)
+                    .frame(width: 48, height: 48).background(Palette.halo, in: Circle())
+                Text("Add contact").font(.subheadline.weight(.semibold)).foregroundStyle(Brand.accent)
+            }
+            .frame(maxWidth: .infinity, minHeight: 190, maxHeight: .infinity)
+            .overlay(RoundedRectangle(cornerRadius: Radius.card, style: .continuous)
+                .strokeBorder(Brand.muted.opacity(0.4), style: StrokeStyle(lineWidth: 1.5, dash: [6, 5])))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.tap(scale: 0.97))
+        .accessibilityIdentifier("network-add-tile")
+    }
+
+    private var profilesSuggestion: some View {
+        Button {
+            searching = false
+            withAnimation(Motion.animation(Motion.snappy, reduce: reduceMotion)) { section = .presence }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "person.crop.rectangle.fill")
+                    .font(.system(size: 17, weight: .semibold)).foregroundStyle(Brand.accent)
+                    .frame(width: 40, height: 40)
+                    .background(Palette.halo, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .accessibilityHidden(true)
+                Text("Review your LinkedIn").font(.headline).foregroundStyle(Brand.ink)
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                    .foregroundStyle(Brand.muted.opacity(0.6)).accessibilityHidden(true)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, minHeight: 64)
+            .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .stackElevation()
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.tap(scale: 0.985))
+        .accessibilityIdentifier("network-profiles-suggestion")
     }
 
     /// A trailing hint only when it changes what the person does next.

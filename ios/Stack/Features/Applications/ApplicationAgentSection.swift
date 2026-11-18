@@ -23,10 +23,10 @@ struct ApplicationAgentSection: View {
     }
 
     private let actions = [
-        Action(kind: "jobs", label: "Explain my fit", text: "Strengths, gaps and unknowns"),
-        Action(kind: "resume", label: "Tailor my resume", text: "Review changes for this role"),
-        Action(kind: "autofill", label: "Autofill saved answers", text: "The form may autosave. You review and submit."),
-        Action(kind: "plan", label: "Build interview plan", text: "Practice questions for this role"),
+        Action(kind: "jobs", label: "Check fit", text: "Strengths and gaps"),
+        Action(kind: "resume", label: "Tailor resume", text: "For this job"),
+        Action(kind: "autofill", label: "Autofill form", text: "You review and submit"),
+        Action(kind: "plan", label: "Plan practice", text: "Questions for this job"),
     ]
 
     private var started: [JSON] {
@@ -61,7 +61,7 @@ struct ApplicationAgentSection: View {
         return fixes
     }
 
-    /// Whether some agent needs more than the shared fixes; that detail waits under Agent help.
+    /// Whether some agent needs more than the shared fixes; that detail waits under Help with this job.
     private var hasSpecificGuidance: Bool {
         shortfalls.contains { feature in feature.missingRequired.contains { !commonFixes.contains($0.fix) } }
     }
@@ -73,7 +73,7 @@ struct ApplicationAgentSection: View {
             }
             if !shortfalls.isEmpty { setupSummary }
             // Collapsed: the choices and their per-agent detail are one tap away, never in the way of Notes.
-            DisclosureSection("Agent help", detail: "Fit, tailoring and interview prep") {
+            DisclosureSection("Help with this job", detail: "Fit, tailoring, practice") {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(actions) { action in
                         let feature = action.kind == "plan" ? nil : store.account.feature(forKind: action.kind)
@@ -98,12 +98,12 @@ struct ApplicationAgentSection: View {
                             }
                         }
                     }
-                    ListRow(label: "Mock interview for this role", icon: "chat") { showInterview = true }
+                    ListRow(label: "Mock interview", icon: "chat") { showInterview = true }
                 }
             }
             MessageLine(text: message, isError: false).fadeSwitch(!message.isEmpty)
             if offerPrep {
-                Chip(label: "Open interview plan") { showPrepPlan = true }
+                Chip(label: "View plan") { showPrepPlan = true }
             }
             MessageLine(text: error).fadeSwitch(!error.isEmpty)
         }
@@ -123,7 +123,7 @@ struct ApplicationAgentSection: View {
                 Text("✕ \(fix)").font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             if hasSpecificGuidance {
-                Text("Open Agent help for setup steps.").font(Typeface.caption).foregroundStyle(Palette.muted)
+                Text("Setup steps are in the help below").font(Typeface.caption).foregroundStyle(Palette.muted)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -140,7 +140,7 @@ struct ApplicationAgentSection: View {
         do {
             if kind == "plan" {
                 let result = try await store.call("prep_for_application", ["application_id": .string(application.id)])
-                message = "Added \(result["plan"].array.count) practice sessions to Prep."
+                message = "Added \(result["plan"].array.count) practice sessions"
                 offerPrep = true
             } else {
                 let result = try await store.call("agent_start", ["kind": .string(kind), "target_id": .string(application.id)])

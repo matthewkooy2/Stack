@@ -35,16 +35,9 @@ struct AccessView: View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 0) {
-                    Spacer(minLength: 12)
-                    VStack(spacing: 2) {
-                        StackMark(size: min(128, max(72, geometry.size.height * 0.17)), animateIn: false)
-                            .accessibilityHidden(true)
-                        Text("Stack")
-                            .font(Typeface.display)
-                            .foregroundStyle(Brand.ink)
-                            .accessibilityAddTraits(.isHeader)
-                    }
-                    Spacer(minLength: 24)
+                    Spacer(minLength: 16)
+                    hero(height: geometry.size.height)
+                    Spacer(minLength: 16)
                     welcomeActions
                 }
                 .frame(maxWidth: 480)
@@ -54,41 +47,66 @@ struct AccessView: View {
         }
     }
 
-    private var welcomeActions: some View {
-        VStack(spacing: 0) {
-            StoreMessages()
-            VStack(spacing: 12) {
-                if AppleSignIn.enabled {
-                    AppleAccountButton(disabled: store.busy || store.googlePending) { window in
-                        Task { await store.signInWithApple(window: window) }
-                    }.frame(height: 54)
-                }
-                GoogleSignInButton(label: store.googlePending ? "Signing you in…" : "Continue with Google",
-                                   disabled: store.googlePending || store.busy) {
-                    Task { await store.signInWithGoogle() }
-                }
-                if store.googlePending {
-                    StackButton(label: "Cancel Google sign-in", kind: .secondary) { store.cancelGoogle() }
-                }
-                OrDivider().padding(.vertical, 2)
-                StackButton(label: "Create an account", disabled: store.googlePending) { go(.signUp) }
-                Button { go(.signIn) } label: {
-                    (Text("Already have an account? ").foregroundStyle(Brand.muted)
-                        + Text("Sign in").foregroundStyle(Brand.ink).fontWeight(.semibold))
-                        .font(Typeface.caption)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.tap(scale: 0.985))
-                .disabled(store.googlePending)
-                .accessibilityLabel("Sign in")
-                HStack(spacing: 16) {
-                    Link("Privacy policy", destination: URL(string: "https://stackmvp.top/privacy")!)
-                    Link("Support", destination: URL(string: "https://stackmvp.top/support")!)
-                }
-                .font(.footnote)
-                .tint(Brand.muted)
+    private func hero(height: CGFloat) -> some View {
+        VStack(spacing: 20) {
+            StackMark(size: min(140, max(88, height * 0.19)), delay: 0.1)
+                .accessibilityHidden(true)
+            VStack(spacing: 8) {
+                Text("Stack")
+                    .font(Typeface.display)
+                    .tracking(-0.8)
+                    .foregroundStyle(Brand.ink)
+                    .accessibilityAddTraits(.isHeader)
+                Text("Your job search, handled")
+                    .font(.title3)
+                    .foregroundStyle(Brand.muted)
+                    .multilineTextAlignment(.center)
             }
+            .reveal(1, delay: 0.55)
+        }
+        .padding(.bottom, 32)
+        .background {
+            Circle()
+                .fill(RadialGradient(colors: [Brand.accent.opacity(0.14), .clear], center: .center, startRadius: 0, endRadius: 170))
+                .frame(width: 340, height: 340)
+                .offset(y: -28)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var welcomeActions: some View {
+        VStack(spacing: Spacing.option) {
+            StoreMessages()
+            if AppleSignIn.enabled {
+                AppleAccountButton(disabled: store.busy || store.googlePending) { window in
+                    Task { await store.signInWithApple(window: window) }
+                }.frame(height: 52)
+            }
+            GoogleSignInButton(label: store.googlePending ? "Signing you in…" : "Continue with Google",
+                               disabled: store.googlePending || store.busy) {
+                Task { await store.signInWithGoogle() }
+            }
+            if store.googlePending {
+                StackButton(label: "Cancel", kind: .secondary) { store.cancelGoogle() }
+            }
+            OrDivider()
+            StackButton(label: "Create account", disabled: store.googlePending) { go(.signUp) }
+            Button { go(.signIn) } label: {
+                (Text("Already have an account? ").foregroundStyle(Brand.muted)
+                    + Text("Sign in").foregroundStyle(Brand.ink).fontWeight(.semibold))
+                    .font(Typeface.caption)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.tap(scale: 0.985))
+            .disabled(store.googlePending)
+            .accessibilityLabel("Sign in")
+            HStack(spacing: 20) {
+                Link("Privacy policy", destination: URL(string: "https://stackmvp.top/privacy")!)
+                Link("Support", destination: URL(string: "https://stackmvp.top/support")!)
+            }
+            .font(.footnote)
+            .tint(Brand.muted)
         }
     }
 
@@ -108,7 +126,7 @@ struct AccessView: View {
                 AccessField(label: "Username", text: $username, keyboard: .asciiCapable, autocapitalization: .never, contentType: .username)
                 AccessField(label: "Password", text: $password, placeholder: signUp ? "At least 8 characters" : "", secure: true, contentType: signUp ? .newPassword : .password)
                 if invitationOpen {
-                    AccessField(label: "Beta invitation (first visit)", text: $invite, placeholder: "Invitation code",
+                    AccessField(label: "Invitation code", text: $invite,
                                 keyboard: .asciiCapable, autocapitalization: .never)
                 } else {
                     Button {
@@ -142,8 +160,8 @@ struct AccessView: View {
                 }
                 .font(.system(.headline).weight(.semibold))
                 .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, minHeight: 54)
-                .background(Palette.button, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .frame(maxWidth: .infinity, minHeight: 52)
+                .background(Palette.button, in: RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.tap(scale: 0.98))
@@ -152,14 +170,14 @@ struct AccessView: View {
             .reveal(3)
             Button { go(signUp ? .signIn : .signUp) } label: {
                 (Text(signUp ? "Already have an account? " : "New here? ").foregroundStyle(Brand.muted)
-                    + Text(signUp ? "Sign in" : "Create an account").foregroundStyle(Brand.ink).fontWeight(.semibold))
+                    + Text(signUp ? "Sign in" : "Create account").foregroundStyle(Brand.ink).fontWeight(.semibold))
                     .font(Typeface.caption)
                     .frame(maxWidth: .infinity, minHeight: 44)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.tap(scale: 0.985))
             .disabled(store.busy)
-            .accessibilityLabel(signUp ? "Already have an account? Sign in" : "New here? Create an account")
+            .accessibilityLabel(signUp ? "Already have an account? Sign in" : "New here? Create account")
         }
         .frame(minHeight: geometry.size.height, alignment: .topLeading)
         }
@@ -183,12 +201,20 @@ struct InvitationView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Spacing.stack) {
-                Text("Enter your invitation").font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink).reveal(0)
-                StackField(label: "Beta invitation", text: $code, keyboard: .asciiCapable, autocapitalization: .never).reveal(1)
-                MessageLine(text: store.error).fadeSwitch(!store.error.isEmpty)
-                StackButton(label: "Continue", disabled: store.busy || code.isBlank) { Task { await store.acceptInvitation(code) } }.reveal(2)
+                VStack(alignment: .leading, spacing: 16) {
+                    StackMark(size: 64, animateIn: false)
+                    Text("Invitation code").font(Typeface.display).tracking(-0.8).foregroundStyle(Palette.ink)
+                        .accessibilityAddTraits(.isHeader)
+                }
+                .reveal(0)
+                VStack(alignment: .leading, spacing: 12) {
+                    StackField(label: "Invitation code", text: $code, keyboard: .asciiCapable, autocapitalization: .never)
+                    MessageLine(text: store.error).fadeSwitch(!store.error.isEmpty)
+                    StackButton(label: "Continue", disabled: store.busy || code.isBlank) { Task { await store.acceptInvitation(code) } }
+                }
+                .reveal(1)
                 if store.googleInfo["can_recover"].bool {
-                    GoogleAccountCard().reveal(3)
+                    GoogleAccountCard().reveal(2)
                 }
                 StackButton(label: "Sign out", kind: .secondary, disabled: store.busy) { Task { await store.signOut() } }
             }
@@ -196,6 +222,8 @@ struct InvitationView: View {
             .padding(.vertical, 24)
         }
         .scrollIndicators(.hidden)
+        .scrollDismissesKeyboard(.interactively)
+        .background(Brand.page.ignoresSafeArea())
     }
 }
 
@@ -210,34 +238,46 @@ struct GoogleAccountCard: View {
     private var info: JSON { store.googleInfo }
 
     var body: some View {
-        Card(spacing: 12) {
-            Text("Your sign-in").font(Typeface.section).foregroundStyle(Palette.ink)
+        Card(spacing: 14) {
             if !info["username"].string.isEmpty {
-                Text("Signed in as \(info["username"].string)").font(Typeface.body).foregroundStyle(Palette.text)
-            }
-            if info["google"].bool {
-                Text("Google sign-in linked").font(Typeface.body).foregroundStyle(Palette.success)
+                HStack(spacing: 12) {
+                    Avatar(name: info["username"].string, size: 44)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(info["username"].string).font(.headline).foregroundStyle(Palette.ink)
+                        if info["google"].bool {
+                            Label("Google linked", systemImage: "checkmark.circle.fill")
+                                .font(Typeface.caption).foregroundStyle(Palette.success)
+                        } else {
+                            Text("Stack account").font(Typeface.caption).foregroundStyle(Palette.muted)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .accessibilityElement(children: .combine)
             } else {
-                StackButton(label: store.googlePending ? "Connecting…" : "Link Google sign-in",
+                Text("Sign-in").font(.headline).foregroundStyle(Palette.ink)
+            }
+            if !info["google"].bool {
+                StackButton(label: store.googlePending ? "Connecting…" : "Link Google",
                             disabled: store.googlePending || store.busy) {
                     Task { await store.signInWithGoogle(link: true) }
                 }
             }
             if store.googlePending {
-                StackButton(label: "Cancel Google sign-in", kind: .secondary) { store.cancelGoogle() }
+                StackButton(label: "Cancel", kind: .secondary) { store.cancelGoogle() }
             }
             if info["can_recover"].bool, !recovering {
-                StackButton(label: "Use my existing Stack account", kind: .secondary) {
+                StackButton(label: "Use existing account", kind: .secondary) {
                     withAnimation(Motion.fadeAnimation) { recovering = true }
                 }
             }
             if info["can_recover"].bool, recovering {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Confirm your original Stack sign-in to keep its saved data.")
+                    Text("Sign in to keep your saved data")
                         .font(Typeface.caption).foregroundStyle(Palette.muted)
-                    StackField(label: "Existing Stack username", text: $username, keyboard: .asciiCapable, autocapitalization: .never)
-                    StackField(label: "Existing Stack password", text: $password, secure: true)
-                    StackButton(label: "Use my existing Stack account",
+                    StackField(label: "Username", text: $username, keyboard: .asciiCapable, autocapitalization: .never)
+                    StackField(label: "Password", text: $password, secure: true)
+                    StackButton(label: "Use existing account",
                                 disabled: store.busy || username.isBlank || password.isEmpty) {
                         Task {
                             await store.recoverGoogle(username: username, password: password)
@@ -283,8 +323,8 @@ private struct AccessField: View {
             .autocorrectionDisabled(keyboard != .default || secure)
             .padding(.horizontal, 16)
             .frame(minHeight: 54)
-            .background(Palette.field, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .background(Palette.field, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
                 .stroke(focused ? Brand.accent : Brand.rule, lineWidth: focused ? 2 : 1))
             .animation(Motion.fadeAnimation, value: focused)
         }
@@ -302,25 +342,30 @@ private struct AccessField: View {
 
 // MARK: - Welcome pieces
 
-/// "Continue with Google" using the multicolor G on a white button with a neutral outline, per Google's branding.
+/// "Continue with Google" using the multicolor G on a white button with a neutral outline, per Google's branding
+/// (dark neutral surface in dark mode), in the same 52-point, 16-radius family as the other buttons.
 @MainActor
 private struct GoogleSignInButton: View {
     let label: String
     var disabled = false
     let action: () -> Void
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
+        let dark = scheme == .dark
         Button(action: action) {
             HStack(spacing: 10) {
                 Image("GoogleG").resizable().scaledToFit().frame(width: 20, height: 20)
-                Text(label).font(.system(.headline).weight(.medium)).foregroundStyle(Color(hex: 0x1F1F1F))
+                Text(label).font(.system(.headline).weight(.medium))
+                    .foregroundStyle(Color(hex: dark ? 0xE3E3E3 : 0x1F1F1F))
             }
-            .frame(maxWidth: .infinity, minHeight: 54)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color(hex: 0x747775), lineWidth: 1))
+            .frame(maxWidth: .infinity, minHeight: 52)
+            .background(Color(hex: dark ? 0x131314 : 0xFFFFFF), in: RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Radius.button, style: .continuous)
+                .stroke(Color(hex: dark ? 0x8E918F : 0x747775), lineWidth: 1))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.tap(scale: 0.98))
+        .buttonStyle(.tap(scale: 0.97))
         .disabled(disabled)
         .accessibilityLabel(label)
     }

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Follow-up reminders for applications and contacts: edit, complete or delete.
+/// Reminders for applications and contacts: edit, complete or delete.
 @MainActor
 struct RemindersView: View {
     @Environment(AppStore.self) private var store
@@ -14,18 +14,23 @@ struct RemindersView: View {
     private var done: [Reminder] { store.account.reminders.filter(\.done).sorted { $0.dueAt > $1.dueAt } }
 
     var body: some View {
-        SheetPage(title: "Follow-ups") {
+        SheetPage(title: "Reminders") {
             StoreMessages()
             if open.isEmpty, done.isEmpty {
-                EmptyNote(icon: "bell", title: "No reminders yet",
-                          message: "Add one from an application or contact.")
+                EmptyNote(icon: "bell", title: "No reminders yet")
             }
-            ForEach(Array(open.enumerated()), id: \.element.id) { index, reminder in
-                row(reminder).reveal(index + 1)
+            if !open.isEmpty {
+                VStack(spacing: 12) {
+                    ForEach(Array(open.enumerated()), id: \.element.id) { index, reminder in
+                        row(reminder).reveal(index + 1)
+                    }
+                }
             }
             if !done.isEmpty {
-                SectionLabel(text: "Completed")
-                ForEach(done) { reminder in row(reminder) }
+                VStack(alignment: .leading, spacing: 8) {
+                    SectionHeader(title: "Completed")
+                    ForEach(done) { reminder in row(reminder) }
+                }
             }
         }
         .sheet(item: $editing) { reminder in
@@ -36,7 +41,7 @@ struct RemindersView: View {
                         ["id": .string(reminder.id), "target_type": .string(reminder.targetType),
                          "target_id": .string(reminder.targetID), "title": .string(title),
                          "due_at": .number(due.timeIntervalSince1970)],
-                        notice: "Reminder saved.", askNotifications: true
+                        notice: "Reminder added", askNotifications: true
                     )
                     if ok { editing = nil }
                 }
@@ -54,14 +59,30 @@ struct RemindersView: View {
     }
 
     private func row(_ reminder: Reminder) -> some View {
-        Card(spacing: 10) {
-            HStack(alignment: .top, spacing: 10) {
-                VStack(alignment: .leading, spacing: 5) {
+        let overdue = !reminder.done && reminder.dueAt < Date().timeIntervalSince1970
+        return Card(spacing: 0) {
+            HStack(spacing: 6) {
+                Button {
+                    guard !reminder.done else { return }
+                    Task { await store.mutate("change_reminder", ["id": .string(reminder.id), "action": "complete"], notice: "Marked complete") }
+                } label: {
+                    Image(systemName: reminder.done ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 24, weight: .regular))
+                        .foregroundStyle(reminder.done ? Palette.success : Palette.muted)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.tap(scale: 0.9, dim: 1))
+                .disabled(reminder.done)
+                .accessibilityLabel(reminder.done ? "Completed" : "Complete")
+                VStack(alignment: .leading, spacing: 2) {
                     Text(reminder.title).font(.headline).foregroundStyle(Palette.ink)
+                        .strikethrough(reminder.done, color: Palette.muted)
                     Text(target(reminder)).font(Typeface.caption).foregroundStyle(Palette.muted)
-                    Label(reminder.done ? "Completed" : dateTime(reminder.dueAt),
-                          systemImage: reminder.done ? "checkmark.circle" : "clock")
-                        .font(.footnote).foregroundStyle(reminder.done ? Palette.success : Palette.muted)
+                    if !reminder.done {
+                        Text(dateTime(reminder.dueAt)).font(.footnote.weight(overdue ? .semibold : .regular))
+                            .foregroundStyle(overdue ? Palette.warning : Palette.muted)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Menu {
@@ -74,17 +95,13 @@ struct RemindersView: View {
                     }
                     Button(role: .destructive) { deleting = reminder } label: { Label("Delete", systemImage: "trash") }
                 } label: {
-                    Image(systemName: "ellipsis.circle").frame(width: 44, height: 44)
+                    Image(systemName: "ellipsis").font(.system(size: 16, weight: .semibold)).foregroundStyle(Palette.muted)
+                        .frame(width: 44, height: 44).contentShape(Rectangle())
                 }
                 .accessibilityLabel("Actions for \(reminder.title)")
             }
-            if !reminder.done {
-                Button {
-                    Task { await store.mutate("change_reminder", ["id": .string(reminder.id), "action": "complete"], notice: "Marked complete.") }
-                } label: { Label("Complete", systemImage: "checkmark").font(.subheadline.weight(.semibold)).frame(minHeight: 44) }
-                .tint(Brand.accent)
-            }
         }
+        .sensoryFeedback(.success, trigger: reminder.done)
     }
 
     private func target(_ reminder: Reminder) -> String {

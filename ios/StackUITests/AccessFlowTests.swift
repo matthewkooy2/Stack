@@ -9,7 +9,7 @@ final class AccessFlowTests: XCTestCase {
         XCTAssertTrue(app.buttons["Public profiles"].waitForExistence(timeout: 10))
         for _ in 0..<2 {
             app.buttons["Public profiles"].tap()
-            XCTAssertTrue(app.staticTexts["Public profiles"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.staticTexts["Profiles"].waitForExistence(timeout: 5))
             app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Headline")).firstMatch.tap()
             let draft = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@ AND (elementType == %d OR elementType == %d)", "Draft", XCUIElement.ElementType.textField.rawValue, XCUIElement.ElementType.textView.rawValue)).firstMatch
             XCTAssertTrue(draft.waitForExistence(timeout: 5))
@@ -50,7 +50,7 @@ final class AccessFlowTests: XCTestCase {
     func testWelcomeNavigationAndLocalValidation() {
         let app = XCUIApplication()
         app.launch()
-        XCTAssertTrue(app.buttons["Create an account"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Create account"].waitForExistence(timeout: 10))
         capture("welcome")
         for _ in 0..<3 {
             app.buttons["Sign in"].tap()
@@ -58,15 +58,15 @@ final class AccessFlowTests: XCTestCase {
             app.buttons["Sign in"].tap()
             XCTAssertTrue(app.staticTexts["Use a username of at least 3 characters and a password of at least 8."].waitForExistence(timeout: 5))
             capture("sign-in-validation")
-            app.buttons["New here? Create an account"].tap()
+            app.buttons["New here? Create account"].tap()
             XCTAssertTrue(app.staticTexts["Create your account"].waitForExistence(timeout: 5))
             capture("sign-up")
             app.buttons["Back"].tap()
-            XCTAssertTrue(app.buttons["Create an account"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.buttons["Create account"].waitForExistence(timeout: 5))
         }
         app.terminate()
         app.launch()
-        XCTAssertTrue(app.buttons["Create an account"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Create account"].waitForExistence(timeout: 10))
         capture("welcome-after-relaunch")
     }
 

@@ -10,7 +10,12 @@ struct ApplicationsView: View {
     @State var selected: Application?
     @State var showCalendar = false
     @State var showReminders = false
-    @State private var showTracking = false
+    private enum TrackingDestination: Int, Identifiable {
+        case overview, manage
+        var id: Self { self }
+    }
+
+    @State private var trackingDestination: TrackingDestination?
 
     private var filters: [String] {
         ["All"] + Array(Set(store.account.applications.map(\.status))).filter { !$0.isEmpty }.sorted()
@@ -22,34 +27,82 @@ struct ApplicationsView: View {
     }
 
     var body: some View {
+        let displayed = rows
         Page {
-            ScreenHeader(title: "Applications", subtitle: "\(store.account.applications.count) saved", onProfile: onProfile).reveal(0)
-            HStack(spacing: 8) {
-                Chip(label: "Calendar") { showCalendar = true }
-                Chip(label: "Follow-ups") { showReminders = true }
-            }
-            .reveal(1)
-            GmailTrackingSection(onManage: { showTracking = true }).reveal(2)
-            if filters.count > 2 {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(filters, id: \.self) { name in
-                            Chip(label: name, selected: filter == name) { withAnimation(Motion.fadeAnimation) { filter = name } }
+            ScreenHeader(title: "Applications", onProfile: onProfile)
+            HStack(spacing: 12) {
+                if filters.count > 2 || filter != "All" {
+                    Menu {
+                        Picker("Status", selection: $filter) {
+                            ForEach(filters, id: \.self) { Text($0).tag($0) }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(filter == "All" ? "All applications" : filter)
+                            Image(systemName: "chevron.down").font(.caption)
                         }
                     }
+                    .accessibilityLabel("Filter applications")
+                    .accessibilityValue(filter)
+                } else {
+                    Text("All applications")
                 }
-                .reveal(1)
+                Text("\(displayed.count)").monospacedDigit().foregroundStyle(Palette.muted)
+                Spacer(minLength: 4)
+                Menu {
+                    Button { showCalendar = true } label: { Label("Calendar", systemImage: "calendar") }
+                    Button { showReminders = true } label: { Label("Follow-ups", systemImage: "bell") }
+                    Button { trackingDestination = .overview } label: { Label("Gmail tracking", systemImage: "envelope") }
+                } label: {
+                    Label("Tools", systemImage: "ellipsis.circle")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(minWidth: 44, minHeight: 44)
+                        .foregroundStyle(Brand.accent)
+                }
+                .accessibilityLabel("Application tools")
             }
-            if rows.isEmpty {
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Palette.ink)
+            if displayed.isEmpty {
                 EmptyNote(icon: "applications", title: "Nothing saved yet", message: "Roles you save from Jobs appear here.")
-                    .reveal(1)
+                StackButton(label: "Browse jobs", icon: "jobs") { onNavigate(.jobs) }
+                StackButton(label: "Track with Gmail", icon: "link", kind: .secondary) { trackingDestination = .overview }
             } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, app in
-                        ListRow(label: app.job.title, detail: "\(app.job.company) · \(app.status)") { selected = app }
-                            .reveal(index + 2)
+                LazyVStack(spacing: 0) {
+                    ForEach(displayed) { app in
+                        Button { selected = app } label: {
+                            VStack(alignment: .leading, spacing: 7) {
+                                Text(app.job.title.isBlank ? "Untitled role" : app.job.title)
+                                    .font(.headline).foregroundStyle(Palette.ink)
+                                if !app.job.company.isBlank {
+                                    Text(app.job.company).font(.subheadline).foregroundStyle(Palette.muted)
+                                }
+                                if !app.status.isBlank {
+                                    Text(app.status).font(.caption.weight(.semibold))
+                                        .foregroundStyle(Brand.accent)
+                                        .padding(.horizontal, 9).padding(.vertical, 3)
+                                        .background(Palette.halo, in: Capsule())
+                                }
+                            }
+                            .padding(.trailing, 20)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .overlay(alignment: .trailing) {
+                                Image(systemName: "chevron.right").font(.caption.weight(.semibold))
+                                    .foregroundStyle(Palette.muted).accessibilityHidden(true)
+                            }
+                            .multilineTextAlignment(.leading)
+                            .padding(.trailing, 4)
+                            .padding(.vertical, 14)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel([app.job.title.isBlank ? "Untitled role" : app.job.title, app.job.company, app.status]
+                            .filter { !$0.isBlank }.joined(separator: ", "))
+                        if app.id != displayed.last?.id { Divider() }
                     }
                 }
+                .padding(.horizontal, 16)
+                .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
         }
         .refreshable { await store.refresh() }
@@ -61,7 +114,20 @@ struct ApplicationsView: View {
         }
         .sheet(isPresented: $showCalendar) { ApplicationCalendarView().environment(store) }
         .sheet(isPresented: $showReminders) { RemindersView().environment(store) }
-        .sheet(isPresented: $showTracking) { AgentHubView(initialPage: .email).environment(store) }
+        .onChange(of: filters) { _, values in
+            if !values.contains(filter) { filter = "All" }
+        }
+        .sheet(item: $trackingDestination) { destination in
+            switch destination {
+            case .overview:
+                SheetPage(title: "Gmail tracking") {
+                    GmailTrackingSection(onManage: { trackingDestination = .manage })
+                }
+                .environment(store)
+            case .manage:
+                AgentHubView(initialPage: .email).environment(store)
+            }
+        }
         .sheet(item: $selected) { app in
             ApplicationDetailView(applicationID: app.id).environment(store)
         }
@@ -72,7 +138,6 @@ struct ApplicationsView: View {
 struct ApplicationDetailView: View {
     let applicationID: String
     @Environment(AppStore.self) private var store
-    @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
 
     @State var notes = ""
@@ -87,21 +152,18 @@ struct ApplicationDetailView: View {
         ZStack {
             Palette.page.ignoresSafeArea()
             if let app = application {
-                Page {
-                    HStack { BackButton(label: "Close") { dismiss() }; Spacer() }
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(app.job.title).font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
-                        Text("\(app.job.company) · \(app.job.location)").font(Typeface.body).foregroundStyle(Palette.muted)
-                        Chip(label: app.status + (app.isDemo ? " · Demo" : ""), selected: true)
+                SheetPage(title: "Application") {
+                    JobHeading(job: app.job)
+                    if !app.status.isBlank || app.isDemo {
+                        StatusPill(label: [app.status, app.isDemo ? "Demo" : ""].filter { !$0.isEmpty }.joined(separator: " · "))
                     }
-                    .reveal(0)
-
                     if !app.isDemo, ["Saved", "Ready to apply"].contains(app.status) {
+                        let url = JobListingLink.safeURL(app.job.url)
                         VStack(spacing: Spacing.option) {
-                            if let url = URL(string: app.job.url), !app.job.url.isEmpty {
+                            if let url {
                                 StackButton(label: "Apply on the employer site", icon: "link") { openURL(url) }
                             }
-                            StackButton(label: "I submitted this application", icon: "done", disabled: store.busy) {
+                            StackButton(label: "I submitted this application", icon: "done", kind: url == nil ? .primary : .secondary, disabled: store.busy) {
                                 Task { await store.mutate("mark_application_submitted", ["id": .string(app.id)], notice: "Marked as submitted.") }
                             }
                         }
@@ -148,7 +210,9 @@ struct ApplicationDetailView: View {
                 }
                 .onAppear { if !loadedNotes { notes = app.notes; loadedNotes = true } }
             } else {
-                EmptyNote(icon: "applications", title: "This application is no longer available")
+                SheetPage(title: "Application unavailable") {
+                    Text("This application is no longer available.").font(Typeface.body).foregroundStyle(Palette.muted)
+                }
             }
         }
         .sheet(isPresented: $showReminder) {
@@ -180,23 +244,18 @@ struct ReminderSheet: View {
     @Binding var title: String
     @Binding var due: Date
     let onSave: () -> Void
-    @Environment(\.dismiss) private var dismiss
+    @Environment(AppStore.self) private var store
 
     var body: some View {
-        ZStack {
-            Palette.page.ignoresSafeArea()
-            VStack(alignment: .leading, spacing: Spacing.stack) {
-                HStack { BackButton(label: "Close") { dismiss() }; Spacer() }
-                Text("Follow-up reminder").font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
-                StackField(label: "Reminder", text: $title)
-                DatePicker("When", selection: $due, in: Date()..., displayedComponents: [.date, .hourAndMinute])
-                    .font(Typeface.body)
-                    .tint(Palette.dark)
-                Spacer()
-                StackButton(label: "Save reminder", disabled: title.trimmingCharacters(in: .whitespaces).isEmpty, action: onSave)
-            }
-            .padding(Spacing.page)
+        SheetPage(title: "Follow-up reminder") {
+            StackField(label: "Reminder", text: $title)
+            DatePicker("When", selection: $due, in: Date()..., displayedComponents: [.date, .hourAndMinute])
+                .font(Typeface.body)
+                .tint(Brand.accent)
+            StoreMessages()
+            StackButton(label: "Save reminder", disabled: store.busy || title.isBlank, action: onSave)
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 }

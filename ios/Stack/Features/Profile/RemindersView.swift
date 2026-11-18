@@ -55,24 +55,34 @@ struct RemindersView: View {
 
     private func row(_ reminder: Reminder) -> some View {
         Card(spacing: 10) {
-            Text(reminder.title).font(Typeface.option).foregroundStyle(Palette.icon)
-            Text(reminder.done ? "Completed" : dateTime(reminder.dueAt))
-                .font(Typeface.caption).foregroundStyle(Palette.muted)
-            Text(target(reminder)).font(Typeface.caption).foregroundStyle(Palette.text)
-            if !reminder.done {
-                HStack(spacing: 8) {
-                    Chip(label: "Complete") {
-                        Task { await store.mutate("change_reminder", ["id": .string(reminder.id), "action": "complete"], notice: "Marked complete.") }
-                    }
-                    Chip(label: "Edit") {
-                        title = reminder.title
-                        due = max(Date(timeIntervalSince1970: reminder.dueAt), Date().addingTimeInterval(60))
-                        editing = reminder
-                    }
-                    Chip(label: "Delete") { deleting = reminder }
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(reminder.title).font(.headline).foregroundStyle(Palette.ink)
+                    Text(target(reminder)).font(Typeface.caption).foregroundStyle(Palette.muted)
+                    Label(reminder.done ? "Completed" : dateTime(reminder.dueAt),
+                          systemImage: reminder.done ? "checkmark.circle" : "clock")
+                        .font(.footnote).foregroundStyle(reminder.done ? Palette.success : Palette.muted)
                 }
-            } else {
-                Chip(label: "Delete") { deleting = reminder }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Menu {
+                    if !reminder.done {
+                        Button {
+                            title = reminder.title
+                            due = max(Date(timeIntervalSince1970: reminder.dueAt), Date().addingTimeInterval(60))
+                            editing = reminder
+                        } label: { Label("Edit", systemImage: "pencil") }
+                    }
+                    Button(role: .destructive) { deleting = reminder } label: { Label("Delete", systemImage: "trash") }
+                } label: {
+                    Image(systemName: "ellipsis.circle").frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("Actions for \(reminder.title)")
+            }
+            if !reminder.done {
+                Button {
+                    Task { await store.mutate("change_reminder", ["id": .string(reminder.id), "action": "complete"], notice: "Marked complete.") }
+                } label: { Label("Complete", systemImage: "checkmark").font(.subheadline.weight(.semibold)).frame(minHeight: 44) }
+                .tint(Brand.accent)
             }
         }
     }

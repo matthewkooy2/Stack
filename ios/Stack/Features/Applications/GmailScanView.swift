@@ -14,7 +14,7 @@ struct GmailScanView: View {
     private var resumable: Bool { ["failed", "needs_input", "blocked"].contains(scan["status"].string) }
 
     var body: some View {
-        SheetPage(title: "Find your applications.", subtitle: "Including jobs you applied to outside Stack.") {
+        SheetPage(title: "Scan Gmail", subtitle: "Find applications you started in Stack or elsewhere.") {
             if loading {
                 ProgressView("Loading Gmail scan…")
             } else {
@@ -47,13 +47,13 @@ struct GmailScanView: View {
                         }
                         Text("\(scan["scan"]["scanned"].int) emails checked · \(scan["scan"]["imported"].int) imported · \(scan["scan"]["updated"].int) updates")
                             .font(Typeface.caption).foregroundStyle(Brand.muted)
-                        Text("Imported applications are tracked automatically. Interview invitations appear in your Stack calendar; Google Calendar changes still wait for your approval.")
+                        Text("Imported applications are tracked automatically. Stack shows interview invitations in your calendar and asks before changing Google Calendar.")
                             .font(Typeface.caption).foregroundStyle(Brand.muted)
                     }
                 }
                 MessageLine(text: error).fadeSwitch(!error.isEmpty)
                 if !reviews.isEmpty {
-                    Text("A few need a check.").font(Typeface.title).foregroundStyle(Brand.ink)
+                    Text("Review uncertain matches").font(Typeface.title).foregroundStyle(Brand.ink)
                     ForEach(reviews, id: \.self) { event in
                         GmailScanReviewRow(event: event) { await load() }
                             .id(event["id"].string)

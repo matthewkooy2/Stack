@@ -31,13 +31,13 @@ struct StackApp: App {
         #if DEBUG
         RootView()
                 .environment(store)
-                .tint(Palette.dark)
+                .tint(Brand.accent)
                 .task { await store.start() }
                 .motionLab()
         #else
         RootView()
                 .environment(store)
-                .tint(Palette.dark)
+                .tint(Brand.accent)
                 .task { await store.start() }
         #endif
     }

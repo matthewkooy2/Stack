@@ -22,31 +22,27 @@ struct RoleChoiceView: View {
         return words.isEmpty ? JobRoleChoices.all : JobRoleChoices.all.filter { $0.localizedCaseInsensitiveContains(words) }
     }
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            BackButton(action: onBack)
-            Text("Choose a role").font(Typeface.display).tracking(-1.8).foregroundStyle(Brand.ink)
+        SheetPage(title: "Choose a role", closeLabel: "Back", onClose: onBack) {
             TextField("Search roles", text: $query, prompt: Text("Search roles").foregroundColor(Brand.muted))
                 .foregroundStyle(Brand.ink).tint(Brand.accent)
                 .textInputAutocapitalization(.never).autocorrectionDisabled()
-                .padding(16).background(.white, in: RoundedRectangle(cornerRadius: 14))
+                .padding(16).background(Palette.field, in: RoundedRectangle(cornerRadius: 14))
                 .accessibilityLabel("Search roles")
             Text("Job titles: O*NET 31.0 · CC BY 4.0 · U.S. Department of Labor")
-                .font(.system(size: 11)).foregroundStyle(Brand.muted)
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    choice("All professions", value: "")
-                    ForEach(choices, id: \.self) { choice($0, value: $0) }
-                    if choices.isEmpty { Text("No matching roles.").foregroundStyle(Brand.muted).padding(.vertical, 20) }
-                }
+                .font(.caption2).foregroundStyle(Brand.muted)
+            LazyVStack(spacing: 0) {
+                choice("All professions", value: "")
+                ForEach(choices, id: \.self) { choice($0, value: $0) }
+                if choices.isEmpty { Text("No matching roles.").foregroundStyle(Brand.muted).padding(.vertical, 20) }
             }
-        }.padding(.horizontal, Spacing.page).padding(.vertical, 16).background(Brand.page.ignoresSafeArea())
+        }
     }
     private func choice(_ label: String, value: String) -> some View {
         Button { onSelect(value) } label: {
             HStack { Text(label).foregroundStyle(Brand.ink).multilineTextAlignment(.leading); Spacer(); if current == value { Image(systemName: "checkmark").foregroundStyle(Brand.accent) } }
                 .font(Typeface.body).frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
                 .overlay(alignment: .bottom) { Rectangle().fill(Brand.rule).frame(height: 1) }.contentShape(Rectangle())
-        }.buttonStyle(.plain)
+        }.buttonStyle(.plain).accessibilityAddTraits(current == value ? .isSelected : [])
     }
 }
 
@@ -80,35 +76,31 @@ struct LocationChoiceView: View {
     @State private var query = ""
     @State private var resolving = false
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            BackButton(action: onBack)
-            Text("Choose a location").font(Typeface.display).tracking(-1.8).foregroundStyle(Brand.ink)
+        SheetPage(title: "Choose a location", closeLabel: "Back", onClose: onBack) {
             TextField("City or state", text: $query, prompt: Text("City or state").foregroundColor(Brand.muted))
                 .foregroundStyle(Brand.ink).tint(Brand.accent).autocorrectionDisabled().padding(16)
-                .background(.white, in: RoundedRectangle(cornerRadius: 14)).onChange(of: query) { _, value in suggestions.search(value) }
+                .background(Palette.field, in: RoundedRectangle(cornerRadius: 14)).onChange(of: query) { _, value in suggestions.search(value) }
             Button("Anywhere in the US") { onSelect("") }.frame(minHeight: 44).foregroundStyle(Brand.accent)
             if resolving { ProgressView().tint(Brand.muted) }
             if !suggestions.error.isEmpty { Text(suggestions.error).font(Typeface.caption).foregroundStyle(Palette.danger) }
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(suggestions.results, id: \.self) { result in
-                        Button {
-                            resolving = true
-                            Task {
-                                defer { resolving = false }
-                                do { if let place = try await suggestions.resolve(result) { onSelect(place) } else { suggestions.error = "Choose a US city or state." } }
-                                catch { suggestions.error = "Could not load this location. Try again." }
-                            }
-                        } label: {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(result.title).foregroundStyle(Brand.ink)
-                                if !result.subtitle.isEmpty { Text(result.subtitle).font(Typeface.caption).foregroundStyle(Brand.muted) }
-                            }.frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
-                                .overlay(alignment: .bottom) { Rectangle().fill(Brand.rule).frame(height: 1) }.contentShape(Rectangle())
-                        }.buttonStyle(.plain).disabled(resolving)
-                    }
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(suggestions.results, id: \.self) { result in
+                    Button {
+                        resolving = true
+                        Task {
+                            defer { resolving = false }
+                            do { if let place = try await suggestions.resolve(result) { onSelect(place) } else { suggestions.error = "Choose a US city or state." } }
+                            catch { suggestions.error = "Could not load this location. Try again." }
+                        }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(result.title).foregroundStyle(Brand.ink)
+                            if !result.subtitle.isEmpty { Text(result.subtitle).font(Typeface.caption).foregroundStyle(Brand.muted) }
+                        }.frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+                            .overlay(alignment: .bottom) { Rectangle().fill(Brand.rule).frame(height: 1) }.contentShape(Rectangle())
+                    }.buttonStyle(.plain).disabled(resolving)
                 }
             }
-        }.padding(.horizontal, Spacing.page).padding(.vertical, 16).background(Brand.page.ignoresSafeArea())
+        }
     }
 }

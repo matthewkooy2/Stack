@@ -10,8 +10,6 @@ struct ResumeView: View {
     @State var importing = false
     @State private var uploader = ResumeUploader()
     @State private var uploadGeneration = -1
-    /// Set when an upload starts from the first-use screen, so the list fades in over it instead of rising a beat later.
-    @State private var cameFromUpload = false
     @Environment(\.stackReduceMotion) private var reduceMotion
     @State var managing: ResumeItem?
     @State var showTailor = false
@@ -33,7 +31,7 @@ struct ResumeView: View {
             if store.account.resumes.isEmpty {
                 ResumeUploadScreen(uploading: uploader.isBusy, fileName: uploader.fileName, disabled: false,
                                    error: uploader.phase == .failed ? uploader.message : store.error,
-                                   attentionCount: store.account.attentionRunCount, progress: uploader.progress,
+                                   progress: uploader.progress,
                                    onUpload: { chooseFile() }, onProfile: onProfile, onRetry: retryAction)
                     .transition(.opacity)
             } else {
@@ -60,13 +58,7 @@ struct ResumeView: View {
 
     private var library: some View {
         Page {
-            entrance(ScreenHeader(title: "Resume", onProfile: onProfile), 0)
-            StackButton(label: uploader.isBusy ? uploader.progress : "Upload a resume", icon: "upload", disabled: uploader.isBusy) {
-                chooseFile()
-            }
-            .modifier(Entrance(index: 1, skipped: cameFromUpload))
-            .accessibilityIdentifier("resume-upload")
-
+            ScreenHeader(title: "Resume", onProfile: onProfile)
             if uploader.phase == .failed {
                 MessageLine(text: uploader.message).accessibilityIdentifier("resume-upload-error")
                 if uploader.canRetry {
@@ -77,24 +69,42 @@ struct ResumeView: View {
 
             StoreMessages()
 
-            VStack(spacing: 0) {
-                ForEach(Array(store.account.resumes.enumerated()), id: \.element.id) { index, resume in
-                    entrance(resumeRow(resume), index + 2)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Your files").font(Typeface.section).foregroundStyle(Palette.ink)
+                        .accessibilityAddTraits(.isHeader)
+                    Spacer()
+                    Button { chooseFile() } label: {
+                        Label("Upload", systemImage: "plus")
+                            .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+                    }
+                    .foregroundStyle(Brand.accent)
+                    .disabled(uploader.isBusy)
+                    .accessibilityLabel("Upload a resume")
+                    .accessibilityIdentifier("resume-upload")
                 }
+                if uploader.isBusy {
+                    ProgressView(uploader.progress).font(Typeface.caption)
+                }
+                VStack(spacing: 0) {
+                    ForEach(store.account.resumes) { resume in
+                        resumeRow(resume)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
 
             VStack(spacing: 0) {
-                ListRow(label: "Tailor for a job", icon: "sparkles", detail: tailorDetail) { showTailor = true }
+                StackButton(label: "Tailor for a job", icon: "sparkles") { showTailor = true }
+                    .accessibilityHint(tailorDetail)
+                    .padding(.bottom, 12)
                 if !store.account.tailored.isEmpty {
                     ListRow(label: "Tailored resumes", icon: "resume", detail: "\(store.account.tailored.count) saved") { showTailored = true }
                 }
                 ListRow(label: "Memory bank", icon: "star", detail: "Skills, projects and experience") { showBank = true }
             }
         }
-    }
-
-    @ViewBuilder private func entrance<Content: View>(_ content: Content, _ index: Int) -> some View {
-        content.modifier(Entrance(index: index, skipped: cameFromUpload))
     }
 
     private var tailorDetail: String {
@@ -138,7 +148,6 @@ struct ResumeView: View {
     }
 
     private func startUpload() {
-        if store.account.resumes.isEmpty { cameFromUpload = true }
         store.error = ""
         store.notice = ""
         Task { await upload() }
@@ -153,16 +162,6 @@ struct ResumeView: View {
             _ = try await store.callAccount("upload_resume", ["name": .string(file.name), "content": .string(file.content)], timeout: 90)
         }
         if uploaded { store.notice = "Your resume is saved privately." }
-    }
-}
-
-/// The usual staggered entrance, or none when the screen is already fading in over another one.
-private struct Entrance: ViewModifier {
-    let index: Int
-    let skipped: Bool
-
-    func body(content: Content) -> some View {
-        if skipped { content } else { content.reveal(index) }
     }
 }
 
@@ -243,7 +242,7 @@ struct PDFKitView: UIViewRepresentable {
         let view = PDFView()
         view.autoScales = true
         view.document = PDFDocument(data: data)
-        view.backgroundColor = UIColor(Palette.oat)
+        view.backgroundColor = UIColor(Palette.page)
         return view
     }
 
@@ -267,7 +266,7 @@ struct ManageResumeSheet: View {
     var body: some View {
         SheetPage(title: resume.name) {
             VStack(spacing: 0) {
-                ListRow(label: opening ? "Opening…" : "Preview", icon: "play") { Task { await open() } }
+                ListRow(label: opening ? "Opening…" : "Preview", icon: "resume") { Task { await open() } }
                 ListRow(label: "Review details", icon: "check", detail: resume.detailsStatus) { details = resume }
                 ListRow(label: "Format", icon: "resume", detail: store.account.format(of: resume.id)["label"].string) { formatting = resume }
             }

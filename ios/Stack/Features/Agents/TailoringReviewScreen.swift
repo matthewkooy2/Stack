@@ -55,6 +55,7 @@ struct TailoringReviewScreen: View {
     let onApply: () -> Void
     let onCancel: () -> Void
 
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var showAll = false
     @State private var focusedID: String?
     @State private var showDetails = false
@@ -104,7 +105,7 @@ struct TailoringReviewScreen: View {
                 if showAll, current != nil { showAll = false } else { onBack() }
             } label: {
                 Label("Back", systemImage: "chevron.left")
-                    .font(.system(size: 20)).foregroundStyle(Brand.accent).frame(minHeight: 44)
+                    .font(Typeface.body).foregroundStyle(Brand.accent).frame(minHeight: 44)
             }
             Spacer()
             Menu {
@@ -121,24 +122,18 @@ struct TailoringReviewScreen: View {
 
     private var heading: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("RESUME REVIEW").font(.system(size: 13, weight: .semibold))
-                .tracking(0.6).foregroundStyle(Brand.muted)
-            Text(overview ? "All suggestions." : "One change at a time.")
-                .font(.system(size: 36, weight: .heavy)).tracking(-1.8)
+            Text(overview ? "All suggestions" : "Review suggestion")
+                .font(Typeface.display)
                 .foregroundStyle(Brand.ink).accessibilityAddTraits(.isHeader)
             if overview {
                 Text("\(suggestions.count) suggestions · \(reviewedCount) reviewed")
-                    .font(.system(size: 20)).foregroundStyle(Brand.muted)
+                    .font(Typeface.body).foregroundStyle(Brand.muted)
             } else if let current {
                 Text("Suggestion \((suggestions.firstIndex { $0.id == current.id } ?? 0) + 1) of \(suggestions.count)")
-                    .font(.system(size: 20)).foregroundStyle(Brand.muted)
-                HStack(spacing: 4) {
-                    ForEach(suggestions) { suggestion in
-                        Capsule().fill(suggestion.id == current.id || reviewed.contains(suggestion.id) ? Brand.accent : Brand.rule)
-                            .frame(height: 5)
-                    }
-                }
-                .accessibilityLabel("\(reviewedCount) of \(suggestions.count) suggestions reviewed")
+                    .font(Typeface.body).foregroundStyle(Brand.muted)
+                ProgressView(value: Double(reviewedCount), total: Double(suggestions.count))
+                    .tint(Brand.accent)
+                    .accessibilityLabel("\(reviewedCount) of \(suggestions.count) suggestions reviewed")
             }
             if !context.isEmpty { Text(context).font(Typeface.body).foregroundStyle(Brand.muted) }
         }
@@ -152,7 +147,7 @@ struct TailoringReviewScreen: View {
                 badge(reviewed.contains(suggestion.id)
                       ? (rejected.contains(suggestion.id) ? "Original kept" : "Suggestion chosen") : "To review", accent: false)
             }
-            Text(suggestion.title).font(.system(size: 20, weight: .bold)).tracking(-0.5).foregroundStyle(Brand.ink)
+            Text(suggestion.title).font(.headline).tracking(-0.5).foregroundStyle(Brand.ink)
             if !suggestion.location.isEmpty, suggestion.location != context {
                 Text(suggestion.location).font(.footnote).foregroundStyle(Brand.muted)
             }
@@ -171,7 +166,7 @@ struct TailoringReviewScreen: View {
             .buttonStyle(.plain).disabled(busy).accessibilityLabel("Review change: \(suggestion.title)")
         }
         .padding(12)
-        .background(.white.opacity(0.8), in: RoundedRectangle(cornerRadius: 12))
+        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 12))
         .overlay { RoundedRectangle(cornerRadius: 12).stroke(Brand.rule, lineWidth: 0.5) }
     }
 
@@ -183,12 +178,12 @@ struct TailoringReviewScreen: View {
             badge(suggestion.isFillerRemoval ? "REMOVE FILLER" : suggestion.label, accent: true)
             comparison(suggestion, compact: false)
                 .padding(16).frame(maxWidth: .infinity, alignment: .leading)
-                .background(.white.opacity(0.8), in: RoundedRectangle(cornerRadius: 12))
+                .background(Palette.surface, in: RoundedRectangle(cornerRadius: 12))
                 .overlay { RoundedRectangle(cornerRadius: 12).stroke(Brand.rule, lineWidth: 0.5) }
             if !suggestion.reason.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Why this change?").font(.system(size: 22, weight: .bold)).foregroundStyle(Brand.ink)
-                    Text(suggestion.reason).font(.system(size: 20)).foregroundStyle(Brand.ink)
+                    Text("Why this change?").font(Typeface.section).foregroundStyle(Brand.ink)
+                    Text(suggestion.reason).font(Typeface.body).foregroundStyle(Brand.ink)
                     if suggestion.isFillerRemoval {
                         Text("This is a wording cleanup. No new achievement is added.")
                             .font(Typeface.caption).foregroundStyle(Brand.muted)
@@ -211,14 +206,14 @@ struct TailoringReviewScreen: View {
             VStack(alignment: .leading, spacing: compact ? 8 : 14) {
                 if !suggestion.before.isEmpty, !suggestion.legacyRecordOrder {
                     comparisonLabel("YOUR ORIGINAL", compact: compact)
-                    Text(originalText(suggestion)).font(compact ? Typeface.caption : .system(size: 20))
+                    Text(originalText(suggestion)).font(compact ? Typeface.caption : Typeface.body)
                         .foregroundStyle(Brand.ink).textSelection(.enabled)
                     Divider().overlay(Brand.rule)
                 }
                 comparisonLabel("SUGGESTED VERSION", compact: compact)
                 Text(suggestion.kind == "omit" ? "Leave this content out of this version."
                      : (suggestion.legacyRecordOrder ? "Reorder bullets for this role." : suggestion.after))
-                    .font(compact ? Typeface.caption : .system(size: 20)).foregroundStyle(Brand.ink).textSelection(.enabled)
+                    .font(compact ? Typeface.caption : Typeface.body).foregroundStyle(Brand.ink).textSelection(.enabled)
                 if suggestion.isOrder, suggestion.before.isEmpty || suggestion.legacyRecordOrder {
                     Text("The exact order comparison isn’t available for this suggestion.")
                         .font(.footnote).foregroundStyle(Brand.muted)
@@ -229,7 +224,7 @@ struct TailoringReviewScreen: View {
 
     private func comparisonLabel(_ title: String, compact: Bool) -> some View {
         Text(compact ? title.replacingOccurrences(of: "YOUR ", with: "").replacingOccurrences(of: " VERSION", with: "") : title)
-            .font(.system(size: 12, weight: .semibold)).tracking(0.4).foregroundStyle(Brand.muted)
+            .font(.caption.weight(.semibold)).tracking(0.4).foregroundStyle(Brand.muted)
     }
 
     private func orderRows(_ suggestion: TailoringSuggestion, original: Bool) -> some View {
@@ -247,7 +242,7 @@ struct TailoringReviewScreen: View {
     }
 
     private func badge(_ text: String, accent: Bool) -> some View {
-        Text(text).font(.system(size: 12, weight: .semibold))
+        Text(text).font(.caption.weight(.semibold))
             .foregroundStyle(accent ? Brand.accent : Brand.muted).padding(.horizontal, 9).padding(.vertical, 5)
             .background(accent ? Brand.accent.opacity(0.12) : Brand.rule.opacity(0.4), in: RoundedRectangle(cornerRadius: 7))
     }
@@ -295,7 +290,8 @@ struct TailoringReviewScreen: View {
                     else if let next = suggestions.first(where: { !reviewed.contains($0.id) }) { open(next) }
                 }
             } else if let current {
-                HStack(spacing: 10) {
+                let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 6)) : AnyLayout(HStackLayout(spacing: 10))
+                layout {
                     Button { decide(current, reject: true) } label: {
                         Text("Keep original").font(.headline).foregroundStyle(Brand.ink)
                             .frame(maxWidth: .infinity, minHeight: 58)
@@ -305,7 +301,7 @@ struct TailoringReviewScreen: View {
                     PrimaryPill(title: "Use suggestion", disabled: busy) { decide(current, reject: false) }
                 }
             }
-            Text("Your original stays unchanged.").font(.footnote).foregroundStyle(Brand.muted)
+            if overview { Text("Applying changes creates a tailored copy.").font(.footnote).foregroundStyle(Brand.muted) }
             if !overview {
                 Button("See all suggestions") { showAll = true }
                     .font(Typeface.body).foregroundStyle(Brand.accent).frame(minHeight: 44).buttonStyle(.plain)

@@ -68,17 +68,14 @@ struct TaskRow: View {
     var body: some View {
         Button(action: onOpen) {
             VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .top) {
-                    Text(run["title"].string).font(Typeface.option).foregroundStyle(Palette.icon)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    StatusPill(label: AgentLabels.runLabel(run), tone: AgentLabels.tone(for: run["status"].string))
-                }
+                StatusPill(label: AgentLabels.runLabel(run), tone: AgentLabels.tone(for: run["status"].string))
+                Text(run["title"].string).font(.headline).foregroundStyle(Palette.ink)
                 if !run["context_label"].string.isEmpty {
                     Text(run["context_label"].string).font(Typeface.caption).foregroundStyle(Palette.muted)
                 }
-                Text(stepLine).font(Typeface.caption).foregroundStyle(Palette.muted)
+                if !stepLine.isEmpty { Text(stepLine).font(Typeface.caption).foregroundStyle(Palette.muted) }
                 if !run["explanation"].string.isEmpty {
-                    Text(run["explanation"].string).font(Typeface.body).foregroundStyle(Palette.text)
+                    Text(run["explanation"].string).font(.subheadline).foregroundStyle(Palette.text).lineLimit(2)
                 }
                 if run["attention"].bool, !run["message"].string.isEmpty {
                     Text(run["message"].string).font(Typeface.caption).foregroundStyle(Palette.text)
@@ -88,7 +85,7 @@ struct TaskRow: View {
                         .font(Typeface.caption).foregroundStyle(Palette.muted)
                     Spacer()
                     Text(run["next_action"].string == "review" ? "Review" : (run["attention"].bool ? "Respond" : "Details"))
-                        .font(Typeface.caption.weight(.semibold)).foregroundStyle(Palette.dark)
+                        .font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
                 }
             }
             .padding(18)
@@ -160,6 +157,7 @@ struct ScoreCardView: View {
     let after: JSON
     var before: JSON = [:]
     var title = "Resume score"
+    @Environment(\.stackReduceMotion) private var reduceMotion
     @State private var open = false
 
     var body: some View {
@@ -173,7 +171,7 @@ struct ScoreCardView: View {
                 Text("Missing required: \(required.prefix(4).map { $0["term"].string }.joined(separator: ", "))")
                     .font(Typeface.caption).foregroundStyle(Palette.text)
             }
-            Button(open ? "Hide score details" : "Score details") { withAnimation(Motion.fadeAnimation) { open.toggle() } }
+            Button(open ? "Hide score details" : "Score details") { withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { open.toggle() } }
                 .font(Typeface.caption.weight(.semibold)).foregroundStyle(Palette.dark)
             if open { details(missing) }
         }

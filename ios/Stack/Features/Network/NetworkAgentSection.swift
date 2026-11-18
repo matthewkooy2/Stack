@@ -59,7 +59,6 @@ struct NetworkAgentSection: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Saving a contact never contacts them. Drafts wait for your review.")
                 .font(Typeface.caption).foregroundStyle(Palette.muted)
-            if let feature { FeatureCardView(feature: feature, onAction: onNavigate, compact: true) }
             MessageLine(text: error).fadeSwitch(!error.isEmpty)
             MessageLine(text: notice, isError: false).fadeSwitch(!notice.isEmpty)
             if loading && !loaded { ProgressView("Loading contacts…") }
@@ -68,15 +67,17 @@ struct NetworkAgentSection: View {
                     Task { await load() }
                 }
             }
+            if contactID == nil {
+                if drafts.adding { form } else {
+                    StackButton(label: "Add a contact", icon: "add-session") { drafts.adding = true }
+                }
+            }
             ForEach(Array(visibleContacts.enumerated()), id: \.offset) { _, contact in contactCard(contact) }
             if loaded, visibleContacts.isEmpty, error.isEmpty, !drafts.adding {
                 Text(contactID == nil ? "No contacts yet." : "This contact is no longer available.")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             if contactID == nil {
-                if drafts.adding { form } else {
-                    StackButton(label: "Add a contact", icon: "add-session", kind: .secondary) { drafts.adding = true }
-                }
                 DisclosureSection("Follow-up timing",
                                   detail: drafts.policyLoaded ? "Up to \(drafts.followupLimit) every \(drafts.followupDays) days" : "") {
                     VStack(alignment: .leading, spacing: 12) {
@@ -88,6 +89,11 @@ struct NetworkAgentSection: View {
                             Task { await saveFollowupPolicy() }
                         }
                     }
+                }
+            }
+            if let feature {
+                DisclosureSection("Outreach setup", open: feature.state != "ready") {
+                    FeatureCardView(feature: feature, onAction: onNavigate, compact: true)
                 }
             }
         }

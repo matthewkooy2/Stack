@@ -22,7 +22,7 @@ struct DiscoveryCatalogView: View {
 
     var body: some View {
         SheetPage(title: "Discovery catalog") {
-            Text("Catalog profiles, not real discovered contacts. Your saved notes and drafts are kept here.")
+            Text("Sample profiles with your saved notes and outreach drafts.")
                 .font(Typeface.caption).foregroundStyle(Palette.muted)
             ToggleRow(label: "Saved only", isOn: $savedOnly)
             if connections.isEmpty {
@@ -52,7 +52,6 @@ struct DiscoveryCatalogView: View {
 private struct ContactDetailView: View {
     let recordID: String
     @Environment(AppStore.self) private var store
-    @Environment(\.dismiss) private var dismiss
 
     @State private var draft = ""
     @State private var notes = ""
@@ -68,16 +67,7 @@ private struct ContactDetailView: View {
         ZStack {
             Palette.page.ignoresSafeArea()
             if let record, let person {
-                Page {
-                    HStack { BackButton(label: "Close") { dismiss() }; Spacer() }
-                    HStack(spacing: 16) {
-                        Avatar(initials: person.initials, tint: Color(cssHex: person.colorHex), size: 72)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(person.name).font(Typeface.title).foregroundStyle(Palette.ink)
-                            Text("\(person.role) · \(person.company)").font(Typeface.caption).foregroundStyle(Palette.muted)
-                        }
-                    }
-                    .reveal(0)
+                SheetPage(title: person.name, subtitle: [person.role, person.company].filter { !$0.isEmpty }.joined(separator: " · ")) {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(person.bio).font(Typeface.body).foregroundStyle(Palette.text)
                         if !person.reason.isEmpty {
@@ -99,6 +89,10 @@ private struct ContactDetailView: View {
                     MessageLine(text: store.notice, isError: false).fadeSwitch(!store.notice.isEmpty)
                 }
                 .onAppear { if !seeded { draft = record.draft; notes = record.notes; seeded = true } }
+            } else {
+                SheetPage(title: "Contact unavailable") {
+                    Text("This profile is no longer in the catalog.").foregroundStyle(Brand.muted)
+                }
             }
         }
         .sheet(isPresented: $showReminder) {

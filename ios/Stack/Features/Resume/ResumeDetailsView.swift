@@ -53,6 +53,7 @@ private struct ResumeReviewScreen: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
     @Environment(\.stackReduceMotion) private var reduceMotion
+    @Environment(\.dynamicTypeSize) private var typeSize
     @State private var controller: ResumeReviewController?
     @State private var selection: String? = "profile"
     @State private var editing: String?
@@ -84,13 +85,13 @@ private struct ResumeReviewScreen: View {
                             } label: {
                                 Image(systemName: "ellipsis").font(.system(size: 18, weight: .semibold))
                                     .foregroundStyle(Brand.ink).frame(width: 44, height: 44)
-                                    .background(.white, in: Circle())
+                                    .background(Palette.backChip, in: Circle())
                             }
                             .accessibilityLabel("More options")
                         }
-                    }.padding(.bottom, 32)
-                    Text("Review details").font(Typeface.display).tracking(-1.8).foregroundStyle(Brand.ink)
-                    Text("Check the information we extracted from your resume and make any corrections.")
+                    }.padding(.bottom, 16)
+                    Text("Resume details").font(Typeface.display).foregroundStyle(Brand.ink)
+                    Text("Review the details from \(resume.name) before confirming them.")
                         .font(Typeface.caption).foregroundStyle(Brand.muted).padding(.top, 10)
                     VStack(alignment: .leading, spacing: 12) {
                         if let controller {
@@ -155,7 +156,7 @@ private struct ResumeReviewScreen: View {
             if controller.recordMode {
                 ResumeRecordsEditor(controller: controller)
             } else if selection == ResumeReviewController.originalSectionID {
-                ResumeOriginalScreen(controller: controller) { withAnimation(Motion.fadeAnimation) { selection = nil } }
+                ResumeOriginalScreen(controller: controller) { withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { selection = nil } }
             } else {
                 overview(controller)
             }
@@ -165,7 +166,7 @@ private struct ResumeReviewScreen: View {
     private func statusBlock(_ controller: ResumeReviewController) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(controller.statusLabel)
-                .font(.system(size: 12, weight: .semibold)).foregroundStyle(Palette.muted)
+                .font(.caption.weight(.semibold)).foregroundStyle(Palette.muted)
                 .accessibilityIdentifier("resume-review-state")
                 .accessibilityValue(controller.statusID)
             if controller.hasConflict {
@@ -212,7 +213,7 @@ private struct ResumeReviewScreen: View {
                         HStack(alignment: .center, spacing: 12) {
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(summary.title == "Work experience" ? "Experience" : summary.title)
-                                    .font(.system(size: 21, weight: .semibold)).tracking(-0.5).foregroundStyle(Brand.ink)
+                                    .font(Typeface.section).foregroundStyle(Brand.ink)
                                 if selection != summary.id {
                                     Text(sectionPreview(controller.document, key: summary.id))
                                         .font(Typeface.caption).foregroundStyle(Brand.muted).lineLimit(1)
@@ -222,7 +223,10 @@ private struct ResumeReviewScreen: View {
                             Image(systemName: selection == summary.id ? "chevron.up" : "chevron.down")
                                 .font(.system(size: 15, weight: .medium)).foregroundStyle(Brand.ink)
                         }.frame(maxWidth: .infinity, minHeight: 52, alignment: .leading).contentShape(Rectangle())
-                    }.buttonStyle(.plain).accessibilityIdentifier("resume-review-section-\(summary.id)")
+                    }.buttonStyle(.plain)
+                        .accessibilityLabel("\(summary.title == "Work experience" ? "Experience" : summary.title), \(summary.detail)")
+                        .accessibilityValue(selection == summary.id ? "Expanded" : "Collapsed")
+                        .accessibilityIdentifier("resume-review-section-\(summary.id)")
                     if selection == summary.id {
                         HStack {
                             Spacer()
@@ -295,8 +299,12 @@ private struct ResumeReviewScreen: View {
     }
 
     private func detailValue(_ value: String, label: String, bullets: Bool) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Text(label).font(Typeface.caption).foregroundStyle(Brand.muted).frame(width: 76, alignment: .leading)
+        let layout = typeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: 12))
+        return layout {
+            Text(label).font(Typeface.caption).foregroundStyle(Brand.muted)
+                .frame(width: typeSize.isAccessibilitySize ? nil : 76, alignment: .leading)
             if bullets {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(Array(ResumeBullets.split(value).enumerated()), id: \.offset) { _, item in

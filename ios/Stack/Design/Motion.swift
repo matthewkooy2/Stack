@@ -7,16 +7,7 @@ private struct StackMotionPolicyKey: EnvironmentKey {
     static let defaultValue: StackMotionPolicy = .system
 }
 
-private struct LaunchHoldKey: EnvironmentKey { static let defaultValue = false }
-
 extension EnvironmentValues {
-    /// True while `LaunchSequence` has built the destination but not yet shown it: entrances wait (reveals) or are
-    /// skipped (the sideways slide, which would move the spot the launch mark lands on).
-    var launchHold: Bool {
-        get { self[LaunchHoldKey.self] }
-        set { self[LaunchHoldKey.self] = newValue }
-    }
-
     var stackMotionPolicy: StackMotionPolicy {
         get { self[StackMotionPolicyKey.self] }
         set { self[StackMotionPolicyKey.self] = newValue }
@@ -30,11 +21,11 @@ extension EnvironmentValues {
 /// Shared motion, ported from the Prep workflow: one easing curve and one set of durations so every
 /// screen moves in step. Entrance motion is skipped and loops stop when Reduce Motion is on.
 enum Motion {
-    static let stage = 0.30
-    static let reveal = 0.36
-    static let stagger = 0.055
+    static let stage = 0.24
+    static let reveal = 0.23
+    static let stagger = 0.025
     static let press = 0.09
-    static let fade = 0.20
+    static let fade = 0.16
     static let out = 0.14
     static let loop = 2.0
 
@@ -43,8 +34,8 @@ enum Motion {
     static var stageAnimation: Animation { ease(stage) }
     static var revealAnimation: Animation { ease(reveal) }
     static var fadeAnimation: Animation { ease(fade) }
-    static var release: Animation { .spring(response: 0.28, dampingFraction: 0.62) }
-    static var pop: Animation { .spring(response: 0.38, dampingFraction: 0.55) }
+    static var release: Animation { .spring(response: 0.23, dampingFraction: 0.88) }
+    static var pop: Animation { .spring(response: 0.30, dampingFraction: 0.84) }
 }
 
 // MARK: - Page stage
@@ -58,16 +49,15 @@ protocol StageKey: Hashable {
 struct StageEntrance: ViewModifier {
     let direction: CGFloat
     @Environment(\.stackReduceMotion) var reduceMotion
-    @Environment(\.launchHold) var hold
     @State var shown = false
 
     func body(content: Content) -> some View {
         content
-            .opacity(reduceMotion || hold || shown ? 1 : 0)
-            .offset(x: reduceMotion || hold || shown ? 0 : direction * 22)
+            .opacity(reduceMotion || shown ? 1 : 0)
+            .offset(x: reduceMotion || shown ? 0 : direction * 12)
             .animation(reduceMotion ? nil : Motion.stageAnimation, value: shown)
             .onAppear {
-                if reduceMotion || hold { shown = true }
+                if reduceMotion { shown = true }
                 else { DispatchQueue.main.async { shown = true } }
             }
     }
@@ -117,9 +107,8 @@ struct Stage<Key: StageKey, Content: View>: View {
 struct Reveal: ViewModifier {
     var index = 0
     var delay = 0.0
-    var rise: CGFloat = 14
+    var rise: CGFloat = 6
     @Environment(\.stackReduceMotion) var reduceMotion
-    @Environment(\.launchHold) var hold
     @State var shown = false
 
     func body(content: Content) -> some View {
@@ -127,19 +116,18 @@ struct Reveal: ViewModifier {
             .opacity(reduceMotion || shown ? 1 : 0)
             .offset(y: reduceMotion || shown ? 0 : rise)
             .onAppear { start() }
-            .onChange(of: hold) { _, held in if !held { start() } }
     }
 
     private func start() {
-        guard !shown, !hold else { return }
+        guard !shown else { return }
         if reduceMotion { shown = true; return }
-        let wait = 0.04 + delay + Double(min(index, 8)) * Motion.stagger
+        let wait = delay + Double(min(index, 4)) * Motion.stagger
         withAnimation(Motion.revealAnimation.delay(wait)) { shown = true }
     }
 }
 
 extension View {
-    func reveal(_ index: Int = 0, delay: Double = 0, rise: CGFloat = 14) -> some View {
+    func reveal(_ index: Int = 0, delay: Double = 0, rise: CGFloat = 6) -> some View {
         modifier(Reveal(index: index, delay: delay, rise: rise))
     }
 }
@@ -156,11 +144,10 @@ struct TapStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed && !reduceMotion ? pressedScale : 1)
             .opacity(isEnabled ? 1 : dim)
             .animation(
-                configuration.isPressed ? .easeOut(duration: Motion.press) : Motion.release,
+                reduceMotion ? nil : (configuration.isPressed ? .easeOut(duration: Motion.press) : Motion.release),
                 value: configuration.isPressed
             )
             .animation(reduceMotion ? nil : Motion.fadeAnimation, value: isEnabled)
-            .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.5), trigger: configuration.isPressed) { _, pressed in pressed }
     }
 }
 

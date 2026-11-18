@@ -43,7 +43,7 @@ struct ScreenFlowUITestScene: View {
             screen
         }
         .environment(store)
-        .tint(Palette.dark)
+        .tint(Brand.accent)
         .environment(\.stackMotionPolicy, ProcessInfo.processInfo.arguments.contains("--reduced-card-motion") ? .reduced : .system)
         .transaction { if ProcessInfo.processInfo.arguments.contains("--disable-draft-animations") { $0.animation = nil; $0.disablesAnimations = true } }
     }

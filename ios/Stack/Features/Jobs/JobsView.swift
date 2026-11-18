@@ -6,6 +6,7 @@ struct JobsView: View {
     @Environment(AppStore.self) private var store
     @Environment(\.stackReduceMotion) var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     var onProfile: () -> Void
 
     @State private var feed = JobDeckFeed()
@@ -50,19 +51,32 @@ struct JobsView: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .topTrailing) {
-                content.frame(width: geometry.size.width, height: geometry.size.height)
-                if feed.loaded && !deck.isEmpty {
-                    requirementsButton.padding(14).zIndex(1)
-                }
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                ScreenHeader(title: "Jobs", onProfile: onProfile)
+                requirementsButton
             }
-            .onAppear { cardWidth = geometry.size.width }
-            .onChange(of: geometry.size.width) { _, width in cardWidth = width }
+            .padding(.horizontal, Spacing.page)
+            .padding(.top, 8)
+            GeometryReader { geometry in
+                content
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                    .onAppear { cardWidth = geometry.size.width }
+                    .onChange(of: geometry.size.width) { _, width in cardWidth = width }
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 6)
+            .clipped()
+            if feed.loaded, let job = deck.first {
+                HStack(spacing: 10) {
+                    decisionButton("Pass", symbol: "xmark", save: false, job: job)
+                    decisionButton("Save", symbol: "bookmark", save: true, job: job)
+                }
+                .padding(.horizontal, Spacing.page)
+                .padding(.bottom, 4)
+                .disabled(leavingID != nil)
+            }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
-        .clipped()
         .background(Brand.page.ignoresSafeArea())
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if savedJob != nil || pendingDecision != nil {
@@ -163,7 +177,6 @@ struct JobsView: View {
     private var content: some View {
         if !feed.loaded || (deck.isEmpty && feed.loadError.isEmpty && !feed.nextCursor.isEmpty) {
             VStack {
-                HStack { Spacer(); requirementsButton }
                 Spacer()
                 ProgressView().tint(Brand.muted).accessibilityLabel("Loading jobs")
                 Spacer()
@@ -178,13 +191,26 @@ struct JobsView: View {
                             onDetails: { detail = job },
                             onSave: { decide(job, save: true) },
                             onPass: { decide(job, save: false) })
-                        .safeAreaInset(edge: .bottom, spacing: 0) {
+                        .overlay(alignment: .topTrailing) {
                             if offset == 0 {
-                                feedback.padding(.bottom, 8).background(.white)
+                                Button { detail = job } label: {
+                                    Image(systemName: "info.circle").font(.title3.weight(.medium))
+                                        .foregroundStyle(Brand.ink)
+                                        .frame(width: 44, height: 44)
+                                        .background(Palette.surface, in: Circle())
+                                }
+                                .buttonStyle(.tap(scale: 0.96))
+                                .accessibilityLabel("Job details")
+                                .padding(10)
                             }
                         }
-                        .background(.white, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-                        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+                        .safeAreaInset(edge: .bottom, spacing: 0) {
+                            if offset == 0 {
+                                feedback.padding(.bottom, 8).background(Palette.surface)
+                            }
+                        }
+                        .background(Palette.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
                         .shadow(color: .black.opacity(offset == 0 ? 0.07 : 0.025),
                                 radius: offset == 0 ? 10 + swipeProgress * 6 : 3, y: 3)
                         .scaleEffect(offset == 0 ? 1 - swipeProgress * 0.012
@@ -201,7 +227,6 @@ struct JobsView: View {
         } else {
             ScrollView {
                 VStack(spacing: 14) {
-                    HStack { Spacer(); requirementsButton }
                     feedback
                     EmptyNote(icon: "sparkles", title: emptyTitle, message: emptyMessage)
                     if !feed.loadError.isEmpty {
@@ -223,17 +248,28 @@ struct JobsView: View {
         }
     }
 
+    private func decisionButton(_ title: String, symbol: String, save: Bool, job: Job) -> some View {
+        Button { decide(job, save: save) } label: {
+            Label(title, systemImage: symbol)
+                .font(.headline)
+                .frame(maxWidth: .infinity, minHeight: 46)
+                .foregroundStyle(save ? .white : Brand.ink)
+                .background(save ? Palette.button : Palette.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.tap(scale: 0.97))
+        .accessibilityLabel(title)
+        .accessibilityHint(save ? "Adds this job to Applications" : "Shows the next job")
+    }
+
     private var requirementsButton: some View {
         Button { sheet = .filters } label: {
             Image(systemName: "slider.horizontal.3")
-                .font(.system(size: 20, weight: .semibold)).foregroundStyle(Brand.ink)
-                .frame(width: 48, height: 48)
-                .background(.white, in: Circle())
-                .contentShape(Rectangle())
-                .overlay(Circle().stroke(Brand.rule.opacity(0.6), lineWidth: 0.5))
-                .shadow(color: .black.opacity(0.12), radius: 10, y: 3)
+                .font(.body.weight(.semibold)).foregroundStyle(Brand.ink)
+                .frame(width: 44, height: 44)
+                .background(Palette.surface, in: Circle())
+                .overlay(Circle().stroke(Brand.rule, lineWidth: 0.5))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.tap(scale: 0.96))
         .disabled(leavingID != nil)
         .accessibilityLabel("Requirements and job tools")
         .accessibilityIdentifier("job-requirements")
@@ -241,46 +277,51 @@ struct JobsView: View {
 
     /// Outside the moving deck: the next card stays swipeable while this offers help for the saved job.
     private var decisionBanner: some View {
-        HStack(spacing: 10) {
-            Image(systemName: savedJob == nil ? "arrow.left.circle" : "checkmark.circle.fill")
-                .font(.system(size: 25, weight: .medium))
-                .foregroundStyle(savedJob == nil ? Brand.muted : Brand.accent)
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(savedJob == nil ? "Job passed" : "Job saved")
-                    .font(.system(.subheadline, weight: .semibold)).foregroundStyle(Brand.ink)
-                Text(savedJob == nil ? "Keep exploring" : "Ready to tailor when you are")
-                    .font(.system(.caption)).foregroundStyle(Brand.muted)
-                    .lineLimit(2)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            if let job = savedJob {
-                Button { openTailor(for: job) } label: {
-                    HStack(spacing: 5) {
-                        if preparingTailor { ProgressView().controlSize(.small) }
-                        Text(preparingTailor ? "Opening…" : "Tailor")
-                        if !preparingTailor { Image(systemName: "arrow.right") }
+        let jobTitle = savedJob?.title ?? pendingDecision?.job.title ?? ""
+        let status = savedJob == nil ? "Passed" : "Saved"
+        let summary = jobTitle.isBlank ? "\(status) job" : "\(status) \(jobTitle)"
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(spacing: 10))
+        return layout {
+            Label(summary,
+                  systemImage: savedJob == nil ? "arrow.left.circle" : "checkmark.circle.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Brand.ink)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(summary)
+                .accessibilityIdentifier("job-decision")
+            HStack(spacing: 10) {
+                if let job = savedJob {
+                    Button { openTailor(for: job) } label: {
+                        HStack(spacing: 5) {
+                            if preparingTailor { ProgressView().controlSize(.small) }
+                            Text(preparingTailor ? "Opening…" : "Tailor")
+                            if !preparingTailor { Image(systemName: "arrow.right") }
+                        }
+                        .font(.system(.subheadline, weight: .semibold))
+                        .foregroundStyle(Brand.accent)
+                        .padding(.horizontal, 13).frame(minHeight: 44)
+                        .background(Brand.accent.opacity(0.12), in: Capsule())
                     }
-                    .font(.system(.subheadline, weight: .semibold))
-                    .foregroundStyle(Brand.accent)
-                    .padding(.horizontal, 13).frame(minHeight: 44)
-                    .background(Brand.accent.opacity(0.12), in: Capsule())
-                }
-                .buttonStyle(.tap(scale: 0.96))
-                .disabled(preparingTailor || leavingID != nil)
-                .accessibilityLabel("Tailor resume for \(job.title) at \(job.company)")
-                .accessibilityIdentifier("saved-job-tailor")
-            }
-            if pendingDecision != nil {
-                Button("Undo") { undoDecision() }
-                    .font(.system(.subheadline, weight: .medium)).foregroundStyle(Brand.muted)
-                    .frame(minWidth: 44, minHeight: 44)
                     .buttonStyle(.tap(scale: 0.96))
-                    .transition(.opacity)
+                    .disabled(preparingTailor || leavingID != nil)
+                    .accessibilityLabel("Tailor resume for \(job.title) at \(job.company)")
+                    .accessibilityIdentifier("saved-job-tailor")
+                }
+                if pendingDecision != nil {
+                    Button("Undo") { undoDecision() }
+                        .font(.system(.subheadline, weight: .medium)).foregroundStyle(Brand.muted)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .buttonStyle(.tap(scale: 0.96))
+                        .transition(.opacity)
+                }
             }
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
-        .background(.white)
+        .background(Palette.surface)
         .overlay(alignment: .top) { Brand.rule.frame(height: 0.5) }
         .animation(reduceMotion ? nil : Motion.fadeAnimation, value: pendingDecision != nil)
         .accessibilityElement(children: .contain)
@@ -590,56 +631,47 @@ struct JobDetailView: View {
     @State private var loadError = ""
     @State private var loading = true
     private var displayed: Job { fullJob ?? job }
-    @Environment(\.dismiss) private var dismiss
     @State private var listing: JobListing?
 
     var body: some View {
         let raw = displayed.raw
         let match = raw["match"]
-        ZStack {
-            Palette.page.ignoresSafeArea()
-            Page {
-                HStack {
-                    BackButton(label: "Close") { dismiss() }
-                    Spacer()
+        SheetPage(title: "Job details") {
+            JobHeading(job: displayed)
+            if !displayed.posted.isEmpty { Text(displayed.posted).font(Typeface.caption).foregroundStyle(Palette.muted) }
+            if loading { ProgressView().tint(Palette.muted) }
+            MessageLine(text: loadError).fadeSwitch(!loadError.isEmpty)
+            if !loadError.isEmpty {
+                StackButton(label: "Retry details", icon: "refresh") { Task { await loadDetails() } }
+            }
+            if let next = JobListing(job: displayed) {
+                StackButton(label: "Open application page", icon: "link") { listing = next }.reveal(2)
+            } else if !displayed.url.isBlank {
+                Text("This listing's link can't be opened safely in the app.")
+                    .font(Typeface.caption).foregroundStyle(Palette.muted)
+            }
+            if !match.object.isEmpty { matchSection(match) }
+            if !match["confirm"].strings.isEmpty { confirmSection(match["confirm"].strings) }
+            if !raw["timeline"].object.isEmpty {
+                DisclosureSection(raw["timeline"]["label"].string.isEmpty ? "Timeline" : raw["timeline"]["label"].string) {
+                    timelineSection(raw["timeline"])
                 }
-                Text(displayed.title).font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink).reveal(0)
-                Text("\(displayed.company) · \(displayed.location)").font(Typeface.body).foregroundStyle(Palette.muted).reveal(1)
-                if !displayed.posted.isEmpty { Text(displayed.posted).font(Typeface.caption).foregroundStyle(Palette.muted) }
-                if loading { ProgressView().tint(Palette.muted) }
-                MessageLine(text: loadError).fadeSwitch(!loadError.isEmpty)
-                if !loadError.isEmpty {
-                    StackButton(label: "Retry details", icon: "refresh") { Task { await loadDetails() } }
-                }
-                if let next = JobListing(job: displayed) {
-                    StackButton(label: "Open application page", icon: "link", kind: .dark) { listing = next }.reveal(2)
-                } else if !displayed.url.isBlank {
-                    Text("This listing's link can't be opened safely in the app.")
-                        .font(Typeface.caption).foregroundStyle(Palette.muted)
-                }
-                if !match.object.isEmpty { matchSection(match) }
-                if !match["confirm"].strings.isEmpty { confirmSection(match["confirm"].strings) }
-                if !raw["timeline"].object.isEmpty {
-                    DisclosureSection(raw["timeline"]["label"].string.isEmpty ? "Timeline" : raw["timeline"]["label"].string) {
-                        timelineSection(raw["timeline"])
-                    }
-                }
-                if !displayed.requirements.isEmpty {
-                    DisclosureSection("What they look for") {
-                        VStack(alignment: .leading, spacing: 10) {
-                            ForEach(displayed.requirements, id: \.self) { item in
-                                HStack(alignment: .top, spacing: 10) {
-                                    GlyphView(name: "check", size: 14, color: Palette.muted).padding(.top, 5)
-                                    Text(item).font(Typeface.body).foregroundStyle(Palette.text)
-                                }
+            }
+            if !displayed.requirements.isEmpty {
+                DisclosureSection("What they look for") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(displayed.requirements, id: \.self) { item in
+                            HStack(alignment: .top, spacing: 10) {
+                                GlyphView(name: "check", size: 14, color: Palette.muted).padding(.top, 5)
+                                Text(item).font(Typeface.body).foregroundStyle(Palette.text)
                             }
                         }
                     }
                 }
-                fitSection
-                descriptionSection(raw)
-                attribution(raw)
             }
+            fitSection
+            descriptionSection(raw)
+            attribution(raw)
         }
         .task(id: job.id) { await loadDetails() }
         .jobListingBrowser(item: $listing)

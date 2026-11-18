@@ -23,7 +23,6 @@ struct ProcessingStatusView: View {
                     Text("Saved. You can close Stack and reopen later.")
                         .font(Typeface.caption).foregroundStyle(Palette.muted)
                 }
-                if !timings.isEmpty { Text(timings).font(Typeface.caption).foregroundStyle(Palette.muted) }
                 if !processing["error"].string.isEmpty {
                     Text(processing["error"].string).font(Typeface.caption).foregroundStyle(Palette.danger)
                 }
@@ -55,15 +54,6 @@ struct ProcessingStatusView: View {
         case "failed": return "Processing failed"
         default: return status
         }
-    }
-
-    private var timings: String {
-        let values = processing["timings"]
-        let parts: [(String, String)] = [("transfer_ms", "Upload"), ("queue_ms", "Queue"), ("parse_ms", "Parse"), ("compile_ms", "Compile")]
-        return parts.compactMap { key, name in
-            let value = values[key].double
-            return value > 0 ? "\(name) \(String(format: "%.2f", value / 1000))s" : nil
-        }.joined(separator: " · ")
     }
 }
 
@@ -105,6 +95,41 @@ struct ResumeTemplate: Identifiable, Hashable {
     ]
 }
 
+/// Both format entry points use the same options and real template IDs.
+struct ResumeDesignMenu: View {
+    let selectedKey: String
+    let choose: (String) -> Void
+
+    var body: some View {
+        Menu {
+            ForEach(ResumeTemplate.all) { template in
+                Button {
+                    choose(template.key)
+                } label: {
+                    if template.key == selectedKey {
+                        Label(template.label, systemImage: "checkmark")
+                    } else {
+                        Text(template.label)
+                    }
+                }
+                .accessibilityAddTraits(template.key == selectedKey ? .isSelected : [])
+                .accessibilityIdentifier("resume-template-\(template.key)")
+            }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "doc.text").foregroundStyle(Brand.accent)
+                Text(ResumeTemplate.all.first { $0.key == selectedKey }?.label ?? "Choose a template")
+                    .font(.headline).foregroundStyle(Palette.ink)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.up.chevron.down").font(.caption).foregroundStyle(Palette.muted)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .frame(minHeight: 48)
+            .background(Palette.field, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+    }
+}
+
 /// Chooses a design for one resume (`use_resume_template`) and previews it (`read_resume_source`). The server fills
 /// the design from the resume's confirmed details and refuses unconfirmed details with a message saying so.
 @MainActor
@@ -125,15 +150,9 @@ struct ResumeTemplatePicker: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             ProcessingStatusView(resumeID: resume.id, kind: ResumeLane.source, processing: source)
-            FlowLayout(spacing: 8) {
-                ForEach(ResumeTemplate.all) { template in
-                    Chip(label: template.label,
-                         selected: ["builtin", "records"].contains(kind) && format["template"].string == template.key) {
-                        choose(template.key)
-                    }
-                    .accessibilityIdentifier("resume-template-\(template.key)")
-                }
-            }
+            ResumeDesignMenu(selectedKey: ["builtin", "records"].contains(kind) ? format["template"].string : "",
+                             choose: choose)
+                .disabled(working)
             Chip(label: working ? "Working…" : "Preview design") { Task { await open() } }
                 .disabled(working || building)
                 .accessibilityIdentifier("resume-template-preview")

@@ -21,7 +21,7 @@ struct ResumeAgentsSection: View {
     @State private var profileMessage = ""
     @State private var working = false
     @State private var error = ""
-    @State private var pdf: PDFDocument?
+    @State private var pdf: Data?
     @State private var startedTask = ""
     @State private var importing = false
     @State private var uploader = ResumeUploader()
@@ -44,20 +44,11 @@ struct ResumeAgentsSection: View {
                         Spacer()
                         if store.account.feature("profile") != nil {
                             Menu { Button("Profile suggestions") { showProfile = true } } label: {
-                                Image(systemName: "ellipsis").foregroundStyle(Brand.ink).frame(width: 44, height: 44).background(.white, in: Circle())
+                                Image(systemName: "ellipsis").foregroundStyle(Brand.ink).frame(width: 44, height: 44).background(Palette.backChip, in: Circle())
                             }.accessibilityLabel("More options")
                         }
-                    }.padding(.bottom, 32)
-                    Text("Tailor your resume").font(Typeface.display).tracking(-1.8).foregroundStyle(Brand.ink).reveal(0)
-                    if let pdf {
-                        PDFKitView(data: pdf.dataRepresentation() ?? Data())
-                            .frame(height: 260).frame(maxWidth: .infinity)
-                            .clipShape(RoundedRectangle(cornerRadius: 4)).padding(.vertical, 28)
-                            .allowsHitTesting(false).accessibilityLabel("Resume preview")
-                    } else {
-                        Image(systemName: "doc.text").font(.system(size: 56, weight: .light)).foregroundStyle(Brand.muted)
-                            .frame(maxWidth: .infinity).frame(height: 210).accessibilityHidden(true)
-                    }
+                    }.padding(.bottom, 16)
+                    Text("Tailor your resume").font(Typeface.display).tracking(-1.8).foregroundStyle(Brand.ink).padding(.bottom, 16)
                     if store.account.resumes.isEmpty {
                         StackButton(label: uploader.isBusy ? uploader.progress : "Upload a resume", disabled: uploader.isBusy) {
                             if uploader.begin() { uploadGeneration = store.sessionGeneration; importing = true }
@@ -72,14 +63,27 @@ struct ResumeAgentsSection: View {
                             }
                         }
                     } else {
-                        row(label: resume?.name ?? "Choose a resume", action: { showResumes = true })
+                        row(title: "Resume", label: resume?.name ?? "Choose a resume", action: { showResumes = true })
                     }
-                    row(label: job.map { "\($0.job.title) · \($0.job.company)" } ?? "Choose a saved job", action: { showJobs = true })
+                    row(title: "Saved job", label: job.map { "\($0.job.title) · \($0.job.company)" } ?? "Choose a saved job", action: { showJobs = true })
+                    if applications.isEmpty {
+                        Button("Browse jobs") { onNavigate("jobs") }
+                            .font(.subheadline.weight(.semibold)).foregroundStyle(Brand.accent)
+                            .frame(minHeight: 44)
+                    }
                     if let job {
                         if let score = scores[job.id] { JobScoreCardView(result: score["job_score"]) }
                         Button("Check job fit") { Task { await score(job) } }
                             .font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
                             .frame(minHeight: 44).disabled(working || resume == nil)
+                    }
+                    if let pdf {
+                        DisclosureSection("Resume preview") {
+                            PDFKitView(data: pdf).id(resumeID)
+                                .frame(height: 260).frame(maxWidth: .infinity)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .accessibilityLabel("Resume preview")
+                        }
                     }
                     MessageLine(text: error).fadeSwitch(!error.isEmpty)
                 }.padding(.horizontal, Spacing.page).padding(.top, 12).padding(.bottom, 24)
@@ -111,7 +115,7 @@ struct ResumeAgentsSection: View {
             SheetPage(title: "Choose a job") {
                 if applications.isEmpty { Text("Save a job first.").foregroundStyle(Brand.muted) }
                 ForEach(applications) { item in
-                    ListRow(label: item.job.title, icon: "briefcase", detail: item.job.company) { jobID = item.id; showJobs = false }
+                    ListRow(label: item.job.title, icon: "applications", detail: item.job.company) { jobID = item.id; showJobs = false }
                 }
             }
         }
@@ -160,10 +164,13 @@ struct ResumeAgentsSection: View {
         .id(startedTask)
     }
 
-    private func row(label: String, action: @escaping () -> Void) -> some View {
+    private func row(title: String, label: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack {
-                Text(label).font(Typeface.section).foregroundStyle(Brand.ink).multilineTextAlignment(.leading)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).font(Typeface.caption).foregroundStyle(Brand.muted)
+                    Text(label).font(.headline).foregroundStyle(Brand.ink).multilineTextAlignment(.leading)
+                }
                 Spacer()
                 Text("Change").font(Typeface.caption.weight(.semibold)).foregroundStyle(Brand.accent)
             }.frame(minHeight: 72).contentShape(Rectangle())
@@ -177,7 +184,7 @@ struct ResumeAgentsSection: View {
         let id = resumeID
         do {
             let result = try await store.call("read_resume", ["id": .string(id)])
-            if id == resumeID, let data = Data(base64Encoded: result["content"].string) { pdf = PDFDocument(data: data) }
+            if id == resumeID, let data = Data(base64Encoded: result["content"].string), PDFDocument(data: data) != nil { pdf = data }
         } catch { }
     }
     /// One request per attempt; a failure keeps the file for Try again (see `ResumeUploader`).

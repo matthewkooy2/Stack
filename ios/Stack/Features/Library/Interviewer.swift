@@ -66,29 +66,15 @@ final class InterviewerVoice: NSObject, InterviewerClip, AVSpeechSynthesizerDele
     }
 }
 
-/// The interviewer's face: a calm avatar that pulses while speaking and breathes while listening.
+/// Keeps speaking status adjacent to the prompt, leaving room for the camera preview.
 struct InterviewerCard: View {
     let speaking: Bool
-    let listening: Bool
+    @Environment(\.stackReduceMotion) private var reduceMotion
 
     var body: some View {
-        VStack(spacing: 14) {
-            Halo(active: speaking, size: 108) {
-                ZStack {
-                    Circle().fill(Palette.dark).frame(width: 84, height: 84)
-                    Image(systemName: speaking ? "waveform" : "person.fill")
-                        .font(.system(size: 34, weight: .semibold))
-                        .foregroundStyle(Palette.onDark)
-                        .symbolEffect(.variableColor.iterative, isActive: speaking)
-                }
-            }
-            Text(speaking ? "Interviewer is asking…" : listening ? "Listening" : "Your interviewer")
-                .font(Typeface.caption).foregroundStyle(Palette.muted)
-                .breathe(listening)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(speaking ? "Interviewer is asking the question" : "Interviewer")
+        Label(speaking ? "Interviewer is speaking" : "Your interviewer", systemImage: speaking ? "waveform" : "person.fill")
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(Brand.accent)
+            .symbolEffect(.variableColor.iterative, isActive: speaking && !reduceMotion)
     }
 }

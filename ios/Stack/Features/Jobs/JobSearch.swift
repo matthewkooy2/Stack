@@ -352,6 +352,31 @@ struct JobFilterDraft: Equatable {
         datedOnly = f["has_posting_date"].bool
     }
 
+    var payAndDatesSummary: String {
+        var details: [String] = []
+        if !minimum.isBlank { details.append("$\(minimum)/\(period) minimum") }
+        if age != "Any" { details.append(age == "1" ? "Past day" : "Past \(age) days") }
+        if datedOnly { details.append("Known dates only") }
+        return details.isEmpty ? "Any pay or date" : details.joined(separator: " · ")
+    }
+
+    var matchingSummary: String {
+        var details: [String] = []
+        if occupation != "Any", !occupation.isBlank { details.append(occupation) }
+        if confirmedOnly { details.append("Confirmed matches only") }
+        details.append(Self.timelineLabel(timeline))
+        return details.joined(separator: " · ")
+    }
+
+    static func timelineLabel(_ timeline: String) -> String {
+        switch timeline {
+        case "compatible": return "Hide timeline mismatches"
+        case "confirmed": return "Confirmed timeline matches only"
+        case "all": return "All timelines"
+        default: return timeline
+        }
+    }
+
     /// Saved filters with this draft's edits applied. A key is written when it was edited or already
     /// saved, so unedited profile defaults stay defaults and unrelated saved keys (sort, ...) survive.
     func filters(over saved: JSON, from baseline: JobFilterDraft) -> JSON {
@@ -432,19 +457,20 @@ struct JobFiltersSheet: View {
             } else if pane == "location" {
                 LocationChoiceView(onSelect: { value in draft.location = value.isEmpty ? "United States" : value; go("") }, onBack: { go("") })
             } else {
-                SheetPage(title: pane.isEmpty ? "Filters" : pane, onClose: { if pane.isEmpty { dismiss() } else { go("") } }) {
+                SheetPage(title: pane.isEmpty ? title : pane, closeLabel: pane.isEmpty ? "Close" : "Back", onClose: { if pane.isEmpty { dismiss() } else { go("") } }) {
                     if pane.isEmpty {
                         Text("Adjust this search while keeping your profile defaults.")
                             .font(Typeface.caption).foregroundStyle(Brand.muted)
+                        quickPicks
                         VStack(spacing: 0) {
                             filterRow("Role", value: draft.anyRole ? "All professions" : (draft.query.isEmpty ? "Any role" : draft.query)) { go("role") }
                             filterRow("Location", value: draft.location.isEmpty ? "Anywhere in the US" : draft.location) { go("location") }
                             filterRow("Work arrangement", value: display(draft.modes, empty: "Any")) { go("Work arrangement") }
-                            filterRow("Level", value: display(draft.levels, empty: "Any")) { go("Level") }
+                            filterRow("Level", value: display(draft.levels, empty: "Any") + (draft.confirmedLevel && !draft.levels.isEmpty ? " (stated)" : "")) { go("Level") }
                             filterRow("Employment", value: display(draft.types, empty: "Any")) { go("Employment") }
-                            filterRow("Pay and dates", value: draft.minimum.isEmpty ? "Any" : "$\(draft.minimum) / \(draft.period)") { go("Pay and dates") }
-                            filterRow("Matching", value: draft.confirmedOnly ? "Confirmed matches only" : "Profile defaults") { go("Matching") }
-                            filterRow("More", value: "Timeline, sorting and search tools") { go("More") }
+                            filterRow("Pay and dates", value: draft.payAndDatesSummary) { go("Pay and dates") }
+                            filterRow("Matching", value: draft.matchingSummary) { go("Matching") }
+                            filterRow("More", value: "Search overrides, timeline and live sources") { go("More") }
                         }
                         MessageLine(text: error).fadeSwitch(!error.isEmpty)
                         StoreMessages()
@@ -463,6 +489,7 @@ struct JobFiltersSheet: View {
                             if let onReset {
                                 Button("Reset to profile", action: onReset).font(Typeface.caption.weight(.semibold))
                                     .foregroundStyle(Brand.muted).frame(maxWidth: .infinity, minHeight: 44)
+                                    .accessibilityLabel("Reset filters to profile")
                                     .disabled(immediateActionsDisabled)
                             }
                         } else {
@@ -480,14 +507,20 @@ struct JobFiltersSheet: View {
     private func display(_ values: [String], empty: String) -> String { values.isEmpty ? empty : values.joined(separator: ", ") }
     private func filterRow(_ title: String, value: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 10) {
-                Text(title).font(Typeface.option.weight(.semibold)).foregroundStyle(Brand.ink)
-                Spacer()
-                Text(value).font(Typeface.caption).foregroundStyle(Brand.muted).lineLimit(1)
-                Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(Brand.muted)
-            }.frame(minHeight: 56).contentShape(Rectangle())
-                .overlay(alignment: .bottom) { Rectangle().fill(Brand.rule).frame(height: 1) }
-        }.buttonStyle(.plain)
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title).font(.headline).foregroundStyle(Brand.ink)
+                    Text(value).font(Typeface.caption).foregroundStyle(Brand.muted)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Brand.muted)
+            }
+            .multilineTextAlignment(.leading)
+            .padding(.vertical, 10)
+            .frame(minHeight: 54)
+            .contentShape(Rectangle())
+            .overlay(alignment: .bottom) { Rectangle().fill(Brand.rule).frame(height: 0.5) }
+        }.buttonStyle(.plain).accessibilityLabel(title).accessibilityValue(value)
     }
     private func option(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -514,37 +547,42 @@ struct JobFiltersSheet: View {
             ForEach(["Full-time", "Part-time", "Contract", "Temporary", "Internship"], id: \.self) { value in
                 option(value, selected: draft.types.contains(value)) { draft.types = draft.types.toggled(value) }
             }
-        } else if pane == "Pay and dates" || pane == "Matching" {
-            more
+        } else if pane == "Pay and dates" {
+            payAndDates
+        } else if pane == "Matching" {
+            matchingOptions
+            profileRequirements
         } else {
             searchTools
-            profileRequirements
-            more
+        }
+    }
+
+    @ViewBuilder
+    private var quickPicks: some View {
+        if let onQuickChange {
+            group("Quick picks & sort") {
+                FlowLayout(spacing: 8) {
+                    Chip(label: "Entry-level software", selected: search.entryLevelActive) {
+                        let next = search.togglingEntryLevel()
+                        onQuickChange(next.query, next.filters)
+                    }
+                    Chip(label: "Internships", selected: search.internshipActive) {
+                        let next = search.togglingInternship()
+                        onQuickChange(next.query, next.filters)
+                    }
+                    Menu {
+                        Button("Best match") { let next = search.sorting(by: "relevance"); onQuickChange(next.query, next.filters) }
+                        Button("Newest first") { let next = search.sorting(by: "newest"); onQuickChange(next.query, next.filters) }
+                    } label: { Chip(label: search.sortLabel) }
+                    .accessibilityLabel("Sort: \(search.sortLabel)")
+                }
+            }
+            .disabled(immediateActionsDisabled)
         }
     }
 
     private var searchTools: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if let onQuickChange {
-                group("Quick picks & sort") {
-                    FlowLayout(spacing: 8) {
-                        Chip(label: "Entry-level software", selected: search.entryLevelActive) {
-                            let next = search.togglingEntryLevel()
-                            onQuickChange(next.query, next.filters)
-                        }
-                        Chip(label: "Internships", selected: search.internshipActive) {
-                            let next = search.togglingInternship()
-                            onQuickChange(next.query, next.filters)
-                        }
-                        Menu {
-                            Button("Best match") { let next = search.sorting(by: "relevance"); onQuickChange(next.query, next.filters) }
-                            Button("Newest first") { let next = search.sorting(by: "newest"); onQuickChange(next.query, next.filters) }
-                        } label: { Chip(label: search.sortLabel) }
-                        .accessibilityLabel("Sort: \(search.sortLabel)")
-                    }
-                }
-                .disabled(immediateActionsDisabled)
-            }
             if search.hasOverrides {
                 group("Search overrides") {
                     FlowLayout(spacing: 8) {
@@ -617,17 +655,13 @@ struct JobFiltersSheet: View {
         .background(Palette.oat, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
-    @ViewBuilder
-    private var more: some View {
+    private var matchingOptions: some View {
         VStack(alignment: .leading, spacing: 20) {
             if !search.occupations.isEmpty {
                 group("Occupation") {
                     ChoiceChips(options: ["Any"] + search.occupations, isSelected: { draft.occupation == $0 }, onTap: { draft.occupation = $0 })
                 }
             }
-            StackField(label: "Minimum advertised pay (USD)", text: $draft.minimum, keyboard: .decimalPad)
-            ChoiceChips(options: ["hour", "year"], isSelected: { draft.period == $0 }, onTap: { draft.period = $0 })
-            Text("Hourly and yearly pay are compared at 2,080 hours per year.").font(Typeface.caption).foregroundStyle(Palette.muted)
             group("Listings missing details") {
                 ChoiceChips(options: ["Show and flag them", "Confirmed matches only"],
                             isSelected: { ($0 == "Confirmed matches only") == draft.confirmedOnly },
@@ -638,8 +672,16 @@ struct JobFiltersSheet: View {
             group("Graduation timeline") {
                 ChoiceChips(options: ["compatible", "confirmed", "all"], isSelected: { draft.timeline == $0 },
                             onTap: { draft.timeline = $0 },
-                            labelFor: { ["compatible": "Hide timeline mismatches", "confirmed": "Confirmed timeline matches only", "all": "All timelines"][$0] ?? $0 })
+                            labelFor: JobFilterDraft.timelineLabel)
             }
+        }
+    }
+
+    private var payAndDates: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            StackField(label: "Minimum advertised pay (USD)", text: $draft.minimum, keyboard: .decimalPad)
+            ChoiceChips(options: ["hour", "year"], isSelected: { draft.period == $0 }, onTap: { draft.period = $0 })
+            Text("Hourly and yearly pay are compared at 2,080 hours per year.").font(Typeface.caption).foregroundStyle(Palette.muted)
             group("Posting date") {
                 ChoiceChips(options: ["Include unknown dates", "Has posting date"],
                             isSelected: { ($0 == "Has posting date") == draft.datedOnly },
@@ -708,6 +750,9 @@ struct JobSourcesSheet: View {
         SheetPage(title: "Live sources", subtitle: "US coverage. Some sources may be unavailable.") {
             if loading { ProgressView().tint(Palette.muted) }
             MessageLine(text: error).fadeSwitch(!error.isEmpty)
+            if !loading, sources.isEmpty, error.isEmpty {
+                Text("No source updates yet.").font(Typeface.body).foregroundStyle(Palette.muted)
+            }
             ForEach(Array(sources.enumerated()), id: \.offset) { index, source in
                 Card(spacing: 8) {
                     HStack {

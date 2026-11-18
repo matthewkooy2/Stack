@@ -7,6 +7,7 @@ struct ProfileView: View {
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @Environment(\.stackReduceMotion) private var reduceMotion
 
     enum Pane: Int, StageKey {
         case hub, details, matching, account
@@ -42,22 +43,15 @@ struct ProfileView: View {
     }
 
     var body: some View {
-        ZStack {
-            Palette.page.ignoresSafeArea()
-            Stage(key: section) {
-                Page {
-                    HStack {
-                        BackButton(label: section == .hub ? "Close" : "Back") {
-                            if section == .hub { dismiss() } else { go(.hub) }
-                        }
-                        Spacer()
-                    }
-                    switch section {
-                    case .hub: hub
-                    case .details: details
-                    case .matching: matching
-                    case .account: account
-                    }
+        Stage(key: section) {
+            SheetPage(title: paneTitle, closeLabel: section == .hub ? "Close" : "Back", onClose: {
+                if section == .hub { dismiss() } else { go(.hub) }
+            }) {
+                switch section {
+                case .hub: hub
+                case .details: details
+                case .matching: matching
+                case .account: account
                 }
             }
         }
@@ -84,34 +78,49 @@ struct ProfileView: View {
         }
     }
 
+    private var paneTitle: String {
+        switch section {
+        case .hub: return "Profile"
+        case .details: return "Your details"
+        case .matching: return "Job matching"
+        case .account: return "Account"
+        }
+    }
+
     private func go(_ next: Pane) {
-        withAnimation(Motion.stageAnimation) { section = next }
+        withAnimation(reduceMotion ? nil : Motion.stageAnimation) { section = next }
     }
 
     // MARK: Hub
 
     private var hub: some View {
         VStack(alignment: .leading, spacing: Spacing.stack) {
-            HStack(spacing: 16) {
-                Avatar(initials: String(store.account.name.prefix(1)).uppercased(), size: 64)
+            HStack(spacing: 12) {
+                if store.account.name.isBlank {
+                    Image(systemName: "person.crop.circle.fill").font(.largeTitle).foregroundStyle(Palette.muted)
+                        .accessibilityHidden(true)
+                } else {
+                    Avatar(initials: String(store.account.name.prefix(1)).uppercased(), size: 48)
+                }
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(store.account.name.isEmpty ? "Your profile" : store.account.name).font(Typeface.title).foregroundStyle(Palette.ink)
-                    if !store.account.role.isEmpty {
+                    Text(store.account.name.isBlank ? "Your account" : store.account.name)
+                        .font(.headline).foregroundStyle(Palette.ink)
+                    if !store.account.role.isBlank {
                         Text(store.account.role).font(Typeface.caption).foregroundStyle(Palette.muted)
                     }
                 }
             }
             .reveal(0)
-
-            VStack(spacing: 0) {
-                ListRow(label: "Your details", icon: "profile", detail: "Name, role, location, timeline") { go(.details) }.reveal(1)
-                ListRow(label: "Job matching", icon: "jobs", detail: "Level, pay, work style, exclusions") { go(.matching) }.reveal(2)
-                ListRow(label: "Agents", icon: "sparkles", detail: agentSummary) { showAgents = true }.reveal(3)
-                ListRow(label: "Follow-up reminders", icon: "bell", detail: reminderSummary) { showReminders = true }.reveal(4)
-                ListRow(label: "Memory bank", icon: "resume", detail: "Skills, projects and experience") { showBank = true }.reveal(5)
-                ListRow(label: "Account", icon: "shield", detail: "Sign-in, model, notifications") { go(.account) }.reveal(6)
+            settingsGroup("Personal information") {
+                ListRow(label: "Your details", icon: "profile", detail: "Name, role and availability") { go(.details) }
+                ListRow(label: "Job matching", icon: "jobs", detail: "Level, pay and work style") { go(.matching) }
+                ListRow(label: "Memory bank", icon: "resume", detail: "Skills, projects and experience") { showBank = true }
             }
-
+            settingsGroup("Activity and settings") {
+                ListRow(label: "Agents", icon: "sparkles", detail: agentSummary) { showAgents = true }
+                ListRow(label: "Follow-up reminders", icon: "bell", detail: reminderSummary) { showReminders = true }
+                ListRow(label: "Account", icon: "shield", detail: "Sign-in, model and notifications") { go(.account) }
+            }
             StoreMessages()
             if changed {
                 StackButton(label: "Save changes", disabled: store.busy || name.isBlank) { Task { _ = await save() } }
@@ -119,11 +128,19 @@ struct ProfileView: View {
         }
     }
 
+    private func settingsGroup<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            SectionLabel(text: title)
+            VStack(spacing: 0, content: content)
+                .padding(.horizontal, 16)
+                .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+    }
+
     // MARK: Details
 
     private var details: some View {
         VStack(alignment: .leading, spacing: Spacing.stack) {
-            Text("Your details").font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
             VStack(spacing: 18) {
                 StackField(label: "Your name", text: $name)
                 StackField(label: "Target role", text: $role, placeholder: "Separate several roles with commas")
@@ -140,7 +157,6 @@ struct ProfileView: View {
 
     private var matching: some View {
         VStack(alignment: .leading, spacing: Spacing.stack) {
-            Text("Job matching").font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
             MatchInputsView(form: $preferences)
             StoreMessages()
             saveButton
@@ -157,7 +173,6 @@ struct ProfileView: View {
 
     private var account: some View {
         VStack(alignment: .leading, spacing: Spacing.stack) {
-            Text("Account").font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
             GoogleAccountCard()
             ToggleRow(label: "Reminder notifications", isOn: $notifications)
             nudgeSection
@@ -218,7 +233,9 @@ struct ProfileView: View {
                     .frame(maxWidth: .infinity, minHeight: 44)
                     .disabled(store.busy)
             }
-            Text("Stack 0.2").font(Typeface.caption).foregroundStyle(Palette.muted).frame(maxWidth: .infinity)
+            if let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String {
+                Text("Stack \(version)").font(.footnote).foregroundStyle(Palette.muted).frame(maxWidth: .infinity)
+            }
         }
     }
 
@@ -258,7 +275,7 @@ struct ProfileView: View {
                 ToggleRow(label: "Send reminders", isOn: nudgeBinding(\.enabled))
                 if nudges.enabled {
                     Text("How often").font(.system(.subheadline).weight(.semibold)).foregroundStyle(Brand.muted)
-                    HStack(spacing: 8) {
+                    FlowLayout(spacing: 8) {
                         ForEach(NudgeSettings.frequencies, id: \.self) { hours in
                             Chip(label: "Every \(hours)h", selected: nudges.everyHours == hours) { update { $0.everyHours = hours } }
                         }

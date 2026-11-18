@@ -85,14 +85,15 @@ final class JobsDeckFlowUITests: XCTestCase {
     func testPendingUndoSurvivesOpeningAndClosingTheBrowser() {
         let app = launch()
         swipe(app, save: true)
-        XCTAssertTrue(app.staticTexts["Saved Platform Analyst"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["job-decision"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.descendants(matching: .any)["job-decision"].label, "Saved Platform Analyst")
         XCTAssertTrue(card(app, "job-bravo").waitForExistence(timeout: 5), "the next card is on top")
 
         card(app, "job-bravo").tap()
         XCTAssertEqual(listingURL(app), "https://example.invalid/jobs/bravo")
         closeListing(app)
 
-        // Presenting the browser must not force an early commit. The real Undo timer (2.4s) keeps running while
+        // Presenting the browser must not force an early commit. The real Undo timer (6s) keeps running while
         // browsing; this test's 60s window (--long-undo-window) only keeps a slow runner from expiring it, so it
         // does not show Undo surviving an arbitrarily long browse.
         let undo = app.buttons["Undo"]
@@ -128,16 +129,26 @@ final class JobsDeckFlowUITests: XCTestCase {
         XCTAssertFalse(entry.isSelected)
     }
 
-    func testCardUsesGesturesAndTapWithoutVisibleDecisionButtons() {
+    func testCardSupportsVisibleDecisionsAlongsideTapAndSwipe() {
         let app = launch()
-        XCTAssertFalse(app.buttons["Save"].exists)
-        XCTAssertFalse(app.buttons["Pass"].exists)
-        XCTAssertFalse(app.buttons["Job details"].exists)
-        card(app, "job-alpha").tap()
+        let first = card(app, "job-alpha")
+        let next = card(app, "job-bravo")
+        XCTAssertTrue(app.buttons["Save"].isHittable)
+        XCTAssertTrue(app.buttons["Pass"].isHittable)
+        app.buttons["Job details"].tap()
+        XCTAssertTrue(app.buttons["Open application page"].waitForExistence(timeout: 5))
+        app.buttons["Close"].tap()
+        first.tap()
         XCTAssertEqual(listingURL(app), "https://example.invalid/jobs/alpha")
         closeListing(app)
+        for action in ["Save", "Pass"] {
+            app.buttons[action].tap()
+            XCTAssertTrue(next.waitForExistence(timeout: 5))
+            app.buttons["Undo"].tap()
+            XCTAssertTrue(first.waitForExistence(timeout: 5))
+        }
         swipe(app, save: true)
-        XCTAssertTrue(card(app, "job-bravo").waitForExistence(timeout: 5))
+        XCTAssertTrue(next.waitForExistence(timeout: 5))
     }
 
     func testReferenceCardFillsTheSpaceAboveNavigationAndHandlesLongAndInvalidMedia() {
@@ -148,7 +159,13 @@ final class JobsDeckFlowUITests: XCTestCase {
         XCTAssertTrue(first.waitForExistence(timeout: 10))
         let jobsTab = app.buttons["Jobs"]
         XCTAssertTrue(jobsTab.exists)
-        XCTAssertLessThan(abs(first.frame.maxY - jobsTab.frame.minY), 24)
+        let save = app.buttons["Save"]
+        let pass = app.buttons["Pass"]
+        XCTAssertTrue(save.isHittable && pass.isHittable)
+        XCTAssertLessThan(abs(first.frame.maxY - save.frame.minY), 32)
+        XCTAssertLessThan(abs(save.frame.maxY - jobsTab.frame.minY), 24)
+        XCTAssertGreaterThanOrEqual(save.frame.height, 44)
+        XCTAssertGreaterThanOrEqual(pass.frame.height, 44)
         XCTAssertGreaterThan(first.frame.width, app.frame.width - 24)
         XCTAssertTrue(app.buttons["job-requirements"].isHittable)
         capture("jobs-photo-reference")
@@ -169,6 +186,7 @@ final class JobsDeckFlowUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(first.waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["job-requirements"].isHittable)
+        XCTAssertTrue(pass.isHittable && save.isHittable)
         first.swipeRight()
         XCTAssertTrue(card(app, "job-bravo").waitForExistence(timeout: 5))
         capture("jobs-accessibility-reduced-motion")
@@ -203,19 +221,19 @@ final class JobsDeckFlowUITests: XCTestCase {
 
         first.swipeRight()
         XCTAssertTrue(card(app, "job-bravo").waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Saved Platform Analyst"].exists)
+        XCTAssertEqual(app.descendants(matching: .any)["job-decision"].label, "Saved Platform Analyst")
         app.buttons["Undo"].tap()
         XCTAssertTrue(first.waitForExistence(timeout: 5))
         first.swipeLeft()
         XCTAssertTrue(card(app, "job-bravo").waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["Passed Platform Analyst"].exists)
+        XCTAssertEqual(app.descendants(matching: .any)["job-decision"].label, "Passed Platform Analyst")
         XCTAssertFalse(app.staticTexts["stub-browser-url"].exists)
     }
 
-    func testRequirementsAreInsideTheCardAndOpeningThemDoesNotOpenAListing() {
+    func testHeaderRequirementsControlOpensFiltersWithoutOpeningAListing() {
         let app = launch()
         XCTAssertTrue(app.buttons["Jobs"].exists, "the existing bottom navigation is retained")
-        XCTAssertFalse(app.buttons["Entry-level software"].exists, "quick picks live behind the card control")
+        XCTAssertFalse(app.buttons["Entry-level software"].exists, "quick picks live behind the header control")
         let requirements = app.buttons["job-requirements"]
         XCTAssertTrue(requirements.isEnabled)
         XCTAssertTrue(requirements.isHittable)

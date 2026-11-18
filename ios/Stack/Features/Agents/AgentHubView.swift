@@ -65,10 +65,7 @@ struct AgentHubView: View {
                 TaskDetailView(id: taskID, webURL: settings["web_url"].string, onBack: { taskID = "" }, onNavigate: go)
                     .id(taskID)
             } else {
-                Page {
-                    HStack { BackButton(label: "Close") { dismiss() }; Spacer() }
-                    hub
-                }
+                SheetPage(title: "Agents") { hub }
             }
         }
         .task {
@@ -96,25 +93,33 @@ struct AgentHubView: View {
     // MARK: Pages
 
     private var hub: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Your agents.").font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
-                Text("\(store.account.activeRunCount) in progress · \(store.account.attentionRunCount) need you. Updates every few seconds.")
-                    .font(Typeface.body).foregroundStyle(Palette.muted)
-            }
-            .reveal(0)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
+        let pending = attention.count + unresolved.count
+        return VStack(alignment: .leading, spacing: 16) {
+            Menu {
+                Picker("Agent section", selection: $page) {
                     ForEach(AgentPage.allCases) { item in
-                        let count = attention.count + unresolved.count
-                        Chip(label: item.rawValue + (item == .needsYou && count > 0 ? " (\(count))" : ""), selected: page == item) {
-                            withAnimation(Motion.fadeAnimation) { page = item }
-                            error = ""
-                            notice = ""
-                        }
+                        Text(item == .needsYou && pending > 0 ? "\(item.rawValue) (\(pending))" : item.rawValue).tag(item)
                     }
                 }
+            } label: {
+                HStack(spacing: 10) {
+                    Text(page.rawValue).font(Typeface.section).foregroundStyle(Palette.ink)
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.caption.weight(.semibold)).foregroundStyle(Brand.accent)
+                    Spacer()
+                    if page == .needsYou {
+                        Text("\(pending)")
+                            .monospacedDigit().foregroundStyle(Palette.muted)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .frame(minHeight: 52)
+                .background(Palette.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
+            .accessibilityLabel("Agent section, \(page.rawValue)")
+            .accessibilityValue(pending == 1 ? "1 item needs you" : "\(pending) items need you")
+            .accessibilityHint("Choose Needs you, Activity, Features, Email and calendar, or Facts")
+            .onChange(of: page) { _, _ in error = ""; notice = "" }
             MessageLine(text: error).fadeSwitch(!error.isEmpty)
             MessageLine(text: notice, isError: false).fadeSwitch(!notice.isEmpty)
             switch page {

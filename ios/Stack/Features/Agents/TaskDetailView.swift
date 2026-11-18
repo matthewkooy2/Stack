@@ -61,13 +61,12 @@ struct TaskDetailView: View {
 
     private var taskContent: some View {
         VStack(alignment: .leading, spacing: 16) {
-            StackButton(label: "Back to tasks", icon: "return", kind: .secondary, action: onBack)
-            if run.object.isEmpty, error.isEmpty { Text("Loading task…").font(Typeface.body).foregroundStyle(Palette.muted) }
+            BackButton(label: "Back to tasks", action: onBack)
+            if run.object.isEmpty, error.isEmpty { ProgressView("Loading task…").tint(Brand.accent) }
             MessageLine(text: error).fadeSwitch(!error.isEmpty)
             MessageLine(text: notice, isError: false).fadeSwitch(!notice.isEmpty)
             if !run.object.isEmpty {
                 header
-                happening
                 if status == "review" { reviewBox }
                 if run["needs_resume_review"].bool {
                     TailorBlocker(run: run, onNavigate: onNavigate) { next in
@@ -91,6 +90,7 @@ struct TaskDetailView: View {
                         Chip(label: "Open Tailored resumes") { onNavigate("resume") }
                     }
                 }
+                happening
                 results
                 ForEach(Array(run["feedback"].array.enumerated()), id: \.offset) { _, item in
                     VStack(alignment: .leading, spacing: 4) {
@@ -107,11 +107,9 @@ struct TaskDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top) {
-                Text(run["title"].string).font(Typeface.title).foregroundStyle(Palette.ink)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                StatusPill(label: AgentLabels.runLabel(run), tone: AgentLabels.tone(for: status))
-            }
+            StatusPill(label: AgentLabels.runLabel(run), tone: AgentLabels.tone(for: status))
+            Text(run["title"].string).font(Typeface.title).foregroundStyle(Palette.ink)
+                .accessibilityAddTraits(.isHeader)
             if !run["context_label"].string.isEmpty {
                 Text(run["context_label"].string).font(Typeface.body).foregroundStyle(Palette.text)
             }
@@ -134,11 +132,22 @@ struct TaskDetailView: View {
             }
             if run["step_total"].int > 1 {
                 let current = run["step_number"].int
-                ForEach(Array(run["steps"].strings.enumerated()), id: \.offset) { index, label in
-                    let done = index < current - 1 || status == "completed"
-                    Text("\(done ? "✓" : (index == current - 1 ? "●" : "○")) \(label)")
-                        .font(Typeface.caption.weight(index == current - 1 ? .bold : .regular))
-                        .foregroundStyle(index == current - 1 ? Palette.ink : Palette.muted)
+                let total = run["step_total"].int
+                ProgressView(value: Double(status == "completed" ? total : min(max(current - 1, 0), total)),
+                             total: Double(total))
+                    .tint(Brand.accent)
+                    .accessibilityLabel("Task progress")
+                if !run["steps"].strings.isEmpty {
+                    DisclosureSection("All steps") {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(Array(run["steps"].strings.enumerated()), id: \.offset) { index, label in
+                                let done = index < current - 1 || status == "completed"
+                                Label(label, systemImage: done ? "checkmark.circle" : "circle")
+                                    .font(Typeface.caption.weight(index == current - 1 ? .semibold : .regular))
+                                    .foregroundStyle(index == current - 1 ? Brand.accent : Palette.muted)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -638,14 +647,14 @@ struct TailoredResultView: View {
             if legacy {
                 Text("Your uploaded resume is unchanged.").font(Typeface.caption).foregroundStyle(Palette.muted)
             } else {
-                Text("\(pdf["pages"].int) \(pdf["pages"].int == 1 ? "page" : "pages") · \(value["format"].string == "latex" ? "your LaTeX format" : "built-in LaTeX template") · your original is unchanged")
+                Text("\(pdf["pages"].int) \(pdf["pages"].int == 1 ? "page" : "pages") · \(value["format"].string == "latex" ? "your uploaded design" : "built-in template") · your original is unchanged")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             if !value["summary"].string.isEmpty { Text(value["summary"].string).font(Typeface.body).foregroundStyle(Palette.text) }
             if !value["score"]["after"].isNull {
                 ScoreCardView(after: value["score"]["after"], before: value["score"]["before"], title: "Score for this job")
             }
-            ChoiceChips(options: ["Changes", "Original text", "Tailored text"] + (value["tex"].string.isEmpty ? [] : ["LaTeX"]),
+            ChoiceChips(options: ["Changes", "Original text", "Tailored text"] + (value["tex"].string.isEmpty ? [] : ["Source file"]),
                         isSelected: { comparison == $0 }, onTap: { comparison = $0 })
             switch comparison {
             case "Changes":

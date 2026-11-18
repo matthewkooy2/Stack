@@ -56,9 +56,23 @@ struct JobCardCopy {
     var tags: String { job.tags.filter { !$0.isBlank }.prefix(4).joined(separator: " · ") }
 
     var accessibilityLabel: String {
-        [job.company, job.posted, job.title, location, showsPayHeadline ? pay : "", payPeriod, payExcerpt, tags, roleExcerpt]
+        [job.company, job.posted, job.title.isBlank ? "Untitled role" : job.title, location, showsPayHeadline ? pay : "", payPeriod, payExcerpt, tags, roleExcerpt]
             .filter { !$0.isBlank }.joined(separator: ". ")
             + (requirements.isEmpty ? "" : ". " + requirements.joined(separator: ". "))
+    }
+}
+
+/// A long title stays fully readable in the scrolling body of either job detail sheet.
+struct JobHeading: View {
+    let job: Job
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(job.title.isBlank ? "Untitled role" : job.title)
+                .font(Typeface.title).foregroundStyle(Palette.ink).accessibilityAddTraits(.isHeader)
+            let metadata = [job.company, job.location].filter { !$0.isBlank }.joined(separator: " · ")
+            if !metadata.isEmpty { Text(metadata).font(Typeface.body).foregroundStyle(Palette.muted) }
+        }
     }
 }
 
@@ -85,7 +99,6 @@ struct JobCard: View {
     var onPass: (() -> Void)?
     var accessibilityID: String?
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @ScaledMetric(relativeTo: .largeTitle) private var titleSize: CGFloat = 36
 
     private var copy: JobCardCopy { JobCardCopy(job: job) }
 
@@ -94,24 +107,25 @@ struct JobCard: View {
             VStack(spacing: 0) {
                 photo
                     .frame(width: geometry.size.width,
-                           height: dynamicTypeSize.isAccessibilitySize ? min(112, geometry.size.width / 2.5) : geometry.size.width / 2.5)
+                           height: min(geometry.size.width * 0.36, geometry.size.height * (dynamicTypeSize.isAccessibilitySize ? 0.16 : 0.26)))
                     .clipped()
                     .allowsHitTesting(false)
                     .accessibilityHidden(true)
                 ScrollView(.vertical) {
                     VStack(alignment: .leading, spacing: 0) {
-                        company.padding(.bottom, 22)
+                        company.padding(.bottom, 12)
                         Text(job.title.isBlank ? "Untitled role" : job.title)
-                            .font(.system(size: titleSize, weight: .heavy)).tracking(-1.5)
+                            .font(.title.weight(.bold)).tracking(-0.6)
+                            .accessibilityAddTraits(.isHeader)
                             .foregroundStyle(Brand.ink)
                             .fixedSize(horizontal: false, vertical: true)
-                            .padding(.bottom, 18)
-                        Text(copy.location)
-                            .font(.body).foregroundStyle(Brand.muted)
+                            .padding(.bottom, 10)
+                        Label(copy.location, systemImage: "mappin")
+                            .font(.subheadline).foregroundStyle(Brand.muted)
                             .fixedSize(horizontal: false, vertical: true)
                         if !employment.isEmpty {
-                            Text(employment).font(.body).foregroundStyle(Brand.muted)
-                                .padding(.top, 4)
+                            Label(employment, systemImage: "briefcase").font(.subheadline).foregroundStyle(Brand.muted)
+                                .padding(.top, 6)
                         }
                         if copy.showsPayHeadline {
                             Text([copy.pay, copy.payPeriod].filter { !$0.isEmpty }.joined(separator: " "))
@@ -126,7 +140,7 @@ struct JobCard: View {
                                 .padding(.top, 12)
                         }
                         if !copy.roleExcerpt.isEmpty || !copy.requirements.isEmpty {
-                            Rectangle().fill(Brand.rule).frame(height: 1).padding(.vertical, 24)
+                            Divider().padding(.vertical, 16)
                             if !copy.roleExcerpt.isEmpty {
                                 Text(copy.roleExcerpt).font(.body).foregroundStyle(Brand.ink)
                                     .fixedSize(horizontal: false, vertical: true)
@@ -141,7 +155,7 @@ struct JobCard: View {
                             }
                         }
                     }
-                    .padding(24)
+                    .padding(20)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
                     .contentShape(Rectangle())
                 }
@@ -160,12 +174,12 @@ struct JobCard: View {
                 .accessibilityHidden(!isActive)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(.white)
+            .background(Palette.surface)
             .contentShape(Rectangle())
             .onTapGesture { onOpen?() }
 
         }
-        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private var employment: String {
@@ -199,11 +213,16 @@ struct JobCard: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity).background(Brand.page)
                 }
             }
-            .frame(width: 44, height: 44)
+            .frame(width: 36, height: 36)
+            .background(Palette.surfaceRaised, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             Text(job.company.isBlank ? "Company not listed" : job.company)
-                .font(.system(size: 22, weight: .semibold)).tracking(-0.5)
+                .font(.headline)
                 .foregroundStyle(Brand.ink).fixedSize(horizontal: false, vertical: true)
+            if !job.posted.isBlank && !dynamicTypeSize.isAccessibilitySize {
+                Spacer(minLength: 4)
+                Text(job.posted).font(.caption).foregroundStyle(Brand.muted).multilineTextAlignment(.trailing)
+            }
         }
     }
 }

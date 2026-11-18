@@ -84,7 +84,7 @@ struct RecordingLevelBars: View {
                 HStack(alignment: .center, spacing: gap) {
                     ForEach(0..<PCMLevelTracker.barCount, id: \.self) { index in
                         RoundedRectangle(cornerRadius: width / 2, style: .continuous)
-                            .fill(running ? (snapshot.quality == .clipping ? Palette.danger : Palette.dark) : Palette.ring)
+                            .fill(running ? (snapshot.quality == .clipping ? Palette.danger : Brand.accent) : Palette.ring)
                             .frame(width: width, height: Self.barHeight(level: bars[index], minHeight: minHeight, maxHeight: maxHeight))
                     }
                 }
@@ -313,22 +313,12 @@ struct RecordingSurface: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.stack) {
-            ViewThatFits(in: .horizontal) {
-                HStack {
-                    Text(title).font(Typeface.button.weight(.semibold)).foregroundStyle(Palette.ink)
-                    Spacer(minLength: 12)
-                    brand
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(Typeface.button.weight(.semibold)).foregroundStyle(Palette.ink)
-                    brand
-                }
-            }
+            Text(title).font(Typeface.button.weight(.semibold)).foregroundStyle(Palette.ink)
             VStack(alignment: .leading, spacing: 8) {
                 ZStack(alignment: .leading) {
                     Capsule().fill(Palette.halo)
                     GeometryReader { proxy in
-                        Capsule().fill(Palette.muted).frame(width: proxy.size.width * fraction)
+                        Capsule().fill(Brand.accent).frame(width: proxy.size.width * fraction)
                     }
                 }
                 .frame(height: 4)
@@ -339,7 +329,7 @@ struct RecordingSurface: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel("Question \(questionNumber) of \(questionCount)")
 
-            Text(prompt).font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
+            Text(prompt).font(Typeface.title).foregroundStyle(Palette.ink)
                 .accessibilityAddTraits(.isHeader)
 
             Spacer(minLength: compact ? 8 : 24)
@@ -379,13 +369,12 @@ struct RecordingSurface: View {
             VStack(spacing: Spacing.option) {
                 Button(action: onStop) {
                     HStack(spacing: 14) {
-                        RoundedRectangle(cornerRadius: 3, style: .continuous).fill(Palette.icon).frame(width: 18, height: 18)
-                        Text("Stop recording").font(Typeface.button).foregroundStyle(Palette.icon)
+                        RoundedRectangle(cornerRadius: 3, style: .continuous).fill(.white).frame(width: 18, height: 18)
+                        Text("Stop recording").font(.headline).foregroundStyle(.white)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 64)
-                    .background(Palette.button, in: Capsule())
-                    .overlay(Capsule().stroke(Palette.dark.opacity(0.4), lineWidth: 1))
-                    .contentShape(Capsule())
+                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .background(Palette.button, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.tap)
                 .disabled(busy || !live)
@@ -398,10 +387,5 @@ struct RecordingSurface: View {
                     .frame(maxWidth: .infinity)
             }
         }
-    }
-
-    private var brand: some View {
-        Text("STACK").font(.system(.footnote).weight(.semibold)).tracking(3).foregroundStyle(Palette.ink)
-            .accessibilityHidden(true)
     }
 }

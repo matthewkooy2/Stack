@@ -4,7 +4,7 @@ import SwiftUI
 @MainActor
 struct AccessView: View {
     @Environment(AppStore.self) private var store
-    @Environment(\.markInFlight) private var markInFlight
+    @Environment(\.stackReduceMotion) private var reduceMotion
 
     enum Step: Int, StageKey {
         case welcome, signIn, signUp
@@ -32,15 +32,30 @@ struct AccessView: View {
     }
 
     private var welcome: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // The mark takes all the room above the buttons.
-            GeometryReader { geo in
-                StackMark(size: max(120, min(geo.size.width, geo.size.height)), animateIn: !markInFlight)
-                    .reportsMarkFrame()
-                    .opacity(markInFlight ? 0 : 1)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(spacing: 0) {
+                    Spacer(minLength: 12)
+                    VStack(spacing: 2) {
+                        StackMark(size: min(128, max(72, geometry.size.height * 0.17)), animateIn: false)
+                            .accessibilityHidden(true)
+                        Text("Stack")
+                            .font(Typeface.display)
+                            .foregroundStyle(Brand.ink)
+                            .accessibilityAddTraits(.isHeader)
+                    }
+                    Spacer(minLength: 24)
+                    welcomeActions
+                }
+                .frame(maxWidth: 480)
+                .frame(maxWidth: .infinity, minHeight: geometry.size.height)
             }
-            .padding(.bottom, 16)
+            .scrollIndicators(.hidden)
+        }
+    }
+
+    private var welcomeActions: some View {
+        VStack(spacing: 0) {
             StoreMessages()
             VStack(spacing: 12) {
                 if AppleSignIn.enabled {
@@ -56,16 +71,7 @@ struct AccessView: View {
                     StackButton(label: "Cancel Google sign-in", kind: .secondary) { store.cancelGoogle() }
                 }
                 OrDivider().padding(.vertical, 2)
-                Button { go(.signUp) } label: {
-                    Text("Create an account")
-                        .font(.system(.headline).weight(.semibold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, minHeight: 54)
-                        .background(Brand.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.tap(scale: 0.98))
-                .disabled(store.googlePending)
+                StackButton(label: "Create an account", disabled: store.googlePending) { go(.signUp) }
                 Button { go(.signIn) } label: {
                     (Text("Already have an account? ").foregroundStyle(Brand.muted)
                         + Text("Sign in").foregroundStyle(Brand.ink).fontWeight(.semibold))
@@ -80,9 +86,9 @@ struct AccessView: View {
                     Link("Privacy policy", destination: URL(string: "https://stackmvp.top/privacy")!)
                     Link("Support", destination: URL(string: "https://stackmvp.top/support")!)
                 }
-                .font(Typeface.caption)
+                .font(.footnote)
+                .tint(Brand.muted)
             }
-            .reveal(3, delay: 0.55)
         }
     }
 
@@ -91,35 +97,25 @@ struct AccessView: View {
         return GeometryReader { geometry in
         ScrollView {
         VStack(alignment: .leading, spacing: 0) {
-            AccessBackButton { go(.welcome) }.disabled(store.busy).reveal(0)
-            VStack(alignment: .leading, spacing: 10) {
-                // One text element, so it reads and is found as the screen's heading.
-                (Text(signUp ? "Create your\n" : "Welcome\n").foregroundStyle(Brand.ink)
-                    + Text(signUp ? "account." : "back.").foregroundStyle(Brand.accent))
-                .accessibilityLabel(signUp ? "Create your account" : "Welcome back")
+            BackButton { go(.welcome) }.disabled(store.busy).reveal(0)
+            Text(signUp ? "Create your account" : "Welcome back")
+                .font(Typeface.display)
+                .foregroundStyle(Brand.ink)
                 .accessibilityAddTraits(.isHeader)
-                .lineSpacing(-10)
-                .font(.system(size: 48, weight: .heavy))
-                .tracking(-2.2)
-                .lineLimit(2)
-                .minimumScaleFactor(0.6)
-                Text(signUp ? "It takes less than a minute." : "Sign in to pick up where you left off.")
-                    .font(.system(.title3)).foregroundStyle(Brand.muted)
-            }
-            .padding(.top, 28)
-            .reveal(1)
+                .padding(.top, 24)
+                .reveal(1)
             VStack(spacing: 18) {
-                AccessField(label: "Username", text: $username, keyboard: .asciiCapable, autocapitalization: .never)
-                AccessField(label: "Password", text: $password, placeholder: "At least 8 characters", secure: true)
+                AccessField(label: "Username", text: $username, keyboard: .asciiCapable, autocapitalization: .never, contentType: .username)
+                AccessField(label: "Password", text: $password, placeholder: signUp ? "At least 8 characters" : "", secure: true, contentType: signUp ? .newPassword : .password)
                 if invitationOpen {
                     AccessField(label: "Beta invitation (first visit)", text: $invite, placeholder: "Invitation code",
                                 keyboard: .asciiCapable, autocapitalization: .never)
                 } else {
                     Button {
-                        withAnimation(Motion.fadeAnimation) { invitationOpen = true }
+                        withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { invitationOpen = true }
                     } label: {
                         Text("I have an invitation code").font(Typeface.caption).fontWeight(.semibold).foregroundStyle(Brand.accent)
-                            .frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 36)
+                            .frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 44)
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.tap(scale: 0.985))
@@ -147,7 +143,7 @@ struct AccessView: View {
                 .font(.system(.headline).weight(.semibold))
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity, minHeight: 54)
-                .background(Brand.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .background(Palette.button, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .contentShape(Rectangle())
             }
             .buttonStyle(.tap(scale: 0.98))
@@ -174,7 +170,7 @@ struct AccessView: View {
 
     private func go(_ next: Step) {
         store.error = ""
-        withAnimation(Motion.stageAnimation) { step = next }
+        withAnimation(reduceMotion ? nil : Motion.stageAnimation) { step = next }
     }
 }
 
@@ -260,23 +256,6 @@ struct GoogleAccountCard: View {
 
 // MARK: - Form pieces
 
-private struct AccessBackButton: View {
-    let action: () -> Void
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: "chevron.left")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(Brand.ink)
-                .frame(width: 44, height: 44)
-                .background(Color.white, in: Circle())
-                .overlay(Circle().stroke(Brand.rule, lineWidth: 1))
-        }
-        .buttonStyle(.tap(scale: 0.92, dim: 1))
-        .accessibilityLabel("Back")
-    }
-}
-
-/// A white field with a hairline border that turns blue while it has focus.
 private struct AccessField: View {
     let label: String
     @Binding var text: String
@@ -284,6 +263,7 @@ private struct AccessField: View {
     var secure = false
     var keyboard: UIKeyboardType = .default
     var autocapitalization: TextInputAutocapitalization = .sentences
+    var contentType: UITextContentType? = nil
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -293,6 +273,7 @@ private struct AccessField: View {
                 if secure { SecureField(placeholder, text: $text) } else { TextField(placeholder, text: $text) }
             }
             .focused($focused)
+            .textContentType(contentType)
             .font(Typeface.body)
             .accessibilityLabel(label)
             .foregroundStyle(Brand.ink)
@@ -302,7 +283,7 @@ private struct AccessField: View {
             .autocorrectionDisabled(keyboard != .default || secure)
             .padding(.horizontal, 16)
             .frame(minHeight: 54)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .background(Palette.field, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(focused ? Brand.accent : Brand.rule, lineWidth: focused ? 2 : 1))
             .animation(Motion.fadeAnimation, value: focused)

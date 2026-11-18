@@ -14,7 +14,7 @@ struct InterviewCoachingView: View {
         VStack(alignment: .leading, spacing: 0) {
             if structured {
                 if !coaching["verdict"].string.isBlank {
-                    Text(coaching["verdict"].string).font(.system(size: 22, weight: .bold)).tracking(-0.6)
+                    Text(coaching["verdict"].string).font(Typeface.title)
                         .foregroundStyle(Brand.ink).fixedSize(horizontal: false, vertical: true)
                 }
                 if !scores.isEmpty {
@@ -22,7 +22,7 @@ struct InterviewCoachingView: View {
                         ForEach(scores) { item in
                             VStack(alignment: .leading, spacing: 3) {
                                 HStack(alignment: .firstTextBaseline) {
-                                    Text(item.name).font(.system(size: 17, weight: .semibold)).foregroundStyle(Brand.ink)
+                                    Text(item.name).font(.headline).foregroundStyle(Brand.ink)
                                     Spacer()
                                     Text("\(item.score)/4").font(.system(.subheadline).weight(.bold).monospacedDigit())
                                         .foregroundStyle(item.score == 0 ? Palette.danger : Brand.accent)
@@ -42,7 +42,7 @@ struct InterviewCoachingView: View {
                 points("Weaknesses", coaching["weaknesses"].strings)
                 if !coaching["work_on"].string.isBlank {
                     heading("Next step")
-                    Text(coaching["work_on"].string).font(.system(size: 17, weight: .bold)).foregroundStyle(Brand.ink)
+                    Text(coaching["work_on"].string).font(.headline).foregroundStyle(Brand.ink)
                         .fixedSize(horizontal: false, vertical: true).padding(.top, 4)
                 }
                 points("Practice next", coaching["follow_ups"].strings)

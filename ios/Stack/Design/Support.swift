@@ -2,30 +2,47 @@ import SwiftUI
 import PDFKit
 import UniformTypeIdentifiers
 
-/// A full-height sheet: close button, display title and scrolling content in the shared page style.
+/// Keeps the title and dismissal action in reach while a long form scrolls.
 @MainActor
 struct SheetPage<Content: View>: View {
     let title: String
     var subtitle: String = ""
+    var closeLabel = "Close"
+    var closeDisabled = false
     var onClose: (() -> Void)?
     @Environment(\.dismiss) var dismiss
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        ZStack {
-            Palette.page.ignoresSafeArea()
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                if closeLabel == "Back" { closeControl }
+                Text(title)
+                    .font(Typeface.title)
+                    .foregroundStyle(Brand.ink)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .lineLimit(2)
+                    .accessibilityAddTraits(.isHeader)
+                if closeLabel != "Back" { closeControl }
+            }
+            .padding(.horizontal, Spacing.page)
+            .padding(.top, 14)
+            .padding(.bottom, 8)
+            Divider()
             Page {
-                HStack {
-                    BackButton(label: "Close") { if let onClose { onClose() } else { dismiss() } }
-                    Spacer()
+                if !subtitle.isEmpty {
+                    Text(subtitle).font(Typeface.caption).foregroundStyle(Brand.muted)
                 }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(title).font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
-                    if !subtitle.isEmpty { Text(subtitle).font(Typeface.caption).foregroundStyle(Palette.muted) }
-                }
-                .reveal(0)
                 content()
             }
+        }
+        .background(Palette.page.ignoresSafeArea())
+        .presentationDragIndicator(.visible)
+    }
+
+    private var closeControl: some View {
+        BackButton(label: closeLabel, disabled: closeDisabled) {
+            if let onClose { onClose() } else { dismiss() }
         }
     }
 }
@@ -36,9 +53,12 @@ struct StoreMessages: View {
     @Environment(AppStore.self) private var store
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            MessageLine(text: store.error).fadeSwitch(!store.error.isEmpty)
-            MessageLine(text: store.notice, isError: false).fadeSwitch(!store.notice.isEmpty)
+        if !store.error.isEmpty || !store.notice.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                if !store.error.isEmpty { MessageLine(text: store.error) }
+                if !store.notice.isEmpty { MessageLine(text: store.notice, isError: false) }
+            }
+            .transition(.opacity)
         }
     }
 }
@@ -50,7 +70,7 @@ struct SectionLabel: View {
     var body: some View {
         Text(text)
             .font(.system(.subheadline).weight(.semibold))
-            .foregroundStyle(Brand.accent)
+            .foregroundStyle(Brand.muted)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityAddTraits(.isHeader)
     }
@@ -65,7 +85,7 @@ struct ToggleRow: View {
         Toggle(label, isOn: $isOn)
             .font(Typeface.body)
             .foregroundStyle(Palette.text)
-            .tint(Palette.dark)
+            .tint(Brand.accent)
     }
 }
 
@@ -78,12 +98,12 @@ struct StatusPill: View {
 
     var body: some View {
         Text(label)
-            .font(.system(size: 12, weight: .semibold))
+            .font(.caption.weight(.semibold))
             .foregroundStyle(foreground)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .background(background, in: Capsule())
-            .fixedSize()
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var foreground: Color {
@@ -100,7 +120,7 @@ struct StatusPill: View {
         case .attention: return Palette.danger.opacity(0.10)
         case .active: return Palette.halo
         case .done: return Palette.success.opacity(0.12)
-        case .quiet: return Color.white
+        case .quiet: return Palette.muted.opacity(0.10)
         }
     }
 }
@@ -110,6 +130,7 @@ struct StatusPill: View {
 struct DisclosureSection<Content: View>: View {
     let title: String
     var detail = ""
+    @Environment(\.stackReduceMotion) private var reduceMotion
     @State private var open: Bool
     @ViewBuilder var content: () -> Content
 
@@ -123,7 +144,7 @@ struct DisclosureSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Button {
-                withAnimation(Motion.fadeAnimation) { open.toggle() }
+                withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { open.toggle() }
             } label: {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 3) {
@@ -136,7 +157,7 @@ struct DisclosureSection<Content: View>: View {
                 }
                 .padding(.vertical, 16)
                 .contentShape(Rectangle())
-                .overlay(alignment: .bottom) { Rectangle().fill(Palette.rule).frame(height: 1) }
+                .overlay(alignment: .bottom) { Divider() }
             }
             .buttonStyle(.tap(scale: 0.985, dim: 1))
             .accessibilityLabel(detail.isEmpty ? title : "\(title), \(detail)")

@@ -23,7 +23,7 @@ struct LinkedInFlow: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                BackButton(label: step == .results ? "Close" : "Back") { dismiss() }
+                BackButton(label: step == .upload ? "Back" : "Close") { dismiss() }
                 Spacer()
             }
             .padding(.horizontal, Spacing.page).padding(.top, 8).padding(.bottom, 8)
@@ -53,7 +53,7 @@ struct LinkedInFlow: View {
                 onRetry: reviewID.isEmpty ? (uploader.canRetry ? retryUpload : nil) : retryReview)
         case .reviewing:
             PrepWorkingScreen(progress: "LinkedIn", message: "Reviewing your profile…",
-                              detail: "Once queued, you can leave and check the result in Tasks.", spinner: true)
+                              detail: reviewID.isEmpty ? "Sending your PDF…" : "You can leave and find the result in Agents.", spinner: true)
                 .padding(.horizontal, Spacing.page)
         case .results:
             LinkedInReviewScreen(content: LinkedInReviewContent(run["artifacts"]["linkedin_review"]),

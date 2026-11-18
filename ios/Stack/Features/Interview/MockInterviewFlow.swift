@@ -7,11 +7,12 @@ import Observation
 @MainActor
 @Observable
 final class MockInterviewModel {
-    enum Phase { case starting, noRole, question, typing, recording, working, coaching, finishing, final }
+    enum Phase { case starting, noRole, question, typing, recording, readingCapture, working, coaching, finishing, final }
 
     var phase: Phase = .starting
     var session: JSON = [:]
     var draft = ""
+    private(set) var recordedAnswer: URL?
     var error = ""
     var busy = false
     var role: Application?
@@ -20,6 +21,7 @@ final class MockInterviewModel {
     @ObservationIgnored private weak var store: AppStore?
     @ObservationIgnored private var answerID = MockInterviewModel.requestID()
     @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var captureToken: UUID?
     @ObservationIgnored private var polling: Task<Void, Never>?
 
     static func requestID() -> String { String(Int(Date().timeIntervalSince1970 * 1000)) + "-" + UUID().uuidString.lowercased() }
@@ -67,7 +69,10 @@ final class MockInterviewModel {
     }
 
     func start() async {
-        guard let store, phase == .starting else { return }
+        guard let store, phase == .starting, !busy else { return }
+        busy = true
+        defer { busy = false }
+        error = ""
         guard let chosen = pickRole(store) else { phase = .noRole; return }
         role = chosen
         generation = store.sessionGeneration
@@ -95,41 +100,66 @@ final class MockInterviewModel {
     // MARK: Answering
 
     func record() async {
-        guard let store, !busy else { return }
+        guard let store, store.sessionGeneration == generation, !busy else { return }
         busy = true
         defer { busy = false }
+        let token = UUID()
+        captureToken = token
+        recorder.onAutoStop = { [weak self] saved in
+            guard let self, self.captureToken == token, self.phase != .readingCapture else { return }
+            self.phase = .readingCapture
+            Task { await self.readCapture(saved, token: token, interrupted: true) }
+        }
         do {
             _ = try await recorder.start(owner: store.account.userID)
-            draft = ""
+            guard captureToken == token, phase != .readingCapture else { return }
+            error = ""
             phase = .recording
-        } catch { fail(error) }
+        } catch {
+            guard captureToken == token, phase != .readingCapture else { return }
+            captureToken = nil
+            recorder.onAutoStop = nil
+            fail(error)
+        }
     }
 
     func cancelRecording() {
+        captureToken = nil
+        recorder.onAutoStop = nil
         _ = recorder.stop(cancelled: true)
-        phase = .question
+        phase = recordedAnswer == nil && draft.isBlank ? .question : .typing
     }
 
     func togglePause() {
         do { if recorder.isPaused { try recorder.resume() } else { recorder.pause() } } catch { fail(error) }
     }
 
-    /// Stops the recording and uses what the phone heard as the answer; with no transcript, asks for typing.
     func finishRecording() async {
-        guard !busy else { return }
-        busy = true
+        guard phase == .recording, !busy, let token = captureToken else { return }
         guard let saved = recorder.stop() else {
-            busy = false
+            cancelRecording()
             error = "No audio was saved. Record your answer again."
-            phase = .question
             return
         }
+        phase = .readingCapture
+        await readCapture(saved, token: token, interrupted: false)
+    }
+
+    /// Only Done requests coaching. A phone call, route change or time limit returns to review.
+    private func readCapture(_ saved: CapturedRecording, token: UUID, interrupted: Bool) async {
         await saved.finalized.value
-        busy = false
-        let heard = RecordingStore.transcript(at: saved.url)?.text ?? ""
-        draft = heard
-        if heard.isBlank {
-            error = "We couldn’t hear anything. Type your answer instead."
+        guard captureToken == token, phase == .readingCapture,
+              let store, store.sessionGeneration == generation, store.phase == .ready else { return }
+        captureToken = nil
+        recorder.onAutoStop = nil
+        recordedAnswer = FileManager.default.fileExists(atPath: saved.url.path) ? saved.url : nil
+        draft = RecordingStore.transcript(at: saved.url)?.text ?? ""
+        if interrupted || draft.isBlank {
+            let guidance: String
+            if !draft.isBlank { guidance = "Review your answer before getting coaching." }
+            else if recordedAnswer != nil { guidance = "Listen and type your answer, or record again." }
+            else { guidance = "Type your answer or record again." }
+            error = [recorder.stopNotice, guidance].filter { !$0.isEmpty }.joined(separator: " ")
             phase = .typing
         } else {
             await submit()
@@ -146,13 +176,17 @@ final class MockInterviewModel {
                                                                 "answer": .string(draft), "client_id": .string(answerID),
                                                                 "recording_id": ""])
             draft = ""
+            recordedAnswer = nil
             answerID = Self.requestID()
             #if DEBUG
             PrepTrace.dump("interview-after-answer", session)
             #endif
             phase = .working
             poll()
-        } catch { fail(error) }
+        } catch {
+            if phase == .readingCapture { phase = .typing }
+            fail(error)
+        }
     }
 
     func next() {
@@ -220,6 +254,8 @@ final class MockInterviewModel {
 
     func stop() {
         polling?.cancel()
+        captureToken = nil
+        recorder.onAutoStop = nil
         _ = recorder.stop(cancelled: true)
     }
 
@@ -233,6 +269,7 @@ struct MockInterviewFlow: View {
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var model = MockInterviewModel()
+    @State private var showingAnswer = false
 
     var body: some View {
         ZStack {
@@ -240,12 +277,20 @@ struct MockInterviewFlow: View {
             VStack(alignment: .leading, spacing: 0) {
                 if model.phase != .final {
                     HStack {
-                        BrandBackButton(disabled: model.recorder.isRecording) { model.stop(); dismiss() }
+                        BrandBackButton(disabled: model.phase == .recording || (model.busy && model.phase != .starting)) { model.stop(); dismiss() }
                         Spacer()
                     }
                     .padding(.bottom, 4)
                 }
-                content.frame(maxWidth: .infinity, maxHeight: .infinity)
+                if [.typing, .coaching, .final].contains(model.phase) {
+                    content.frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    GeometryReader { geometry in
+                        ScrollView {
+                            content.frame(maxWidth: .infinity, minHeight: geometry.size.height)
+                        }
+                    }
+                }
             }
             .padding(.horizontal, Spacing.page)
             .padding(.vertical, 12)
@@ -255,28 +300,46 @@ struct MockInterviewFlow: View {
             await model.start()
         }
         .onDisappear { model.stop() }
-        .environment(\.launchHold, false)
+        .sheet(isPresented: $showingAnswer) {
+            SheetPage(title: "Your answer") {
+                if let turn = model.turns.last {
+                    Text(turn["question"]["question"].string).font(Typeface.section).foregroundStyle(Palette.ink)
+                    Text(turn["answer"].string).font(Typeface.body).foregroundStyle(Palette.text).textSelection(.enabled)
+                }
+            }
+            .presentationDetents([.medium, .large])
+        }
     }
 
     @ViewBuilder private var content: some View {
         switch model.phase {
         case .starting:
-            PrepWorkingScreen(progress: "", message: "Finding your role…")
+            PrepWorkingScreen(progress: "", message: model.error.isEmpty ? "Finding your role…" : "Couldn’t load this interview",
+                              detail: model.error, stalled: !model.error.isEmpty,
+                              primary: model.error.isEmpty ? nil : "Try again", busy: model.busy,
+                              onPrimary: { Task { await model.start() } })
         case .noRole:
-            PrepWorkingScreen(progress: "", message: "Save a job first.", detail: "Mock interviews are built from a role you saved in Jobs.",
-                              stalled: true, primary: "Done", onPrimary: { dismiss() })
+            PrepWorkingScreen(progress: "", message: "Choose a role to practice for",
+                              detail: "Save a job to get interview questions for that role.",
+                              stalled: true, primary: "Browse jobs", onPrimary: {
+                                  dismiss()
+                                  NotificationCenter.default.post(name: .stackNavigate, object: nil, userInfo: ["destination": "jobs"])
+                              })
         case .question:
             PrepQuestionScreen(progress: model.progress, context: model.role.map { "\($0.job.title) · \($0.job.company)" },
                                prompt: model.askPrompt, busy: model.busy, message: model.error,
                                links: [ScreenLink("Type instead") { model.phase = .typing }]
+                                   + (model.recorder.permissionDenied ? [ScreenLink("Open microphone settings") { AppSettings.open() }] : [])
                                    + (model.canFinish ? [ScreenLink("Finish interview") { Task { await model.finish() } }] : []),
                                onPrimary: { Task { await model.record() } })
         case .typing:
             typing
         case .recording:
-            PrepRecordingScreen(recorder: model.recorder, progress: model.progress, busy: model.busy, message: model.error,
+            PrepRecordingScreen(recorder: model.recorder, progress: model.progress, prompt: model.askPrompt, busy: model.busy, message: model.error,
                                 onDone: { Task { await model.finishRecording() } },
                                 onTogglePause: { model.togglePause() }, onCancel: { model.cancelRecording() })
+        case .readingCapture:
+            PrepWorkingScreen(progress: model.progress, message: "Preparing your recording…", spinner: true)
         case .working:
             working(message: "Reading your answer…")
         case .finishing:
@@ -289,7 +352,7 @@ struct MockInterviewFlow: View {
                                focus: model.analysis["work_on"].string.isBlank ? model.note.improvement : model.analysis["work_on"].string,
                                primary: model.turns.count >= model.total ? "Finish" : "Next question",
                                busy: model.busy, message: model.error,
-                               onAnswer: {}, onPrimary: { model.next() }, onAgain: { Task { await model.finish() } },
+                               onAnswer: { showingAnswer = true }, onPrimary: { model.next() }, onAgain: { Task { await model.finish() } },
                                secondary: model.canFinish && model.turns.count < model.total ? "Finish interview" : nil)
         case .final:
             finalScreen
@@ -307,9 +370,15 @@ struct MockInterviewFlow: View {
         VStack(alignment: .leading, spacing: 18) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    Text(model.askPrompt).font(.system(size: 30, weight: .heavy)).tracking(-1.4).foregroundStyle(Brand.ink).padding(.top, 12)
+                    Text(model.askPrompt).font(Typeface.title).foregroundStyle(Brand.ink).padding(.top, 12)
+                    if let url = model.recordedAnswer {
+                        AnswerPlayback(url: url, isActive: !model.busy)
+                    }
                     AnswerEditor(text: $model.draft, placeholder: "Your answer…", label: "Your answer", disabled: model.busy)
                     if !model.error.isEmpty { Text(model.error).font(Typeface.caption).foregroundStyle(Palette.danger) }
+                    Button(model.recordedAnswer == nil ? "Record an answer" : "Record again") { Task { await model.record() } }
+                        .font(.subheadline.weight(.semibold)).foregroundStyle(Brand.accent)
+                        .frame(minHeight: 44).disabled(model.busy)
                 }
             }
             .scrollIndicators(.hidden)
@@ -324,7 +393,7 @@ struct MockInterviewFlow: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack { BrandBackButton(action: { dismiss() }); Spacer() }
-                    Text("Interview coaching").font(.system(size: 36, weight: .heavy)).tracking(-1.8).foregroundStyle(Brand.ink)
+                    Text("Interview coaching").font(Typeface.display).foregroundStyle(Brand.ink)
                         .padding(.top, 18)
                     if let role = model.role {
                         Text("\(role.job.title) · \(role.job.company)").font(Typeface.caption).foregroundStyle(Brand.muted).padding(.top, 6)

@@ -6,7 +6,6 @@ import SwiftUI
 struct PresenceView: View {
     var refreshID = 0
     @Environment(AppStore.self) private var store
-    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.stackReduceMotion) private var reduceMotion
     @State private var expanded = true
     @State private var run: JSON = .null
@@ -24,16 +23,19 @@ struct PresenceView: View {
     private var loadKey: [JSON] {
         [latestRun ?? .null, .number(Double(refreshID)), .number(Double(reload)), .number(Double(store.sessionGeneration))]
     }
-    private var detailInset: CGFloat { dynamicTypeSize.isAccessibilitySize ? 0 : 62 }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 18) {
             linkedInRow
-            rule
-            platformRow(.github, detail: "Bio, README &\nrepo descriptions", symbol: "chevron.left.forwardslash.chevron.right")
-            rule
-            platformRow(.portfolio, detail: "Headline, About &\nproject drafts", symbol: "globe")
-            rule
+                .padding(.horizontal, 18)
+                .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            VStack(spacing: 0) {
+                platformRow(.github, detail: "Bio, README and repositories", symbol: "chevron.left.forwardslash.chevron.right")
+                Divider()
+                platformRow(.portfolio, detail: "Headline, About and project drafts", symbol: "globe")
+            }
+            .padding(.horizontal, 18)
+            .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .task(id: loadKey) { await load() }
         .onChange(of: store.sessionGeneration) { _, _ in reset() }
@@ -69,7 +71,7 @@ struct PresenceView: View {
                         .accessibilityHidden(true)
                     VStack(alignment: .leading, spacing: 5) {
                         Text("LinkedIn").font(.system(.title3).weight(.bold)).foregroundStyle(Brand.ink)
-                        Text(presentation?.sectionLabel ?? "Headline").font(Typeface.caption).foregroundStyle(Brand.muted)
+                        Text(presentation?.sectionLabel ?? "Profile review").font(Typeface.caption).foregroundStyle(Brand.muted)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     Image(systemName: expanded ? "chevron.down" : "chevron.right")
@@ -86,12 +88,13 @@ struct PresenceView: View {
             .accessibilityIdentifier("presence-linkedin")
             if expanded {
                 linkedInContent
-                    .padding(.leading, detailInset)
-                    .padding(.top, 20)
-                    .padding(.bottom, 26)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 14)
+                    .overlay(alignment: .top) { Divider() }
+                    .padding(.top, 12)
             }
         }
-        .padding(.vertical, 20)
+        .padding(.vertical, 14)
     }
 
     @ViewBuilder
@@ -140,7 +143,7 @@ struct PresenceView: View {
             }
         } else {
             VStack(alignment: .leading, spacing: 12) {
-                Text("No review yet.").font(.body).foregroundStyle(Brand.muted)
+                Text("Review your profile for a target role using your LinkedIn PDF.").font(.body).foregroundStyle(Brand.muted)
                 action("Review LinkedIn", identifier: "presence-start-review") { linkedIn = true }
             }
         }
@@ -151,8 +154,7 @@ struct PresenceView: View {
             HStack(spacing: 14) {
                 Image(systemName: symbol).font(.system(size: 22, weight: .regular)).foregroundStyle(Brand.ink)
                     .frame(width: 48, height: 48)
-                    .background(.white, in: Circle())
-                    .overlay(Circle().stroke(Brand.rule, lineWidth: 1))
+                    .background(Palette.page, in: Circle())
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(platform.rawValue).font(.system(.title3).weight(.bold)).foregroundStyle(Brand.ink)
@@ -162,7 +164,7 @@ struct PresenceView: View {
                 Image(systemName: "chevron.right").font(.system(size: 13, weight: .medium)).foregroundStyle(Brand.ink)
                     .accessibilityHidden(true)
             }
-            .padding(.vertical, 24)
+            .padding(.vertical, 15)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
@@ -172,7 +174,6 @@ struct PresenceView: View {
         .accessibilityIdentifier("presence-\(platform.rawValue.lowercased())")
     }
 
-    private var rule: some View { Rectangle().fill(Brand.rule).frame(height: 1).accessibilityHidden(true) }
     private func caption(_ title: String) -> some View {
         Text(title).font(.caption).foregroundStyle(Brand.muted)
     }
@@ -180,7 +181,7 @@ struct PresenceView: View {
         Button(action: perform) {
             HStack(spacing: 16) {
                 Text(title).font(.body.weight(.semibold))
-                Image(systemName: "arrow.up.right").font(.system(size: 15)).accessibilityHidden(true)
+                Image(systemName: "arrow.right").font(.system(size: 15)).accessibilityHidden(true)
             }
             .foregroundStyle(Brand.accent)
             .frame(minHeight: 44, alignment: .leading)

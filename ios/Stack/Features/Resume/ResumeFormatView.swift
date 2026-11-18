@@ -13,15 +13,6 @@ struct ResumeFormatView: View {
     @State private var showTex = false
     @State private var preview: PDFPreview?
 
-    private let templates = [
-        ("jake", "Jake's Resume"),
-        ("awesome-cv", "Awesome-CV"),
-        ("bill-ryan", "Bill Ryan's Elegant Resume"),
-        ("sb2nov", "Sourabh Bajaj's Resume"),
-        ("deedy", "Deedy Resume"),
-        ("jan-kuster", "Jan Kuster's Classic CV")
-    ]
-
     private var format: JSON { store.account.format(of: resume.id) }
     private var kind: String { format["kind"].string }
     private var source: JSON { store.account.processing(of: resume.id)["source"] }
@@ -49,35 +40,32 @@ struct ResumeFormatView: View {
                     .font(Typeface.caption).foregroundStyle(Palette.text)
             }
             if kind == "upload" {
-                StackButton(label: "Replace LaTeX source", icon: "upload", kind: .secondary, disabled: working) { importing = true }
+                StackButton(label: "Replace source file", icon: "upload", kind: .secondary, disabled: working) { importing = true }
             }
             SectionLabel(text: "Built-in templates")
-            FlowLayout(spacing: 8) {
-                ForEach(templates, id: \.0) { key, label in
-                    Chip(label: label, selected: ["builtin", "records"].contains(kind) && format["template"].string == key) {
-                        change("use_resume_template", ["id": .string(resume.id), "template": .string(key)],
-                               done: "Template saved.")
-                    }
-                    .disabled(working || (store.account.resume(resume.id) ?? resume).detailsStatus != "Confirmed")
+            ResumeDesignMenu(selectedKey: ["builtin", "records"].contains(kind) ? format["template"].string : "") { key in
+                change("use_resume_template", ["id": .string(resume.id), "template": .string(key)],
+                       done: "Template saved.")
+            }
+            .disabled(working || (store.account.resume(resume.id) ?? resume).detailsStatus != "Confirmed")
+            if !kind.isEmpty && kind != "records" {
+                Chip(label: "Remove format") {
+                    change("use_resume_template", ["id": .string(resume.id), "template": ""],
+                           done: "Removed. Choose a template to tailor this resume again.")
                 }
-                if !kind.isEmpty && kind != "records" {
-                    Chip(label: "Remove format") {
-                        change("use_resume_template", ["id": .string(resume.id), "template": ""],
-                               done: "Removed. Choose a template to tailor this resume again.")
-                    }
-                }
+                .disabled(working)
             }
             if !kind.isEmpty || resume.detailsStatus == "Confirmed" {
-                HStack(spacing: 8) {
+                FlowLayout(spacing: 8) {
                     Chip(label: "Preview format") { Task { await open(showSource: false) } }
                     if kind != "records" {
-                        Chip(label: showTex ? "Hide LaTeX" : "Show LaTeX", selected: showTex) {
+                        Chip(label: showTex ? "Hide source file" : "View source file", selected: showTex) {
                             if showTex { showTex = false } else { Task { await open(showSource: true) } }
                         }
                     }
                 }
             }
-            if working { Text("Working… The first LaTeX compile can take a minute.").font(Typeface.caption).foregroundStyle(Palette.muted) }
+            if working { Text("Preparing your design…").font(Typeface.caption).foregroundStyle(Palette.muted) }
             MessageLine(text: notice, isError: false).fadeSwitch(!notice.isEmpty)
             MessageLine(text: error).fadeSwitch(!error.isEmpty)
             if showTex, !tex.isEmpty { CodeBlock(text: tex) }
@@ -116,7 +104,7 @@ struct ResumeFormatView: View {
         working = true
         defer { working = false }
         do {
-            let file = try await readPickedFileInBackground(url, limit: 2 * 1024 * 1024, tooLarge: "LaTeX source must be 2 MB or smaller.")
+            let file = try await readPickedFileInBackground(url, limit: 2 * 1024 * 1024, tooLarge: "The source file must be 2 MB or smaller.")
             try await store.callAccount("upload_resume_source",
                                         ["id": .string(resume.id), "name": .string(file.name), "content": .string(file.content)],
                                         timeout: 90)
@@ -177,9 +165,9 @@ struct TailoredResumesSection: View {
             if !item.score["after"].isNull {
                 ScoreCardView(after: item.score["after"], before: item.score["before"], title: "Score for this job")
             }
-            HStack(spacing: 8) {
+            FlowLayout(spacing: 8) {
                 Chip(label: working == item.id ? "Working…" : "Preview PDF") { Task { await open(item, source: false) } }
-                Chip(label: shown.contains(item.id) ? "Hide LaTeX" : "Show LaTeX", selected: shown.contains(item.id)) {
+                Chip(label: shown.contains(item.id) ? "Hide source file" : "View source file", selected: shown.contains(item.id)) {
                     if shown.contains(item.id) { shown.remove(item.id) } else { Task { await open(item, source: true) } }
                 }
                 Chip(label: "Delete") { deleting = item }

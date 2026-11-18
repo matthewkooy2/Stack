@@ -1,8 +1,6 @@
 # Stack for iPhone (SwiftUI)
 
-A native SwiftUI rebuild of the Stack app. New and restyled screens follow [UI_STYLE.md](UI_STYLE.md); the cream palette described below is the older look. The visual language and motion come from the Prep
-workflow: a cream palette, one easing curve, staggered reveals, directional page transitions,
-press and release feedback, a recording halo, and Reduce Motion support.
+Stack's iPhone client uses SwiftUI. The [interface guide](UI_STYLE.md) defines shared navigation, surfaces, typography and motion. The [screen audit](../docs/ios-ui/README.md) traces the signed-out and signed-in experience through the five tabs and their secondary flows.
 
 It talks to the same backend as the Expo app (`POST /function/<name>` with the existing bearer
 session) and does not change that app, its release pipeline or any backend code.

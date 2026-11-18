@@ -19,21 +19,23 @@ struct NetworkView: View {
     @State private var drafts = NetworkDrafts()
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-            ZStack(alignment: .top) {
-                // Keep both surfaces mounted so switching pills retains expansion and draft state.
-                Page { PresenceView(refreshID: presenceRefresh) }
-                    .opacity(section == .presence ? 1 : 0)
-                    .allowsHitTesting(section == .presence)
-                    .accessibilityHidden(section != .presence)
-                Page { networkContent }
-                    .opacity(section == .network ? 1 : 0)
-                    .allowsHitTesting(section == .network)
-                    .accessibilityHidden(section != .network)
-                    .refreshable { await roster.load(store: store) }
+        ZStack(alignment: .top) {
+            // Keep both scroll positions and in-progress edits when switching sections.
+            Page {
+                header
+                PresenceView(refreshID: presenceRefresh)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .opacity(section == .presence ? 1 : 0)
+            .allowsHitTesting(section == .presence)
+            .accessibilityHidden(section != .presence)
+            Page {
+                header
+                networkContent
+            }
+            .opacity(section == .network ? 1 : 0)
+            .allowsHitTesting(section == .network)
+            .accessibilityHidden(section != .network)
+            .refreshable { await roster.load(store: store) }
         }
         .background(Brand.page.ignoresSafeArea())
         .tint(Brand.accent)
@@ -62,31 +64,33 @@ struct NetworkView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top, spacing: 4) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 0) { sectionButton(.presence); sectionButton(.network) }
-                VStack(alignment: .leading, spacing: 4) { sectionButton(.presence); sectionButton(.network) }
+        VStack(alignment: .leading, spacing: 12) {
+            ScreenHeader(title: "Network", onProfile: onProfile)
+            HStack(alignment: .center, spacing: 8) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 2) { sectionButton(.presence); sectionButton(.network) }
+                        .fixedSize(horizontal: true, vertical: false)
+                    VStack(alignment: .leading, spacing: 2) { sectionButton(.presence); sectionButton(.network) }
+                }
+                .padding(3)
+                .background(Palette.surface, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                Spacer(minLength: 0)
+                Menu {
+                    Button("LinkedIn review", systemImage: "sparkles") { linkedIn = true }
+                    Button("Public profile drafts", systemImage: "person.crop.rectangle") { secondary = .profiles }
+                    Button("Discovery catalog", systemImage: "person.text.rectangle") { secondary = .discovery(nil) }
+                    Button("Refresh contacts", systemImage: "arrow.clockwise") { refreshContacts() }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(Brand.ink)
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Network options")
+                .accessibilityIdentifier("network-options")
             }
-            Spacer(minLength: 0)
-            Menu {
-                Button("LinkedIn review", systemImage: "sparkles") { linkedIn = true }
-                Button("Public profile drafts", systemImage: "person.crop.rectangle") { secondary = .profiles }
-                Button("Discovery catalog", systemImage: "person.text.rectangle") { secondary = .discovery(nil) }
-                Button("Refresh contacts", systemImage: "arrow.clockwise") { refreshContacts() }
-                Button("Profile", systemImage: "person.crop.circle", action: onProfile)
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(Brand.ink)
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel("Network options")
-            .accessibilityIdentifier("network-options")
         }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 20)
     }
 
     private func sectionButton(_ value: NetworkSection) -> some View {
@@ -96,10 +100,10 @@ struct NetworkView: View {
             Text(value.rawValue)
                 .font(.subheadline.weight(section == value ? .semibold : .regular))
                 .foregroundStyle(section == value ? Brand.accent : Brand.muted)
-                .fixedSize(horizontal: true, vertical: false)
-                .padding(.horizontal, 14)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 12)
                 .frame(minHeight: 44)
-                .background(section == value ? Brand.accent.opacity(0.10) : .clear, in: Capsule())
+                .background(section == value ? Palette.halo : .clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.tap(scale: 0.98))
         .accessibilityIdentifier(value == .presence ? "network-presence-tab" : "network-roster-tab")
@@ -108,9 +112,22 @@ struct NetworkView: View {
 
     @ViewBuilder
     private var networkContent: some View {
-        if roster.loading {
+        HStack(alignment: .firstTextBaseline) {
+            Text("Contacts").font(Typeface.section).foregroundStyle(Palette.ink)
+                .accessibilityAddTraits(.isHeader)
+            Spacer()
+            Button { showContacts = true } label: {
+                Label("Manage", systemImage: "person.2")
+                    .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+            }
+            .foregroundStyle(Brand.accent)
+            .accessibilityLabel("Your contacts")
+            .accessibilityHint("Add, import or manage contacts")
+            .accessibilityIdentifier("network-your-contacts")
+        }
+        if roster.loading && !roster.loaded {
             ProgressView("Loading contacts…")
-                .frame(maxWidth: .infinity).padding(.vertical, 36)
+                .frame(maxWidth: .infinity).padding(.vertical, 24)
                 .foregroundStyle(Brand.muted)
         }
         if !roster.error.isEmpty {
@@ -123,51 +140,53 @@ struct NetworkView: View {
             .accessibilityIdentifier("network-load-error")
         }
         if roster.loaded && roster.contacts.isEmpty && roster.error.isEmpty {
-            Text("No contacts yet.")
-                .font(.body).foregroundStyle(Brand.muted)
-                .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 28)
-                .accessibilityIdentifier("network-empty")
-        }
-        VStack(spacing: 0) {
-            ForEach(Array(roster.contacts.enumerated()), id: \.element.id) { index, contact in
-                contactRow(contact, accent: index == 0)
-                Rectangle().fill(Brand.rule).frame(height: 1)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("No contacts yet").font(Typeface.section).foregroundStyle(Brand.ink)
+                    .accessibilityIdentifier("network-empty")
+                Text("Add someone you know or import a contact list.")
+                    .font(Typeface.body).foregroundStyle(Brand.muted)
+                StackButton(label: "Add a contact", icon: "add-session") {
+                    drafts.adding = true
+                    showContacts = true
+                }
+                .padding(.top, 8)
             }
+            .padding(20)
+            .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
-        Button { showContacts = true } label: {
-            Label("Your contacts", systemImage: "person.2")
-                .font(.headline)
-                .foregroundStyle(.white)
-                .frame(maxWidth: .infinity, minHeight: 54)
-                .padding(.vertical, 4)
-                .background(Brand.accent, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
+        if !roster.contacts.isEmpty {
+            VStack(spacing: 0) {
+                ForEach(roster.contacts) { contact in
+                    contactRow(contact)
+                    if contact.id != roster.contacts.last?.id { Divider() }
+                }
+            }
+            .padding(.horizontal, 16)
+            .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
-        .buttonStyle(.tap(scale: 0.98))
-        .accessibilityIdentifier("network-your-contacts")
     }
 
-    private func contactRow(_ contact: NetworkContact, accent: Bool) -> some View {
+    private func contactRow(_ contact: NetworkContact) -> some View {
         Button { selected = contact } label: {
             HStack(spacing: 14) {
                 Text(contact.initials)
                     .font(.headline.weight(.semibold))
-                    .foregroundStyle(accent ? Brand.accent : Brand.ink)
-                    .frame(width: 48, height: 48)
-                    .background(accent ? Brand.accent.opacity(0.10) : .white, in: Circle())
-                    .overlay { Circle().strokeBorder(accent ? .clear : Brand.rule, lineWidth: 1) }
+                    .foregroundStyle(Brand.accent)
+                    .frame(width: 42, height: 42)
+                    .background(Palette.halo, in: Circle())
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(contact.name).font(.title3.weight(.bold)).foregroundStyle(Brand.ink)
-                    if !contact.role.isEmpty { Text(contact.role).font(.body).foregroundStyle(Brand.muted) }
-                    if !contact.company.isEmpty { Text(contact.company).font(.body).foregroundStyle(Brand.muted) }
+                    Text(contact.name).font(.headline).foregroundStyle(Brand.ink)
+                    let detail = [contact.role, contact.company].filter { !$0.isEmpty }.joined(separator: " · ")
+                    if !detail.isEmpty { Text(detail).font(.subheadline).foregroundStyle(Brand.muted) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
                 Image(systemName: "chevron.right")
-                    .font(.body).foregroundStyle(Brand.ink).accessibilityHidden(true)
+                    .font(.caption.weight(.semibold)).foregroundStyle(Brand.muted).accessibilityHidden(true)
             }
-            .padding(.vertical, 20)
-            .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, minHeight: 68, alignment: .leading)
             .contentShape(Rectangle())
         }
         .buttonStyle(.tap(scale: 0.99))

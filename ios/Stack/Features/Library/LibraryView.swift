@@ -9,13 +9,18 @@ struct LibraryView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var model = LibraryModel()
     @State private var confirmDelete: PracticeAttempt?
+    private enum ReviewExit { case close, back }
+    @State private var reviewExit: ReviewExit?
 
     var body: some View {
-        SheetPage(title: "Practice interview", subtitle: subtitle, onClose: close) {
+        SheetPage(title: title, subtitle: subtitle, closeDisabled: model.recordingActive || (model.page == .review && model.busy), onClose: close) {
             Stage(key: model.page) {
                 VStack(alignment: .leading, spacing: Spacing.stack) {
                     if ![.loading, .industry].contains(model.page) {
-                        BackButton(label: "Back", disabled: model.busy || model.recordingActive) { Task { await model.back() } }
+                        BackButton(label: "Back", disabled: model.busy || model.recordingActive) {
+                            if model.page == .review { reviewExit = .back }
+                            else { Task { await model.back() } }
+                        }
                     }
                     content
                     MessageLine(text: model.error.isEmpty ? model.recorder.error : model.error)
@@ -38,6 +43,18 @@ struct LibraryView: View {
             }
         }
         .onDisappear { model.suspend() }
+        .confirmationDialog("Discard this recording?", isPresented: Binding(get: { reviewExit != nil },
+                            set: { if !$0 { reviewExit = nil } }), titleVisibility: .visible, presenting: reviewExit) { exit in
+            Button("Discard recording", role: .destructive) {
+                Task {
+                    if exit == .back { await model.back() }
+                    else { await model.discardAnswer(); dismiss() }
+                }
+            }
+            Button("Keep reviewing", role: .cancel) {}
+        } message: { _ in
+            Text("This removes the recording and its draft transcript.")
+        }
         .confirmationDialog("Delete this answer?", isPresented: Binding(get: { confirmDelete != nil }, set: { if !$0 { confirmDelete = nil } }),
                             titleVisibility: .visible, presenting: confirmDelete) { target in
             Button("Delete video and score", role: .destructive) { Task { await model.delete(target) } }
@@ -46,18 +63,34 @@ struct LibraryView: View {
         }
     }
 
+    private var title: String {
+        switch model.page {
+        case .loading, .industry: return "Practice interview"
+        case .track: return "Choose a track"
+        case .slots: return "Questions"
+        case .slot: return model.question?.title ?? "Question"
+        case .attempts: return "All answers"
+        case .attempt: return "Your answer"
+        case .interviewer: return "Get ready"
+        case .recording: return "Recording"
+        case .review: return "Review your answer"
+        case .scoring: return "Answer feedback"
+        }
+    }
+
     private var subtitle: String {
         switch model.page {
-        case .industry: return "Which industry are you trying to break into?"
-        case .track: return "What do you want to practice?"
-        case .slots: return "\(model.industryLabel) · Behavioral. Each question keeps your best answer."
+        case .industry: return "Choose an industry for your practice questions."
+        case .track: return model.industryLabel
+        case .slots: return "\(model.industryLabel) · Behavioral"
+        case .attempts: return model.question?.title ?? ""
         default: return ""
         }
     }
 
     private func close() {
         guard !model.recordingActive else { return }
-        if model.page == .review { Task { await model.discardAnswer() } }
+        if model.page == .review { reviewExit = .close; return }
         model.suspend()
         dismiss()
     }
@@ -65,7 +98,7 @@ struct LibraryView: View {
     @ViewBuilder
     private var content: some View {
         switch model.page {
-        case .loading: ProgressView().frame(maxWidth: .infinity)
+        case .loading: ProgressView("Loading questions…").frame(maxWidth: .infinity)
         case .industry: industryPicker
         case .track: trackPicker
         case .slots: slotList
@@ -83,8 +116,10 @@ struct LibraryView: View {
 
     private var industryPicker: some View {
         VStack(alignment: .leading, spacing: Spacing.option) {
-            Text("We add questions interviewers in that field ask. You can change it later.")
-                .font(Typeface.caption).foregroundStyle(Palette.muted)
+            if model.industries.isEmpty && !model.busy {
+                Text("No industries available").font(Typeface.body).foregroundStyle(Palette.muted)
+                StackButton(label: "Reload industries", kind: .secondary) { Task { await model.load() } }
+            }
             ForEach(Array(model.industries.enumerated()), id: \.element.id) { index, choice in
                 OptionRow(label: choice.label, icon: "industry", oat: choice.id == model.industry, disabled: model.busy) {
                     Task { await model.chooseIndustry(choice.id) }
@@ -102,16 +137,18 @@ struct LibraryView: View {
                           disabled: model.busy || !track.available) {
                     Task { await model.chooseTrack(track) }
                 }
-                .opacity(track.available ? 1 : 0.55)
                 .reveal(index)
             }
             Button("Change industry (\(model.industryLabel))") { model.page = .industry }
-                .font(Typeface.caption).foregroundStyle(Palette.muted)
+                .font(.subheadline.weight(.medium)).foregroundStyle(Brand.accent).frame(minHeight: 44)
         }
     }
 
     private var slotList: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if model.slots.isEmpty {
+                Text("No questions available for this track.").font(Typeface.body).foregroundStyle(Palette.muted)
+            }
             ForEach(Array(model.slots.enumerated()), id: \.element.id) { index, slot in
                 ListRow(label: slot.question.title, detail: slotDetailText(slot), action: { model.openSlot(slot) }) {
                     ScoreBadge(attempt: slot.best)
@@ -123,7 +160,7 @@ struct LibraryView: View {
 
     private func slotDetailText(_ slot: PracticeSlot) -> String {
         let count = slot.attemptCount
-        return "Question \(model.slots.firstIndex(of: slot).map { $0 + 1 } ?? 0) · " + (count == 0 ? "Not started" : "\(count) \(count == 1 ? "answer" : "answers")")
+        return count == 0 ? slot.question.topic : "\(count) \(count == 1 ? "answer" : "answers")"
     }
 
     // MARK: Slot
@@ -133,22 +170,24 @@ struct LibraryView: View {
             if let question = model.question { QuestionHeader(question: question) }
             if let best = model.attempt {
                 SectionLabel(text: "Your best answer")
-                AttemptSummary(attempt: best, video: model.localVideo(best))
-                    .onTapGesture { model.view(best) }
-                StackButton(label: "Open best answer", icon: "play", kind: .secondary) { model.view(best) }
+                Button { model.view(best) } label: {
+                    AttemptSummary(attempt: best, video: model.localVideo(best))
+                }
+                .buttonStyle(.tap(scale: 0.99))
+                .accessibilityHint("Opens your best answer.")
                 StackButton(label: "All answers", icon: "clock", kind: .secondary, disabled: model.busy) { Task { await model.showAttempts() } }
             }
             Toggle("Have the interviewer ask the question", isOn: $model.useInterviewer)
-                .font(Typeface.body).tint(Palette.dark)
-            StackButton(label: model.attempt == nil ? "Practice this question" : "Record a new answer", icon: "video", kind: .dark,
+                .font(Typeface.body).tint(Brand.accent)
+            StackButton(label: model.attempt == nil ? "Practice this question" : "Record a new answer", icon: "video",
                         disabled: model.busy) { Task { await model.practice() } }
         }
     }
 
     private var attemptList: some View {
         VStack(alignment: .leading, spacing: Spacing.option) {
-            if let question = model.question { Text(question.title).font(Typeface.title).foregroundStyle(Palette.ink) }
-            Text("Highest score first.").font(Typeface.caption).foregroundStyle(Palette.muted)
+            Text(model.attempts.isEmpty ? "No saved answers yet." : "Highest score first")
+                .font(Typeface.caption).foregroundStyle(Palette.muted)
             ForEach(Array(model.attempts.enumerated()), id: \.element.id) { index, attempt in
                 Button { model.view(attempt) } label: {
                     AttemptSummary(attempt: attempt, video: model.localVideo(attempt), rank: index + 1)
@@ -195,7 +234,7 @@ struct LibraryView: View {
     private var interviewerPage: some View {
         VStack(alignment: .leading, spacing: Spacing.group) {
             if model.useInterviewer {
-                InterviewerCard(speaking: model.interviewer.isSpeaking, listening: false)
+                InterviewerCard(speaking: model.interviewer.isSpeaking)
             }
             if let question = model.question {
                 Text(question.prompt).font(Typeface.section).foregroundStyle(Palette.ink).reveal(1)
@@ -209,9 +248,9 @@ struct LibraryView: View {
                     StackButton(label: "Replay", icon: "speaker", kind: .secondary, disabled: model.interviewer.isSpeaking) { model.replay() }
                     StackButton(label: "Skip interviewer", kind: .secondary) { model.skipInterviewer() }
                 }
-                Toggle("Start recording when the question ends", isOn: $model.autoRecord).font(Typeface.caption).tint(Palette.dark)
+                Toggle("Start recording when the question ends", isOn: $model.autoRecord).font(Typeface.caption).tint(Brand.accent)
             }
-            StackButton(label: "Record answer", icon: "video", kind: .dark, disabled: model.recorder.phase != .ready) {
+            StackButton(label: "Record answer", icon: "video", disabled: model.recorder.phase != .ready) {
                 Task { await model.startRecording() }
             }
             permissionNotes
@@ -229,7 +268,7 @@ struct LibraryView: View {
                         Label(timer(model.recorder.elapsed), systemImage: "record.circle")
                             .font(Typeface.caption.monospacedDigit()).foregroundStyle(.white)
                             .padding(.horizontal, 10).padding(.vertical, 6)
-                            .background(Palette.danger, in: Capsule()).padding(12)
+                            .background(.black.opacity(0.75), in: Capsule()).padding(12)
                     }
                 }
         } else if model.recorder.phase == .preparing {
@@ -262,7 +301,7 @@ struct LibraryView: View {
             }
             Text("Up to \(Int(VideoLibraryStore.maximumSeconds / 60)) minutes. Aim for about two.")
                 .font(Typeface.caption).foregroundStyle(Palette.muted)
-            StackButton(label: "Stop and review", icon: "check", kind: .dark, disabled: model.recorder.phase != .recording) {
+            StackButton(label: "Stop and review", icon: "check", disabled: model.recorder.phase != .recording) {
                 Task { await model.stopRecording() }
             }
         }
@@ -291,9 +330,9 @@ struct LibraryView: View {
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             StackField(label: "Transcript", text: Binding(get: { model.draft }, set: { model.edited($0) }), multiline: true)
-            Text("Fix any words the transcript got wrong. Coaching uses this text; your video stays on this phone.")
+            Text("Coaching uses the edited transcript. Your video stays on this phone.")
                 .font(Typeface.caption).foregroundStyle(Palette.muted)
-            StackButton(label: "Get score and feedback", icon: "sparkles", kind: .dark, disabled: model.busy || model.draft.isBlank) {
+            StackButton(label: "Get score and feedback", icon: "sparkles", disabled: model.busy || model.draft.isBlank) {
                 Task { await model.score() }
             }
             StackButton(label: "Discard and record again", kind: .secondary, disabled: model.busy) {
@@ -304,10 +343,17 @@ struct LibraryView: View {
 
     private var scoringPage: some View {
         VStack(alignment: .leading, spacing: Spacing.group) {
-            InterviewerCard(speaking: false, listening: true)
-            Text("Scoring your answer…").font(Typeface.title).foregroundStyle(Palette.ink)
-            Text(model.attempt?.runMessage.isEmpty == false ? model.attempt!.runMessage : "Your coach is reviewing specificity, ownership, structure and reflection.")
-                .font(Typeface.caption).foregroundStyle(Palette.muted)
+            if model.attempt?.isStalled == true {
+                Label("Scoring paused", systemImage: "pause.circle").font(Typeface.title).foregroundStyle(Palette.ink)
+            } else {
+                HStack(spacing: 12) {
+                    ProgressView().tint(Brand.accent)
+                    Text("Scoring your answer…").font(Typeface.section).foregroundStyle(Palette.ink)
+                }
+            }
+            if let message = model.attempt?.runMessage, !message.isEmpty {
+                Text(message).font(Typeface.caption).foregroundStyle(Palette.muted)
+            }
             if let attempt = model.attempt, attempt.isStalled {
                 StackButton(label: "Retry scoring", icon: "refresh", disabled: model.busy) { Task { await model.retryScoring() } }
             }
@@ -327,7 +373,7 @@ private struct QuestionHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(question.topic.uppercased()).font(.system(size: 12, weight: .semibold)).tracking(1.2).foregroundStyle(Palette.muted)
+            Text(question.topic).font(Typeface.caption.weight(.semibold)).foregroundStyle(Palette.muted)
             Text(question.prompt).font(Typeface.section).foregroundStyle(Palette.ink)
         }
     }
@@ -340,11 +386,11 @@ struct ScoreBadge: View {
         let scored = attempt?.score != nil
         Text(PracticeScore.label(attempt))
             .font(scored ? Typeface.button.monospacedDigit().weight(.semibold) : Typeface.caption)
-            .foregroundStyle(scored ? Palette.onDark : Palette.muted)
+            .foregroundStyle(scored ? Brand.accent : Palette.muted)
             .padding(.horizontal, scored ? 12 : 0)
             .padding(.vertical, scored ? 6 : 0)
-            .background(scored ? Palette.dark : .clear, in: Capsule())
-            .accessibilityLabel(scored ? "Best score \(attempt!.score!) of 100" : PracticeScore.label(attempt))
+            .background(scored ? Palette.halo : .clear, in: Capsule())
+            .accessibilityLabel(scored ? "Score \(attempt?.score ?? 0) of 100" : PracticeScore.label(attempt))
     }
 }
 
@@ -364,6 +410,8 @@ private struct AttemptSummary: View {
                 }
                 Spacer()
                 ScoreBadge(attempt: attempt)
+                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(Palette.muted)
+                    .accessibilityHidden(true)
             }
             Text(attempt.transcript).font(Typeface.body).foregroundStyle(Palette.text).lineLimit(3).multilineTextAlignment(.leading)
         }
@@ -376,7 +424,7 @@ private struct ScoreCard: View {
     var body: some View {
         Card(tint: Palette.surfaceRaised, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
-                Text(attempt.score.map(String.init) ?? "–").font(.system(size: 44, weight: .bold).monospacedDigit()).foregroundStyle(Palette.ink)
+                Text(attempt.score.map(String.init) ?? "–").font(.largeTitle.weight(.bold).monospacedDigit()).foregroundStyle(Palette.ink)
                 Text("/ 100").font(Typeface.caption).foregroundStyle(Palette.muted)
                 Spacer()
                 Text(attempt.status == "unscored" ? "Feedback only" : "Score").font(Typeface.caption).foregroundStyle(Palette.muted)
@@ -389,7 +437,7 @@ private struct ScoreCard: View {
                             Spacer()
                             Text("\(Int(value))/4").font(Typeface.caption.monospacedDigit()).foregroundStyle(Palette.muted)
                         }
-                        ProgressView(value: value, total: 4).tint(Palette.dark)
+                        ProgressView(value: value, total: 4).tint(Brand.accent)
                     }
                     .accessibilityElement(children: .combine)
                 }
@@ -398,7 +446,7 @@ private struct ScoreCard: View {
                 Text(attempt.feedback).font(Typeface.body).foregroundStyle(Palette.text).textSelection(.enabled)
             }
             Text("Scores are your coach's judgment of this answer, not a certification.")
-                .font(.system(size: 12)).foregroundStyle(Palette.muted)
+                .font(.footnote).foregroundStyle(Palette.muted)
         }
     }
 }

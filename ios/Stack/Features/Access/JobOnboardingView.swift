@@ -27,7 +27,7 @@ struct JobOnboardingView: View {
             } else if picker == "location" {
                 LocationChoiceView(onSelect: { location = $0; picker = "" }, onBack: { picker = "" })
             } else if picker == "stage" {
-                SheetPage(title: "Career stage", onClose: { picker = "" }) {
+                SheetPage(title: "Career stage", closeLabel: "Back", onClose: { picker = "" }) {
                     VStack(spacing: 0) {
                         ForEach(PreferenceForm.careerStages, id: \.self) { value in
                             Button { stage = value; picker = "" } label: {
@@ -60,15 +60,20 @@ struct JobOnboardingView: View {
                 VStack(spacing: 0) {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 0) {
-                            Text("A little about\nyour search.")
+                            Text("Your job search")
                                 .font(Typeface.display).tracking(-1.8).foregroundStyle(Brand.ink).reveal(0)
-                            Text("This helps us get started.")
+                            Text("Choose the roles and places you want to see. You can change these later.")
                                 .font(Typeface.body).foregroundStyle(Brand.muted).padding(.top, 12).reveal(1)
-                            VStack(alignment: .leading, spacing: 24) {
+                            VStack(alignment: .leading, spacing: 0) {
                                 selection("Role or job title", value: role.isEmpty ? "Choose a role" : role) { picker = "role" }
+                                Divider()
                                 selection("City or state", value: location.isEmpty ? "Choose a location" : location) { picker = "location" }
+                                Divider()
                                 selection("Career stage", value: stage.isEmpty ? "Choose your stage" : stage) { picker = "stage" }
-                            }.padding(.top, 36).reveal(2)
+                            }
+                            .padding(.horizontal, 16)
+                            .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .padding(.top, 28).reveal(2)
                         }
                         .padding(.horizontal, Spacing.page).padding(.top, 40).padding(.bottom, 24)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -96,14 +101,21 @@ struct JobOnboardingView: View {
     }
 
     private func selection(_ label: String, value: String, action: @escaping () -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            (Text(label).fontWeight(.semibold) + Text(" (optional)").foregroundColor(Brand.muted))
-                .font(Typeface.caption).foregroundStyle(Brand.ink)
-            Button(action: action) {
-                HStack { Text(value).foregroundStyle(Brand.muted); Spacer(); Image(systemName: "chevron.down").foregroundStyle(Brand.muted) }
-                    .padding(.horizontal, 16).frame(height: 54).background(.white, in: RoundedRectangle(cornerRadius: 14))
-            }.buttonStyle(.plain)
+        Button(action: action) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(label).font(.headline).foregroundStyle(Brand.ink)
+                    Text(value).font(Typeface.caption).foregroundStyle(Brand.muted)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Brand.muted)
+            }
+            .multilineTextAlignment(.leading)
+            .padding(.vertical, 15)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityHint("Optional")
     }
 
     private func showResume() {

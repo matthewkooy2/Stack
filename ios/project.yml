@@ -56,7 +56,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen:
-          UIColorName: LaunchBlue
+          UIColorName: LaunchCanvas
         # Keep recording an answer when the app is not on screen (the red status bar pill shows it).
         UIBackgroundModes:
           - audio

@@ -16,8 +16,8 @@ struct GmailTrackingSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(connected ? "Gmail tracking is on." : "Track applications automatically.")
-                .font(.system(size: 22, weight: .semibold)).tracking(-0.5).foregroundStyle(Brand.ink)
+            Text(connected ? "Tracking is on" : "Connect your inbox")
+                .font(.headline).foregroundStyle(Brand.ink)
             Text(connected ? "Find applications from any job search, then track them here." : "Connect Gmail once. Stack keeps your application status up to date.")
                 .font(Typeface.body).foregroundStyle(Brand.muted)
             if connected {

@@ -40,6 +40,7 @@ struct JobScoreCopy {
 @MainActor
 struct JobScoreCardView: View {
     let result: JSON
+    @Environment(\.stackReduceMotion) private var reduceMotion
     @State private var open = false
 
     var body: some View {
@@ -52,7 +53,7 @@ struct JobScoreCardView: View {
                     .font(Typeface.caption).foregroundStyle(Palette.text)
             }
             if copy.isScored {
-                Button(open ? "Hide score details" : "Score details") { withAnimation(Motion.fadeAnimation) { open.toggle() } }
+                Button(open ? "Hide score details" : "Score details") { withAnimation(reduceMotion ? nil : Motion.fadeAnimation) { open.toggle() } }
                     .font(Typeface.caption.weight(.semibold)).foregroundStyle(Palette.dark)
                 if open { details(copy) }
             }

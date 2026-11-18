@@ -18,43 +18,35 @@ struct PublicProfilesView: View {
     private func key(_ field: ProfileDraftField) -> String { platform + ":" + field.id }
 
     var body: some View {
-        ZStack {
-            Palette.page.ignoresSafeArea()
-            Page {
-                BackButton(label: "Close") { dismiss() }
-                Text("Public profiles").font(Typeface.display).foregroundStyle(Palette.ink).reveal(0)
-                Text("Draft your professional story. These drafts stay in this signed-in session; your public profiles stay unchanged.")
-                    .font(Typeface.caption).foregroundStyle(Palette.muted).reveal(1)
-                HStack {
-                    ForEach(["LinkedIn", "GitHub", "Portfolio"], id: \.self) { name in
-                        Chip(label: name, selected: platform == name) { platform = name }
-                    }
+        SheetPage(title: "Public profiles", subtitle: "Drafts stay in this signed-in session.") {
+            FlowLayout(spacing: 6) {
+                ForEach(["LinkedIn", "GitHub", "Portfolio"], id: \.self) { name in
+                    Chip(label: name, selected: platform == name) { platform = name }
                 }
+            }
+            VStack(spacing: 0) {
                 ForEach(fields) { item in
-                    ListRow(label: item.label, icon: "edit", detail: store.profileDrafts[key(item)] ?? "Add a draft") {
+                    ListRow(label: item.label, detail: store.profileDrafts[key(item)] ?? "Add a draft") {
                         draft = store.profileDrafts[key(item)] ?? ""
                         field = item
                     }
                 }
             }
+            .padding(.horizontal, 16)
+            .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .onAppear { generation = store.sessionGeneration }
         .onChange(of: store.sessionGeneration) { _, _ in dismiss() }
         .sheet(item: $field) { item in
-            ZStack {
-                Palette.page.ignoresSafeArea()
-                Page {
-                    BackButton(label: "Cancel") { field = nil }
-                    Text(item.label).font(Typeface.title).foregroundStyle(Palette.ink)
-                    StackField(label: "Draft", text: $draft, multiline: true)
-                    StackButton(label: "Save draft") {
-                        guard generation == store.sessionGeneration, store.phase == .ready else { return }
-                        store.profileDrafts[key(item)] = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-                        field = nil
-                    }
-                    Text("Saved locally for this session. Signing out clears these drafts.")
-                        .font(Typeface.caption).foregroundStyle(Palette.muted)
+            SheetPage(title: item.label, closeLabel: "Cancel", onClose: { field = nil }) {
+                StackField(label: "Draft", text: $draft, multiline: true)
+                StackButton(label: "Save draft") {
+                    guard generation == store.sessionGeneration, store.phase == .ready else { return }
+                    store.profileDrafts[key(item)] = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+                    field = nil
                 }
+                Text("Signing out clears your saved drafts.")
+                    .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             .interactiveDismissDisabled(!draft.isEmpty)
         }

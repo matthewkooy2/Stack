@@ -22,7 +22,7 @@ enum StackTab: String, CaseIterable, Identifiable {
 
 @MainActor
 struct RootView: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.stackReduceMotion) private var reduceMotion
     @Environment(AppStore.self) private var store
     @Environment(\.scenePhase) private var scenePhase
 
@@ -121,7 +121,7 @@ struct JobOnboardingGate: View {
     }
 }
 
-/// The five destinations retain their order, with the blue look on Jobs, Network and Prep.
+/// Keep visited roots mounted so tab changes preserve decks, drafts and scroll positions.
 @MainActor
 struct MainTabs: View {
     @Environment(AppStore.self) private var store
@@ -135,7 +135,7 @@ struct MainTabs: View {
         VStack(spacing: 0) {
             ZStack {
                 ForEach(StackTab.allCases) { tab in
-                    if visited.contains(tab) {
+                    if selection == tab || visited.contains(tab) {
                         screen(for: tab)
                             .opacity(selection == tab ? 1 : 0)
                             .allowsHitTesting(selection == tab)
@@ -144,7 +144,7 @@ struct MainTabs: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            TabBar(selection: $selection, namespace: highlight, resumeIsEmpty: store.account.resumes.isEmpty)
+            TabBar(selection: $selection, namespace: highlight)
         }
         .onChange(of: selection) { _, tab in visited.insert(tab) }
         .onChange(of: store.linkedDestination) { _, destination in
@@ -180,7 +180,7 @@ struct MainTabs: View {
         showProfile = false
         visited.insert(tab)
         if tab == .network { store.pendingOpen["network_section"] = "network" }
-        withAnimation(Motion.ease(0.32)) { selection = tab }
+        selection = tab
         if destination != "prep" { Task { await store.refresh() } }
     }
 
@@ -222,64 +222,59 @@ struct MainTabs: View {
         case .applications: ApplicationsView(onProfile: { showProfile = true }, onNavigate: { selection = $0 })
         case .network: NetworkView(onProfile: { showProfile = true })
         case .resume: ResumeView(onProfile: { showProfile = true })
-        case .prep: PrepView(isActive: selection == .prep && !showProfile && agentTask == nil)
+        case .prep: PrepView(isActive: selection == .prep && !showProfile && agentTask == nil,
+                             onProfile: { showProfile = true })
         }
     }
 }
 
 private struct TabBar: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.stackReduceMotion) private var reduceMotion
     @Binding var selection: StackTab
     let namespace: Namespace.ID
-    let resumeIsEmpty: Bool
-
-    private var resumeUpload: Bool { selection == .resume && resumeIsEmpty }
-    /// Screens in the blue look: the bar's icons and selection follow it. Prep keeps the page colour only.
-    private var branded: Bool { selection == .jobs || selection == .network || resumeUpload }
-    private var brandedPage: Bool { branded || selection == .prep }
-    private var pageColor: Color { brandedPage ? Brand.page : Palette.page }
-    private var highlight: Color {
-        if resumeUpload { return .clear }
-        return branded ? Brand.accent.opacity(0.10) : Palette.halo.opacity(0.7)
-    }
-
-    private func tint(for tab: StackTab) -> Color {
-        if branded { return selection == tab ? Brand.accent : Brand.muted }
-        return selection == tab ? Palette.icon : Palette.muted
-    }
 
     var body: some View {
         HStack(spacing: 0) {
             ForEach(StackTab.allCases) { tab in
+                let selected = selection == tab
                 Button {
-                    withAnimation(reduceMotion ? nil : Motion.ease(0.32)) { selection = tab }
+                    selection = tab
                 } label: {
-                    VStack(spacing: 4) {
-                        GlyphView(name: tab.icon, size: 21, color: tint(for: tab))
+                    VStack(spacing: 3) {
+                        Image(systemName: Glyph.symbol(tab.icon))
+                            .symbolVariant(selected ? .fill : .none)
+                            .font(.system(size: 19, weight: .medium))
                         Text(tab.rawValue)
-                            .font(.system(size: 11, weight: selection == tab ? .semibold : .regular))
-                            .foregroundStyle(tint(for: tab))
+                            .font(.system(size: 11, weight: selected ? .semibold : .medium))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 52)
+                    .foregroundStyle(selected ? Brand.accent : Brand.muted)
+                    .frame(maxWidth: .infinity, minHeight: 49)
                     .background {
-                        if selection == tab {
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(highlight)
+                        if selected {
+                            Capsule()
+                                .fill(Palette.halo)
                                 .matchedGeometryEffect(id: "tab-highlight", in: namespace)
                         }
                     }
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.tap(scale: 0.94, dim: 1))
+                .buttonStyle(.plain)
                 .accessibilityLabel(tab.rawValue)
-                .accessibilityAddTraits(selection == tab ? .isSelected : [])
+                .accessibilityAddTraits(selected ? .isSelected : [])
+                .accessibilityShowsLargeContentViewer {
+                    Label(tab.rawValue, systemImage: Glyph.symbol(tab.icon))
+                }
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.top, 8)
-        .padding(.bottom, 4)
-        .background(pageColor.ignoresSafeArea(edges: .bottom))
-        .overlay(alignment: .top) { Rectangle().fill(brandedPage ? Brand.rule : Palette.rule).frame(height: 1) }
+        .animation(reduceMotion ? nil : Motion.stageAnimation, value: selection)
+        .padding(4)
+        .background(Palette.surfaceRaised, in: Capsule())
+        .overlay(Capsule().strokeBorder(Palette.rule, lineWidth: 0.5))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+        .background(Brand.page.ignoresSafeArea(edges: .bottom))
         .sensoryFeedback(.selection, trigger: selection)
     }
 }

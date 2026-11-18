@@ -276,8 +276,6 @@ struct RemoteBrowserView: View {
     @State private var model = RemoteBrowserModel()
     @State private var text = ""
     @FocusState private var keyboardFocused: Bool
-    @State private var area: CGSize = .zero
-    @State private var dragStart: CGPoint?
 
     var body: some View {
         ZStack {
@@ -288,71 +286,70 @@ struct RemoteBrowserView: View {
                     Spacer()
                     StackButton(label: "Close", kind: .secondary) { dismiss() }.frame(width: 90)
                 }
-                Text(model.statusText).font(Typeface.body).foregroundStyle(Palette.text).accessibilityAddTraits(.updatesFrequently)
-                taskStatus
-                if let url = model.frame?.url, !url.isEmpty {
-                    Text(url).font(Typeface.caption).foregroundStyle(Palette.muted).lineLimit(1)
-                }
-                screen
-                MessageLine(text: model.error).fadeSwitch(!model.error.isEmpty)
-                if model.owned {
-                    if task["kind"].string == "autofill" {
-                        ForEach(Array(task["artifacts"]["browser_autofill"]["fields"].array.filter { !$0["upload_token"].string.isEmpty }.enumerated()), id: \.offset) { _, field in
-                            StackButton(label: "Attach selected resume: " + task["resume_name"].string,
-                                        disabled: !model.canInput || task["resume_id"].string.isEmpty) {
-                                flush()
-                                model.send(["type":"upload_resume", "upload_token":field["upload_token"]])
-                            }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(model.statusText).font(Typeface.body).foregroundStyle(Palette.text).accessibilityAddTraits(.updatesFrequently)
+                        taskStatus
+                        if let url = model.frame?.url, !url.isEmpty {
+                            Text(url).font(Typeface.caption).foregroundStyle(Palette.muted).lineLimit(1)
                         }
-                    }
-                    Text("Tap a field to focus it, type below, and send. Swipe the page to scroll. Closing this view leaves the agent paused.")
-                        .font(Typeface.caption).foregroundStyle(Palette.muted)
-                    HStack(spacing: 8) {
-                        TextField("Text to type", text: $text)
-                            .focused($keyboardFocused)
-                            .toolbar {
-                                if keyboardFocused {
-                                    ToolbarItemGroup(placement: .keyboard) {
-                                        Spacer()
-                                        Button { keyboardFocused = false } label: { Image(systemName: "keyboard.chevron.compact.down") }
-                                            .accessibilityLabel("Hide keyboard")
+                        screen
+                        MessageLine(text: model.error).fadeSwitch(!model.error.isEmpty)
+                        if model.owned {
+                            if task["kind"].string == "autofill" {
+                                ForEach(Array(task["artifacts"]["browser_autofill"]["fields"].array.filter { !$0["upload_token"].string.isEmpty }.enumerated()), id: \.offset) { _, field in
+                                    StackButton(label: "Attach selected resume: " + task["resume_name"].string,
+                                                disabled: !model.canInput || task["resume_id"].string.isEmpty) {
+                                        flush()
+                                        model.send(["type":"upload_resume", "upload_token":field["upload_token"]])
                                     }
                                 }
                             }
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled()
-                            .padding(12)
-                            .background(Palette.field, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            Text("Tap a field to focus it, type below, and send. Swipe the page to scroll. Closing this view leaves the agent paused.")
+                                .font(Typeface.caption).foregroundStyle(Palette.muted)
+                            HStack(spacing: 8) {
+                                TextField("Text to type", text: $text)
+                                    .focused($keyboardFocused)
+                                    .toolbar {
+                                        if keyboardFocused {
+                                            ToolbarItemGroup(placement: .keyboard) {
+                                                Spacer()
+                                                Button { keyboardFocused = false } label: { Image(systemName: "keyboard.chevron.compact.down") }
+                                                    .accessibilityLabel("Hide keyboard")
+                                            }
+                                        }
+                                    }
+                                    .textInputAutocapitalization(.never)
+                                    .autocorrectionDisabled()
+                                    .padding(12)
+                                    .background(Palette.field, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                                    .disabled(!model.canInput)
+                                    .accessibilityLabel("Remote browser keyboard")
+                                Chip(label: "Send") { flush() }
+                            }
+                            HStack(spacing: 8) {
+                                Chip(label: keyboardFocused ? "Hide keyboard" : "Show keyboard") {
+                                    keyboardFocused.toggle()
+                                }
+                                .disabled(!keyboardFocused && !model.canInput)
+                                .accessibilityHint("Keeps unsent text without sending it to the remote browser")
+                            }
+                            FlowLayout(spacing: 8) {
+                                Chip(label: "Backspace") { flush(); model.send(["type": "key", "key": "Backspace"]) }
+                                    .accessibilityHint("Deletes before the cursor in the remote field")
+                                Chip(label: "Delete") { flush(); model.send(["type": "key", "key": "Delete"]) }
+                                    .accessibilityHint("Deletes after the cursor in the remote field")
+                                Chip(label: "Select all") { flush(); model.send(["type": "key", "key": "SelectAll"]) }
+                                Chip(label: "Tab") { flush(); model.send(["type": "key", "key": "Tab"]) }
+                                Chip(label: "Enter") { flush(); model.send(["type": "key", "key": "Enter"]) }
+                            }
                             .disabled(!model.canInput)
-                            .accessibilityLabel("Remote browser keyboard")
-                        Chip(label: "Send") { flush() }
-                    }
-                    HStack(spacing: 8) {
-                        Chip(label: keyboardFocused ? "Hide keyboard" : "Show keyboard") {
-                            keyboardFocused.toggle()
                         }
-                        .disabled(!keyboardFocused && !model.canInput)
-                        .accessibilityHint("Keeps unsent text without sending it to the remote browser")
+                        controls
                     }
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 8) {
-                            Chip(label: "Backspace") { flush(); model.send(["type": "key", "key": "Backspace"]) }
-                                .accessibilityHint("Deletes before the cursor in the remote field")
-                            Chip(label: "Delete") { flush(); model.send(["type": "key", "key": "Delete"]) }
-                                .accessibilityHint("Deletes after the cursor in the remote field")
-                        }
-                        HStack(spacing: 8) {
-                            Chip(label: "Select all") { flush(); model.send(["type": "key", "key": "SelectAll"]) }
-                                .accessibilityHint("Selects all text in the focused remote field")
-                            Chip(label: "Tab") { flush(); model.send(["type": "key", "key": "Tab"]) }
-                            Chip(label: "Enter") { flush(); model.send(["type": "key", "key": "Enter"]) }
-                        }
-                    }
-                    .disabled(!model.canInput)
-                    Text("Editing buttons act on the focused field on the remote page. Backspace deletes before the cursor; Delete deletes after it. Select all selects that field’s text.")
-                        .font(Typeface.caption).foregroundStyle(Palette.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                controls
+                .scrollDismissesKeyboard(.interactively)
             }
             .padding(Spacing.page)
         }
@@ -394,7 +391,7 @@ struct RemoteBrowserView: View {
     private var screen: some View {
         GeometryReader { proxy in
             ZStack {
-                Color.white
+                Palette.surface
                 if let frame = model.frame {
                     Image(uiImage: frame.image)
                         .resizable()
@@ -408,11 +405,9 @@ struct RemoteBrowserView: View {
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Palette.rule, lineWidth: 1))
             .contentShape(Rectangle())
-            .gesture(
+            .highPriorityGesture(
                 DragGesture(minimumDistance: 0)
-                    .onChanged { value in if dragStart == nil { dragStart = value.startLocation } }
                     .onEnded { value in
-                        defer { dragStart = nil }
                         guard model.canInput else { return }
                         flush()
                         if abs(value.translation.height) > 12 || abs(value.translation.width) > 12 {
@@ -420,10 +415,10 @@ struct RemoteBrowserView: View {
                         } else if let point = map(value.startLocation, in: proxy.size) {
                             model.send(["type": "click", "x": .number(point.x), "y": .number(point.y)])
                         }
-                    }
+                    },
+                including: model.canInput ? .all : .none
             )
             .accessibilityLabel("Live remote browser")
-            .onAppear { area = proxy.size }
         }
         .frame(minHeight: 240)
     }

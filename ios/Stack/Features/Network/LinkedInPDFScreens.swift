@@ -71,34 +71,34 @@ struct LinkedInPDFUploadScreen: View {
     let onChoose: () -> Void
     var onRetry: (() -> Void)?
 
-    @ScaledMetric(relativeTo: .largeTitle) private var headingSize = 36
-
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Review your LinkedIn")
-                            .font(.system(size: headingSize, weight: .heavy)).tracking(-1.8)
-                            .foregroundStyle(Brand.ink).minimumScaleFactor(0.6)
+                            .font(Typeface.display)
+                            .foregroundStyle(Brand.ink)
                             .accessibilityAddTraits(.isHeader)
                         Text("Upload the PDF LinkedIn makes of your profile.")
                             .font(Typeface.body).foregroundStyle(Brand.muted)
                     }
                     .reveal(0)
 
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(LinkedInPDF.steps.enumerated()), id: \.offset) { index, step in
-                            HStack(alignment: .firstTextBaseline, spacing: 14) {
-                                Text("\(index + 1)").font(.system(.subheadline).weight(.semibold))
-                                    .foregroundStyle(Brand.accent).frame(width: 18, alignment: .leading)
-                                Text(step).font(Typeface.body).foregroundStyle(Brand.ink)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            .padding(.vertical, 12)
-                            .accessibilityElement(children: .combine)
-                            if index < LinkedInPDF.steps.count - 1 {
-                                Rectangle().fill(Brand.rule).frame(height: 1)
+                    DisclosureSection("How to get your LinkedIn PDF") {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(Array(LinkedInPDF.steps.enumerated()), id: \.offset) { index, step in
+                                HStack(alignment: .firstTextBaseline, spacing: 14) {
+                                    Text("\(index + 1)").font(.system(.subheadline).weight(.semibold))
+                                        .foregroundStyle(Brand.accent).frame(width: 18, alignment: .leading)
+                                    Text(step).font(Typeface.body).foregroundStyle(Brand.ink)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .padding(.vertical, 12)
+                                .accessibilityElement(children: .combine)
+                                if index < LinkedInPDF.steps.count - 1 {
+                                    Rectangle().fill(Brand.rule).frame(height: 1)
+                                }
                             }
                         }
                     }
@@ -149,6 +149,7 @@ struct LinkedInReviewScreen: View {
     var taskID = ""
     let onDone: () -> Void
     var onAnother: (() -> Void)?
+    @Environment(\.stackReduceMotion) private var reduceMotion
     @State private var open: Set<Int> = []
 
     var body: some View {
@@ -157,8 +158,8 @@ struct LinkedInReviewScreen: View {
                 VStack(alignment: .leading, spacing: 22) {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Your LinkedIn review")
-                            .font(.system(size: 36, weight: .heavy)).tracking(-1.8)
-                            .foregroundStyle(Brand.ink).minimumScaleFactor(0.6)
+                            .font(Typeface.display)
+                            .foregroundStyle(Brand.ink)
                             .accessibilityAddTraits(.isHeader)
                         if !role.isBlank {
                             Text("For \(role.lowercased()) roles").font(.system(.subheadline).weight(.semibold))
@@ -223,14 +224,14 @@ struct LinkedInReviewScreen: View {
     private func findingRow(_ finding: LinkedInReviewContent.Finding) -> some View {
         let expanded = open.contains(finding.id)
         return Button {
-            withAnimation(Motion.ease(0.25)) {
+            withAnimation(reduceMotion ? nil : Motion.fadeAnimation) {
                 if expanded { open.remove(finding.id) } else { open.insert(finding.id) }
             }
         } label: {
             VStack(alignment: .leading, spacing: 6) {
                 Text("\(finding.priority.capitalized) · \(finding.section)")
                     .font(.system(.subheadline).weight(.semibold)).foregroundStyle(Brand.muted)
-                Text(finding.weakness).font(.system(size: 20, weight: .semibold)).tracking(-0.5)
+                Text(finding.weakness).font(.headline)
                     .foregroundStyle(Brand.ink).multilineTextAlignment(.leading)
                 Text(finding.recommendation).font(Typeface.body).foregroundStyle(Brand.ink)
                     .multilineTextAlignment(.leading)

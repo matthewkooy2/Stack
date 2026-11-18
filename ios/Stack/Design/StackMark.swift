@@ -1,12 +1,12 @@
 import SwiftUI
 
-/// The bold blue-on-off-white identity used by the welcome and launch screens.
+/// Semantic colors shared by navigation, controls and content.
 enum Brand {
-    static let page = Color(hex: 0xF5F3F0)
-    static let ink = Color(hex: 0x111111)
-    static let accent = Color(hex: 0x2563FF)
-    static let muted = Color(hex: 0x5E5C58)
-    static let rule = Color(hex: 0xDAD7D2)
+    static let page = Color(light: 0xF5F6F8, dark: 0x101216)
+    static let ink = Color(light: 0x191D25, dark: 0xF1F3F7)
+    static let accent = Color(light: 0x2256CB, dark: 0x8CB1FF)
+    static let muted = Color(light: 0x586170, dark: 0xADB5C4)
+    static let rule = Color(light: 0xD7DCE4, dark: 0x373E49)
 }
 
 extension Brand {
@@ -15,31 +15,6 @@ extension Brand {
         func channel(_ value: UInt32, _ shift: UInt32) -> Double { Double((value >> shift) & 0xFF) / 255 }
         func lerp(_ shift: UInt32) -> Double { channel(a, shift) + (channel(b, shift) - channel(a, shift)) * t }
         return Color(.sRGB, red: lerp(16), green: lerp(8), blue: lerp(0), opacity: 1)
-    }
-}
-
-private struct MarkInFlightKey: EnvironmentKey { static let defaultValue = false }
-
-extension EnvironmentValues {
-    /// True while `LaunchSequence` is flying the splash mark toward its place on the destination screen. The
-    /// destination's own mark waits, invisible and not animating in, until the flying one lands.
-    var markInFlight: Bool {
-        get { self[MarkInFlightKey.self] }
-        set { self[MarkInFlightKey.self] = newValue }
-    }
-}
-
-struct MarkFrameKey: PreferenceKey {
-    static let defaultValue: CGRect? = nil
-    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) { value = value ?? nextValue() }
-}
-
-extension View {
-    /// Reports this view's frame in window coordinates, so the launch sequence knows where to land the mark.
-    func reportsMarkFrame() -> some View {
-        background(GeometryReader { proxy in
-            Color.clear.preference(key: MarkFrameKey.self, value: proxy.frame(in: .global))
-        })
     }
 }
 
@@ -88,7 +63,7 @@ struct StackMark: View, Animatable {
         ZStack {
             if tiled {
                 RoundedRectangle(cornerRadius: 26, style: .continuous)
-                    .fill(Brand.accent)
+                    .fill(Palette.button)
                     .scaleEffect(shown ? 1 : 0.8)
                     .opacity(shown ? 1 : 0)
                     .animation(reduceMotion ? nil : .spring(response: 0.5, dampingFraction: 0.7).delay(delay), value: built)

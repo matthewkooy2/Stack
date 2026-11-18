@@ -64,7 +64,7 @@ struct GlyphView: View {
     }
 }
 
-/// The primary action: a blue pill. `dark` is the same pill in ink, `secondary` a quiet text link.
+/// Full-width primary action, quiet secondary action or compact ink button.
 @MainActor
 struct StackButton: View {
     enum Kind { case primary, secondary, dark }
@@ -77,17 +77,17 @@ struct StackButton: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 14) {
-                if !icon.isEmpty { GlyphView(name: icon, size: 21, color: kind == .secondary ? Palette.muted : .white) }
+            HStack(spacing: 9) {
+                if !icon.isEmpty { GlyphView(name: icon, size: 18, color: foreground) }
                 Text(label)
                     .font(kind == .secondary ? Typeface.caption.weight(.semibold) : .system(.headline).weight(.semibold))
                     .foregroundStyle(foreground)
                     .multilineTextAlignment(.center)
             }
-            .frame(maxWidth: kind == .dark ? nil : .infinity, minHeight: kind == .secondary ? 48 : 58)
+            .padding(.vertical, 8)
+            .frame(maxWidth: kind == .dark ? nil : .infinity, minHeight: kind == .secondary ? 44 : 52)
             .padding(.horizontal, kind == .dark ? 26 : 17)
             .background(background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .opacity(disabled ? 0.45 : 1)
             .contentShape(Rectangle())
         }
         .buttonStyle(.tap(scale: kind == .secondary ? 0.985 : 0.97))
@@ -99,8 +99,8 @@ struct StackButton: View {
     private var foreground: Color {
         switch kind {
         case .primary: return .white
-        case .secondary: return Palette.muted
-        case .dark: return .white
+        case .secondary: return Brand.accent
+        case .dark: return Palette.onDark
         }
     }
 
@@ -126,19 +126,19 @@ struct OptionRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 20) {
-                if !icon.isEmpty { GlyphView(name: icon, size: 26).frame(width: 32) }
+            HStack(spacing: 14) {
+                if !icon.isEmpty { GlyphView(name: icon, size: 20, color: Brand.accent).frame(width: 26) }
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(label).font(.system(size: 20, weight: .semibold)).tracking(-0.5).foregroundStyle(Palette.icon)
+                    Text(label).font(.headline).foregroundStyle(Palette.icon)
                     if !detail.isEmpty { Text(detail).font(Typeface.caption).foregroundStyle(Palette.muted) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                if showsChevron { GlyphView(name: "chevron", size: 16, color: Palette.muted) }
+                if showsChevron { GlyphView(name: "chevron", size: 13, color: Palette.muted) }
             }
-            .padding(.vertical, 18)
-            .frame(minHeight: 72)
+            .padding(.vertical, 13)
+            .frame(minHeight: 56)
             .contentShape(Rectangle())
-            .overlay(alignment: .bottom) { Rectangle().fill(Palette.rule).frame(height: 1) }
+            .overlay(alignment: .bottom) { Divider() }
         }
         .buttonStyle(.tap(scale: 0.98))
         .disabled(disabled)
@@ -157,18 +157,19 @@ struct ListRow<Trailing: View>: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 22) {
-                if !icon.isEmpty { GlyphView(name: icon, size: 26).frame(width: 32) }
+            HStack(spacing: 14) {
+                if !icon.isEmpty { GlyphView(name: icon, size: 20, color: Brand.accent).frame(width: 26) }
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(label).font(.system(size: 20, weight: .semibold)).tracking(-0.5).foregroundStyle(Palette.icon)
+                    Text(label).font(.headline).foregroundStyle(Palette.icon)
                     if !detail.isEmpty { Text(detail).font(Typeface.caption).foregroundStyle(Palette.muted).lineLimit(2) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 trailing()
             }
-            .padding(.vertical, 20)
+            .padding(.vertical, 14)
+            .frame(minHeight: 56)
             .contentShape(Rectangle())
-            .overlay(alignment: .bottom) { Rectangle().fill(Palette.rule).frame(height: 1) }
+            .overlay(alignment: .bottom) { Divider() }
         }
         .buttonStyle(.tap(scale: 0.985, dim: 1))
         .accessibilityLabel(detail.isEmpty ? label : "\(label), \(detail)")
@@ -178,7 +179,7 @@ struct ListRow<Trailing: View>: View {
 extension ListRow where Trailing == AnyView {
     init(label: String, icon: String = "", detail: String = "", action: @escaping () -> Void) {
         self.init(label: label, icon: icon, detail: detail, action: action) {
-            AnyView(GlyphView(name: "chevron", size: 16, color: Palette.muted))
+            AnyView(GlyphView(name: "chevron", size: 13, color: Palette.muted))
         }
     }
 }
@@ -191,12 +192,15 @@ struct BackButton: View {
 
     var body: some View {
         Button(action: action) {
-            GlyphView(name: "return", size: 20, color: Palette.muted)
-                .frame(width: 44, height: 44)
+            Image(systemName: label.hasPrefix("Close") || label == "Cancel" ? "xmark" : "chevron.backward")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Brand.ink)
+                .frame(width: 34, height: 34)
                 .background(Palette.backChip, in: Circle())
-                .overlay(Circle().stroke(Palette.rule, lineWidth: 1))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.tap(scale: 0.92, dim: 1))
+        .buttonStyle(.tap(scale: 0.96))
         .disabled(disabled)
         .accessibilityLabel(label)
     }
@@ -204,15 +208,15 @@ struct BackButton: View {
 
 @MainActor
 struct Card<Content: View>: View {
-    var tint: Color = .clear
+    var tint: Color = Palette.surface
     var spacing: CGFloat = 16
     @ViewBuilder var content: () -> Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: spacing, content: content)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 22)
-            .overlay(alignment: .bottom) { Rectangle().fill(Palette.rule).frame(height: 1) }
+            .padding(16)
+            .background(tint, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 
@@ -220,19 +224,25 @@ struct Card<Content: View>: View {
 struct Chip: View {
     let label: String
     var selected = false
+    @Environment(\.stackReduceMotion) private var reduceMotion
     var action: (() -> Void)?
 
     var body: some View {
         let chip = Text(label)
             .font(Typeface.caption)
-            .foregroundStyle(selected ? Palette.onDark : Palette.text)
+            .fontWeight(selected ? .semibold : .regular)
+            .foregroundStyle(selected ? Brand.accent : Palette.text)
             .padding(.horizontal, 14)
             .padding(.vertical, 9)
-            .background(selected ? Brand.accent : Color.white, in: Capsule())
+            .background(selected ? Palette.halo : Palette.surface, in: Capsule())
             .overlay(Capsule().stroke(selected ? Color.clear : Palette.rule, lineWidth: 1))
-            .animation(Motion.fadeAnimation, value: selected)
+            .animation(reduceMotion ? nil : Motion.fadeAnimation, value: selected)
         if let action {
-            Button(action: action) { chip }.buttonStyle(.tap(scale: 0.95, dim: 1)).accessibilityLabel(label)
+            Button(action: action) {
+                chip.frame(minHeight: 44).contentShape(Rectangle())
+            }
+                .buttonStyle(.tap(scale: 0.98))
+                .accessibilityLabel(label)
                 .accessibilityAddTraits(selected ? .isSelected : [])
         } else {
             chip
@@ -265,6 +275,7 @@ struct StackField: View {
     var secure = false
     var keyboard: UIKeyboardType = .default
     var autocapitalization: TextInputAutocapitalization = .sentences
+    @FocusState private var focused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -278,7 +289,8 @@ struct StackField: View {
                     TextField(placeholder, text: $text)
                 }
             }
-            .keyboardDismissControl()
+            .focused($focused)
+            .keyboardDismissToolbar($focused)
             .font(Typeface.body)
             .accessibilityLabel(label)
             .foregroundStyle(Palette.text)
@@ -290,7 +302,8 @@ struct StackField: View {
             .padding(.vertical, 16)
             .frame(minHeight: multiline ? 140 : 54, alignment: .topLeading)
             .background(Palette.field, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(Palette.rule, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(focused ? Brand.accent : Palette.rule, lineWidth: focused ? 1.5 : 1))
         }
     }
 }
@@ -303,20 +316,24 @@ private struct KeyboardDismissControl: ViewModifier {
     func body(content: Content) -> some View {
         content
             .focused($focused)
-            .toolbar {
-                if focused {
-                    ToolbarItemGroup(placement: .keyboard) {
-                        Spacer()
-                        Button { focused = false } label: { Image(systemName: "keyboard.chevron.compact.down") }
-                            .accessibilityLabel("Hide keyboard")
-                    }
-                }
-            }
+            .keyboardDismissToolbar($focused)
     }
 }
 
 extension View {
     func keyboardDismissControl() -> some View { modifier(KeyboardDismissControl()) }
+
+    fileprivate func keyboardDismissToolbar(_ focus: FocusState<Bool>.Binding) -> some View {
+        toolbar {
+            if focus.wrappedValue {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button { focus.wrappedValue = false } label: { Image(systemName: "keyboard.chevron.compact.down") }
+                        .accessibilityLabel("Hide keyboard")
+                }
+            }
+        }
+    }
 }
 
 /// A calm inline message for errors and notices; fades rather than snaps.
@@ -343,26 +360,30 @@ struct ScreenHeader: View {
     @Environment(AppStore.self) var store
 
     var body: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title).font(Typeface.display).tracking(-1.8).foregroundStyle(Palette.ink)
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(Typeface.display).tracking(-0.8).foregroundStyle(Palette.ink)
+                    .accessibilityAddTraits(.isHeader)
                 if !subtitle.isEmpty { Text(subtitle).font(Typeface.caption).foregroundStyle(Palette.muted) }
             }
             Spacer(minLength: 12)
             if let onProfile {
                 Button(action: onProfile) {
-                    GlyphView(name: "profile", size: 26, color: Palette.icon)
-                        .frame(width: 44, height: 44)
-                        .background(Palette.backChip, in: Circle())
-                        .overlay(Circle().stroke(Palette.rule, lineWidth: 1))
+                    Image(systemName: "person.fill")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(Brand.accent)
+                        .frame(width: 36, height: 36)
+                        .background(Palette.halo, in: Circle())
                         .overlay(alignment: .topTrailing) {
                             if store.account.attentionRunCount > 0 {
                                 Circle().fill(Brand.accent).frame(width: 12, height: 12)
                                     .overlay(Circle().stroke(Palette.page, lineWidth: 2))
                             }
                         }
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.tap(scale: 0.92, dim: 1))
+                .buttonStyle(.tap(scale: 0.96, dim: 1))
                 .accessibilityLabel(store.account.attentionRunCount > 0
                                     ? "Your account, \(store.account.attentionRunCount) agent tasks need you" : "Your account")
             }
@@ -378,14 +399,14 @@ struct EmptyNote: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            Halo(size: 76) { GlyphView(name: icon, size: 30) }
+            Halo(size: 52) { GlyphView(name: icon, size: 22, color: Brand.accent) }
             Text(title).font(Typeface.section).foregroundStyle(Palette.ink)
             if !message.isEmpty {
                 Text(message).font(Typeface.caption).foregroundStyle(Palette.muted).multilineTextAlignment(.center)
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 40)
+        .padding(.vertical, 28)
         .padding(.horizontal, 24)
     }
 }

@@ -42,7 +42,7 @@ struct MemoryBankView: View {
                             else { dismiss() }
                         }.disabled(working)
                         Spacer()
-                    }.padding(.bottom, 32)
+                    }.padding(.bottom, 16)
                     Text(editing ? (editingID.isEmpty ? "Add to memory" : "Edit memory") : choosing ? "Choose facts" : "Your memory bank")
                         .font(Typeface.display).tracking(-1.8).foregroundStyle(Brand.ink).reveal(0)
                     if !editing {
@@ -106,7 +106,7 @@ struct MemoryBankView: View {
             ForEach(Array(sources.enumerated()), id: \.offset) { _, item in
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(alignment: .firstTextBaseline) {
-                        Text(item["name"].string).font(.system(size: 21, weight: .semibold)).tracking(-0.5).foregroundStyle(Brand.ink)
+                        Text(item["name"].string).font(.headline).foregroundStyle(Brand.ink)
                         Spacer()
                         if item["editable"].bool && !choosing {
                             Button("Edit") { edit(item) }
@@ -122,17 +122,28 @@ struct MemoryBankView: View {
                     Text(item["confirmed"].bool ? item["source"].string : "Draft · " + item["source"].string)
                         .font(Typeface.caption).foregroundStyle(Brand.muted)
                     ForEach(Array(item["records"].array.enumerated()), id: \.offset) { _, record in
-                        HStack(alignment: .top, spacing: 8) {
-                            if choosing, !target.isEmpty, item["id"].string != target, item["confirmed"].bool {
-                                Button { toggle(item, record["id"].string) } label: {
-                                    Image(systemName: isSelected(item, record["id"].string) ? "checkmark.circle.fill" : "circle")
-                                        .foregroundStyle(Brand.accent).frame(width: 44, height: 44)
-                                }.accessibilityLabel("Use fact: \(record["text"].string)")
-                                    .accessibilityValue(isSelected(item, record["id"].string) ? "Selected" : "Not selected")
-                                    .accessibilityIdentifier("memory-fact-\(item["id"].string)-\(record["id"].string)")
-                            } else { Text("•").accessibilityHidden(true) }
-                            Text(record["text"].string).fixedSize(horizontal: false, vertical: true)
-                        }.font(Typeface.body).foregroundStyle(Brand.ink)
+                        if choosing, !target.isEmpty, item["id"].string != target, item["confirmed"].bool {
+                            let selected = isSelected(item, record["id"].string)
+                            Button { toggle(item, record["id"].string) } label: {
+                                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(selected ? Brand.accent : Brand.muted)
+                                    Text(record["text"].string).font(Typeface.body).foregroundStyle(Brand.ink)
+                                        .multilineTextAlignment(.leading)
+                                }
+                                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Use fact: \(record["text"].string)")
+                            .accessibilityValue(selected ? "Selected" : "Not selected")
+                            .accessibilityIdentifier("memory-fact-\(item["id"].string)-\(record["id"].string)")
+                        } else {
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text("•").accessibilityHidden(true)
+                                Text(record["text"].string).fixedSize(horizontal: false, vertical: true)
+                            }.font(Typeface.body).foregroundStyle(Brand.ink)
+                        }
                     }
                     if choosing, selection.contains(where: { $0["id"] == item["id"] && $0["revision"] != item["revision"] }) {
                         Text("This memory changed. Choose its facts again.").font(Typeface.caption).foregroundStyle(Brand.muted)
@@ -236,7 +247,7 @@ struct MemoryBankView: View {
                             Image(systemName: "xmark.circle.fill").foregroundStyle(Brand.muted.opacity(0.6))
                                 .frame(width: 44, height: 44)
                         }.accessibilityLabel("Remove fact")
-                    }.padding(.leading, 14).background(.white, in: RoundedRectangle(cornerRadius: 14))
+                    }.padding(.leading, 14).background(Palette.field, in: RoundedRectangle(cornerRadius: 14))
                 }
                 Button {
                     let newFact = Fact()

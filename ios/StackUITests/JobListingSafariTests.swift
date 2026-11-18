@@ -266,7 +266,8 @@ final class JobListingSafariUITests: XCTestCase {
         try await expect(app, "Senior Principal Staff")
         await capture("safari-reopened")
         try await closeBrowser(app)
-        XCTAssertTrue(app.buttons["Save"].isHittable, "Save and Pass are reachable after reopening")
+        XCTAssertTrue(app.buttons["Save"].isHittable)
+        XCTAssertTrue(app.buttons["Pass"].isHittable)
     }
 
     /// Supply a distinctive error label actually observed on this OS and locale. Safari renders it out of

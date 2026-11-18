@@ -38,7 +38,7 @@ struct InterviewView: View {
     static func requestID() -> String { String(Int(Date().timeIntervalSince1970 * 1000)) + "-" + UUID().uuidString.lowercased() }
 
     var body: some View {
-        SheetPage(title: "Mock interview", subtitle: "Choose a saved role, review each answer, and get coaching. You can record or type.") {
+        SheetPage(title: current.object.isEmpty ? "Mock interview" : data["job"]["title"].string) {
             if current.object.isEmpty { setup } else { session }
             MessageLine(text: error).fadeSwitch(!error.isEmpty)
         }
@@ -63,14 +63,20 @@ struct InterviewView: View {
             if applications.isEmpty {
                 Text("Save a real job from Jobs to practice for it.").font(Typeface.caption).foregroundStyle(Palette.muted)
             }
-            FlowLayout(spacing: 8) {
-                ForEach(applications) { app in
-                    Chip(label: "\(app.job.title) · \(app.job.company)", selected: role == app.id) {
-                        if !busy { role = app.id; createID = Self.requestID() }
+            if !applications.isEmpty {
+                Picker("Saved role", selection: $role) {
+                    Text("Choose a role").tag("")
+                    ForEach(applications) { app in
+                        Text("\(app.job.title) · \(app.job.company)").tag(app.id)
                     }
                 }
+                .pickerStyle(.menu)
+                .tint(Brand.accent)
+                .frame(minHeight: 44)
+                .disabled(busy)
+                .onChange(of: role) { _, _ in createID = Self.requestID() }
             }
-            StackButton(label: "Start job interview", icon: "chat", disabled: busy || role.isEmpty) { Task { await start() } }
+            StackButton(label: "Start job interview", icon: "chat", disabled: busy || role.isEmpty || applications.isEmpty) { Task { await start() } }
             if !sessions.isEmpty {
                 SectionLabel(text: "Saved interviews")
                 ForEach(Array(sessions.enumerated()), id: \.offset) { _, row in
@@ -88,8 +94,16 @@ struct InterviewView: View {
 
     private var session: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("\(data["job"]["title"].string) · \(data["status"].string)").font(Typeface.title).foregroundStyle(Palette.ink)
-            StackButton(label: "Back to interviews", icon: "return", kind: .secondary, disabled: busy) { leave() }
+            HStack {
+                Button { leave() } label: {
+                    Label("Interviews", systemImage: "chevron.left")
+                        .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+                }
+                .foregroundStyle(Brand.accent).disabled(busy)
+                .accessibilityLabel("Back to interviews")
+                Spacer()
+                Text(data["status"].string.capitalized).font(Typeface.caption).foregroundStyle(Palette.muted)
+            }
             if !run["id"].string.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(run["message"].string).font(Typeface.caption).foregroundStyle(Palette.muted)
@@ -132,9 +146,9 @@ struct InterviewView: View {
                 }
             }
             if active {
-                StackButton(label: "Finish interview", disabled: busy || turns.isEmpty) { Task { await action("finish") } }
+                StackButton(label: "Finish interview", kind: .secondary, disabled: busy || turns.isEmpty) { Task { await action("finish") } }
             }
-            SectionLabel(text: "Your answers")
+            if !turns.isEmpty { SectionLabel(text: "Your answers") }
             ForEach(Array(turns.enumerated()), id: \.offset) { index, turn in
                 Card(spacing: 6) {
                     let attempts = turn["previous"].array.count + 1
@@ -142,7 +156,7 @@ struct InterviewView: View {
                         .font(Typeface.caption.weight(.semibold)).foregroundStyle(Palette.muted)
                     Text(turn["question"]["question"].string).font(Typeface.caption).foregroundStyle(Palette.muted)
                     Text(turn["answer"].string).font(Typeface.body).foregroundStyle(Palette.text)
-                    HStack(spacing: 8) {
+                    FlowLayout(spacing: 8) {
                         // A retry is a new answer to the same question; the earlier one stays saved.
                         Chip(label: "Try this question again") {
                             if !busy { correction = index; fixing = false; edited = "" }
@@ -154,19 +168,23 @@ struct InterviewView: View {
                             }
                         }
                     }
+                    if correction == index { correctionEditor }
                 }
             }
-            if correction >= 0 {
-                StackField(label: fixing ? "Fix words the transcription got wrong" : "Your new answer to question \(correction + 1)",
-                           text: $edited, multiline: true)
-                StackButton(label: fixing ? "Save transcript fix" : "Save new answer", disabled: busy || edited.isBlank) {
-                    Task {
-                        await act("interview_correct", ["id": current["id"], "revision": current["revision"],
-                                                        "index": .number(Double(correction)), "answer": .string(edited)])
-                    }
+        }
+    }
+
+    private var correctionEditor: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            StackField(label: fixing ? "Fix words the transcription got wrong" : "Your new answer to question \(correction + 1)",
+                       text: $edited, multiline: true)
+            StackButton(label: fixing ? "Save transcript fix" : "Save new answer", disabled: busy || edited.isBlank) {
+                Task {
+                    await act("interview_correct", ["id": current["id"], "revision": current["revision"],
+                                                    "index": .number(Double(correction)), "answer": .string(edited)])
                 }
-                StackButton(label: "Cancel", kind: .secondary, disabled: busy) { correction = -1; edited = "" }
             }
+            StackButton(label: "Cancel", kind: .secondary, disabled: busy) { correction = -1; edited = "" }
         }
     }
 

@@ -32,6 +32,13 @@ services:
       STACK_LINKEDIN_ENABLED: "0"
       JAC_SERVE_DOCS: "false"
       JAC_SERVE_GRAPH: "false"
+      # Coaching waits on the model inside a request; more threads keep logins and feeds responsive meanwhile.
+      JAC_SERVE_THREADS: "${JAC_SERVE_THREADS:-32}"
+      # Overflow GPU for AI requests (agents/local_model.jac). Stays off until the private
+      # env file sets STACK_OVERFLOW_API_KEY; never put the key here.
+      STACK_OVERFLOW_URL: "${STACK_OVERFLOW_URL:-https://api.runpod.ai/v2/7ig8qdegtowwhu/openai/v1}"
+      STACK_OVERFLOW_MODEL: "${STACK_OVERFLOW_MODEL:-qwen3-4b-instruct}"
+      STACK_LOCAL_MAX_IN_FLIGHT: "${STACK_LOCAL_MAX_IN_FLIGHT:-2}"
     volumes:
       - ${STACK_STORAGE_DIR:-/var/lib/stack/storage}:/opt/stack/storage
     depends_on:
@@ -77,6 +84,14 @@ services:
       STACK_TRANSCRIPTION_AUTO_SETUP: "0"
       STACK_TRANSCRIPTION_READINESS_PATH: /opt/stack/transcription-status/readiness.json
       STACK_WORKER_API: http://api:8000
+      # Overflow GPU for AI requests (agents/local_model.jac). Stays off until the private
+      # env file sets STACK_OVERFLOW_API_KEY; never put the key here.
+      STACK_OVERFLOW_URL: "${STACK_OVERFLOW_URL:-https://api.runpod.ai/v2/7ig8qdegtowwhu/openai/v1}"
+      STACK_OVERFLOW_MODEL: "${STACK_OVERFLOW_MODEL:-qwen3-4b-instruct}"
+      STACK_LOCAL_MAX_IN_FLIGHT: "${STACK_LOCAL_MAX_IN_FLIGHT:-2}"
+    # Each worker runs one AI task at a time; leased claims make extra copies safe.
+    deploy:
+      replicas: ${STACK_WORKER_REPLICAS:-2}
     volumes:
       - transcription-status:/opt/stack/transcription-status
       - ${STACK_STORAGE_DIR:-/var/lib/stack/storage}:/opt/stack/storage

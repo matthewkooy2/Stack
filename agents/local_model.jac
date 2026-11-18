@@ -13,6 +13,14 @@ with entry {
     RESPONSE_LIMIT = 262144;
     OUTPUT_LIMIT = 65536;
     CONTEXT_MESSAGE = 'This task exceeds the local model context limit. Increase the configured context and load the model with that context before retrying.';
+    TIMEOUT_MESSAGE = 'Local inference timed out. Check model capacity before retrying.';
+    UNAVAILABLE_MESSAGE = 'The local model service or selected model is unavailable. Start the service and check the model before retrying.';
+    REJECTED_MESSAGE = 'The local model service rejected the request. Check the selected model and local service authorization.';
+    # Local failures that a second Stack-operated GPU can absorb. Cancellation, context,
+    # schema and format errors are never retried elsewhere.
+    OVERFLOW_RETRYABLE = [TIMEOUT_MESSAGE, UNAVAILABLE_MESSAGE, REJECTED_MESSAGE];
+    _slot_gate = Lock();
+    _slots: dict[int, any] = {};
 }
 
 """One local inference request. Closing its socket signals cancellation to the model server."""
@@ -207,6 +215,49 @@ def validate(value: any, schema: dict[str, any], depth: int = 0) {
     }
 }
 
+"""A Stack-operated OpenAI-compatible GPU endpoint (for example a Runpod serverless vLLM
+worker) that takes local requests when the local GPU is busy or failing. Configured only by
+environment, so the API key stays in the private service env; None when not configured."""
+def overflow() -> dict[str, any] | None {
+    url = os.environ.get('STACK_OVERFLOW_URL', '').strip();
+    model = os.environ.get('STACK_OVERFLOW_MODEL', '').strip();
+    key = os.environ.get('STACK_OVERFLOW_API_KEY', '').strip();
+    if not url or not model or not key { return None; }
+    parts = urlsplit(url);
+    if parts.scheme != 'https' or not parts.hostname or parts.username is not None
+        or parts.password is not None or parts.query or parts.fragment {
+        raise ValueError('Invalid overflow inference URL. Use an https OpenAI-compatible base URL.');
+    }
+    def number(name: str, fallback: int, low: int, high: int) -> int {
+        try { value = int(os.environ.get(name, '') or fallback); }
+        except ValueError { value = fallback; }
+        return min(high, max(low, value));
+    }
+    return {
+        'base': 'https://' + parts.hostname + ':' + str(parts.port or 443),
+        'prefix': parts.path.rstrip('/'),
+        'model': model,
+        'key': key,
+        # A cold serverless worker needs about two minutes to load; warm requests take seconds.
+        'timeout': number('STACK_OVERFLOW_TIMEOUT', 120, 10, 170),
+        # Fail over quickly so a slow local GPU plus the overflow stays inside the worker lease.
+        'local_timeout': number('STACK_OVERFLOW_LOCAL_TIMEOUT', 40, 5, 90),
+        # Local requests at once per process before new ones go straight to the overflow; 0 = no limit.
+        'local_in_flight': number('STACK_LOCAL_MAX_IN_FLIGHT', 2, 0, 64)
+    };
+}
+
+def _local_slots(limit: int) -> any {
+    if limit <= 0 { return None; }
+    import from threading { BoundedSemaphore }
+    with _slot_gate {
+        if limit not in _slots { _slots[limit] = BoundedSemaphore(limit); }
+        return _slots[limit];
+    }
+}
+
+"""Local inference, spilling to the overflow GPU when local capacity is full or a local
+attempt fails for capacity reasons. Without overflow configuration this is one local attempt."""
 def complete(
     step: str,
     system: str,
@@ -216,8 +267,40 @@ def complete(
     received: any,
     cancellation: InferenceCancellation | None = None
 ) -> dict[str, any] {
-    provider = c['provider'];
-    base = origin(provider, c.get('local_model_url', ''));
+    spill = overflow();
+    if spill is None {
+        return _attempt(step, system, prompt, schema, c, received, cancellation, None, 0);
+    }
+    slots = _local_slots(spill['local_in_flight']);
+    if slots is not None and not slots.acquire(blocking=False) {
+        return _attempt(step, system, prompt, schema, c, received, cancellation, spill, 0);
+    }
+    try {
+        return _attempt(step, system, prompt, schema, c, received, cancellation, None, spill['local_timeout']);
+    } except ValueError as exc {
+        if str(exc) not in OVERFLOW_RETRYABLE { raise; }
+        if cancellation is not None { cancellation.check(); }
+        return _attempt(step, system, prompt, schema, c, received, cancellation, spill, 0);
+    } finally {
+        if slots is not None { slots.release(); }
+    }
+}
+
+def _attempt(
+    step: str,
+    system: str,
+    prompt: str,
+    schema: dict[str, any],
+    c: dict[str, any],
+    received: any,
+    cancellation: InferenceCancellation | None,
+    spill: dict[str, any] | None,
+    local_timeout: int
+) -> dict[str, any] {
+    # The overflow speaks the OpenAI chat format whatever the local provider is.
+    provider = 'lmstudio' if spill is not None else c['provider'];
+    base = spill['base'] if spill is not None else origin(provider, c.get('local_model_url', ''));
+    if spill is not None { c = {**c, 'model': spill['model']}; }
     if not c['model'].strip() {
         raise ValueError('Choose an installed local model.');
     }
@@ -245,7 +328,7 @@ def complete(
             }
         };
     } else {
-        path = '/v1/chat/completions';
+        path = (spill['prefix'] if spill is not None else '/v1') + '/chat/completions';
         payload = {
             'model': c['model'],
             'messages': messages,
@@ -266,11 +349,12 @@ def complete(
     # agents.coaching decides between structured and prose (#112, #133).
     plain = step == 'coach' or step in ['interview_turn', 'interview_coach'];
     headers = {'Content-Type': 'application/json', 'Accept': 'application/json'};
-    token = os.environ.get('STACK_LOCAL_MODEL_API_KEY', '');
+    token = spill['key'] if spill is not None else os.environ.get('STACK_LOCAL_MODEL_API_KEY', '');
     if token {
         headers['Authorization'] = 'Bearer ' + token;
     }
-    seconds = min(90, max(5, c.get('local_model_timeout', 90)));
+    seconds = spill['timeout'] if spill is not None else min(90, max(5, c.get('local_model_timeout', 90)));
+    if local_timeout { seconds = min(seconds, local_timeout); }
     deadline = time.monotonic() + seconds;
     parts = urlsplit(base);
     connection = HTTPSConnection(parts.hostname, parts.port, timeout=seconds)
@@ -323,9 +407,7 @@ def complete(
                 if response.status in [400, 413] and b'context' in detail {
                     raise ValueError(CONTEXT_MESSAGE);
                 }
-                raise ValueError(
-                    'The local model service rejected the request. Check the selected model and local service authorization.'
-                );
+                raise ValueError(REJECTED_MESSAGE);
             }
             if response.headers.get_content_type() != 'application/json' {
                 raise ValueError(
@@ -371,19 +453,11 @@ def complete(
         }
     } except TimeoutError {
         if cancellation is not None { cancellation.check(); }
-        raise ValueError(
-            'Local inference timed out. Check model capacity before retrying.'
-        ) from None;
+        raise ValueError(TIMEOUT_MESSAGE) from None;
     } except (OSError, HTTPException) {
         if cancellation is not None { cancellation.check(); }
-        if expired.is_set() {
-            raise ValueError(
-                'Local inference timed out. Check model capacity before retrying.'
-            ) from None;
-        }
-        raise ValueError(
-            'The local model service or selected model is unavailable. Start the service and check the model before retrying.'
-        ) from None;
+        if expired.is_set() { raise ValueError(TIMEOUT_MESSAGE) from None; }
+        raise ValueError(UNAVAILABLE_MESSAGE) from None;
     } finally {
         timer.cancel();
         if cancellation is not None { cancellation.bind(None); }
@@ -436,5 +510,6 @@ def complete(
         data = decode(text);validate(data, schema);
     }
     model = model if isinstance(model, str) else c['model'];
-    return {'text': text, 'model': model, 'id': result.get('id', ''), 'usage': {}};
+    return {'text': text, 'model': model, 'id': result.get('id', ''), 'usage': {},
+        'route': 'overflow' if spill is not None else 'local'};
 }

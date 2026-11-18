@@ -12,7 +12,7 @@ import time
 import unittest
 from unittest.mock import patch
 
-from agents import contracts, provider, worker, linkedin
+from agents import contracts, provider, worker, linkedin, local_model
 if os.environ.get('JAC_DB_URL'):
     raise RuntimeError('Local model verification requires the embedded disposable database; unset JAC_DB_URL first.')
 os.environ['JAC_DB_SCRATCH'] = '1'
@@ -66,6 +66,74 @@ def service(name, artifact=FIT, raw=None, status=200, content_type='application/
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try: yield 'http://127.0.0.1:'+str(server.server_port),requests
     finally: server.shutdown();server.server_close();thread.join(2)
+
+def closed_url():
+    probe=socket.socket();probe.bind(('127.0.0.1',0));port=probe.getsockname()[1];probe.close()
+    return 'http://127.0.0.1:'+str(port)
+
+class Overflow(unittest.TestCase):
+    """Spill to a Stack-operated OpenAI-compatible GPU when the local GPU is busy, down or slow."""
+    def setUp(self):
+        self.tmp=tempfile.TemporaryDirectory();self.addCleanup(self.tmp.cleanup)
+        self.path=Path(self.tmp.name)/'provider.json'
+        env=patch.dict(os.environ,{'STACK_AGENT_CONFIG':str(self.path),'STACK_LOCAL_MODEL_API_KEY':'local-key',
+            'STACK_OVERFLOW_API_KEY':'overflow-key','STACK_OVERFLOW_MODEL':'qwen3-4b-instruct','STACK_LOCAL_MAX_IN_FLIGHT':'2',
+            'OPENAI_API_KEY':'do-not-send','STACK_FIRST_PARTY_AI_ONLY':'1'})
+        env.start();self.addCleanup(env.stop)
+        # The overflow is https in production; the fixture serves plain HTTP on loopback.
+        plain=patch.object(local_model,'HTTPSConnection',local_model.HTTPConnection);plain.start();self.addCleanup(plain.stop)
+    def run_fit(self,local_url,spill_url):
+        self.path.write_text(json.dumps({'provider':'ollama','model':'qwen-test','local_model_url':local_url,'fallback_enabled':False}))
+        with patch.dict(os.environ,{'STACK_OVERFLOW_URL':spill_url.replace('http://','https://')+'/v2/endpoint/openai/v1'}):
+            return provider.generate('fit',CONTEXT,contracts.config())
+    def assert_overflow_request(self,requests):
+        path,payload,headers=requests[0]
+        self.assertEqual(path,'/v2/endpoint/openai/v1/chat/completions')
+        self.assertEqual(headers['Authorization'],'Bearer overflow-key')
+        self.assertEqual(payload['model'],'qwen3-4b-instruct')
+        self.assertEqual(payload['response_format']['json_schema']['schema'],provider.SCHEMAS['fit'])
+    def test_unreachable_local_gpu_spills_with_the_overflow_key_and_model(self):
+        with service('lmstudio') as (spill,requests):
+            self.assertEqual(self.run_fit(closed_url(),spill)['artifact'],FIT)
+        self.assert_overflow_request(requests)
+    def test_busy_local_gpu_sends_new_requests_straight_to_overflow(self):
+        slots=local_model._local_slots(2);slots.acquire();slots.acquire()
+        try:
+            with service('ollama') as (local,local_requests),service('lmstudio') as (spill,requests):
+                self.assertEqual(self.run_fit(local,spill)['artifact'],FIT)
+            self.assertEqual(local_requests,[]);self.assert_overflow_request(requests)
+        finally: slots.release();slots.release()
+        # With capacity back, requests stay local and the slot is returned.
+        with service('ollama') as (local,local_requests),service('lmstudio') as (spill,requests):
+            self.assertEqual(self.run_fit(local,spill)['artifact'],FIT)
+        self.assertEqual(len(local_requests),1);self.assertEqual(requests,[])
+        self.assertTrue(slots.acquire(blocking=False));slots.release()
+    def test_failing_or_slow_local_gpu_spills_but_bad_output_and_cancellation_do_not(self):
+        with service('ollama',status=503) as (local,_),service('lmstudio') as (spill,requests):
+            self.assertEqual(self.run_fit(local,spill)['artifact'],FIT)
+        self.assertEqual(len(requests),1)
+        with patch.dict(os.environ,{'STACK_OVERFLOW_LOCAL_TIMEOUT':'5'}),service('ollama',drip=True) as (local,_),service('lmstudio') as (spill,requests):
+            started=time.monotonic();self.assertEqual(self.run_fit(local,spill)['artifact'],FIT)
+            self.assertLess(time.monotonic()-started,6.4)
+        self.assertEqual(len(requests),1)
+        with service('ollama',{'summary':'missing required fields'}) as (local,_),service('lmstudio') as (spill,requests):
+            with self.assertRaises(ValueError): self.run_fit(local,spill)
+        self.assertEqual(requests,[])
+        cancellation=local_model.InferenceCancellation(gate=threading.Lock());cancellation.stop()
+        with service('lmstudio') as (spill,requests),patch.dict(os.environ,{'STACK_OVERFLOW_URL':spill.replace('http://','https://')+'/v1'}):
+            with self.assertRaisesRegex(ValueError,'Cancelled'):
+                local_model.complete('fit','system','{}',provider.SCHEMAS['fit'],{'provider':'ollama','model':'qwen-test',
+                    'local_model_url':closed_url(),'max_output_tokens':100},lambda *_: None,cancellation)
+        self.assertEqual(requests,[])
+    def test_overflow_is_off_without_a_key_and_requires_https(self):
+        with patch.dict(os.environ,{'STACK_OVERFLOW_URL':'https://api.example.test/v2/x/openai/v1','STACK_OVERFLOW_API_KEY':''}):
+            self.assertIsNone(local_model.overflow())
+        with patch.dict(os.environ,{'STACK_OVERFLOW_URL':'http://api.example.test/v1'}):
+            with self.assertRaisesRegex(ValueError,'https'): local_model.overflow()
+        with patch.dict(os.environ,{'STACK_OVERFLOW_URL':'https://api.example.test/v2/x/openai/v1/'}):
+            spill=local_model.overflow()
+        self.assertEqual((spill['base'],spill['prefix'],spill['timeout'],spill['local_timeout']),
+                         ('https://api.example.test:443','/v2/x/openai/v1',120,40))
 
 class LocalModels(unittest.TestCase):
     def setUp(self):

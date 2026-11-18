@@ -95,6 +95,22 @@ destination. A restore drill needs a separate environment and the relevant
 runtime configuration, credentials, and encryption keys.
 
 
+## AI overflow GPU
+
+When the local GPU is busy (more than `STACK_LOCAL_MAX_IN_FLIGHT` requests at once in a
+process, default 2), unreachable, rejecting requests or slower than
+`STACK_OVERFLOW_LOCAL_TIMEOUT` (default 40 s), AI requests go to a Stack-operated
+OpenAI-compatible GPU endpoint instead. Compose supplies the Runpod serverless vLLM URL
+and model (`qwen3-4b-instruct`, scale to zero, up to 3 workers). Overflow stays off until
+`STACK_OVERFLOW_API_KEY` is set in both `/etc/stack/api.env` and `/etc/stack/worker.env`;
+restart the API and workers after adding it. Use a Runpod key restricted to that endpoint.
+Bad model output, context errors and cancelled tasks are never retried on the overflow.
+`STACK_FIRST_PARTY_AI_ONLY=1` still blocks Codex, Claude and paid APIs.
+
+The API now runs 32 sync threads (`JAC_SERVE_THREADS`) so requests waiting on a model do
+not starve sign-in and feeds, and two worker containers (`STACK_WORKER_REPLICAS`) claim AI
+tasks in parallel under the existing leases.
+
 ## Request traces in Grafana
 
 On the Stack monitoring host, update the existing log collector and provisioned

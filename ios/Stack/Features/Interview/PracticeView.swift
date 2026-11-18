@@ -33,12 +33,12 @@ struct PracticeView: View {
     private var liveFeature: AgentFeature? { store.account.feature("live") }
 
     var body: some View {
-        SheetPage(title: current.object.isEmpty ? "Technical practice" : (problem?.title ?? "Technical practice")) {
+        SheetPage(title: current.object.isEmpty ? "Coding practice" : (problem?.title ?? "Coding practice")) {
             MessageLine(text: error).fadeSwitch(!error.isEmpty)
             MessageLine(text: message, isError: false).fadeSwitch(!message.isEmpty)
             if current.object.isEmpty { chooser } else { editor }
             if !sessions.isEmpty {
-                SectionLabel(text: "Continue a session")
+                SectionLabel(text: "Continue")
                 ForEach(Array(sessions.enumerated()), id: \.offset) { _, row in
                     let language = row["data"]["language"].string
                     let id = row["data"]["problem_id"].string
@@ -52,7 +52,7 @@ struct PracticeView: View {
                 DisclosureSection("Practice tools") {
                     featureSummary
                     if let url = URL(string: web), !web.isEmpty {
-                        StackButton(label: "Open web workspace", kind: .secondary) { openURL(url) }
+                        StackButton(label: "Open on web", kind: .secondary) { openURL(url) }
                     }
                 }
             }
@@ -146,16 +146,16 @@ struct PracticeView: View {
                 StackField(label: "Your code", text: Binding(get: { code }, set: { code = $0; dirty = true }),
                            multiline: true, autocapitalization: .never)
             }
-            StackField(label: "Practice notes", text: Binding(get: { notes }, set: { notes = $0; dirty = true }), multiline: true)
+            StackField(label: "Notes", text: Binding(get: { notes }, set: { notes = $0; dirty = true }), multiline: true)
             if dirty { Text("Unsaved changes").font(Typeface.caption).foregroundStyle(Palette.muted) }
             StackButton(label: "Save practice", disabled: busy) { Task { await save(kind: "") } }
             StackButton(label: "Finish practice", icon: "check", kind: .secondary, disabled: busy) { Task { await save(kind: "done") } }
             if hasLanguage {
-                StackButton(label: "Save and run tests", kind: .secondary, disabled: busy || codeFeature?.state == "unavailable") {
+                StackButton(label: "Run tests", kind: .secondary, disabled: busy || codeFeature?.state == "unavailable") {
                     Task { await save(kind: "code") }
                 }
             }
-            StackButton(label: "Save and get coaching", kind: .secondary, disabled: busy || coachingFeature?.state == "unavailable") {
+            StackButton(label: "Get feedback", kind: .secondary, disabled: busy || coachingFeature?.state == "unavailable") {
                 Task { await save(kind: "prep") }
             }
             StackButton(label: "Refresh results", kind: .secondary, disabled: busy) { Task { await resume(current["id"].string) } }

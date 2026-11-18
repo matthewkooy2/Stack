@@ -123,9 +123,9 @@ struct RecordingLevelBars: View {
         guard running else { return "" }
         switch quality {
         case .waiting, .good: return "Listening"
-        case .quiet: return "Input is quiet. Move closer or speak up."
-        case .silent: return "No sound detected. Check that the microphone is not covered."
-        case .clipping: return "Too loud. Move back a little."
+        case .quiet: return "Quiet. Move closer"
+        case .silent: return "No sound. Check the microphone"
+        case .clipping: return "Too loud. Move back"
         }
     }
 
@@ -187,11 +187,11 @@ struct LiveTranscriptControl: View {
             .buttonStyle(.tap(scale: 0.98))
             .accessibilityLabel("Live transcription")
             .accessibilityValue(shown ? "On" : "Off")
-            .accessibilityHint("Only changes whether the text is shown. Recording and transcription continue.")
+            .accessibilityHint("Recording continues either way")
             if shown {
                 LiveTranscriptText(text: recorder.liveText, height: textHeight)
             } else {
-                Text("Transcribing on this iPhone. Hiding the text does not stop it.")
+                Text("Still transcribing on this iPhone")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
                     .transition(.asymmetric(insertion: .opacity, removal: .identity))
             }
@@ -210,7 +210,7 @@ struct LiveTranscriptControl: View {
             .disabled(true)
             .accessibilityLabel("Live transcription unavailable")
             .accessibilityHint(recorder.engineMessage)
-            Text("\(recorder.engineMessage) Live text cannot be shown, but your audio is still recorded and saved.")
+            Text("\(recorder.engineMessage) Audio is still saved.")
                 .font(Typeface.caption).foregroundStyle(Palette.muted)
         }
     }
@@ -339,8 +339,8 @@ struct RecordingSurface: View {
                                    maxHeight: compact ? 64 : 104)
                 VStack(spacing: 6) {
                     HStack(spacing: 10) {
-                        Circle().fill(recorder.isRecording && !recorder.isPaused ? Palette.icon : Color.clear)
-                            .overlay(Circle().stroke(Palette.icon, lineWidth: 1.5))
+                        Circle().fill(recorder.isRecording && !recorder.isPaused ? Palette.danger : Color.clear)
+                            .overlay(Circle().stroke(recorder.isRecording && !recorder.isPaused ? Palette.danger : Palette.icon, lineWidth: 1.5))
                             .frame(width: 10, height: 10)
                             .animation(reduceMotion ? nil : Motion.fadeAnimation, value: recorder.isPaused)
                             .accessibilityHidden(true)
@@ -373,16 +373,16 @@ struct RecordingSurface: View {
                         Text("Stop recording").font(.headline).foregroundStyle(.white)
                     }
                     .frame(maxWidth: .infinity, minHeight: 52)
-                    .background(Palette.button, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                    .background(Palette.button, in: RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.tap)
+                .buttonStyle(.tap(scale: 0.97))
                 .disabled(busy || !live)
                 .accessibilityLabel("Stop recording")
-                .accessibilityHint("Saves your answer and moves to review.")
+                .accessibilityHint("Saves your answer")
                 StackButton(label: recorder.isPaused ? "Resume" : "Pause", kind: .secondary,
                             disabled: busy || !live, action: onTogglePause)
-                Text("Take your time. Up to five minutes. A phone call or locking your phone stops and keeps the recording.")
+                Text("Up to 5 minutes")
                     .font(Typeface.caption).foregroundStyle(Palette.muted).multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
             }

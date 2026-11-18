@@ -14,7 +14,9 @@ cp agents/data/{skills,skill_aliases}.json "$stage/agents/data/"
 mkdir -p "$stage/agents/templates"
 cp -r agents/templates/. "$stage/agents/templates/"
 # No checked-in duplicate scorers and no Jac dependency on the serving VM.
-for module in skills scoring job_score latex resume_templates security google notifications contracts experience tracing local_model coaching worker research tailoring; do
+cp agents/staging_openai.py "$stage/agents/"
+cp agents/data/practice_questions.json "$stage/agents/data/"
+for module in linkedin practice provider skills scoring job_score latex resume_templates security google notifications contracts experience tracing local_model coaching worker research tailoring; do
     cp "agents/$module.jac" "$scratch/agents/"
     (cd "$scratch" && jac tool jac2py "agents/$module.jac") > "$stage/agents/$module.py"
 done

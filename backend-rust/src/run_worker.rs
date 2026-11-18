@@ -90,7 +90,14 @@ fn claim(db: &Connection, args: &Value) -> Result<Value> {
         if args["non_inference"] == true && r["context"]["manual_scan"] == true {
             continue;
         }
-        if matches!(s(&r, "kind"), "linkedin" | "application")
+        if args["inference_only"] == true
+            && current == "sync"
+            && r["context"]["manual_scan"] != true
+        {
+            continue;
+        }
+        if (r["kind"] == "linkedin" && current != "linkedin_review")
+            || r["kind"] == "application"
             || filter.is_some_and(|v| !v.iter().any(|s| s == &current))
         {
             continue;

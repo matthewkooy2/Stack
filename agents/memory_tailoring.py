@@ -719,7 +719,8 @@ def _screen(memory: Memory, job: dict[str, Any], c: dict[str, Any], generate: Ca
 
 
 def run(prepared: Any, snapshot: dict[str, Any], job: dict[str, Any], c: dict[str, Any],
-        generate: Callable, served: int | None = None, resume_id: str = '') -> dict[str, Any]:
+        generate: Callable, served: int | None = None, resume_id: str = '',
+        *, planner_limit: int | None = None) -> dict[str, Any]:
     """Model-facing part of tailoring. Returns the reviewable proposal (no documents yet).
 
     `generate(step, context, configuration)` returns {'artifact': parsed JSON, 'cost_cents': int}."""
@@ -728,7 +729,7 @@ def run(prepared: Any, snapshot: dict[str, Any], job: dict[str, Any], c: dict[st
         raise ValueError('Add section headings (such as Experience and Education) to your reviewed resume records before tailoring.')
     # The resume being tailored is the base document, not another memory entry.
     memory = Memory(snapshot, job, 'resume:' + resume_id)
-    limit = context_limit(c, served)
+    limit = planner_limit if planner_limit is not None else context_limit(c, served)
     calls: list[str] = []
     for attempt in range(3):
         try:

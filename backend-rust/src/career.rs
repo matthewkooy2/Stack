@@ -11,7 +11,7 @@ mod interview;
 pub(crate) use interview::queue as queue_interview;
 mod library;
 mod prep;
-pub(crate) use prep::problem;
+pub(crate) use prep::{coach, problem};
 
 static LIBRARY: LazyLock<Value> = LazyLock::new(|| {
     serde_json::from_str(include_str!("../../agents/data/practice_questions.json")).unwrap()

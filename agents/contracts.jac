@@ -76,6 +76,7 @@ def first_party_ai_only() -> bool {
 
 def _read_config(raw: dict[str, any], selection: str) -> dict[(str, any)] {
     if first_party_ai_only() { selection = "local"; }
+    elif os.environ.get("STACK_STAGING_OPENAI_SOCKET") { selection = ""; }
     # Model overrides do not control admission. Only a JSON false in the deployment config opens it.
     invite_only = raw.get('invite_only') is not False;
     if selection {

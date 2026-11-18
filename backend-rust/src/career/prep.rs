@@ -16,7 +16,6 @@ pub(super) fn handles(method: &str) -> bool {
             | "prep_live"
             | "prep_sessions"
             | "prep_save"
-            | "prep_coach"
             | "prep_save_coaching"
             | "prep_progress"
             | "prep_for_application"
@@ -292,6 +291,67 @@ fn plan(db: &Connection, owner: &str, app: &str) -> Result<Value> {
     }
     Ok(json!({"plan":out}))
 }
+// Capture the revision and ownership before inference. The client saves feedback separately
+// against that revision, so a later edit cannot be overwritten by a slow model response.
+pub(crate) fn coach(db: &mut Connection, token: &str, args: &Value) -> Result<crate::Response> {
+    static INFERENCE: std::sync::LazyLock<tokio::sync::Semaphore> =
+        std::sync::LazyLock::new(|| tokio::sync::Semaphore::new(1));
+
+    let id = s(args, "id");
+    let tx = db.transaction()?;
+    let Some(owner) = crate::admitted_owner(&tx, token)? else {
+        return Ok(crate::denied());
+    };
+    if let Some(response) = crate::arguments::missing("prep_coach", args) {
+        return Ok(response);
+    }
+    let mut data = match snapshot(&args["data"]) {
+        Ok(data) => data,
+        Err(message) => return Ok(crate::result(err(message))),
+    };
+    if s(&data, "answer").trim().is_empty() {
+        return Ok(crate::result(err("Type or transcribe your answer first.")));
+    }
+    let row = match get(&tx, &owner, "prep", id)? {
+        Some(session) => session,
+        None => match get(&tx, &owner, "practice_attempt", id)? {
+            Some(attempt) => attempt,
+            None => return Ok(crate::result(err("Practice session not found."))),
+        },
+    };
+    data["application_id"] = row["data"]["application_id"].clone();
+    let revision = row["revision"].clone();
+    tx.commit()?;
+
+    let Ok(_permit) = INFERENCE.try_acquire() else {
+        return Ok(crate::result(err("Practice coaching is busy. Try again shortly.")));
+    };
+    let mut question = problem(s(&data, "problem_id")).unwrap().clone();
+    if let Some(prompt) = data["canvas"]["stack_prep_workflow_v1"]["prompt"].as_str()
+        && !prompt.trim().is_empty()
+    {
+        question["prompt"] = json!(prompt);
+    }
+    let output = crate::score_docs::helper(
+        &json!({"session":{"answer":data["answer"]},"question":question}),
+        include_str!("../../prep-coach.py"),
+        "Practice coaching is temporarily unavailable. Please retry.",
+    )?;
+    if crate::admitted_owner(db, token)?.as_deref() != Some(owner.as_str()) {
+        return Ok(crate::denied());
+    }
+    if let Some(message) = output["error"].as_str() {
+        return Ok(crate::result(err(message)));
+    }
+    let feedback = &output["feedback"];
+    if (s(feedback, "text").trim().is_empty() && s(feedback, "summary").trim().is_empty())
+        || json_len(feedback) > 50000
+    {
+        return Ok(crate::result(err("The coach returned incomplete feedback. Please retry.")));
+    }
+    Ok(crate::result(json!({"id":id,"revision":revision,"data":data,"feedback":feedback})))
+}
+
 pub(super) fn dispatch(db: &Connection, owner: &str, method: &str, a: &Value) -> Result<Value> {
     Ok(match method {
         "prep_catalog" => json!({"problems":*CATALOG}),
@@ -320,31 +380,6 @@ pub(super) fn dispatch(db: &Connection, owner: &str, method: &str, a: &Value) ->
                 } else {
                     message
                 })
-            }
-        }
-        "prep_coach" => {
-            let data = match snapshot(&a["data"]) {
-                Ok(v) => v,
-                Err(message) => return Ok(err(message)),
-            };
-            if s(&data, "answer").trim().is_empty() {
-                return Ok(err("Type or transcribe your answer first."));
-            }
-            let id = s(a, "id");
-            if get(db, owner, "prep", id)?.is_none()
-                && get(db, owner, "practice_attempt", id)?.is_none()
-            {
-                return Ok(err("Practice session not found."));
-            }
-            let configured = &crate::deployment::settings()["model_provider"];
-            if configured["configured"] != true && !s(configured, "message").is_empty() {
-                err(s(configured, "message"))
-            } else if !matches!(s(configured, "provider"), "local" | "ollama" | "lmstudio") {
-                err("Practice coaching requires the configured local model.")
-            } else {
-                err(
-                    "Practice coaching requires model execution, which is unavailable on this backend.",
-                )
             }
         }
         "prep_save" | "prep_save_coaching" => store_answer(db, owner, method, a)?,

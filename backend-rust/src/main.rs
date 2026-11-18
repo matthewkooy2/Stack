@@ -106,7 +106,7 @@ fn open(path: &str) -> Result<Connection> {
 fn known(name: &str) -> bool {
     matches!(
         name,
-        "agent_admission" | "agent_accept_invite" | "account_delete"
+        "agent_admission" | "agent_accept_invite" | "account_delete" | "prep_coach"
     ) || jobs::handles(name)
         || career::handles(name)
         || resumes::handles(name)
@@ -125,6 +125,7 @@ fn read_only(name: &str) -> bool {
             | "source_status"
             | "agent_admission"
             | "read_resume"
+            | "prep_coach"
             | "prep_catalog"
             | "prep_sessions"
             | "prep_get"
@@ -151,6 +152,9 @@ fn read_only(name: &str) -> bool {
     )
 }
 fn rpc(db: &mut Connection, name: &str, token: &str, args: &Value) -> Result<Response> {
+    if name == "prep_coach" {
+        return career::coach(db, token, args);
+    }
     if jobs::ranked(name) {
         return jobs::ranked_request(db, name, args, |db| {
             let Some((owner, invited)) = auth::principal(db, token)? else {

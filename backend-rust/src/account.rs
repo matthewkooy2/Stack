@@ -182,13 +182,18 @@ fn summary(db: &Connection, owner: &str) -> Result<Value> {
     summary.as_object_mut().unwrap().remove("features");
     Ok(summary)
 }
+fn staging_openai() -> bool {
+    std::env::var_os("STACK_STAGING_OPENAI_SOCKET").is_some()
+        && crate::deployment::settings()["first_party_only"] == false
+}
 fn settings(db: &Connection, owner: &str) -> Result<Value> {
     let activity = summary(db, owner)?;
     let mut model = activity["model_provider"].clone();
     if !model.is_object() {
         model = json!({"provider":"local","model":"","configured":false,"billing":"local","message":"Model execution is unavailable on this development backend."})
     }
-    model["selection"] = json!("local");
+    let selected = if staging_openai() { "openai" } else { "local" };
+    model["selection"] = json!(selected);
     let revision: i64 = db
         .query_row(
             "SELECT revision FROM account_preferences WHERE owner=?",
@@ -198,7 +203,7 @@ fn settings(db: &Connection, owner: &str) -> Result<Value> {
         .optional()?
         .unwrap_or(0);
     Ok(
-        json!({"account_id":owner,"active_model_tasks":active_model(db,owner)?.len(),"model_selection":"local","model_options":[model],"facts":facts(db,owner)?,
+        json!({"account_id":owner,"active_model_tasks":active_model(db,owner)?.len(),"model_selection":selected,"model_options":[model],"facts":facts(db,owner)?,
         "policy":policy(db,owner)?,"revision":revision,"connections":crate::providers::connections(db,owner)?,"web_url":crate::deployment::settings()["web_url"],"activity":activity}),
     )
 }
@@ -281,6 +286,10 @@ pub fn dispatch(db: &Connection, owner: &str, m: &str, a: &Value) -> Result<Opti
         }
         "agent_settings" => settings(db, owner)?,
         "agent_save_model" => match a["selection"].as_str() {
+            Some("openai") if staging_openai() => settings(db, owner)?,
+            _ if staging_openai() => {
+                json!({"error":"This staging deployment uses the OpenAI API."})
+            }
             Some("local") => {
                 if selection(db, owner)? != "local" {
                     let active = active_model(db, owner)?;

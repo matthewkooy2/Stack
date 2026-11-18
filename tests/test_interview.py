@@ -137,6 +137,32 @@ class Journey:
         return current
 
 class InterviewAcceptance(unittest.TestCase):
+    def test_stop_and_switch_restarts_coaching_with_saved_answer(self):
+        with tempfile.TemporaryDirectory() as directory, fixture_model() as (url, _):
+            journey = Journey(directory, url)
+            try:
+                journey.rpc('agent_save_model', {'selection': 'codex-cli'})
+                submitted = journey.answer(ANSWER1)
+                old_id = submitted['run']['id']
+                journey.rpc('agent_save_model', {'selection': 'local', 'stop_tasks': True})
+                stopped = journey.get()
+                self.assertEqual(stopped['data']['turns'], submitted['data']['turns'])
+                self.assertEqual(stopped['run']['status'], 'cancelled')
+                self.assertTrue(stopped['run']['stopped_for_model_switch'])
+
+                restarted = journey.rpc('agent_retry', {'id': old_id})
+                self.assertNotEqual(restarted['id'], old_id)
+                self.assertEqual(journey.get()['data']['pending'], restarted['id'])
+                work, _ = journey.work()
+                self.assertEqual((work['id'], work['model_selection']), (restarted['id'], 'local'))
+                self.assertEqual(work['context']['interview']['answer_sources']['answer:1'], ANSWER1)
+                completed = journey.get()
+                self.assertEqual(completed['data']['turns'], submitted['data']['turns'])
+                self.assertTrue(completed['data']['analysis']['1']['text'])
+                self.assertFalse(completed['data']['pending'])
+            finally:
+                journey.close()
+
     def test_model_selection_persists_isolates_and_new_runs_keep_choice(self):
         with tempfile.TemporaryDirectory() as directory,fixture_model() as (url,state):
             journey=Journey(directory,url)
@@ -151,7 +177,7 @@ class InterviewAcceptance(unittest.TestCase):
                 self.assertEqual(journey.rpc('agent_settings')['model_selection'],'local')
                 self.assertIn('error',journey.rpc('agent_save_model',{'selection':'openai'},True))
                 journey.answer(ANSWER1)
-                journey.rpc('agent_save_model',{'selection':'codex-cli'})
+                self.assertIn('error', journey.rpc('agent_save_model', {'selection':'codex-cli'}, True))
                 work,result=journey.work()
                 self.assertEqual(work['model_selection'],'local')
                 self.assertEqual(len(state['requests']),1)

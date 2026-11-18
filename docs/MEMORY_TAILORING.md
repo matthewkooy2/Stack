@@ -108,12 +108,11 @@ restart in `output/ninfer-stack-64k/restart.ps1` raised it to 65,536:
 | 65,536 | 2.56 GiB | 4.00 GiB | 20.3 GiB |
 
 A 57,038-token prompt completed in 28.7 seconds and recalled its final line. A longer
-prompt got HTTP 400 `context_length_exceeded` (no truncation). Because Stack counts
-bytes, 65,536 tokens hold roughly 58 KB of request, enough for a typical whole bank in
-one call; larger banks are screened. Stack's configuration cap rose from 32,768 to
-262,144 tokens. Deploying this branch needs `local_model_context_tokens: 65536` in
-the private agent configuration (both the top level and `model_options.local`).
-The server-reported value still caps planning if the server holds less.
+prompt got HTTP 400 `context_length_exceeded` (no truncation). Those measurements
+used the earlier 65,536-token setting. The shared local and API policy now caps
+requests at 32,768 tokens, so more memory banks may need screening. A smaller
+server-reported local context still reduces that budget.
+
 
 ## Verification
 

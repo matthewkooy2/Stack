@@ -12,8 +12,8 @@ application browser, send email, or execute practice code.
 The native account Settings screen saves one choice, Codex CLI or Local model,
 for all new agent tasks: Prep/interview coaching, resumes, job fit, applications,
 network, profile and LinkedIn work. The preference belongs to the signed-in
-account. Existing tasks retain their captured choice; changing the setting does
-not interrupt them. Live voice retains its separate connection.
+account. Finish or explicitly stop queued and running AI tasks before switching
+models. Live voice retains its separate connection and budget.
 
 The private operator configuration may supply `model_options.codex-cli` (model)
 and `model_options.local` (provider, installed model, private local model URL,
@@ -22,8 +22,22 @@ model never writes deployment configuration, credentials or URLs. Existing
 The server's CLI login is shared by the app's signed-in account and has no
 additional Stack request cap. Local supports
 Ollama or LM Studio; without an installed model configuration Settings explains
-that Local is unavailable. Runtime sign-in, model/service errors appear on the
-task; no provider fallback or model installation occurs.
+that Local is unavailable. For ordinary worker-backed tasks, local inference falls back to Codex CLI, then
+Claude CLI when the service or selected model is unavailable. Install and sign
+in to both CLIs in the worker's own execution environment; a CLI installed on a
+Windows host is not automatically visible inside a Linux container. Set
+`fallback_enabled` to false in the private config to disable fallback. The
+first-party-only policy continues to disable all external providers. For a private
+Compose deployment, explicitly set `STACK_FIRST_PARTY_AI_ONLY=0` for both the API
+and worker (and restart them) to permit external fallback. This sends task content
+to the selected external providers when local inference fails. Keep the policy
+enabled when inference must remain on Stack-hosted models.
+
+Optional API fallback is enabled by adding `fallback_api` to the private config,
+with `provider` (`openai` or `meta`) and `model`. Set `OPENAI_API_KEY` or
+`MODEL_API_KEY` in the worker environment. Stack does not impose a spending cap
+on text inference. Task model logs record provider attempts and accepted results.
+Live voice and manual mail inference use separate paths.
 
 ## Practice coaching output
 
@@ -88,18 +102,20 @@ Choose an instruction model that supports JSON schema output. Stack sends the
 existing workflow schema through Ollama `/api/chat` (`format`) or LM Studio
 `/v1/chat/completions` (`response_format`) with streaming and tools disabled.
 It checks the resulting schema locally before the usual exact-source checks.
-Invalid, incomplete, oversized or unavailable results pause the workflow for
-retry, with no paid fallback; LinkedIn analysis retains its existing blocked state
-and saved capture. Changing configuration after claim also pauses the task.
+Invalid, incomplete or oversized responses pause the workflow for retry. When
+local inference is unavailable or the request exceeds its context, the shared
+worker can try the configured fallback chain. LinkedIn retains its saved capture
+if the chain fails. Changing configuration after claim also pauses the task.
 
 Private configuration includes `local_model_timeout` (5�90 seconds, default 90)
-and `local_model_context_tokens` (1024 to 262,144, default 8192).
-`max_output_tokens` applies to local requests too. Load LM Studio's model with at
-least the configured context; Ollama receives it as `num_ctx`. Stack conservatively
-counts UTF-8 input bytes plus output tokens and chat overhead against that window
-and refuses oversized tasks instead of truncating source evidence. For larger
-resumes/listings, increase the loaded and configured context or lower the output
-limit. Bodies are capped at 256 KiB and generated proposals at 64 KiB.
+and `local_model_context_tokens` (1,024 to 32,768, default 32,768). Local models
+and APIs share a 32,768-token context ceiling and a 6,144-token output ceiling.
+The local context setting can be lower to match the loaded GPU model. LM Studio
+must load the model with the configured context; Ollama receives it as `num_ctx`.
+Stack counts UTF-8 input bytes plus schema, output allowance and framing against
+the context window. Smaller task output limits still apply, including LinkedIn's
+1,500-token cap. Codex and Claude CLI are outside this token policy. Local model
+response bodies are capped at 256 KiB and generated proposals at 64 KiB.
 A server that rejects an over-length prompt (HTTP 400/413 naming the context) gets the
 same context-limit error instead of a generic failure. LM Studio-compatible servers
 that report `context_length` in `/v1/models` (NInfer does) are also read before memory
@@ -119,7 +135,7 @@ stores, without model downloads or paid calls:
 ```
 
 An opt-in smoke check makes two real coaching requests and reloads the saved
-feedback. It uses synthetic answers and disposable accounts, ignores paid budgets,
+feedback. It uses synthetic answers and disposable accounts,
 and deliberately sets the subscription cap to one to verify local requests do not
 consume it. It does not change deployment configuration:
 
@@ -280,10 +296,9 @@ and disables `.env` loading. Use the advanced worker/deployment workflow in
 configuration; exporting keys before `make dev` does not enable them.
 
 Use `--provider openai --model MODEL_ID` or `--provider meta --model MODEL_ID`.
-Configure positive monthly and per-user budgets and input/output prices in cents
-per million tokens in `storage/agents/config.json`. Supply `OPENAI_API_KEY` for
-OpenAI or `MODEL_API_KEY` for Meta to that worker environment and restart its
-services. API keys and prices are not interchangeable with subscription login.
+Supply `OPENAI_API_KEY` for OpenAI or `MODEL_API_KEY` for Meta to the worker
+environment and restart its services. Text API requests require a model and
+a key. The top-level monthly limits apply to live voice.
 
 Meta uses its documented JSON-schema Chat Completions API at
 `https://api.meta.ai/v1/chat/completions`. Its adapter has offline contract coverage;

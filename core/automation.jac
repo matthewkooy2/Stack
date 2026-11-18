@@ -14,7 +14,7 @@ import from pathlib { Path }
 import from jaclang.runtime.runtime { JacRuntime }
 import from jaclang.server.session { Session }
 import core.locks as locks;
-import from agents.contracts { VERSION, STEPS, workflow_steps, PAID, EXTERNAL, TERMINAL, CLI_PROVIDERS, LOCAL_PROVIDERS, config, first_party_ai_only, model_access, model_status, digest, default_policy, validate_policy, validate_facts, context_facts, authorize, reserve_cents, validate_contact }
+import from agents.contracts { VERSION, STEPS, workflow_steps, MODEL_STEPS, EXTERNAL, TERMINAL, LOCAL_PROVIDERS, config, first_party_ai_only, model_access, model_status, digest, default_policy, validate_policy, validate_facts, context_facts, authorize, validate_contact }
 import from agents.voice { voice_settings, voice_reservation, SECONDS }
 import from agents.prep { catalog, problem, validate_session }
 import from agents.stories { validate as validate_story, corrected as correct_story, missing as story_missing, TOPICS }
@@ -29,8 +29,10 @@ import agents.interview as interview;
 import agents.coaching as coaching;
 import from jaclang.server.identity.app_tokens { token_create, token_peek, token_consume }
 
-# The deployed API has one process. Access each run's handle under its account lock.
-glob _linkedin_pdf_inference: dict[str, InferenceCancellation] = {};
+
+# Direct coaching runs inside a request and has no queue ticket. The account lock
+# protects its registration and the model preference change.
+glob _direct_coaching: dict[str, list[InferenceCancellation]] = {};
 
 node AgentMemory { has facts: list[dict[str, any]] = [], policy: dict[str, any] = {}, revision: int = 0, admitted: bool = False, deleted: bool = False, model_selection: str = ""; }
 node AgentRun {
@@ -43,6 +45,7 @@ node AgentRun {
         trace_attempt: str = "", requested_model: str = "", stage_started_at: float = 0.0,
         approvals: dict[str, any] = {}, review: dict[str, any] = {}, dismissed: bool = False;
     has workflow_version: int = 1, upgrade_pending: bool = False, model_selection: str = "";
+    has stopped_for_model_switch: bool = False;
 }
 node AgentTrace { has run_id: str, attempt: str, step: str, event: str, at: float, data: dict[str, any]; }
 node AgentFeedback { has run_id: str, output_version: str, rating: str, note: str, at: float, snapshot: dict[str, any]; }
@@ -164,6 +167,7 @@ def _run_view(r: AgentRun, detail: bool = False) -> dict[str, any] {
     out["browser"]={"supported":r.kind in ["linkedin","autofill"],"available":r.index==0 and (r.kind=="linkedin" or (r.kind=="autofill" and r.status not in TERMINAL))};
     out["needs_resume_review"]=r.status=="needs_input" and out["step"]=="tailor" and not _tailor_ready(r.context);
     out["has_requests"]=len(r.requests)>0;
+    if r.stopped_for_model_switch { out["stopped_for_model_switch"]=True; }
     out["retry_at"]=r.next_at if r.status=="queued" and r.attempts>0 else 0.0;
     if r.context.get("manual_scan") { out["scan"]={k:r.context.get(k,0) for k in ["since","until","scanned","imported","updated","to_review"]}; }
     if r.status=="review" { out["review"]=r.review; }
@@ -178,23 +182,55 @@ def _agent_summary() -> dict[str, any] {
     shown=[r for r in ordered if _needs_attention(r)]+[r for r in ordered[:30] if not _needs_attention(r)];
     runs=[_run_view(r) for r in shown];
     attention=len([r for r in ordered if _needs_attention(r)]);
-    return {"enabled":m.policy.get("enabled",False),"needs_input":attention,"attention":attention,"active":len([r for r in ordered if r.status in ACTIVE]),"runs":runs,"paid_configured":config()["monthly_cents"]>0,"model_provider":model_status(jid(root),m.model_selection),"admitted":m.admitted or not config()["invite_only"],"expires_at":m.policy.get("expires_at",0)};
+    return {"enabled":m.policy.get("enabled",False),"needs_input":attention,"attention":attention,"active":len([r for r in ordered if r.status in ACTIVE]),"runs":runs,"model_provider":model_status(jid(root),m.model_selection),"admitted":m.admitted or not config()["invite_only"],"expires_at":m.policy.get("expires_at",0)};
 }
 def:priv agent_admission() -> dict[str, any] {
     try { _agent_access();return {"admitted":True}; } except ValueError { return {"admitted":False}; }
+}
+def _active_model_runs() -> list[AgentRun] {
+    return [r for r in [root -->][?:AgentRun] if r.status in ACTIVE and (
+        r.kind in ["live", "linkedin"] or r.context.get("manual_scan")
+        or any(step in MODEL_STEPS for step in _steps(r)[r.index:])
+    )];
 }
 def:priv agent_settings() -> dict[str, any] {
     _agent_access();m=_agent_memory();
     choices = ["local"] if first_party_ai_only() else ["codex-cli", "local"];
     selection = "local" if first_party_ai_only() else m.model_selection;
-    return {"account_id":jid(root),"model_selection":selection or ("local" if config()["provider"] in LOCAL_PROVIDERS else "codex-cli" if config()["provider"]=="codex-cli" else ""),"model_options":[{"selection":choice,**model_status(jid(root),choice)} for choice in choices],"facts":m.facts,"policy":m.policy,"revision":m.revision,"connections":[{"id":jid(c),"provider":c.provider,"state":c.state,"scopes":c.scopes,"tracking":c.tracks_mail(m.policy)} for c in [root -->][?:AgentConnection]],"web_url":config()["web_url"],"activity":_agent_summary()};
+    return {"account_id":jid(root),"active_model_tasks":len(_active_model_runs())+len(_direct_coaching.get(jid(root),[])),"model_selection":selection or ("local" if config()["provider"] in LOCAL_PROVIDERS else "codex-cli" if config()["provider"]=="codex-cli" else ""),"model_options":[{"selection":choice,**model_status(jid(root),choice)} for choice in choices],"facts":m.facts,"policy":m.policy,"revision":m.revision,"connections":[{"id":jid(c),"provider":c.provider,"state":c.state,"scopes":c.scopes,"tracking":c.tracks_mail(m.policy)} for c in [root -->][?:AgentConnection]],"web_url":config()["web_url"],"activity":_agent_summary()};
 }
-def:priv agent_save_model(selection: str) -> dict[str, any] {
+def:priv agent_save_model(selection: str, stop_tasks: bool = False) -> dict[str, any] {
     _agent_access();
     if first_party_ai_only() and selection != "local" { return {"error":"This deployment uses only Stack-hosted AI."}; }
     if selection not in ["codex-cli","local"] { return {"error":"Choose Codex CLI or Local model."}; }
     with locks.account() {
-        _agent_fresh();m=_agent_memory();m.model_selection=selection;commit();
+        _agent_fresh();m=_agent_memory();
+        if selection != m.model_selection {
+            active=_active_model_runs();coaching=_direct_coaching.get(jid(root),[]);
+            if len(active)+len(coaching)>0 {
+                if stop_tasks is not True {
+                    return {"error":"Wait for your AI tasks to finish or stop them before changing models."};
+                }
+            }
+            if any(r.kind=="linkedin" for r in active) {
+                return {"error":"Stop the LinkedIn browser task in Tasks before changing models."};
+            }
+            if coaching {
+                for request in coaching { request.stop(); }
+                return {"error":"Practice coaching is stopping. Try changing models again in a moment."};
+            }
+            for r in active {
+                r.status="cancelled";r.message="Stopped to change models.";r.stopped_for_model_switch=True;
+                r.lease="";r.lease_until=0.0;r.updated_at=time.time();
+            }
+            ids={jid(r) for r in active};
+            if ids {
+                for ticket in [root.shared -->][?:AgentTicket] {
+                    if ticket.run_id in ids { ticket.state="cancelled"; }
+                }
+            }
+            m.model_selection=selection;commit();
+        }
     }
     return agent_settings();
 }
@@ -226,7 +262,7 @@ def _trace(r: AgentRun, event: str, data: dict[str, any]) -> None {
 }
 def:pub agent_trace(token: str, id: str, owner: str, lease: str, event: str, data: dict[str, any]) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
-    if event not in ["model_request","model_response","model_validation"] { return {"error":"Unsupported trace event."}; }
+    if event not in ["model_request","model_response","model_validation","provider_fallback"] { return {"error":"Unsupported trace event."}; }
     with locks.account(owner) {
         _agent_fresh();
         try { r=_agent_leased(id,owner,lease);_agent_access(); }
@@ -262,7 +298,10 @@ def _agent_start(kind: str, target_id: str, context: dict[str, any], nonce: str 
     m=_agent_memory();context={**context,"facts":context_facts(m.facts,context),"prompt_version":VERSION};
     identity=nonce or ("once" if kind=="network" else context);
     legacy_key=digest([kind,target_id,identity]);key=digest([kind,target_id,identity,m.model_selection]);
-    for old in [root -->][?:AgentRun] { if old.key==key or (old.key==legacy_key and old.model_selection==m.model_selection) { return _run_view(old,True); } }
+    for old in [root -->][?:AgentRun] {
+        if old.stopped_for_model_switch { continue; }
+        if old.key==key or (old.key==legacy_key and old.model_selection==m.model_selection) { return _run_view(old,True); }
+    }
     r=root ++> AgentRun(workflow_version=2,kind=kind,target_id=target_id,context=context,model_selection=m.model_selection,created_at=time.time(),updated_at=time.time(),key=key,policy_revision=m.revision);
     ticket=root.shared ++> AgentTicket(owner=jid(root),run_id=jid(r));
     JacRuntime.allow_root(ticket,UUID(jid(root.shared)),AccessLevel.WRITE); # jac:ignore[E1053]
@@ -289,8 +328,6 @@ def:priv agent_cancel(id: str) -> dict[str, any] {
         r.status="uncertain" if intents else "cancelled";
         r.message="Cancellation requested; reconcile the dispatched action." if intents else "Cancelled";
         r.lease="";r.updated_at=time.time();commit();
-        cancellation = _linkedin_pdf_inference.get(id) if r.kind == "linkedin_pdf" else None;
-        if cancellation is not None { cancellation.stop(); }
         close_browser=r.kind in ["linkedin","autofill"];owner=jid(root);out=_run_view(r,True);
     }
     # Closing a remote browser must not hold up every account's database writer.
@@ -340,8 +377,7 @@ def _linkedin_execute(id: str) -> dict[str, any] {
         }
     }
 }
-# LinkedIn PDF review: the member uploads their own profile export, so Stack never signs in to
-# or reads LinkedIn. Like practice coaching, it runs in the request on the configured local model.
+# Parse the member's export once, then use the shared leased model worker.
 def:priv linkedin_pdf_review(name: str = "", content: str = "", target_role: str = "") -> dict[str, any] {
     _agent_access();
     try { capture=linkedin_pdf.parse_encoded(name,content); }
@@ -352,72 +388,10 @@ def:priv linkedin_pdf_review(name: str = "", content: str = "", target_role: str
             context={"target_role":str(target_role or "").strip()[:120],"file":capture["file"]},
             model_selection=m.model_selection,created_at=time.time(),updated_at=time.time(),
             key="linkedin_pdf:"+uuid4().hex,policy_revision=m.revision,artifacts={"linkedin_pdf":capture},
-            index=1,status="running",message="Reviewing your profile");
-        commit();id=jid(r);
-    }
-    return _linkedin_pdf_execute(id);
-}
-def _linkedin_pdf_execute(id: str, retry: bool = False) -> dict[str, any] {
-    cancellation = InferenceCancellation(gate=Lock());
-    lease = uuid4().hex;
-    with locks.account() {
-        _agent_fresh();
-        r = _owned_run(id);
-        if r is None { return {"error":"Run not found."}; }
-        if retry {
-            stale = r.status == "running" and r.updated_at < time.time() - 300;
-            if (r.status != "failed" and not stale) or id in _linkedin_pdf_inference {
-                return {"error":"Only a failed review can be retried."};
-            }
-        } elif r.status != "running" or r.lease {
-            return _run_view(r, True);
-        }
-        capture = r.artifacts.get("linkedin_pdf");
-        context = r.context;
-        selection = r.model_selection;
-        r.status = "running";
-        r.message = "Reviewing your profile";
-        r.index = 1;
-        r.lease = lease;
-        r.updated_at = time.time();
-        commit();
-        _linkedin_pdf_inference[id] = cancellation;
-    }
-    try {
-        output = None;
-        message = "Profile review complete";
-        try {
-            if not capture { raise ValueError("Upload your LinkedIn PDF again."); }
-            cancellation.check();
-            c = config(selection);
-            model_access(c, jid(root));
-            if c["provider"] not in LOCAL_PROVIDERS { raise ValueError("LinkedIn review requires the configured local model."); }
-            output = coaching_provider.generate(
-                "linkedin_review", {"linkedin_profile":capture,"target_role":context.get("target_role","")},
-                c, cancellation=cancellation
-            )["artifact"];
-        } except Exception as exc {
-            message = str(exc) if isinstance(exc, ValueError) else "The review could not finish ("+`type(exc).__name__+"). Retry the review.";
-        }
-        with locks.account() {
-            _agent_fresh();
-            r = _owned_run(id);
-            if r is None { return {"error":"Run not found."}; }
-            # Cancellation clears the lease. A late result or failure cannot change the run.
-            if r.status != "running" or r.lease != lease { return _run_view(r, True); }
-            if output is not None {
-                r.artifacts["linkedin_review"] = output;
-                r.index = 2;
-            }
-            r.status = "completed" if output is not None else "failed";
-            r.message = message;
-            r.lease = "";
-            r.updated_at = time.time();
-            commit();
-            return _run_view(r, True);
-        }
-    } finally {
-        with locks.account() { _linkedin_pdf_inference.pop(id, None); }
+            index=1,status="queued",message="Queued for profile review");
+        ticket=root.shared ++> AgentTicket(owner=jid(root),run_id=jid(r));
+        JacRuntime.allow_root(ticket,UUID(jid(root.shared)),AccessLevel.WRITE); # jac:ignore[E1053]
+        commit();return _run_view(r,True);
     }
 }
 def:priv agent_respond(id: str, values: list[dict[str, any]] = [], reuse: bool = True, target_role: str | None = None) -> dict[str, any] {
@@ -479,7 +453,6 @@ def:pub agent_claim(token: str) -> dict[str, any] {
                 r.index=0;r.artifacts={};step=_steps(r)[0];
             }
             r.context["facts"]=current_facts;
-            reservation=0;
             if step=="tailor" and not _tailor_ready(r.context) {
                 r.status="needs_input";r.requests=[];r.updated_at=now;t.state="needs_input";
                 r.message="Upload a resume before tailoring." if not r.context.get("resume_id") else "Review and confirm this resume's imported records or add its LaTeX before tailoring.";
@@ -499,26 +472,18 @@ def:pub agent_claim(token: str) -> dict[str, any] {
                     }
                 }
                 if step=="linkedin_scan" { model_access(c,t.owner); }
-                if step in PAID {
+                if step in MODEL_STEPS {
                     model_access(c,t.owner);
-                    if c["provider"] not in CLI_PROVIDERS and c["provider"] not in LOCAL_PROVIDERS {
-                        reservation=reserve_cents({**r.context,"linkedin_profile":r.artifacts.get("linkedin_scan",{})} if step=="linkedin_review" else r.context);
-                        commit();month=time.strftime("%Y-%m",time.gmtime());
-                        global_usage=_usage("cost:"+month);user_usage=_usage("cost:"+month+":"+t.owner);
-                        if global_usage.cents+reservation>c["monthly_cents"] or user_usage.cents+reservation>c["user_monthly_cents"] { raise ValueError("The monthly agent budget is exhausted."); }
-                        global_usage.cents+=reservation;user_usage.cents+=reservation;commit();
-                        _agent_owner(t.owner);r.cost_cents+=reservation;
-                    }
                     r.provider=c["provider"];
                 }
             } except ValueError as e { _agent_owner(t.owner);r.status="blocked";r.message=str(e);t.state="blocked";_trace(r,"blocked",{"message":str(e)});continue; }
             # A manual email page can include Gmail reads, an invite attachment and local inference.
             # Memory tailoring can screen, compose and verify in several model calls.
-            lease_seconds=300 if r.context.get("manual_scan") else 900 if step=="tailor" else 180;
+            lease_seconds=300 if r.context.get("manual_scan") else 900 if step=="tailor" else 600 if c.get("fallback_enabled") and c["provider"] in LOCAL_PROVIDERS else 180;
             r.status="running";r.lease=secrets.token_urlsafe(32);r.lease_until=now+lease_seconds;r.attempts+=1;r.updated_at=now;r.message="Working on "+step;t.state="running";
             r.trace_attempt=str(uuid4());r.requested_model=(c.get("coach_models",{}).get(c["provider"],"") if step=="coach" else "") or c["model"] or "provider default";r.stage_started_at=time.time();
             _trace(r,"stage_start",{"provider":c["provider"],"requested_model":r.requested_model,"attempt_number":r.attempts,"prompt_version":r.context.get("prompt_version"),"context":r.context if capture_enabled() else {"content_capture":False}});
-            commit();return {"id":jid(r),"owner":t.owner,"lease":r.lease,"step":step,"context":r.context,"artifacts":r.artifacts,"reservation_cents":reservation,"provider_config_hash":digest(c),"model_selection":r.model_selection};
+            commit();return {"id":jid(r),"owner":t.owner,"lease":r.lease,"step":step,"context":r.context,"artifacts":r.artifacts,"provider_config_hash":digest(c),"model_selection":r.model_selection};
         }
         commit();return {"idle":True};
     }
@@ -529,13 +494,21 @@ def _agent_leased(id: str, owner: str, lease: str) -> AgentRun {
     _agent_access();
     return r;
 }
+def:pub agent_lease_active(token: str, id: str, owner: str, lease: str) -> dict[str, any] {
+    if not _agent_system(token) { return {"error":"Worker authorization required."}; }
+    with locks.account(owner) {
+        _agent_fresh();
+        try { _agent_leased(id,owner,lease);return {"active":True}; }
+        except ValueError { return {"active":False}; }
+    }
+}
 def:pub agent_model_log(token: str, id: str, owner: str, lease: str, record: dict[str, any]) -> dict[str, any] {
     if not _agent_system(token) { return {"error":"Worker authorization required."}; }
     with locks.account(owner) {
         _agent_fresh();
         try { r=_agent_leased(id,owner,lease); } except ValueError as e { return {"error":str(e)}; }
         step=_steps(r)[r.index];
-        if (step not in PAID and step!="interview") or record.get("status") not in ["started","received","accepted","rejected","error","completed"] { return {"error":"Invalid model log."}; }
+        if (step not in MODEL_STEPS and step!="interview") or record.get("status") not in ["started","received","accepted","rejected","error","completed"] { return {"error":"Invalid model log."}; }
         attempt=str(record.get("attempt_id",""));
         if not attempt or len(attempt)>64 { return {"error":"Invalid model attempt."}; }
         # Only response diagnostics belong here: never worker tokens or request input.
@@ -548,6 +521,7 @@ def:pub agent_model_log(token: str, id: str, owner: str, lease: str, record: dic
         } else {
             root ++> AgentModelLog(run_id=id,attempt_id=attempt,step=step,created_at=time.time(),updated_at=time.time(),data=data);
         }
+        if record.get("status")=="accepted" { r.provider=str(record.get("provider","")); }
         commit();return {"saved":True};
     }
 }
@@ -737,22 +711,35 @@ def:priv agent_retry(id: str) -> dict[str, any] {
     if r is not None and r.kind=="linkedin" {
         return _linkedin_execute(id);
     }
-    if r is not None and r.kind=="linkedin_pdf" {
-        _agent_access();
-        return _linkedin_pdf_execute(id, retry=True);
-    }
     _agent_access();
     with locks.account() {
         _agent_fresh();r=_owned_run(id);
         if r is None { return {"error":"Run not found."}; }
         if r.kind=="application" { return {"error":"The application assistant has been retired."}; }
+        if r.status=="cancelled" and r.stopped_for_model_switch and r.kind in interview.STEPS {
+            sessions=[p for p in [root -->][?:PrepSession] if jid(p)==r.target_id and p.data.get("mode")=="interview"];
+            if not sessions { return {"error":"Interview session not found."}; }
+            p=sessions[0];
+            if p.data.get("pending")!=id or p.revision!=r.context.get("session_revision") {
+                return {"error":"This interview changed. Reopen it to continue with your saved answers."};
+            }
+            run=_agent_start(r.kind,r.target_id,r.context,"model-switch:"+id,False);
+            p.data={**p.data,"pending":run["id"],"model_attempt":int(p.data.get("model_attempt",0))+1};
+            p.updated_at=time.time();commit();return run;
+        }
         # Uncertain runs must be reconciled; completed or cancelled work is never replayed.
-        if r.status not in ["failed","blocked"] or r.kind=="live" { return {"error":"Only a failed or paused task can be retried."}; }
+        stale_pdf = r.kind=="linkedin_pdf" and r.status=="running" and r.lease_until<time.time() and r.updated_at<time.time()-300;
+        if (r.status not in ["failed","blocked"] and not stale_pdf) or r.kind=="live" { return {"error":"Only a failed or paused task can be retried."}; }
         if [a for a in [root -->][?:AgentAction] if a.run_id==id and a.status=="intent"] { return {"error":"An action may have been dispatched. Reconcile it first."}; }
         _continue_legacy(r);
         if r.status=="completed" { commit();return _run_view(r,True); }
         r.status="queued";r.message="Retry requested";r.attempts=0;r.next_at=0.0;r.dismissed=False;r.lease="";r.updated_at=time.time();
-        for t in [root.shared -->][?:AgentTicket] { if t.run_id==id { t.state="queued";t.due_at=0; } }
+        tickets=[t for t in [root.shared -->][?:AgentTicket] if t.run_id==id];
+        for t in tickets { t.state="queued";t.due_at=0; }
+        if not tickets and r.kind=="linkedin_pdf" {
+            ticket=root.shared ++> AgentTicket(owner=jid(root),run_id=id);
+            JacRuntime.allow_root(ticket,UUID(jid(root.shared)),AccessLevel.WRITE); # jac:ignore[E1053]
+        }
         commit();return _run_view(r,True);
     }
 }
@@ -815,14 +802,25 @@ def:priv prep_coach(id: str, data: dict[str, any]) -> dict[str, any] {
     sessions=[p for p in [root -->][?:PrepSession] if jid(p)==id and p.data.get("mode")!="interview"];
     if not sessions { return {"error":"Practice session not found."}; }
     p=sessions[0];snapshot["application_id"]=p.data.get("application_id","");revision=p.revision;
-    c=config(_agent_memory().model_selection);
+    owner=jid(root);cancellation=InferenceCancellation(gate=Lock());
+    with locks.account(owner) {
+        _agent_fresh();c=config(_agent_memory().model_selection);
+        _direct_coaching.setdefault(owner,[]).append(cancellation);
+    }
     try {
-        model_access(c,jid(root));
+        model_access(c,owner);
         if c["provider"] not in LOCAL_PROVIDERS { raise ValueError("Practice coaching requires the configured local model."); }
         question=problem(snapshot["problem_id"]);workflow=snapshot["canvas"].get("stack_prep_workflow_v1",{});
         question={**question,"prompt":workflow.get("prompt",question["prompt"])};
-        result=coaching_provider.generate("coach",{"session":{"answer":snapshot["answer"]},"problem":question},c);
+        result=coaching_provider.generate("coach",{"session":{"answer":snapshot["answer"]},"problem":question},c,cancellation=cancellation);
+        cancellation.check();
     } except Exception as exc { return {"error":str(exc)}; }
+    finally {
+        with locks.account(owner) {
+            requests=_direct_coaching[owner];requests.remove(cancellation);
+            if not requests { _direct_coaching.pop(owner); }
+        }
+    }
     return {"id":id,"data":snapshot,"revision":revision,"feedback":result["artifact"]};
 }
 

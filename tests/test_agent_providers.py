@@ -59,11 +59,56 @@ class Providers(unittest.TestCase):
 
     def test_unconfigured_local_is_visible_without_fallback(self):
         for options in ({}, {'local': {'provider':'openai','model':'cloud'}}, {'local': {'model':'unknown'}}):
-            self.configure(provider='codex-cli', model='', model_options=options)
+            self.configure(provider='codex-cli', model='', model_options=options, fallback_enabled=False)
             status = contracts.model_status('alice', 'local')
             self.assertFalse(status['configured'])
             self.assertEqual(status['provider'], 'ollama')
             self.assertIn('installed local model', status['message'])
+
+    def test_local_fallback_tries_codex_then_claude_and_logs_attempts(self):
+        from agents import local_model
+        c = self.configure(provider='lmstudio', model='local', fallback_enabled=True)
+        attempts, tried = [], []
+        def cli(name, *args, **kwargs):
+            tried.append(name)
+            if name == 'codex-cli':
+                raise ValueError('Install and sign in to codex-cli in the environment running Stack.')
+            return REPORT
+        with patch.object(local_model, 'complete', side_effect=ValueError('The local model service or selected model is unavailable.')), patch.object(local_cli, 'generate', side_effect=cli):
+            result = provider.generate('fit', CONTEXT, c, record=attempts.append, allow_fallback=True)
+        self.assertEqual(tried, ['codex-cli', 'claude-cli'])
+        self.assertEqual(result['artifact'], REPORT)
+        self.assertEqual([(a['provider'], a['status']) for a in attempts if a['status'] in ('error', 'accepted')],
+                         [('lmstudio', 'error'), ('codex-cli', 'error'), ('claude-cli', 'accepted')])
+
+    def test_api_fallback_uses_model_and_key_without_budget_settings(self):
+        from agents import local_model
+        c = self.configure(provider='lmstudio', model='local', fallback_enabled=True,
+                           local_model_context_tokens=1024,
+                           fallback_api={'provider': 'openai', 'model': 'api-model'})
+        response = {'status': 'completed', 'output': [{'content': [{'type': 'output_text', 'text': json.dumps(REPORT)}]}]}
+        with patch.dict(os.environ, {'OPENAI_API_KEY': 'synthetic'}), \
+             patch.object(local_model, 'complete', side_effect=ValueError('Local inference timed out.')), \
+             patch.object(local_cli, 'generate', side_effect=ValueError('Install and sign in to CLI.')), \
+             patch.object(provider, 'http', return_value=response) as http:
+            attempts = []
+            result = provider.generate('fit', CONTEXT, c, record=attempts.append, allow_fallback=True)
+            self.assertEqual(http.call_args.args[1]['max_output_tokens'], 6144)
+            with self.assertRaisesRegex(ValueError, 'API model context limit'):
+                provider.generate('fit', {**CONTEXT, 'details': 'x' * 32768}, c, allow_fallback=True)
+            self.assertEqual(http.call_count, 1)
+        self.assertEqual(result['artifact'], REPORT)
+        self.assertEqual(attempts[-1]['provider'], 'openai')
+        self.assertEqual(attempts[-1]['status'], 'accepted')
+
+    def test_validation_failure_does_not_fallback(self):
+        from agents import local_model
+        c = self.configure(provider='lmstudio', model='local', fallback_enabled=True)
+        with patch.object(local_model, 'complete', side_effect=ValueError('Local model output does not match the schema.')), \
+             patch.object(local_cli, 'generate') as cli:
+            with self.assertRaisesRegex(ValueError, 'schema'):
+                provider.generate('fit', CONTEXT, c, allow_fallback=True)
+            cli.assert_not_called()
 
     def test_codex_interview_accepts_complete_raw_plain_text(self):
         c = self.configure(provider='codex-cli')
@@ -85,12 +130,13 @@ class Providers(unittest.TestCase):
             contracts.model_access(c, owner)
             self.assertTrue(contracts.model_status(owner)['configured'])
         self.assertEqual(contracts.model_status('alice')['billing'], 'subscription')
-        self.assertEqual(contracts.reserve_cents(CONTEXT), 0)
 
-    def test_api_prices_and_budgets_still_required(self):
-        for name in ('openai', 'meta', 'invalid'):
-            c = self.configure(provider=name, model='test')
-            with self.assertRaises(ValueError): contracts.model_access(c, 'alice')
+    def test_api_model_is_required(self):
+        for name in ('openai', 'meta'):
+            self.configure(provider=name)
+            self.assertFalse(contracts.model_status('alice')['configured'])
+            self.configure(provider=name, model='test')
+            self.assertTrue(contracts.model_status('alice')['configured'])
 
     def test_subscription_has_no_http_fallback_or_dollar_estimate(self):
         self.configure(provider='codex-cli')
@@ -144,7 +190,7 @@ class Providers(unittest.TestCase):
         self.assertEqual(attempts[-1]['status'], 'rejected')
 
     def test_meta_uses_own_key_and_structured_output(self):
-        self.configure(provider='meta', model='muse-test', input_cents_per_million=100, output_cents_per_million=500)
+        self.configure(provider='meta', model='muse-test')
         result = {'choices': [{'finish_reason': 'stop', 'message': {'content': json.dumps(REPORT)}}],
                   'usage': {'prompt_tokens': 100, 'completion_tokens': 100}, 'id': 'meta-result'}
         with patch.dict(os.environ, {'MODEL_API_KEY': 'meta-secret', 'OPENAI_API_KEY': 'wrong-secret'}), patch.object(provider, 'http', return_value=result) as http:
@@ -154,7 +200,7 @@ class Providers(unittest.TestCase):
         self.assertEqual(headers['Authorization'], 'Bearer meta-secret')
         self.assertEqual(payload['response_format']['json_schema']['schema'], provider.SCHEMAS['fit'])
         self.assertEqual(value['provider_id'], 'meta-result')
-        self.assertGreater(value['cost_cents'], 0)
+        self.assertEqual(value['cost_cents'], 0)
 
     def test_cli_environment_drops_secrets_and_provider_overrides(self):
         secret_names = ('OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'MODEL_API_KEY', 'CODEX_API_KEY',
@@ -222,6 +268,19 @@ class Providers(unittest.TestCase):
         self.assertEqual(calls[-1][calls[-1].index('--tools')+1], '')
         self.assertIn('--safe-mode', calls[-1]);self.assertNotIn('--bare', calls[-1])
         self.assertIn('--strict-mcp-config', calls[-1])
+
+    def test_cancelling_cli_stops_the_running_process(self):
+        from threading import Lock, Timer
+        from agents.local_model import InferenceCancellation
+        cancellation = InferenceCancellation(gate=Lock())
+        timer = Timer(0.2, cancellation.stop)
+        timer.start()
+        try:
+            with self.assertRaisesRegex(ValueError, 'Cancelled'):
+                local_cli.run([sys.executable, '-c', 'import time; time.sleep(10)'], self.tmp.name,
+                              seconds=5, cancellation=cancellation)
+        finally:
+            timer.cancel();timer.join()
 
     def test_cli_timeout_and_output_limit(self):
         with self.assertRaisesRegex(ValueError, 'timed out'):

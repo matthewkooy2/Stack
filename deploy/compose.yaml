@@ -28,7 +28,7 @@ services:
     environment:
       JAC_DB_URL: postgresql://stack:${STACK_DB_PASSWORD}@db:5432/stack
       STACK_APPLE_REQUIRE_REVOCATION: "1"
-      STACK_FIRST_PARTY_AI_ONLY: "1"
+      STACK_FIRST_PARTY_AI_ONLY: "${STACK_FIRST_PARTY_AI_ONLY:-1}"
       STACK_LINKEDIN_ENABLED: "0"
       JAC_SERVE_DOCS: "false"
       JAC_SERVE_GRAPH: "false"
@@ -73,7 +73,7 @@ services:
     command: ["run", "--no-serve", "scripts/agent-worker.jac"]
     env_file: ${STACK_WORKER_ENV_FILE:-/etc/stack/worker.env}
     environment:
-      STACK_FIRST_PARTY_AI_ONLY: "1"
+      STACK_FIRST_PARTY_AI_ONLY: "${STACK_FIRST_PARTY_AI_ONLY:-1}"
       STACK_TRANSCRIPTION_AUTO_SETUP: "0"
       STACK_TRANSCRIPTION_READINESS_PATH: /opt/stack/transcription-status/readiness.json
       STACK_WORKER_API: http://api:8000

@@ -126,17 +126,17 @@ def output_tokens(step: str, c: dict[str, Any]) -> int:
 
 def request_size(step: str, context: dict[str, Any], c: dict[str, Any]) -> int:
     """Upper bound in tokens, matching agents.local_model.complete: UTF-8 bytes, output and framing."""
+    from agents.contracts import model_request_size
     system, text, schema = request(step, context)
-    return len(system.encode()) + len(text.encode()) + len(json.dumps(schema).encode()) + output_tokens(step, c) + 512
+    return model_request_size(system, text, schema, output_tokens(step, c))
 
 
 def context_limit(c: dict[str, Any], served: int | None = None) -> int:
-    from agents.contracts import LOCAL_PROVIDERS
-    if c['provider'] in LOCAL_PROVIDERS:
-        configured = c['local_model_context_tokens']
-        return min(configured, served) if served else configured
-    # Hosted and CLI models have far larger windows; this bounds the request size only.
-    return 400000
+    from agents.contracts import CLI_PROVIDERS, LOCAL_PROVIDERS, model_context_limit
+    if c['provider'] in CLI_PROVIDERS:
+        return 400000  # Existing tailoring planner limit for CLI requests.
+    configured = model_context_limit(c)
+    return min(configured, served) if served and c['provider'] in LOCAL_PROVIDERS else configured
 
 
 def _clean(text: Any) -> str:

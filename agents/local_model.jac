@@ -7,6 +7,7 @@ import socket;
 import from threading { Event, Lock, Timer }
 import from urllib.parse { urlsplit }
 import from http.client { HTTPConnection, HTTPSConnection, HTTPException, HTTPResponse }
+import from agents.contracts { MODEL_OUTPUT_TOKENS, model_context_limit, model_request_size }
 
 with entry {
     RESPONSE_LIMIT = 262144;
@@ -220,14 +221,9 @@ def complete(
     if not c['model'].strip() {
         raise ValueError('Choose an installed local model.');
     }
-    context_tokens = c.get('local_model_context_tokens', 8192);
-    output_tokens = c['max_output_tokens'];
-    # UTF-8 bytes conservatively bound input tokens. Do not silently truncate
-    # sources to fit a local context window. Reserve space for chat framing.
-    input_bytes = len(system.encode())
-        + len(prompt.encode())
-        + len(json.dumps(schema).encode());
-    if input_bytes + output_tokens + 512 > context_tokens {
+    context_tokens = model_context_limit(c);
+    output_tokens = min(c['max_output_tokens'], MODEL_OUTPUT_TOKENS);
+    if model_request_size(system, prompt, schema, output_tokens) > context_tokens {
         raise ValueError(CONTEXT_MESSAGE);
     }
     messages = [

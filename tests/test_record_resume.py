@@ -299,6 +299,31 @@ class RecordWorkflow(unittest.TestCase):
     def finish(self, claim, result):
         return self.worker('agent_finish', {**{k: claim[k] for k in ('id', 'owner', 'lease')}, 'result': result})
 
+    def test_switching_back_restarts_tailoring_with_the_saved_resume_file(self):
+        rid, review, original = self.import_resume('.docx')
+        app = self.job()
+        self.rpc('select_application_resume', {'id': app['id'], 'resume_id': rid})
+        confirmed = self.rpc('resume_save_records', {'id': rid, 'revision': review['revision'],
+                                                     'records': RECORDS, 'confirm': True})
+        self.assertTrue(confirmed['confirmed'], confirmed)
+        args = {'kind': 'resume', 'target_id': app['id']}
+        self.rpc('agent_save_model', {'selection': 'local'})
+        stopped = self.rpc('agent_start', args)
+        self.assertEqual(stopped['resume_id'], rid)
+        self.rpc('agent_save_model', {'selection': 'codex-cli', 'stop_tasks': True})
+        self.assertEqual(self.rpc('agent_run', {'id': stopped['id']})['status'], 'cancelled')
+        self.rpc('agent_save_model', {'selection': 'local'})
+
+        fresh = self.rpc('agent_start', args)
+        self.assertNotEqual(fresh['id'], stopped['id'])
+        self.assertEqual(fresh['status'], 'queued')
+        self.assertEqual(self.rpc('agent_start', args)['id'], fresh['id'])
+        claim = self.worker('agent_claim')
+        self.assertEqual((claim['id'], claim['model_selection']), (fresh['id'], 'local'))
+        auth = {key: claim[key] for key in ('id', 'owner', 'lease')}
+        self.assertEqual(self.worker('agent_worker_resume_source', auth)['records'], RECORDS)
+        self.assertEqual(base64.b64decode(self.rpc('read_resume', {'id': rid})['content']), original)
+
     def test_pdf_docx_import_review_approval_files_reload_and_two_account_isolation(self):
         real = os.environ.get('STACK_TEST_REAL_MODEL') == '1'
         for suffix in ('.pdf', '.docx'):

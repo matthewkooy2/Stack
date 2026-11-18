@@ -4,7 +4,7 @@ import os;
 import from pathlib { Path }
 import time;
 import urllib.request;
-import from agents.contracts { CLI_PROVIDERS, LOCAL_PROVIDERS, config, digest, model_access }
+import from agents.contracts { CLI_PROVIDERS, LOCAL_PROVIDERS, MODEL_STEPS, config, digest, model_access }
 import from agents.tracing { trace_data }
 import from agents.browser_control { BROWSER_OPERATIONS, BROWSER_ERROR_MESSAGE, browser_diagnostic, sanitize_browser_diagnostic }
 def call(name: str, args: dict[str, any], timeout: any = 110) -> dict[str, any] {
@@ -76,26 +76,28 @@ def leased_memory(auth: dict[str, any], owner: str) -> dict[str, any] {
 
 """Tailor a reviewed-record resume from the whole memory bank (docs/MEMORY_TAILORING.md)."""
 def memory_tailor(work: dict[str, any], auth: dict[str, any], c: dict[str, any], prepared: any,
-                  before: any, observe: any, record: any) -> dict[str, any] {
-    import from agents.provider { generate }
+                  before: any, observe: any, record: any, cancellation: any = None) -> dict[str, any] {
+    import from agents.provider { generate, run_with_fallback }
     import from agents.scoring { score, summary }
     import agents.memory_tailoring as memory_tailoring;
     import agents.record_resume as record_resume;
     context = work['context'];
-    costs: list[int] = [];
     def model(step: str, model_context: dict[str, any], configuration: dict[str, any]) -> dict[str, any] {
-        result = generate(step, model_context, configuration, record=record, observe=observe);
-        costs.append(result.get('cost_cents', 0));
-        return result;
+        # Verification keeps original wording if every provider fails.
+        return generate(step, model_context, configuration, record=record, observe=observe,
+                        cancellation=cancellation, allow_fallback=step == 'tailor_verify');
     }
     try {
         memory = leased_memory(auth, work['owner']);
-        served = None;
-        if c['provider'] in LOCAL_PROVIDERS {
-            import from agents.local_model { served_context }
-            served = served_context(c);
+        def plan(candidate: dict[str, any]) -> dict[str, any] {
+            served = None;
+            if candidate['provider'] in LOCAL_PROVIDERS {
+                import from agents.local_model { served_context }
+                served = served_context(candidate);
+            }
+            return memory_tailoring.run(prepared, memory, context.get('job', {}), candidate, model, served, context.get('resume_id', ''));
         }
-        proposal = memory_tailoring.run(prepared, memory, context.get('job', {}), c, model, served, context.get('resume_id', ''));
+        proposal = run_with_fallback(c, plan, observe, cancellation, allow_fallback=True);
         artifact = memory_tailoring.tailor(prepared, proposal);
     } except ValueError as exc {
         return {'needs_input': True, 'message': str(exc), 'requests': []};
@@ -106,10 +108,10 @@ def memory_tailor(work: dict[str, any], auth: dict[str, any], c: dict[str, any],
             pages=artifact['pdf']['pages'], text='\n'.join(r['text'] for r in artifact['records']));
         artifact['score'] = {'before': summary(before), 'after': summary(after)};
     }
-    return {'artifact': artifact, 'cost_cents': sum(costs), 'provider_id': ''};
+    return {'artifact': artifact, 'cost_cents': 0, 'provider_id': ''};
 }
 
-def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str, any] {
+def dispatch(work: dict[str, any], token: str, observe: any = None, cancellation: any = None) -> dict[str, any] {
     (step, context, artifacts) = (work['step'], work['context'], work['artifacts']);
     import from agents.provider { generate }
     auth = {k: work[k] for k in ('id', 'owner', 'lease')};
@@ -119,9 +121,12 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
         import from agents.research { contact_source }
         return {'artifact': contact_source(context['contact'])};
     }
-    if (step in ('fit', 'tailor', 'draft', 'coach', 'profile', 'story', 'interview_turn', 'interview_coach')) {
+    if (step in ('linkedin_review', 'fit', 'tailor', 'draft', 'coach', 'profile', 'story', 'interview_turn', 'interview_coach')) {
         c = config(work.get("model_selection", ""));
         if (work.get('provider_config_hash') != digest(c)) {
+            if step == 'linkedin_review' {
+                return {'blocked': True, 'message': 'Model configuration changed. Retry to use the current provider.'};
+            }
             return {
                 'needs_input': True,
                 'message': 'Model configuration changed. Resume this task to use the current provider.',
@@ -130,6 +135,9 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
         }
         model_access(c, work['owner']);
         model_context = {** context, 'research': artifacts.get('research', {}), 'linkedin_profile':artifacts.get('linkedin_scan', {})};
+        if step == 'linkedin_review' {
+            model_context = {'linkedin_profile':artifacts.get('linkedin_pdf', {}), 'target_role':context.get('target_role', '')};
+        }
         if (step == 'story') {
             # Only this reviewed event goes to inference, not other resume facts
             # or past answers added by the general agent-memory workflow.
@@ -170,13 +178,13 @@ def dispatch(work: dict[str, any], token: str, observe: any = None) -> dict[str,
             except Exception { raise ValueError('Stack could not retain the model response log. Check the API before retrying.') from None; }
         }
         if step == 'tailor' and prepared['format'] == 'records' {
-            return memory_tailor(work, auth, c, prepared, before, observe, record);
+            return memory_tailor(work, auth, c, prepared, before, observe, record, cancellation);
         }
         try {
-            result = generate(step, model_context, c, observe=observe, record=record);
+            result = generate(step, model_context, c, observe=observe, record=record, allow_fallback=True, cancellation=cancellation);
         } except ValueError as exc {
             if (c['provider'] in (CLI_PROVIDERS | LOCAL_PROVIDERS)) {
-                return {'needs_input': True, 'message': str(exc), 'requests': []};
+                return {'blocked': True, 'message': str(exc), 'requests': []} if step == 'linkedin_review' else {'needs_input': True, 'message': str(exc), 'requests': []};
             }
             raise;
         }
@@ -309,6 +317,16 @@ def notification_once(token: str) -> dict[str, any] {
     return call('agent_notification_finish', {**auth, 'result': result});
 }
 
+# Revoke in-flight inference as soon as its durable lease is cancelled or expires.
+def watch_lease(stop_event: any, auth: dict[str, any], signal: any) -> None {
+    while not stop_event.wait(1) {
+        try {
+            active=call('agent_lease_active', auth, timeout=3);
+            if not active.get('active') and not stop_event.is_set() { signal.stop();return; }
+        } except Exception { ; }
+    }
+}
+
 def main() {
     token = (
         os.environ.get('STACK_AGENT_WORKER_TOKEN', '')
@@ -347,11 +365,17 @@ def main() {
                 time.sleep(3);
                 continue;
             }
+            import from threading { Event, Lock }
+            import from agents.local_model { InferenceCancellation }
+            stopped=Event();cancellation=InferenceCancellation(gate=Lock()) if work['step'] in MODEL_STEPS else None;
+            if cancellation is not None {
+                Thread(target=watch_lease, args=(stopped, {'token':token, **{k:work[k] for k in ('id','owner','lease')}}, cancellation), daemon=True).start();
+            }
             try {
                 def observe(event: str, data: dict[str, any]) -> None {
                     call('agent_trace', {'token':token, **{k:work[k] for k in ('id','owner','lease')}, 'event':event, 'data':trace_data(data)});
                 }
-                result = dispatch(work, token, observe=observe);
+                result = dispatch(work, token, observe=observe, cancellation=cancellation);
             } except Exception as exc {
                 result = {
                     'error': str(exc)
@@ -359,6 +383,7 @@ def main() {
                         else ('Adapter unavailable (' + `type(exc).__name__ + ').')
                 };
             }
+            stopped.set();
             call(
                 'agent_finish',
                 {

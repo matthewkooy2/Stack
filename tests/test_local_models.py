@@ -81,9 +81,8 @@ class LocalModels(unittest.TestCase):
         return provider.generate('fit',CONTEXT,self.configure(name,url),**kwargs)
     def test_local_configuration_requires_model_and_private_origin_but_no_money_or_owner(self):
         for name in ('ollama','lmstudio'):
-            c=self.configure(name)
+            c=self.configure(name,fallback_enabled=False)
             for account in ('alice','bob'): contracts.model_access(c,account)
-            self.assertEqual(contracts.reserve_cents(CONTEXT),0)
             self.assertEqual(contracts.model_status('alice')['billing'],'local')
             with self.assertRaises(ValueError): contracts.model_access({**c,'model':''},'alice')
             for url in ('https://example.com:443','http://169.254.169.254:80','http://0.0.0.0:1234',
@@ -104,11 +103,11 @@ class LocalModels(unittest.TestCase):
                 self.assertEqual(payload['messages'][0]['content'],provider.SYSTEM)
                 if name=='ollama':
                     self.assertEqual(path,'/api/chat');self.assertEqual(payload['format'],provider.SCHEMAS['fit'])
-                    self.assertEqual(payload['options']['num_ctx'],8192);self.assertEqual(payload['options']['num_predict'],3000)
+                    self.assertEqual(payload['options']['num_ctx'],32768);self.assertEqual(payload['options']['num_predict'],6144)
                     self.assertFalse(payload['think'])
                 else:
                     self.assertEqual(path,'/v1/chat/completions');self.assertEqual(payload['response_format']['json_schema']['schema'],provider.SCHEMAS['fit'])
-                    self.assertEqual(payload['max_tokens'],3000)
+                    self.assertEqual(payload['max_tokens'],6144)
                 paid.assert_not_called()
     def test_dedicated_local_token_does_not_forward_paid_provider_credentials_or_proxy(self):
         with service('lmstudio') as (url,requests),patch.dict(os.environ,{'STACK_LOCAL_MODEL_API_KEY':'synthetic-local', 'HTTP_PROXY':'http://127.0.0.1:9', 'http_proxy':'http://127.0.0.1:9','NO_PROXY':'','no_proxy':''}):
@@ -255,7 +254,7 @@ class LocalModels(unittest.TestCase):
                             current=rpc('prep_save',{'id':current['id'],'revision':current['revision'],'data':data})
                             run=rpc('agent_start',{'kind':'prep','target_id':current['id']})
                         client.clear_auth();claim=rpc('agent_claim',{'token':'local-worker-token'})
-                        self.assertEqual(claim['id'],run['id']);self.assertEqual(claim['owner'],account);self.assertEqual(claim['reservation_cents'],0)
+                        self.assertEqual(claim['id'],run['id']);self.assertEqual(claim['owner'],account)
                         def api(name,args): return rpc(name,args)
                         def observe(event,data): return rpc('agent_trace',{'token':'local-worker-token',**{k:claim[k] for k in ('id','owner','lease')},'event':event,'data':data})
                         with patch.object(worker,'call',side_effect=api),patch.object(provider,'http') as paid:

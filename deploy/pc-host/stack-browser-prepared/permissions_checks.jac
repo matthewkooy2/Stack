@@ -1,5 +1,5 @@
 """Regression tests of the existing shared functions, with synthetic policies only."""
-import from agents.contracts { authorize, validate_policy, model_access, workflow_steps, EXTERNAL, reserve_cents }
+import from agents.contracts { authorize, validate_policy, model_access, workflow_steps, EXTERNAL }
 import from agents.experience { REVIEWED }
 import time;
 
@@ -35,9 +35,8 @@ test "CLI access is independent of Stack account and request caps" {
     model_access(local_model(),'11111111111111111111111111111111');
     model_access(local_model(),'22222222222222222222222222222222');
 }
-test "paid provider without budgets remains disabled" {
-    c={'provider':'openai','model':'synthetic','monthly_cents':0,'user_monthly_cents':0,'input_cents_per_million':0,'output_cents_per_million':0};
-    with testraises(ValueError) { model_access(c,'11111111111111111111111111111111'); }
+test "API provider requires a model" {
+    with testraises(ValueError) { model_access({'provider':'openai','model':''},'11111111111111111111111111111111'); }
 }
 test "all unselected external actions are denied" {
     for action in EXTERNAL.values() { with testraises(ValueError) { authorize(rules(),action,'example.test'); } }

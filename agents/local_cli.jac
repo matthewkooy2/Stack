@@ -37,7 +37,7 @@ def run(
     prompt: str = '',
     seconds: float = 90,
     limit: int = 2000000,
-    merge_stderr: bool = False
+    merge_stderr: bool = False, cancellation: any = None
 ) -> tuple[int, str] {
     with tempfile.TemporaryFile() as incoming {
         incoming.write(prompt.encode());
@@ -57,12 +57,18 @@ def run(
                 'The local CLI could not start. Check its installation in the worker environment.'
             ) from None;
         }
+        def disconnect() -> None {
+            try { os.killpg(proc.pid, signal.SIGKILL as int); }
+            except ProcessLookupError { ; }
+        }
+        if cancellation is not None { cancellation.bind(disconnect); }
         selector = selectors.DefaultSelector();
         stream = proc.stdout as BinaryIO;
         selector.register(stream, selectors.EVENT_READ);
         output = bytearray();
         deadline = time.monotonic() + seconds;
         try {
+            if cancellation is not None { cancellation.check(); }
             while selector.get_map() {
                 if (time.monotonic() >= deadline) {
                     raise ValueError(
@@ -84,11 +90,13 @@ def run(
                 }
             }
             status = proc.wait(timeout=max(0.1, (deadline - time.monotonic())));
+            if cancellation is not None { cancellation.check(); }
             return (status, output.decode(errors='replace'));
         } except subprocess.TimeoutExpired {
             raise ValueError('The local CLI timed out.') from None;
         } finally {
             selector.close();
+            if cancellation is not None { cancellation.bind(None); }
             try {
                 os.killpg(proc.pid, signal.SIGKILL as int);
             } except ProcessLookupError {
@@ -101,10 +109,12 @@ def run(
 }
 def generate(
     provider: str, model: str, system: str, prompt: str, schema: dict[str, any], observe: any = None, record_response: any = None,
-    lenient: bool = False
+    lenient: bool = False, cancellation: any = None
 ) -> dict[str, any] {
     # lenient: send the schema but hand back the reply as text, so the caller can keep
     # a prose reply (coaching, #112) instead of failing the step.
+    options = {'cancellation':cancellation} if cancellation is not None else {};
+    if cancellation is not None { cancellation.check(); }
     executable = shutil.which('codex' if (provider == 'codex-cli') else 'claude');
     if not executable {
         raise ValueError(
@@ -116,7 +126,7 @@ def generate(
         if (provider == 'codex-cli') {
             # Codex owns authentication; Stack never reads its credential store.
             (status, login) = run(
-                [executable, 'login', 'status'], tmp, seconds=10, merge_stderr=True
+                [executable, 'login', 'status'], tmp, seconds=10, merge_stderr=True, **options
             );
             if (status or ('Logged in using ChatGPT' not in login)) {
                 raise ValueError(
@@ -171,7 +181,7 @@ def generate(
             }
             command += ['-'];
             (status, _) = run(
-                command, tmp, (system + ('\nReturn only the requested JSON.\n' if schema else '\nRespond in plain text.\n') + prompt)
+                command, tmp, (system + ('\nReturn only the requested JSON.\n' if schema else '\nRespond in plain text.\n') + prompt), **options
             );
             raw = None;
             if (result_path.exists() and (result_path.stat().st_size <= 131072)) {
@@ -183,7 +193,7 @@ def generate(
             if (status or not result_path.exists()) {
                 if observe { observe("model_response", {"exit_code":status,"response":"","reported_models":[]}); }
                 raise ValueError(
-                    'Codex could not complete the request. Check ChatGPT sign-in and usage limits; no API fallback was attempted.'
+                    'Codex could not complete the request. Check ChatGPT sign-in and usage limits.'
                 );
             }
             if (result_path.stat().st_size > 131072) {
@@ -193,8 +203,10 @@ def generate(
             if observe { observe("model_response", {"exit_code":status,"text":text,"reported_models":[]}); }
             return json.loads(text as str) if schema and not lenient else {'text': text};
         }
-        (status, login) = run([executable, 'auth', 'status'], tmp, seconds=10);
-        auth = json.loads(login) if not status else {};
+        (status, login) = run([executable, 'auth', 'status'], tmp, seconds=10, **options);
+        try { auth = json.loads(login) if not status else {}; }
+        except (ValueError, TypeError) { auth = {}; }
+        if not isinstance(auth, `dict) { auth = {}; }
         if (
             not auth.get('loggedIn')
             or (auth.get('authMethod') not in ('oauth', 'claude.ai'))
@@ -230,14 +242,14 @@ def generate(
         if model {
             command += ['--model', model];
         }
-        (status, output) = run(command, tmp, prompt);
+        (status, output) = run(command, tmp, prompt, **options);
         if (record_response is not None) {
             record_response(output, 'provider_json');
         }
         if observe { observe("model_response", {"exit_code":status,"text":output}); }
         if status {
             raise ValueError(
-                'Claude could not complete the request. Check subscription sign-in and usage limits; no API fallback was attempted.'
+                'Claude could not complete the request. Check subscription sign-in and usage limits.'
             );
         }
         result = json.loads(output);

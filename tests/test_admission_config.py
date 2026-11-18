@@ -57,8 +57,7 @@ class AdmissionConfig(unittest.TestCase):
         self.assert_safe_failure()
 
     def test_invalid_limits_do_not_leak_values_or_allow_public_admission(self):
-        for key in ('monthly_cents', 'user_monthly_cents',
-                    'input_cents_per_million', 'output_cents_per_million', 'max_output_tokens'):
+        for key in ('monthly_cents', 'user_monthly_cents', 'max_output_tokens'):
             for value in ('secret-marker', None, {}, float('inf')):
                 with self.subTest(key=key, value=value):
                     self.path.write_text(json.dumps({'invite_only': False, key: value}))

@@ -9,6 +9,7 @@ TEMPLATES = {
     'deedy': 'Deedy Resume',
     'jan-kuster': "Jan Kuster's Classic CV",
 }
+LATEX_RECORD_TEMPLATES = frozenset(TEMPLATES) | {'jake'}
 ROOT = Path(__file__).parent / 'templates'
 
 
@@ -45,6 +46,16 @@ def records_source(template, records):
         # Source Sans Pro's shared hyphen glyph extracts as U+2011 in XeTeX.
         # Use the bundled TeX monospace face for literal ASCII hyphens.
         replacements[ord('-')] = r'\texttt{-}'
+    if template == 'jake':
+        replacements.update(str.maketrans({
+            "'": r'\textquotesingle{}', '"': r'\textquotedbl{}', '`': r'\textasciigrave{}',
+            '<': r'\textless{}', '>': r'\textgreater{}',
+        }))
+        # Jake's TeX font joins pairs such as ff and --. Break the ligatures
+        # while keeping the visible characters and exact extracted resume text.
+        escaped = [(record['kind'], re.sub(r'f(?=[fil])|-(?=-)', lambda match: match[0] + r'\kern0pt{}',
+                                           record['text'].translate(replacements))) for record in records]
+        return fill(template, _jake_records(escaped))
     lines, listing = [], False
     for index, record in enumerate(records):
         kind, text = record['kind'], record['text'].translate(replacements)
@@ -66,3 +77,45 @@ def records_source(template, records):
     if listing:
         lines.append(r'\resumeItemListEnd')
     return fill(template, '\n'.join(lines))
+
+
+def _jake_records(records):
+    """Use Jake's masthead, ruled sections and nested lists with confirmed text."""
+    lines = []
+    if records and records[0][0] == 'title':
+        lines = [r'\begin{center}', r'\textbf{\Huge \scshape ' + records[0][1] + '}']
+        end = 1
+        while end < len(records) and records[end][0] == 'paragraph':
+            lines.append(r'\par{\small ' + records[end][1] + '}')
+            end += 1
+        lines.append(r'\end{center}')
+        records = records[end:]
+    entries, bullets = False, False
+    for index, (kind, text) in enumerate(records):
+        follows_with_bullet = index + 1 < len(records) and records[index + 1][0] == 'bullet'
+        if bullets and kind != 'bullet':
+            lines.append(r'\resumeItemListEnd')
+            bullets = False
+        if entries and (kind == 'heading' or (kind != 'bullet' and not follows_with_bullet)):
+            lines.append(r'\resumeSubHeadingListEnd')
+            entries = False
+        if kind == 'heading':
+            lines.append(r'\section{' + text + '}')
+        elif kind == 'bullet':
+            if not bullets:
+                lines.append(r'\resumeItemListStart')
+                bullets = True
+            lines.append(r'\resumeItem{' + text + '}')
+        elif follows_with_bullet:
+            if not entries:
+                lines.append(r'\resumeSubHeadingListStart')
+                entries = True
+            # A reviewed record is an opaque line, so preserve its order and wrap long headers.
+            lines.append(r'\item {\small\textbf{' + text + '}}')
+        else:
+            lines.append(r'\noindent {\small ' + text + r'}\par')
+    if bullets:
+        lines.append(r'\resumeItemListEnd')
+    if entries:
+        lines.append(r'\resumeSubHeadingListEnd')
+    return '\n'.join(lines)

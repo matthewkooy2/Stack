@@ -1,0 +1,27 @@
+[Unit]
+Description=Stack Rust development backend
+After=network.target
+
+[Service]
+DynamicUser=yes
+StateDirectory=stack-rust
+WorkingDirectory=/opt/stack-rust/current
+Environment=GLIBC_TUNABLES=glibc.malloc.mmap_threshold=1048576
+Environment=STACK_RUST_DB=/var/lib/stack-rust/backend.db
+Environment=STACK_RUST_BIND=127.0.0.1:8180
+Environment=STACK_PRIVATE_BIND=127.0.0.1:8181
+EnvironmentFile=-/etc/stack-rust/service.env
+Environment=STACK_DISCOVERY_ROOT=.
+LoadCredential=runtime-config:/etc/stack-rust/runtime-config
+Environment=STACK_AGENT_CONFIG=%d/runtime-config
+Environment=STACK_PUBLIC_SETTINGS=/opt/stack-rust/current/public-settings.json
+ExecStart=/opt/stack-rust/current/stack-backend
+Restart=on-failure
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

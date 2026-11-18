@@ -113,7 +113,6 @@ def memory_tailor(work: dict[str, any], auth: dict[str, any], c: dict[str, any],
 
 def dispatch(work: dict[str, any], token: str, observe: any = None, cancellation: any = None) -> dict[str, any] {
     (step, context, artifacts) = (work['step'], work['context'], work['artifacts']);
-    import from agents.provider { generate }
     auth = {k: work[k] for k in ('id', 'owner', 'lease')};
     auth['token'] = token;
     if step == 'browser_autofill' { return browser_call(step, work); }
@@ -122,6 +121,7 @@ def dispatch(work: dict[str, any], token: str, observe: any = None, cancellation
         return {'artifact': contact_source(context['contact'])};
     }
     if (step in ('linkedin_review', 'fit', 'tailor', 'draft', 'coach', 'profile', 'story', 'interview_turn', 'interview_coach')) {
+        import from agents.provider { generate }
         c = config(work.get("model_selection", ""));
         if (work.get('provider_config_hash') != digest(c)) {
             if step == 'linkedin_review' {

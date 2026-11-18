@@ -24,6 +24,11 @@ uses its intended sans-serif typography. Other fonts/packages come from Tectonic
 Template and font licenses accompany the sources; template notices are also
 embedded in each main `.tex` file. See `THIRD_PARTY_NOTICES.txt`.
 
+Reviewed records using Jake's Resume compile through Jake's LaTeX preamble with
+the centered name and contact block, ruled section headings, and nested bullet
+lists. Headers captured as one reviewed line stay intact. Structured details or
+uploaded LaTeX carry the separate fields needed for exact column alignment.
+
 Use the existing `scripts/warm-resume-templates.jac` to download compiler packages
 and compile the built-in layouts before serving them. Updating the picker requires
 a native build; updating rendering requires deploying the backend and assets

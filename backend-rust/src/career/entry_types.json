@@ -1,0 +1,694 @@
+[
+  {
+    "key": "work_experience",
+    "label": "Work experience",
+    "fields": [
+      {
+        "key": "employer",
+        "label": "Employer",
+        "input": "text",
+        "required_on_confirm": true,
+        "max_length": 1500
+      },
+      {
+        "key": "job_title",
+        "label": "Job title",
+        "input": "text",
+        "required_on_confirm": true,
+        "max_length": 1500
+      },
+      {
+        "key": "start_date",
+        "label": "Start date",
+        "input": "month",
+        "required_on_confirm": true,
+        "max_length": 1500
+      },
+      {
+        "key": "end_date",
+        "label": "End date",
+        "input": "month",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "location",
+        "label": "Location",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "employment_type",
+        "label": "Employment type",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "url",
+        "label": "Link",
+        "input": "url",
+        "required_on_confirm": false,
+        "max_length": 1500
+      }
+    ]
+  },
+  {
+    "key": "project",
+    "label": "Project",
+    "fields": [
+      {
+        "key": "role",
+        "label": "Role",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "organization",
+        "label": "Organization",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "start_date",
+        "label": "Start date",
+        "input": "month",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "end_date",
+        "label": "End date",
+        "input": "month",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "technologies",
+        "label": "Technologies",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "url",
+        "label": "Link",
+        "input": "url",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "repository_url",
+        "label": "Repository link",
+        "input": "url",
+        "required_on_confirm": false,
+        "max_length": 1500
+      }
+    ]
+  },
+  {
+    "key": "skill",
+    "label": "Skill",
+    "fields": [
+      {
+        "key": "category",
+        "label": "Category",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "proficiency",
+        "label": "Proficiency",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "years_used",
+        "label": "Years used",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "last_used",
+        "label": "Last used",
+        "input": "month",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "url",
+        "label": "Link",
+        "input": "url",
+        "required_on_confirm": false,
+        "max_length": 1500
+      }
+    ]
+  },
+  {
+    "key": "education",
+    "label": "Education",
+    "fields": [
+      {
+        "key": "institution",
+        "label": "Institution",
+        "input": "text",
+        "required_on_confirm": true,
+        "max_length": 1500
+      },
+      {
+        "key": "degree",
+        "label": "Degree",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "field_of_study",
+        "label": "Field of study",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "start_date",
+        "label": "Start date",
+        "input": "month",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "end_date",
+        "label": "End date",
+        "input": "month",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "gpa",
+        "label": "GPA",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "honors",
+        "label": "Honors",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "location",
+        "label": "Location",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "url",
+        "label": "Link",
+        "input": "url",
+        "required_on_confirm": false,
+        "max_length": 1500
+      }
+    ]
+  },
+  {
+    "key": "coursework",
+    "label": "Coursework / courseload",
+    "fields": [
+      {
+        "key": "institution",
+        "label": "Institution",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "course_code",
+        "label": "Course code",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "term",
+        "label": "Term",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "credits",
+        "label": "Credits",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "grade",
+        "label": "Grade",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "topics",
+        "label": "Courses / topics",
+        "input": "textarea",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "url",
+        "label": "Link",
+        "input": "url",
+        "required_on_confirm": false,
+        "max_length": 1500
+      }
+    ]
+  },
+  {
+    "key": "certification",
+    "label": "Certification / license",
+    "fields": [
+      {
+        "key": "issuer",
+        "label": "Issuer",
+        "input": "text",
+        "required_on_confirm": true,
+        "max_length": 1500
+      },
+      {
+        "key": "issued_date",
+        "label": "Issued date",
+        "input": "month",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "expiration_date",
+        "label": "Expiration date",
+        "input": "month",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "credential_id",
+        "label": "Credential ID",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "url",
+        "label": "Link",
+        "input": "url",
+        "required_on_confirm": false,
+        "max_length": 1500
+      }
+    ]
+  },
+  {
+    "key": "volunteering",
+    "label": "Volunteering / service",
+    "fields": [
+      {
+        "key": "organization",
+        "label": "Organization",
+        "input": "text",
+        "required_on_confirm": true,
+        "max_length": 1500
+      },
+      {
+        "key": "role",
+        "label": "Role",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "start_date",
+        "label": "Start date",
+        "input": "month",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "end_date",
+        "label": "End date",
+        "input": "month",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "location",
+        "label": "Location",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "url",
+        "label": "Link",
+        "input": "url",
+        "required_on_confirm": false,
+        "max_length": 1500
+      }
+    ]
+  },
+  {
+    "key": "leadership",
+    "label": "Leadership",
+    "fields": [
+      {
+        "key": "organization",
+        "label": "Organization",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "position",
+        "label": "Position",
+        "input": "text",
+        "required_on_confirm": true,
+        "max_length": 1500
+      },
+      {
+        "key": "start_date",
+        "label": "Start date",
+        "input": "month",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "end_date",
+        "label": "End date",
+        "input": "month",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "url",
+        "label": "Link",
+        "input": "url",
+        "required_on_confirm": false,
+        "max_length": 1500
+      }
+    ]
+  },
+  {
+    "key": "award",
+    "label": "Award / scholarship",
+    "fields": [
+      {
+        "key": "issuer",
+        "label": "Issuer",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "date",
+        "label": "Date",
+        "input": "month",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "level",
+        "label": "Level",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "criteria",
+        "label": "Criteria",
+        "input": "textarea",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "url",
+        "label": "Link",
+        "input": "url",
+        "required_on_confirm": false,
+        "max_length": 1500
+      }
+    ]
+  },
+  {
+    "key": "publication",
+    "label": "Publication / presentation",
+    "fields": [
+      {
+        "key": "authors",
+        "label": "Authors",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "publisher",
+        "label": "Publisher / venue",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "date",
+        "label": "Date",
+        "input": "month",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "doi",
+        "label": "DOI",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "url",
+        "label": "Link",
+        "input": "url",
+        "required_on_confirm": false,
+        "max_length": 1500
+      }
+    ]
+  },
+  {
+    "key": "research",
+    "label": "Research",
+    "fields": [
+      {
+        "key": "institution",
+        "label": "Institution / lab",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "role",
+        "label": "Role",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "supervisor",
+        "label": "Supervisor",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "start_date",
+        "label": "Start date",
+        "input": "month",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "end_date",
+        "label": "End date",
+        "input": "month",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "methods",
+        "label": "Methods",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "url",
+        "label": "Link",
+        "input": "url",
+        "required_on_confirm": false,
+        "max_length": 1500
+      }
+    ]
+  },
+  {
+    "key": "language",
+    "label": "Language",
+    "fields": [
+      {
+        "key": "proficiency",
+        "label": "Proficiency",
+        "input": "text",
+        "required_on_confirm": true,
+        "max_length": 1500
+      },
+      {
+        "key": "assessment",
+        "label": "Assessment / credential",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "score",
+        "label": "Score",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      }
+    ]
+  },
+  {
+    "key": "activity",
+    "label": "Activity / membership",
+    "fields": [
+      {
+        "key": "organization",
+        "label": "Organization",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "role",
+        "label": "Role",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "start_date",
+        "label": "Start date",
+        "input": "month",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "end_date",
+        "label": "End date",
+        "input": "month",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "url",
+        "label": "Link",
+        "input": "url",
+        "required_on_confirm": false,
+        "max_length": 1500
+      }
+    ]
+  },
+  {
+    "key": "military_service",
+    "label": "Military service",
+    "fields": [
+      {
+        "key": "branch",
+        "label": "Branch",
+        "input": "text",
+        "required_on_confirm": true,
+        "max_length": 1500
+      },
+      {
+        "key": "rank",
+        "label": "Rank",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "specialty",
+        "label": "Specialty",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "start_date",
+        "label": "Start date",
+        "input": "month",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "end_date",
+        "label": "End date",
+        "input": "month",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "location",
+        "label": "Location",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      }
+    ]
+  },
+  {
+    "key": "other",
+    "label": "Other resume content",
+    "fields": [
+      {
+        "key": "organization",
+        "label": "Organization",
+        "input": "text",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "start_date",
+        "label": "Start date",
+        "input": "month",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "end_date",
+        "label": "End date",
+        "input": "month",
+        "required_on_confirm": false,
+        "max_length": 1500
+      },
+      {
+        "key": "url",
+        "label": "Link",
+        "input": "url",
+        "required_on_confirm": false,
+        "max_length": 1500
+      }
+    ]
+  }
+]

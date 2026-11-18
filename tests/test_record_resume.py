@@ -180,6 +180,17 @@ class RecordDocuments(unittest.TestCase):
         text, _ = extracted(output)
         self.assertIn('Record 99:', text)
 
+    def test_jake_retains_literal_ligatures_quotes_and_hyphens(self):
+        records = [
+            {'id': 'r0', 'kind': 'title', 'text': 'Alex Éxample'},
+            {'id': 'r1', 'kind': 'heading', 'text': 'Experience'},
+            {'id': 'r2', 'kind': 'paragraph', 'text': 'Office Analyst | Jun 2019 -- Oct 2022'},
+            {'id': 'r3', 'kind': 'bullet', 'text': 'Reviewed the office\'s "workflow", including -10% and files < 10 MB.'},
+        ]
+        output = rr.documents(records, 'jake')
+        actual = [base64.b64decode(output[kind]['content']) for kind in ('pdf', 'docx')]
+        self.assertTrue(rr.check_documents(*actual, records)['ok'])
+
     def test_unreadable_or_unsupported_inputs_fail_without_losing_content(self):
         with self.assertRaises(ValueError): rr.validate_upload('broken.docx', b'not zip')
         for tag in ['drawing', 'ins', 'del', 'moveFrom', 'moveTo', 'moveFromRangeStart', 'moveToRangeEnd', 'altChunk', 'footnoteReference', 'sym']:

@@ -54,9 +54,13 @@ Reuse:
    into parts with its header repeated. Entries the model skips are asked once more. Then the compose request carries the highest-rated entries, in full
    or with only their marked lines when space is short. Coverage records which
    requests read each entry.
-4. **Compose.** The model returns sections of items (`R.e<n>` resume entries,
-   `E<n>` memory entries, or `SKILLS`), each with cited lines and a reason, plus every
-   unused entry with a reason.
+4. **Compose.** In the same request, the model sets a job-specific strategy for the
+   whole resume, identifies the focus of every base section, and returns an explicit
+   keep, rewrite or optional-omit decision for each bullet and editable paragraph.
+   Stack requires complete coverage before yielding a draft. The model then returns
+   sections of items (`R.e<n>` resume entries, `E<n>` memory entries, or `SKILLS`),
+   each with cited lines and a reason, plus the unused memory entries. The draft
+   records both the decision and the applied result after the source checks.
 5. **Check every line.** A line must cite lines of its own entry. Two exceptions: a
    memory entry with the same organization and title as a resume entry's header may be
    cited inside that entry, and Skills lines may cite skills anywhere. A line is refused
@@ -77,10 +81,12 @@ Reuse:
    item check is stricter, and Qwen rejected correct skills lines.
 7. **Review.** Changes are individually rejectable:
    `add:<entry>` (a memory entry), `add:<line>` (a same-role memory line),
-   `rewrite:<line>`, `omit:R.e<n>` / `omit:R.r<n>`, and `order:sections`,
+   `rewrite:<line>`, `omit:R.r<n>`, and `order:sections`,
    `order:section:<heading>`, `order:item:<entry>`. Rejecting a rewrite prints the
-   confirmed text. A resume line leaves the result only through an approved omission;
-   anything else is restored to its entry in original order. The masthead is always
+   confirmed text. An uncited base line stays in its original entry unless the user
+   marked it optional and the model explicitly chose to omit it. Metrics and credentials
+   are protected. Rewrites keep base metrics, education and credentials. Using an
+   experience bullet as evidence for a skill keeps the bullet in Experience. The masthead is always
    kept verbatim. The review also shows the coverage report, the notes, page count
    and before/after scores.
 8. **Finalize.** After approval the worker reads the resume and memory again. The

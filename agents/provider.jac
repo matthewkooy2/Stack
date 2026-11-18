@@ -126,29 +126,29 @@ def _generate_one(
         'model': c['model'],
         'status': 'started'
     };
-    def save(**changes: any) -> any {
+    def record_attempt(**changes: any) -> any {
         attempt.update(changes);
         if (record is not None) {
             record(`dict(attempt));
         }
     }
     def received(raw: any, response_format: any) -> any {
-        save(status='received', raw_response=raw, response_format=response_format);
+        record_attempt(status='received', raw_response=raw, response_format=response_format);
     }
     def observed(event: str, data: dict[str, any]) -> None {
         if observe { observe(event, {**data, "model_attempt":attempt["attempt_id"]}); }
     }
-    save();
+    record_attempt();
     try {
         result = _generate(step, context, c, received, observed if observe else None, cancellation);
     } except Exception as exc {
         reason = str(exc) if isinstance(exc, ValueError) else `type(exc).__name__;
-        save(
+        record_attempt(
             status='rejected' if ('raw_response' in attempt) else 'error', error=reason
         );
         raise;
     }
-    save(status='accepted');
+    record_attempt(status='accepted');
     return result;
 }
 
@@ -211,7 +211,13 @@ def _send(step: str, c: dict[str, any], system: str, payload: dict[str, any], sc
     result: dict[str, any] = {};
     if observe { observe("model_request", {"provider":provider,"requested_model":c["model"] or "provider default","transport":"codex exec" if provider=="codex-cli" else "claude -p" if provider=="claude-cli" else "local HTTP API" if provider in LOCAL_PROVIDERS else "HTTPS API","system":system,"input":json.loads(payload["input"]),"prompt_text":system+'\nReturn only the requested JSON.\n'+payload["input"] if provider=="codex-cli" else payload["input"],"schema":schema,"max_output_tokens":c["max_output_tokens"] if provider not in CLI_PROVIDERS else None}); }
     if cancellation is not None { cancellation.check(); }
-    if (provider in CLI_PROVIDERS) {
+    if provider == 'openai' and os.environ.get('STACK_STAGING_OPENAI_SOCKET') {
+        import from agents.staging_openai { complete }
+        text = complete(step, system, payload['input'], schema, c['max_output_tokens']);
+        result = {'model':c['model'], 'status':'completed'};
+        received(text, 'text');
+        if cancellation is not None { cancellation.check(); }
+    } elif (provider in CLI_PROVIDERS) {
         import from agents.local_cli { generate as cli_generate }
         options = {'record_response':received, 'lenient':coach};
         if observe { options['observe']=observe; }
@@ -351,7 +357,7 @@ def _generate(step: any, context: any, configuration: any, received: any, observ
     provider = c['provider'];
     if provider not in CLI_PROVIDERS { c = {**c, 'max_output_tokens': min(c['max_output_tokens'], MODEL_OUTPUT_TOKENS)}; }
     key = os.environ.get('MODEL_API_KEY' if (provider == 'meta') else 'OPENAI_API_KEY');
-    if ((provider not in (CLI_PROVIDERS | LOCAL_PROVIDERS)) and (not key or not c['model'])) {
+    if ((provider not in (CLI_PROVIDERS | LOCAL_PROVIDERS)) and ((not key and not (provider == 'openai' and os.environ.get('STACK_STAGING_OPENAI_SOCKET'))) or not c['model'])) {
         raise ValueError('The model provider is not configured.');
     }
     if step in ['tailor_screen', 'tailor_compose', 'tailor_verify'] {

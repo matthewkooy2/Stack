@@ -17,9 +17,6 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from google.auth import crypt, jwt
-from jaclang.scale.runtime.context.trace_ctx import get_current_trace
-from jaclang.server.shared_store import shared_store
-from agents.accounts import resolve
 from agents.request_trace import valid_request_id
 
 ISSUER = "https://appleid.apple.com"
@@ -119,6 +116,7 @@ def _exchange(code, client_id, mode, keys, subject):
 
 
 def _save_grant(user_id, client_id, sealed):
+    from jaclang.server.shared_store import shared_store
     shared_store().rows(
         "INSERT INTO kv_state (key, value) VALUES (:key, :value) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
         {"key": f"stack:apple-grant:{user_id}:{client_id}", "value": sealed},
@@ -126,6 +124,7 @@ def _save_grant(user_id, client_id, sealed):
 
 
 def revoke_account(user_id):
+    from jaclang.server.shared_store import shared_store
     prefix = f"stack:apple-grant:{user_id}:"
     for key, value in shared_store().rows(
         "SELECT key, value FROM kv_state WHERE starts_with(key, :prefix)", {"prefix": prefix}
@@ -138,7 +137,11 @@ def revoke_account(user_id):
 def _log_failure(step, mode, stage, error):
     event = {"event": "apple_auth_failure", "step": step, "mode": mode, "stage": stage,
              "error_type": type(error).__name__}
-    trace_id = get_current_trace()
+    try:
+        from jaclang.scale.runtime.context.trace_ctx import get_current_trace
+        trace_id = get_current_trace()
+    except ImportError:
+        trace_id = None
     if valid_request_id(trace_id):
         event["request_id"] = trace_id
     if isinstance(error, HTTPError):
@@ -146,7 +149,7 @@ def _log_failure(step, mode, stage, error):
     print(json.dumps(event), flush=True)
 
 
-def begin(mode="native") -> dict[str, Any]:
+def begin(mode="native", *, store=None) -> dict[str, Any]:
     stage = "configuration"
     try:
         configuration = web_configuration() if mode == "web" else {}
@@ -156,7 +159,8 @@ def begin(mode="native") -> dict[str, Any]:
             _client_secret(client_id)
             _encryption()
         stage = "challenge_store"
-        _, store = runtime()
+        if store is None:
+            _, store = runtime()
         nonce = hashlib.sha256(secrets.token_bytes(32)).hexdigest()
         state = store.create_token("", PURPOSE, 300, json.dumps({"nonce": nonce, "audience": client_id, "mode": mode}))
         return {"ok": True, "state": state, "nonce": nonce, "expires_in": 300, **configuration}
@@ -165,11 +169,12 @@ def begin(mode="native") -> dict[str, Any]:
         return {"ok": False, "error": ("Apple web sign-in is not configured. Set the Apple Services ID and registered HTTPS return URL on the Stack server." if mode == "web" else "Stack could not prepare Apple sign-in. Please retry.")}
 
 
-def finish(state: str, identity_token: str, authorization_code: str, account_lock) -> dict[str, Any]:
+def finish(state: str, identity_token: str, authorization_code: str, account_lock, *, store=None, issue_identity=None) -> dict[str, Any]:
     mode = "unknown"
     stage = "challenge_validation"
     try:
-        manager, store = runtime()
+        if store is None:
+            manager, store = runtime()
         record = store.peek_token(state, PURPOSE)
         if not record:
             raise ValueError("Apple sign-in expired. Please start again.")
@@ -197,6 +202,9 @@ def finish(state: str, identity_token: str, authorization_code: str, account_loc
         sealed = _exchange(authorization_code, client_id, mode, keys, claims["sub"]) if _grant_required() else ""
         stage = "account_resolution"
         email = claims.get("email", "") if claims.get("email_verified") in (True, "true") else ""
+        if issue_identity is not None:
+            return issue_identity(claims["sub"], email, client_id, sealed)
+        from agents.accounts import resolve
         user = resolve(manager, "apple", claims["sub"], email)
         uid = user["user_id"]
         with account_lock(user["root_id"]):

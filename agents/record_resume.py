@@ -152,10 +152,10 @@ def validate_records(records):
 
 
 def prepare(value):
-    from agents.template_library import TEMPLATES as LIBRARY
+    from agents.template_library import LATEX_RECORD_TEMPLATES
     records = validate_records(value['records'])
     template = value.get('template', 'classic')
-    if template not in {'classic', 'jake', *LIBRARY}:
+    if template != 'classic' and template not in LATEX_RECORD_TEMPLATES:
         raise ValueError('Choose one of the built-in templates.')
     payload = {'records': records, 'template': template,
                'upload_digest': value['upload_digest'], 'revision': value['revision']}
@@ -193,6 +193,13 @@ def _groups(records):
     return groups
 
 
+def omission_eligible(record):
+    """User-marked bullets are optional unless they carry numeric or credential evidence."""
+    return bool(record and record['kind'] == 'bullet' and record.get('allow_omit')
+                and not re.search(r'\d|certif|degree|bachelor|master|licens|credential|diploma|accredit|\b(?:CPA|CFA|PMP|RN|MD|PhD|BSc|MSc|MBA)\b',
+                                  record['text'], re.I))
+
+
 def _plan(prepared, data):
     by_id = {r['id']: r for r in prepared['records']}
     locations, section, entry = {}, '', ''
@@ -222,8 +229,7 @@ def _plan(prepared, data):
         original = by_id.get(rid)
         # Records stay by default. Selection requires the human's explicit
         # eligibility flag; numeric and known credential guards add protection.
-        if (not original or original['kind'] != 'bullet' or not original.get('allow_omit', False) or rid in omitted
-                or re.search(r'\d|certif|degree|bachelor|master|licens|credential|diploma|accredit|\b(?:CPA|CFA|PMP|RN|MD|PhD|BSc|MSc|MBA)\b', original['text'], re.I)):
+        if rid in omitted or not omission_eligible(original):
             notes.append('Ignored an unsupported omission.')
             continue
         omitted.append(rid)
@@ -289,8 +295,8 @@ def _docx(records, template):
 
 
 def documents(records, template='classic'):
-    from agents.template_library import TEMPLATES as LIBRARY, records_source
-    if template in LIBRARY:
+    from agents.template_library import LATEX_RECORD_TEMPLATES, records_source
+    if template in LATEX_RECORD_TEMPLATES:
         from agents.latex import compile as compile_latex
         pdf = compile_latex(records_source(template, records))['pdf']
         docx = _docx(records, template)

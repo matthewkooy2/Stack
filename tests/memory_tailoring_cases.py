@@ -91,6 +91,14 @@ def resume_view(rid='target'):
             'records': RESUME, 'entry_type': 'other', 'fields': {}, 'source': ''}
 
 
+def fixture_review(context, decisions=None):
+    decisions = decisions or {}
+    return {'strategy': 'Lead with confirmed job-relevant evidence and keep the full record of work.',
+            'base_review': {key: {'focus': 'Show the strongest confirmed evidence in ' + section['heading'] + '.',
+                                  'decisions': [decisions.get(uid, 'keep') for uid in section['lines']]}
+                            for key, section in context['review_sections'].items()}}
+
+
 def standin(rewrites=None, omit=(), include=(), verdict='supported'):
     """A deterministic agents.provider.generate stand-in for memory tailoring steps.
 
@@ -123,7 +131,9 @@ def standin(rewrites=None, omit=(), include=(), verdict='supported'):
             if name.strip() in include:
                 lines = re.findall(r'^' + h + r'\.(r\d+) \| (.+)$', context['memory'], re.M)
                 sections[0]['items'].append({'entry': h, 'reason': 'Fixture', 'lines': [{'text': t, 'cites': [h + '.' + i]} for i, t in lines]})
-        return {'artifact': {'summary': 'Fixture tailoring.', 'sections': sections, 'left_out': []}, 'cost_cents': 0}
+        decisions = {**{'R.' + rid: 'rewrite' for rid in rewrites}, **{'R.' + rid: 'omit_optional' for rid in omit}}
+        return {'artifact': {**fixture_review(context, decisions), 'summary': 'Fixture tailoring.',
+                             'sections': sections, 'left_out': []}, 'cost_cents': 0}
     return generate
 
 

@@ -59,6 +59,12 @@ def snapshot(company: str, title: str, reference: str, thread_id: str) -> dict[s
 
 def extract(source: str, configuration: dict[str, Any]) -> dict[str, Any]:
     from agents import local_model
+    if configuration['provider'] == 'openai':
+        from agents.staging_openai import complete
+        text = complete('mail_scan', SYSTEM, source, SCHEMA, 900)
+        value = local_model.decode(text)
+        local_model.validate(value, SCHEMA)
+        return value
     # Mail stays on the configured local inference service; there is no paid fallback.
     model = local_model.complete('mail_scan', SYSTEM, source, SCHEMA,
                                  {**configuration, 'max_output_tokens': 900}, lambda *_: None)

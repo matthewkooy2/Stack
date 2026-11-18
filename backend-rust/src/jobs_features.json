@@ -1,0 +1,417 @@
+[
+  {
+    "key": "autofill",
+    "kinds": [
+      "autofill"
+    ],
+    "title": "Saved-answer autofill",
+    "where": "Applications",
+    "summary": "Fills visible hosted Greenhouse, Ashby, Lever and Workday controls from your confirmed saved answers. Custom widgets and repeated records may need your input.",
+    "input": "A saved real job with a supported hosted ATS URL and confirmed facts in Agents > Facts.",
+    "review": "Starting shares matched saved values with the employer form, which may autosave. You handle sign-in, page navigation, missing answers, review and final submission in the browser. No model is used.",
+    "alternative": "Open the employer application page and complete unsupported variants yourself.",
+    "checks": [
+      {
+        "key": "browser",
+        "label": "Browser worker available",
+        "ok": false,
+        "fix": "The operator must configure the isolated browser worker.",
+        "action": "",
+        "user_fixable": false,
+        "optional": false
+      },
+      {
+        "key": "applications",
+        "label": "A saved real job",
+        "ok": false,
+        "fix": "Save a real job on Jobs first.",
+        "action": "jobs",
+        "user_fixable": true,
+        "optional": false
+      },
+      {
+        "key": "facts",
+        "label": "Confirmed saved answers",
+        "ok": false,
+        "fix": "Save confirmed answers in Agents > Facts.",
+        "action": "facts",
+        "user_fixable": true,
+        "optional": true
+      }
+    ]
+  },
+  {
+    "key": "linkedin",
+    "kinds": [
+      "linkedin_pdf",
+      "linkedin"
+    ],
+    "title": "LinkedIn profile review",
+    "where": "Network → LinkedIn",
+    "summary": "Reviews the PDF you save from your own LinkedIn profile, flags recruiter-facing weaknesses with exact quotes, and suggests rewrites.",
+    "input": "Your profile PDF from LinkedIn (More → Save to PDF on linkedin.com) and an optional target role.",
+    "review": "Stack never signs in to or reads LinkedIn. The PDF text goes to Stack-hosted AI; contact details are removed first. You apply edits yourself.",
+    "alternative": "Use Profile suggestions on Resume to draft a headline and About from your confirmed facts.",
+    "checks": []
+  },
+  {
+    "key": "networking",
+    "kinds": [
+      "network"
+    ],
+    "title": "Networking & follow-ups",
+    "where": "Network",
+    "summary": "Drafts a short email to a contact you chose, from your confirmed facts, and schedules polite follow-ups that stop on reply.",
+    "input": "A contact you add with a verified email, and Gmail sending permission.",
+    "review": "Every email and follow-up waits for your approval. Saving a contact never sends anything.",
+    "alternative": "Drafts work without Gmail sending: open the task, copy the draft into your own email, then cancel the task.",
+    "checks": [
+      {
+        "key": "model",
+        "label": "Model provider connected",
+        "ok": false,
+        "fix": "Model execution is unavailable on this server.",
+        "action": "",
+        "user_fixable": false,
+        "optional": false
+      },
+      {
+        "key": "contacts",
+        "label": "A contact you selected",
+        "ok": false,
+        "fix": "Add a contact with a verified email on the Network tab.",
+        "action": "contacts",
+        "user_fixable": true,
+        "optional": false
+      },
+      {
+        "key": "perm:send_email",
+        "label": "To send: Permission: Send email",
+        "ok": false,
+        "fix": "Allow “Send email” with a daily limit in your email settings.",
+        "action": "rules",
+        "user_fixable": true,
+        "optional": true
+      },
+      {
+        "key": "operator:send_email",
+        "label": "To send: Send email enabled on this server",
+        "ok": false,
+        "fix": "The operator has not enabled “Send email” for this deployment.",
+        "action": "",
+        "user_fixable": false,
+        "optional": true
+      },
+      {
+        "key": "google:send",
+        "label": "To send: Gmail sending connected",
+        "ok": false,
+        "fix": "Google sign-in is not configured on this server.",
+        "action": "",
+        "user_fixable": false,
+        "optional": true
+      },
+      {
+        "key": "domains",
+        "label": "To send: recipient domains allowed",
+        "ok": false,
+        "fix": "Add each recipient’s email domain to allowed destinations in Rules.",
+        "action": "rules",
+        "user_fixable": true,
+        "optional": true
+      }
+    ]
+  },
+  {
+    "key": "tailoring",
+    "kinds": [
+      "resume"
+    ],
+    "title": "Resume tailoring",
+    "where": "Resume",
+    "summary": "Edits your LaTeX resume for a specific job (reorders, rewords, and trims to one page) and keeps your format.",
+    "input": "A reviewed PDF/DOCX or uploaded LaTeX, and a saved job.",
+    "review": "You accept or reject each change before the PDF is final. Download the finished PDF and use it when you apply yourself.",
+    "alternative": "Edit your resume in Overleaf yourself using the job-fit analysis.",
+    "checks": [
+      {
+        "key": "model",
+        "label": "Model provider connected",
+        "ok": false,
+        "fix": "Model execution is unavailable on this server.",
+        "action": "",
+        "user_fixable": false,
+        "optional": false
+      },
+      {
+        "key": "resume",
+        "label": "An uploaded resume",
+        "ok": false,
+        "fix": "Upload a PDF on the Resume tab.",
+        "action": "resume",
+        "user_fixable": true,
+        "optional": false
+      },
+      {
+        "key": "facts",
+        "label": "Default resume is ready for tailoring",
+        "ok": false,
+        "fix": "Review and confirm imported records for your default resume, or upload its LaTeX on the Resume tab.",
+        "action": "resume",
+        "user_fixable": true,
+        "optional": false
+      },
+      {
+        "key": "applications",
+        "label": "A saved real job",
+        "ok": false,
+        "fix": "Swipe right on a job to save it.",
+        "action": "jobs",
+        "user_fixable": true,
+        "optional": false
+      }
+    ]
+  },
+  {
+    "key": "fit",
+    "kinds": [
+      "jobs"
+    ],
+    "title": "Job-fit analysis",
+    "where": "Applications",
+    "summary": "Explains strengths, gaps, and unknowns for a saved job, quoting the listing and your confirmed facts.",
+    "input": "A saved real job. Confirmed resume facts make the analysis specific.",
+    "review": "Nothing is shared outside Stack.",
+    "alternative": "Open Full details on a job card to see the deterministic requirement checks.",
+    "checks": [
+      {
+        "key": "model",
+        "label": "Model provider connected",
+        "ok": false,
+        "fix": "Model execution is unavailable on this server.",
+        "action": "",
+        "user_fixable": false,
+        "optional": false
+      },
+      {
+        "key": "applications",
+        "label": "A saved real job",
+        "ok": false,
+        "fix": "Swipe right on a job to save it.",
+        "action": "jobs",
+        "user_fixable": true,
+        "optional": false
+      },
+      {
+        "key": "facts",
+        "label": "Confirmed resume facts",
+        "ok": false,
+        "fix": "Confirm resume facts for a more specific analysis.",
+        "action": "facts",
+        "user_fixable": true,
+        "optional": true
+      }
+    ]
+  },
+  {
+    "key": "profile",
+    "kinds": [
+      "profile"
+    ],
+    "title": "Profile suggestions",
+    "where": "Resume",
+    "summary": "Suggests a headline and about section from your confirmed facts, with the evidence for each edit.",
+    "input": "At least one confirmed fact.",
+    "review": "Suggestions are drafts. Stack never edits LinkedIn or any other site.",
+    "alternative": "Write your headline yourself using your confirmed facts.",
+    "checks": [
+      {
+        "key": "model",
+        "label": "Model provider connected",
+        "ok": false,
+        "fix": "Model execution is unavailable on this server.",
+        "action": "",
+        "user_fixable": false,
+        "optional": false
+      },
+      {
+        "key": "facts",
+        "label": "Confirmed facts",
+        "ok": false,
+        "fix": "Confirm at least one fact in Agents → Facts.",
+        "action": "facts",
+        "user_fixable": true,
+        "optional": false
+      }
+    ]
+  },
+  {
+    "key": "coaching",
+    "kinds": [
+      "prep"
+    ],
+    "title": "Interview coaching",
+    "where": "Prep",
+    "summary": "Scores a saved practice answer against a rubric and suggests what to practice next.",
+    "input": "A saved practice session with your answer, code, or transcript.",
+    "review": "Nothing is shared outside Stack.",
+    "alternative": "Use Show practice guide on the Prep questions to check your own answer.",
+    "checks": [
+      {
+        "key": "model",
+        "label": "Model provider connected",
+        "ok": false,
+        "fix": "Model execution is unavailable on this server.",
+        "action": "",
+        "user_fixable": false,
+        "optional": false
+      }
+    ]
+  },
+  {
+    "key": "code",
+    "kinds": [
+      "code"
+    ],
+    "title": "Code practice runs",
+    "where": "Prep",
+    "summary": "Runs your Python, C++, or SQL practice code against tests in an isolated sandbox.",
+    "input": "A coding practice session with code.",
+    "review": "Your code runs only in a networkless sandbox.",
+    "alternative": "Walk through the test cases by hand using the practice guide.",
+    "checks": [
+      {
+        "key": "sandbox",
+        "label": "Code sandbox available",
+        "ok": false,
+        "fix": "The operator has not configured the isolated code sandbox. Your code is still saved.",
+        "action": "",
+        "user_fixable": false,
+        "optional": false
+      }
+    ]
+  },
+  {
+    "key": "live",
+    "kinds": [
+      "live"
+    ],
+    "title": "Live interviews",
+    "where": "Prep",
+    "summary": "Holds a timed voice mock interview about your practice session and saves the transcript for coaching.",
+    "input": "The web workspace, a microphone, and a practice session.",
+    "review": "You review the transcript before requesting coaching.",
+    "alternative": "Type or dictate your answer, then use Get coaching.",
+    "checks": [
+      {
+        "key": "voice",
+        "label": "Voice service available",
+        "ok": false,
+        "fix": "Voice service is unavailable on this server.",
+        "action": "",
+        "user_fixable": false,
+        "optional": false
+      },
+      {
+        "key": "web",
+        "label": "Web workspace available",
+        "ok": false,
+        "fix": "The web workspace is not hosted yet.",
+        "action": "",
+        "user_fixable": false,
+        "optional": false
+      },
+      {
+        "key": "model",
+        "label": "Model provider connected",
+        "ok": false,
+        "fix": "Model execution is unavailable on this server.",
+        "action": "",
+        "user_fixable": false,
+        "optional": false
+      }
+    ]
+  },
+  {
+    "key": "email",
+    "kinds": [
+      "sync"
+    ],
+    "title": "Email tracking",
+    "where": "Applications",
+    "summary": "Scan Gmail for applications from any job search, then track replies, assessments, interviews, offers, and rejections.",
+    "input": "Connect Gmail in Applications, then choose how far back to scan.",
+    "review": "Unclear messages wait for you to confirm the application and status.",
+    "alternative": "Update application status yourself after reading your email.",
+    "checks": [
+      {
+        "key": "google:read",
+        "label": "Gmail tracking connected",
+        "ok": false,
+        "fix": "Google sign-in is not configured on this server.",
+        "action": "",
+        "user_fixable": false,
+        "optional": false
+      }
+    ]
+  },
+  {
+    "key": "calendar",
+    "kinds": [
+      "calendar"
+    ],
+    "title": "Calendar assistant",
+    "where": "Applications",
+    "summary": "Adds interview invitations found in Gmail to a Stack calendar and prepares a matching study plan.",
+    "input": "Gmail tracking plus Google Calendar access.",
+    "review": "Every calendar change waits for your approval.",
+    "alternative": "Accept the invitation in your email, and use Build interview plan on the application.",
+    "checks": [
+      {
+        "key": "rules",
+        "label": "Standing permissions on",
+        "ok": false,
+        "fix": "Enable sending permissions in your email settings. They expire after 30 days.",
+        "action": "rules",
+        "user_fixable": true,
+        "optional": false
+      },
+      {
+        "key": "perm:calendar_write",
+        "label": "Permission: Calendar write",
+        "ok": false,
+        "fix": "Allow “Calendar write” with a daily limit in your email settings.",
+        "action": "rules",
+        "user_fixable": true,
+        "optional": false
+      },
+      {
+        "key": "operator:calendar_write",
+        "label": "Calendar write enabled on this server",
+        "ok": false,
+        "fix": "The operator has not enabled “Calendar write” for this deployment.",
+        "action": "",
+        "user_fixable": false,
+        "optional": false
+      },
+      {
+        "key": "google:read",
+        "label": "Gmail tracking connected",
+        "ok": false,
+        "fix": "Google sign-in is not configured on this server.",
+        "action": "",
+        "user_fixable": false,
+        "optional": false
+      },
+      {
+        "key": "google:calendar",
+        "label": "Google Calendar connected",
+        "ok": false,
+        "fix": "Google sign-in is not configured on this server.",
+        "action": "",
+        "user_fixable": false,
+        "optional": false
+      }
+    ]
+  }
+]

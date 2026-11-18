@@ -13,7 +13,7 @@ import agents.memory_access as memory_access
 import agents.memory_tailoring as mt
 import agents.record_resume as record_resume
 import agents.interview as interview
-from tests.memory_tailoring_cases import RESUME, JOB, bank_views, resume_view, violations
+from tests.memory_tailoring_cases import RESUME, JOB, bank_views, fixture_review, resume_view, violations
 
 LOCAL = {'provider': 'lmstudio', 'model': 'fixture', 'local_model_context_tokens': 65536, 'max_output_tokens': 1536}
 
@@ -80,7 +80,8 @@ class Model:
                 {'text': 'SQL, Python, Tableau, Excel', 'cites': skill_cites},
                 {'text': 'SQL, Python, Tableau, Power BI', 'cites': skill_cites}]}]})
         left = [{'entry': x, 'reason': 'Unrelated to data work'} for name, x in h.items() if name.startswith('Gleaners')]
-        return {'artifact': {'summary': 'Leads with Python, SQL and Tableau evidence.', 'sections': sections, 'left_out': left}}
+        return {'artifact': {**fixture_review(context, {'R.r4': 'rewrite', 'R.r13': 'rewrite'}),
+                             'summary': 'Leads with Python, SQL and Tableau evidence.', 'sections': sections, 'left_out': left}}
 
 
 def run(model, c=LOCAL, snap=None, served=None):
@@ -231,12 +232,14 @@ class Tailoring(unittest.TestCase):
         self.assertEqual(violations(artifact['records']), [])
         ids = {c['id']: c for c in artifact['changes']}
         kinds = {c['kind'] for c in artifact['changes']}
-        self.assertTrue({'add', 'rewrite', 'omit', 'order'} <= kinds, kinds)
-        self.assertIn('omit:R.e1', ids)  # the sales role
-        self.assertIn('omit:R.r6', ids)  # vendor emails
+        self.assertTrue({'add', 'rewrite', 'order'} <= kinds, kinds)
+        self.assertNotIn('omit', kinds)
         texts = [r['text'] for r in artifact['records']]
         self.assertEqual(texts[:2], ['Jordan Rivera', 'Detroit, MI · jordan.rivera@example.com · (555) 010-4477'])
         self.assertIn('Operations Analyst, Lakeshore Logistics, Jun 2022 – Present', texts)
+        self.assertIn(RESUME[6]['text'], texts)
+        self.assertIn(RESUME[9]['text'], texts)
+        self.assertIn('SQL, Python, Tableau, Excel, customer service', texts)
         # Reject everything: the original resume comes back, in its order.
         original = mt.apply(p, artifact['plan'], set(ids))
         self.assertEqual([r['text'] for r in original], [r['text'] for r in RESUME])
@@ -262,12 +265,17 @@ class Tailoring(unittest.TestCase):
     def test_finalize_rechecks_sources(self):
         p, snap = prepared(), snapshot()
         artifact = mt.tailor(p, run(Model(), snap=snap))
-        artifact['rejected'] = ['omit:R.e1']
+        artifact['rejected'] = ['add:bank:b0']
         final = mt.finalize(p, snap, artifact)['tailor']
         self.assertTrue(final['final'])
         self.assertIn('Trained 4 new associates on the point-of-sale system.', [r['text'] for r in final['records']])
         self.assertEqual(record_resume.check_documents(*[__import__('base64').b64decode(final[k]['content']) for k in ('pdf', 'docx')], final['records'])['ok'], True)
         self.assertIn('memory_coverage', final['change_record'])
+        self.assertEqual(final['change_record']['base_review'], artifact['base_review'])
+        old = copy.deepcopy(artifact)
+        old['plan']['version'] = 1
+        old.pop('base_review')
+        self.assertTrue(mt.finalize(p, snap, old)['tailor']['final'])
         changed = copy.deepcopy(bank_views())
         changed[0]['records'][1]['text'] = 'Published a Tableau dashboard of route delays by hour that got 3,000 views.'
         edited = memory_access.collect('owner', [resume_view()] + changed, [], [])
@@ -281,6 +289,79 @@ class Tailoring(unittest.TestCase):
         foreign['rejected'] = ['not-a-change']
         with self.assertRaises(ValueError):
             mt.finalize(p, snap, foreign)
+
+    def test_preserves_metrics_degrees_and_work_cited_as_skill_evidence(self):
+        p = prepared()
+        p['records'][6] = {**p['records'][6], 'allow_omit': True}
+        p['records'][9] = {**p['records'][9], 'allow_omit': True}
+        model = Model()
+
+        def sparse_proposal(step, context, config):
+            response = model(step, context, config)
+            if step == 'tailor_compose':
+                response['artifact'].update(fixture_review(context, {'R.r5': 'rewrite', 'R.r6': 'omit_optional',
+                                                                    'R.r9': 'omit_optional', 'R.r11': 'rewrite',
+                                                                    'R.r13': 'rewrite'}))
+                items = response['artifact']['sections']
+                operations = next(item for section in items for item in section['items'] if item['entry'] == 'R.e0')
+                operations['lines'] = [{'text': 'Reduced invoice matching errors by writing SQL checks.', 'cites': ['R.r5']}]
+                degree = next(item for section in items for item in section['items'] if item['entry'] == 'R.e2')
+                degree['lines'][0]['text'] = 'B.S. Statistics, Wayne State University'
+                skills = next(item for section in items for item in section['items'] if item['entry'] == 'SKILLS')
+                skills['lines'] = [{'text': 'SQL, Excel', 'cites': ['R.r4', 'R.r5', 'R.r13']}]
+            return response
+
+        proposal = mt.run(p, snapshot(), JOB, LOCAL, sparse_proposal, resume_id='target')
+        plan, _ = mt.plan(p, proposal)
+        text = [row['text'] for row in mt.apply(p, plan, set())]
+        self.assertEqual(plan['omits'], ['omit:R.r6'])
+        self.assertIn('SQL, Excel, customer service', text)
+        for index in (4, 5, 7, 8, 9, 11):
+            self.assertIn(RESUME[index]['text'], text)
+
+    def test_rejects_incomplete_base_review(self):
+        for missing_section in (True, False):
+            def incomplete(step, context, _):
+                data = fixture_review(context)
+                if missing_section:
+                    data['base_review'].pop('S0')
+                else:
+                    data['base_review']['S0']['decisions'].pop()
+                return {'artifact': {**data, 'sections': []}}
+
+            with self.assertRaisesRegex(ValueError, 'did not review every resume section and line'):
+                run(incomplete)
+
+    def test_full_keep_review_preserves_skipped_edits_and_optional_bullets(self):
+        p = prepared()
+        p['records'][6] = {**p['records'][6], 'allow_omit': True}
+        p['records'].insert(2, {'id': 'opening', 'kind': 'bullet', 'text': 'Available for hybrid work.'})
+        p['records'].append({'id': 'r14', 'kind': 'heading', 'text': 'Languages'})
+
+        def keep(step, context, _):
+            self.assertEqual(step, 'tailor_compose')
+            section = {'heading': 'Experience', 'items': [{'entry': 'R.e0', 'reason': 'SQL', 'lines': [
+                {'text': 'Built weekly Excel reports tracking carrier on-time rates for 6 regional managers.', 'cites': ['R.r4']},
+            ]}]}
+            return {'artifact': {**fixture_review(context), 'sections': [section]}}
+
+        proposal = mt.run(p, snapshot(), JOB, LOCAL, keep, resume_id='target')
+        artifact = mt.tailor(p, proposal)
+        self.assertEqual([row['text'] for row in artifact['records']], [row['text'] for row in p['records']])
+        self.assertEqual(artifact['plan']['omits'], [])
+        self.assertEqual(artifact['base_review']['sections'][0]['lines'],
+                         [{'id': 'R.opening', 'decision': 'keep', 'draft_action': 'keep'}])
+        self.assertEqual(artifact['base_review']['sections'][-1]['heading'], 'Languages')
+        self.assertEqual({line['draft_action'] for section in artifact['base_review']['sections'] for line in section['lines']}, {'keep'})
+
+    def test_review_length_limit_preserves_whole_words(self):
+        manifest = {'S0': {'heading': 'Experience', 'lines': ['R.r4']}}
+        data = {'strategy': 'relevant ' * 100,
+                'base_review': {'S0': {'focus': 'evidence ' * 100, 'decisions': ['keep']}}}
+        result = mt.base_review(data, manifest)
+        self.assertLessEqual(len(result['strategy']), 600)
+        self.assertTrue(result['strategy'].endswith('relevant…'))
+        self.assertTrue(result['sections'][0]['focus'].endswith('evidence…'))
 
     def test_oversized_memory_is_screened_not_truncated(self):
         many = [{'id': 'x' + str(n), 'name': 'Warehouse shift report ' + str(n), 'kind': 'experience_bank', 'confirmed': True,
@@ -378,7 +459,7 @@ class Tailoring(unittest.TestCase):
                 return {'artifact': {'results': {x['id']: {'verdict': 'supported', 'problem': ''} for x in ctx['candidates']}}}
             rca = re.search(r'^## (E\d+) · Work experience', ctx['memory'], re.M).group(1)
             self.assertIn('(Same role as R.e1: cite these lines inside R.e1 instead of listing ' + rca, ctx['memory'])
-            return {'artifact': {'summary': '', 'left_out': [], 'sections': [
+            return {'artifact': {**fixture_review(ctx), 'summary': '', 'left_out': [], 'sections': [
                 {'heading': 'Work Experience', 'items': [{'entry': 'R.e1', 'reason': 'Scrap reduction', 'lines': [
                     {'text': 'After the dryer was recalibrated, Line 3 scrap fell from 6.1% to 4.2% over six weeks.', 'cites': [rca + '.r1']},
                     {'text': 'Managed the mold changeover on Line 3.', 'cites': ['R.r6']},
@@ -404,7 +485,7 @@ class Tailoring(unittest.TestCase):
                 return {'artifact': {'results': {}}}
             h = handles(ctx['memory'])
             intern, cert = h['Data Intern, City of Detroit'], h['Tableau Desktop Specialist']
-            return {'artifact': {'summary': '', 'left_out': [], 'sections': [
+            return {'artifact': {**fixture_review(ctx), 'summary': '', 'left_out': [], 'sections': [
                 {'heading': 'Projects', 'items': [{'entry': intern, 'reason': '', 'lines': [{'text': 'x', 'cites': []}]}]},
                 {'heading': 'Skills', 'items': [{'entry': cert, 'reason': '', 'lines': [{'text': 'Python', 'cites': [h['Python'] + '.name']}]}]},
                 {'heading': 'Experience', 'items': [{'entry': 'R.e0', 'reason': '', 'lines': [{'text': RESUME[5]['text'], 'cites': ['R.r5']}]}]}]}}

@@ -208,7 +208,10 @@ class MemoryWorkflow(unittest.TestCase):
         self.evidence('data-analyst', outcome)
         if not REAL:
             kinds = {c['kind'] for c in outcome['proposal']['changes']}
-            self.assertTrue({'add', 'omit', 'rewrite'} <= kinds, kinds)
+            self.assertTrue({'add', 'rewrite'} <= kinds, kinds)
+            self.assertNotIn('omit', kinds)
+            self.assertIn(RESUME[6]['text'], texts)
+            self.assertIn(RESUME[9]['text'], texts)
             self.assertTrue(any('Transit delay dashboard' in t for t in texts))
 
     def test_worker_memory_endpoint_is_lease_and_owner_bound(self):

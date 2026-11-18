@@ -1,0 +1,31 @@
+[Unit]
+Description=Stack staging resume tailoring worker
+ConditionHost=stack-staging
+After=network-online.target stack-rust.service
+Wants=network-online.target stack-rust.service
+
+[Service]
+DynamicUser=yes
+RuntimeDirectory=stack-staging-ai
+RuntimeDirectoryMode=0755
+Environment=STACK_STAGING_OPENAI_SOCKET=/run/stack-staging-ai/provider.sock
+Environment=STACK_WORKER_API=http://127.0.0.1:8181
+StateDirectory=stack-rust-tailor
+WorkingDirectory=/var/lib/stack-rust-tailor
+LoadCredential=runtime-config:/etc/stack-rust/runtime-config
+LoadCredential=worker-token:/etc/stack-rust/tailor-worker-token
+LoadCredentialEncrypted=openai-key:/etc/credstore.encrypted/stack-rust-tailor-openai.cred
+Environment=STACK_AGENT_CONFIG=%d/runtime-config
+Environment=STACK_FIRST_PARTY_AI_ONLY=0
+Environment=STACK_TECTONIC=/opt/stack-rust/current/score-docs/compile-tex
+ExecStart=/usr/bin/python3 -IBu /opt/stack-rust/current/tailor-worker.py
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

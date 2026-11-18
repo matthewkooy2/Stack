@@ -9,13 +9,14 @@ chunks so every entry is read and reported, never silently truncated."""
 import copy
 import json
 import re
+from textwrap import shorten
 from typing import Any, Callable
 
 from agents.memory_access import TYPES, digest, relevance, render, words
-from agents.record_resume import validate_records, MAX_RECORDS, MAX_TEXT
+from agents.record_resume import validate_records, omission_eligible, MAX_RECORDS, MAX_TEXT
 
 STEPS = {'tailor_screen', 'tailor_compose', 'tailor_verify'}
-VERSION = 1
+VERSION = 2
 CONTEXT_ERROR = 'This task exceeds the local model context limit.'
 
 
@@ -59,12 +60,7 @@ STRINGS = {'type': 'array', 'items': TEXT, 'maxItems': 60}
 LINE = _obj({'text': TEXT, 'cites': {'type': 'array', 'maxItems': 12, 'items': TEXT}})
 ITEM = _obj({'entry': TEXT, 'reason': TEXT, 'lines': {'type': 'array', 'maxItems': 16, 'items': LINE}})
 SECTION = _obj({'heading': TEXT, 'items': {'type': 'array', 'maxItems': 40, 'items': ITEM}})
-SCHEMAS = {
-    'tailor_compose': _obj({
-        'summary': TEXT,
-        'sections': {'type': 'array', 'maxItems': 14, 'items': SECTION},
-        'left_out': {'type': 'array', 'maxItems': 400, 'items': _obj({'entry': TEXT, 'reason': TEXT})}}),
-}
+DECISION = {'type': 'string', 'enum': ['keep', 'rewrite', 'omit_optional']}
 # Screening and verification require one answer per entry or line: an open array let the
 # model return none at all, so their schemas are built per request with every key required.
 RATING = _obj({'relevance': {'type': 'integer', 'minimum': 0, 'maximum': 100}, 'lines': STRINGS, 'reason': TEXT})
@@ -75,6 +71,14 @@ VERIFY_LINES = 30
 INSTRUCTIONS = {
     'tailor_compose': (
         'Write the strongest truthful resume for context.job from context.base_resume and context.memory. '
+        'First set a whole-resume strategy in at most two sentences: identify the main job requirements the candidate can prove, what evidence should lead, '
+        'and how the sections should work together. Prioritize a convincing application over keyword counts. Next complete base_review. '
+        'It has one key for every section in context.review_sections. For each section give a short job-specific focus, and consider every '
+        'listed line in order: decisions contains exactly one keep, rewrite or omit_optional per listed ID in that order. '
+        'Use keep when the original line is worth preserving as written; use rewrite when you supply a specific improvement cited to '
+        'that line. Use omit_optional only for a bullet in the user-marked optional list that you deliberately choose to omit. '
+        'Review all sections and lines even if the best choice is to keep them. Opening bullets shown as fixed stay as written. '
+        'Then propose the edits consistent with these decisions. '
         'Return sections in the order that best shows fit. Use a heading from the base resume or one of: ' + ', '.join(STANDARD) + '. '
         'Each item names one entry handle (R.e<n> for base resume entries, E<n> for memory entries, or SKILLS for a combined skills line). '
         'Stack prints each entry\'s fixed header (title, employer, organization, dates) itself: never write headers, dates, employers or titles in lines. '
@@ -83,13 +87,14 @@ INSTRUCTIONS = {
         'base entry may be cited inside that base entry; never list both. Only lines in a Skills section may cite '
         'skill names and skill lines from any entry. Every number, tool, product, organization, credential, scope word (led, managed, '
         'owned, team size) and outcome in a line must appear in its cited lines; keep every negation. Never state a job requirement as experience. '
-        'Copy a cited line exactly when it is already strong and relevant. Otherwise reword it concisely: start with a strong past-tense verb, '
-        'no first person, at most 30 words, use the listing\'s wording only for work the cited line already shows, never longer than the source. '
-        'Select for this job: include the base resume and memory entries that best show the listing\'s requirements, prefer memory entries '
-        'that prove requirements the base resume does not show, put the most relevant entries and bullets first, and leave out weak or unrelated lines. '
-        'Aim for one page: about 3 to 6 bullets for the most relevant roles or projects, 1 to 2 for others, and roughly 450 to 650 words in total. '
-        'Keep education. A certification, education, language or skill entry may have no lines; its header is printed. '
-        'Give each item a short reason it fits this job. In left_out list every entry handle you did not use, once, with a short reason. '
+        'Preserve base roles, dates, education, credentials and useful bullets. Stack keeps unchanged base lines unless the user marked them '
+        'optional. Leave out an optional line only if it adds little for this job. Do not merge distinct base bullets or discard metrics. '
+        'Reword a base bullet only when it makes the evidence easier to find: lead with the action and result, match useful job terminology '
+        'when it describes the cited work, and keep attribution, dates, metrics and tools intact. Echo kept lines only to reorder them. '
+        'Put the most relevant supported skills and bullets first. Add confirmed memory only when it provides distinct evidence for a job requirement. '
+        'For a short resume, prefer valuable confirmed detail over generic filler. For a full resume, favor concise edits over new sections. '
+        'A certification, education, language or skill entry may have no lines; its header is printed. '
+        'Give each item a short reason it fits this job. In left_out list only unused memory entry handles, once, with a short reason. '
         'summary: two sentences on how this version targets the job.'),
     'tailor_screen': (
         'Rate how useful each memory entry in context.memory is for a resume targeting context.job. ratings has one key for every '
@@ -110,7 +115,17 @@ def schema(step: str, context: dict[str, Any]) -> dict[str, Any]:
         return _obj({'ratings': _obj({h: RATING for h in context['handles']})})
     if step == 'tailor_verify':
         return _obj({'results': _obj({x['id']: VERDICT for x in context['candidates']})})
-    return SCHEMAS[step]
+    return _obj({
+        'strategy': TEXT,
+        'base_review': _obj({key: _obj({
+            'focus': TEXT,
+            'decisions': {'type': 'array', 'items': {'type': 'string', 'enum': ['keep']} if section.get('fixed') else DECISION,
+                          'maxItems': len(section['lines'])},
+        }) for key, section in context['review_sections'].items()}),
+        'summary': TEXT,
+        'sections': {'type': 'array', 'maxItems': 14, 'items': SECTION},
+        'left_out': {'type': 'array', 'maxItems': 400, 'items': _obj({'entry': TEXT, 'reason': TEXT})},
+    })
 
 
 def request(step: str, context: dict[str, Any]) -> tuple[str, str, dict[str, Any]]:
@@ -210,13 +225,48 @@ def segment(records: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def render_base(base: dict[str, Any]) -> str:
-    rows = ['MASTHEAD (fixed, printed first): ' + ' | '.join(r['text'] for r in base['masthead'])]
+    rows = ['MASTHEAD (fixed, printed first): ' + ' | '.join(r['text'] for r in base['masthead'] if r['kind'] != 'bullet')]
+    rows += ['R.' + r['id'] + ' | ' + r['text'] for r in base['masthead'] if r['kind'] == 'bullet']
     for s in base['sections']:
         rows.append('### Section: ' + s['heading'])
         for e in s['entries']:
             rows.append('## ' + e['handle'] + (' · fixed header: ' + ' | '.join(r['text'] for r in e['head']) if e['head'] else ' · no header'))
             rows += ['R.' + r['id'] + ' | ' + r['text'] for r in e['content']]
+    optional = ['R.' + r['id'] for e in base['entries'].values() for r in e['bullets'] if omission_eligible(r)]
+    if optional:
+        rows.append('Optional bullets (marked by the user): ' + ', '.join(optional))
     return '\n'.join(rows)
+
+
+def review_sections(base: dict[str, Any]) -> dict[str, Any]:
+    """Map each stable section to the original order of its reviewable records."""
+    opening = ['R.' + row['id'] for row in base['masthead'] if row['kind'] == 'bullet']
+    manifest = {'opening': {'heading': 'Opening bullets', 'lines': opening, 'fixed': True}} if opening else {}
+    manifest.update({'S' + str(section['index']): {
+        'heading': section['heading'],
+        'lines': ['R.' + record['id'] for entry in section['entries'] for record in entry['content']],
+    } for section in base['sections']})
+    return manifest
+
+
+def base_review(data: dict[str, Any], manifest: dict[str, Any]) -> dict[str, Any]:
+    error = 'The model did not review every resume section and line. Retry tailoring.'
+    strategy, returned = data.get('strategy'), data.get('base_review')
+    if not isinstance(strategy, str) or not _clean(strategy) or not isinstance(returned, dict) or set(returned) != set(manifest):
+        raise ValueError(error)
+    result = []
+    for key, section in manifest.items():
+        item = returned[key]
+        if not isinstance(item, dict):
+            raise ValueError(error)
+        focus, decisions = item.get('focus'), item.get('decisions')
+        allowed = ['keep'] if section.get('fixed') else DECISION['enum']
+        if (not isinstance(focus, str) or not _clean(focus) or not isinstance(decisions, list)
+                or len(decisions) != len(section['lines']) or any(action not in allowed for action in decisions)):
+            raise ValueError(error)
+        result.append({'id': key, 'heading': section['heading'], 'focus': shorten(_clean(focus), width=240, placeholder='…'),
+                       'lines': [{'id': uid, 'decision': decision} for uid, decision in zip(section['lines'], decisions)]})
+    return {'strategy': shorten(_clean(strategy), width=600, placeholder='…'), 'sections': result}
 
 
 def _job(job: dict[str, Any]) -> dict[str, Any]:
@@ -265,6 +315,11 @@ def _value(text: str) -> str:
     return text.split(': ', 1)[1] if ': ' in text else text
 
 
+def _skill_items(text: str) -> list[str]:
+    body = re.sub(r'^[^:]{1,40}:\s*', '', text)
+    return [item.strip(' .') for item in re.split(r'[,;|·•()]|\band\b', body) if item.strip(' .')]
+
+
 def check_line(text: str, cited: list[str], context: str, skills: bool = False) -> str:
     """'' when the line is supported by its cited text, else the reason it is not."""
     clean = _clean(text)
@@ -291,9 +346,7 @@ def check_line(text: str, cited: list[str], context: str, skills: bool = False) 
         return 'it dropped who did the work (your sources credit a team)'
     if skills:
         # A parenthetical such as a proficiency is a claim too.
-        body = re.sub(r'^[^:]{1,40}:\s*', '', clean)
-        items = [i.strip(' .').lower() for i in re.split(r'[,;|·•()]|\band\b', body) if i.strip(' .')]
-        missing = [i for i in items if not _has(i, lower)]
+        missing = [i for i in _skill_items(clean) if not _has(i.lower(), lower)]
         if missing:
             return 'it listed skills not in your sources (' + ', '.join(missing[:3]) + ')'
     elif len(clean) > max(1.25 * sum(len(s) for s in sources) + 20, 60):
@@ -359,7 +412,8 @@ def item_context(item: dict[str, Any], entry: dict[str, Any] | None) -> str:
     return ' '.join(h['text'] for h in item['head'])
 
 
-def build(base: dict[str, Any], memory: Memory, data: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
+def build(base: dict[str, Any], memory: Memory, data: dict[str, Any],
+          decisions: dict[str, str]) -> tuple[list[dict[str, Any]], list[str]]:
     """Validated proposal sections. Unsupported lines fall back to verbatim sources with a note."""
     notes, sections, used, seen_text, uid = [], [], set(), set(), 0
     linked = links(base, memory)
@@ -387,7 +441,9 @@ def build(base: dict[str, Any], memory: Memory, data: dict[str, Any]) -> tuple[l
             else:
                 notes.append('Ignored an unknown entry ' + (handle[:20] or '(blank)') + '.')
                 continue
-            if out['kind'] == 'memory' and memory.entries[handle]['type'] in CANONICAL:
+            if out['kind'] == 'base':
+                dest = _section(sections, base, base['sections'][e['section']]['heading'])
+            elif out['kind'] == 'memory' and memory.entries[handle]['type'] in CANONICAL:
                 # A job, degree or credential is printed under its own kind of section, never as a project.
                 group, default = CANONICAL[memory.entries[handle]['type']]
                 if section['heading'].lower() not in group:
@@ -414,7 +470,35 @@ def build(base: dict[str, Any], memory: Memory, data: dict[str, Any]) -> tuple[l
                 if not cites:
                     notes.append('Left out a line for ' + where + ': it cited no line of that entry.')
                     continue
+                originals = [c for c in cites if c['index'] is not None and c['role'] == 'content']
+                skill_replacements = []
+                if skills:
+                    for original in originals:
+                        heading = base['sections'][base['entries'][original['entry']]['section']]['heading'].lower()
+                        if 'skill' not in heading:
+                            continue
+                        # Keep labeled lists as separate records unless the label survives.
+                        label = re.match(r'^[^:]{1,40}:', original['text'])
+                        if label and not text.lower().startswith(label[0].lower()):
+                            continue
+                        for skill in _skill_items(original['text']):
+                            if not _has(skill.lower(), text.lower()):
+                                text += ', ' + skill
+                        skill_replacements.append(original['uid'])
                 reason = check_line(text, [c['text'] for c in cites], context, skills)
+                replacements = skill_replacements if skills else [original['uid'] for original in originals]
+                if not reason and any(decisions[original['uid']] != 'rewrite' and text != _clean(original['text'])
+                                      for original in originals if original['uid'] in replacements):
+                    reason = 'it conflicted with the decision to keep or omit that line'
+                if not reason and originals and not skills:
+                    original = originals[0]
+                    heading = base['sections'][base['entries'][original['entry']]['section']]['heading'].lower()
+                    if len(originals) > 1:
+                        reason = 'it merged separate resume lines'
+                    elif heading in SYNONYMS[2] | SYNONYMS[4] and text != _clean(original['text']):
+                        reason = 'it changed your confirmed education or credentials'
+                    elif _numbers(original['text']) - _numbers(text):
+                        reason = 'it dropped a number from your resume'
                 # Reverting prints the cited lines exactly as confirmed: resume content, or memory bullets
                 # (still inside a reviewable addition). Fields, headers and first-person notes are never printed alone.
                 fallback = [{'uid': c['uid'], 'text': _clean(c['text']), 'index': c['index']} for c in cites
@@ -437,7 +521,8 @@ def build(base: dict[str, Any], memory: Memory, data: dict[str, Any]) -> tuple[l
                     out['lines'].append({'uid': 'l' + str(uid), 'text': value, 'cites': [s['uid'] for s in sources],
                                          'sources': [s['text'] for s in sources], 'status': 'verbatim' if verbatim else 'rewrite',
                                          'base_index': min((s['index'] for s in sources if s['index'] is not None), default=None),
-                                         'fallback': [f for f in fallback if f['uid'] in {s['uid'] for s in sources}]})
+                                         'fallback': [f for f in fallback if f['uid'] in {s['uid'] for s in sources}],
+                                         **({'replaces': skill_replacements} if skills else {})})
                     uid += 1
             if out['kind'] == 'skills' and not out['lines']:
                 continue
@@ -634,7 +719,8 @@ def _screen(memory: Memory, job: dict[str, Any], c: dict[str, Any], generate: Ca
 
 
 def run(prepared: Any, snapshot: dict[str, Any], job: dict[str, Any], c: dict[str, Any],
-        generate: Callable, served: int | None = None, resume_id: str = '') -> dict[str, Any]:
+        generate: Callable, served: int | None = None, resume_id: str = '',
+        *, planner_limit: int | None = None) -> dict[str, Any]:
     """Model-facing part of tailoring. Returns the reviewable proposal (no documents yet).
 
     `generate(step, context, configuration)` returns {'artifact': parsed JSON, 'cost_cents': int}."""
@@ -643,7 +729,7 @@ def run(prepared: Any, snapshot: dict[str, Any], job: dict[str, Any], c: dict[st
         raise ValueError('Add section headings (such as Experience and Education) to your reviewed resume records before tailoring.')
     # The resume being tailored is the base document, not another memory entry.
     memory = Memory(snapshot, job, 'resume:' + resume_id)
-    limit = context_limit(c, served)
+    limit = planner_limit if planner_limit is not None else context_limit(c, served)
     calls: list[str] = []
     for attempt in range(3):
         try:
@@ -660,7 +746,9 @@ def run(prepared: Any, snapshot: dict[str, Any], job: dict[str, Any], c: dict[st
 def _run(base, memory, job, c, generate, limit, calls, prepared):
     everything = list(memory.entries)
     linked = links(base, memory)
-    ctx = {'job': _job(job), 'base_resume': render_base(base), 'memory': _render_memory(memory, everything, None, linked)}
+    manifest = review_sections(base)
+    ctx = {'job': _job(job), 'base_resume': render_base(base), 'review_sections': manifest,
+           'memory': _render_memory(memory, everything, None, linked)}
     empty = {**ctx, 'memory': ''}
     if request_size('tailor_compose', empty, c) > limit:
         raise TooLarge(CONTEXT_ERROR + ' The job listing and resume need about ' + str(request_size('tailor_compose', empty, c))
@@ -693,9 +781,9 @@ def _run(base, memory, job, c, generate, limit, calls, prepared):
     calls.append('compose')
     result = generate('tailor_compose', ctx, c)
     data = result['artifact'] if isinstance(result.get('artifact'), dict) else {}
-    sections, notes = build(base, memory, data)
-    if not sections:
-        raise ValueError('The model returned no usable resume content. Retry tailoring.')
+    review = base_review(data, manifest)
+    decisions = {line['id']: line['decision'] for section in review['sections'] for line in section['lines']}
+    sections, notes = build(base, memory, data, decisions)
     notes += verify(sections, job, c, generate, limit, calls)
     for s in sections:
         s['items'] = [i for i in s['items'] if i['lines'] or i['kind'] != 'skills']
@@ -721,7 +809,7 @@ def _run(base, memory, job, c, generate, limit, calls, prepared):
     unrated = [x for x in coverage if not x['rated']]
     if unrated:
         notes.append(str(len(unrated)) + ' memory entries were not rated by the model; Stack ranked them by keyword overlap.')
-    return {'sections': sections, 'notes': notes, 'summary': _clean(data.get('summary', ''))[:600],
+    return {'sections': sections, 'notes': notes, 'summary': _clean(data.get('summary', ''))[:600], 'base_review': review,
             'coverage': {'mode': mode, 'context_tokens': limit, 'calls': calls, 'entries': coverage,
                          'excluded': memory.excluded, 'memory_entries': len(memory.entries),
                          'base_entries': len(base['entries'])},
@@ -735,10 +823,17 @@ def _base_lines(base: dict[str, Any]) -> list[dict[str, Any]]:
             for e in base['entries'].values() for r in e['content']]
 
 
+def _retained_sources(sections: list[dict[str, Any]]) -> set[str]:
+    """A supported skill may cite a work bullet without replacing that bullet."""
+    return {uid for section in sections for item in section['items'] for line in item['lines']
+            for uid in line.get('replaces', line['cites'])}
+
+
 def plan(prepared: Any, proposal: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """The stored plan and its individually rejectable changes."""
     base = segment(prepared['records'])
     sections = proposal['sections']
+    decisions = {line['id']: line['decision'] for section in proposal['base_review']['sections'] for line in section['lines']}
     changes = []
     cited = {u for s in sections for i in s['items'] for line in i['lines'] for u in line['cites']}
     for s in sections:
@@ -761,24 +856,22 @@ def plan(prepared: Any, proposal: dict[str, Any]) -> tuple[dict[str, Any], list[
                     changes.append({'id': 'rewrite:' + line['uid'], 'kind': 'rewrite', 'where': where,
                                     'before': ' / '.join(line['sources'])[:1500], 'after': line['text'],
                                     'reason': 'Skills line built from your confirmed skills.'})
-    present = {i['handle'] for s in sections for i in s['items']}
+    retained = _retained_sources(sections)
     omits = []
     for e in base['entries'].values():
-        missing = [r for r in e['content'] if 'R.' + r['id'] not in cited]
+        missing = [r for r in e['bullets'] if omission_eligible(r) and 'R.' + r['id'] not in retained
+                   and decisions['R.' + r['id']] == 'omit_optional']
         if not missing:
             continue
+        # Keep at least one bullet for an existing role even if every bullet was marked optional.
+        if len(missing) == len(e['bullets']):
+            missing = missing[1:]
         label = (e['head'] or e['content'])[0]['text'][:120]
         section = base['sections'][e['section']]['heading']
-        if e['handle'] not in present and len(missing) == len(e['content']):
-            omits.append('omit:' + e['handle'])
-            changes.append({'id': 'omit:' + e['handle'], 'kind': 'omit', 'where': section + ' · ' + label,
-                            'before': '; '.join(r['text'] for r in e['head'] + e['content'])[:1500], 'after': '',
-                            'reason': 'Less relevant to this job than the content kept.'})
-            continue
         for r in missing:
             omits.append('omit:R.' + r['id'])
             changes.append({'id': 'omit:R.' + r['id'], 'kind': 'omit', 'where': section + ' · ' + label, 'before': r['text'], 'after': '',
-                            'reason': 'Less relevant to this job than the content kept.'})
+                            'reason': 'Marked optional and less relevant to this job.'})
     orders = []
     order = [s['base'] for s in sections if s['base'] is not None]
     if order != sorted(order):
@@ -824,12 +917,16 @@ def apply(prepared: Any, stored: dict[str, Any], rejected: set[str]) -> list[dic
             i['lines'] = lines
         s['items'] = [i for i in s['items'] if i['lines'] or i['kind'] != 'skills']
     sections = [s for s in sections if s['items']]
-    kept = {u for s in sections for i in s['items'] for line in i['lines'] for u in line['cites']}
+    kept = _retained_sources(sections)
     omitted = {x for x in stored['omits'] if x not in rejected}
     for line in _base_lines(base):
         if line['uid'] in kept or 'omit:' + line['uid'] in omitted or 'omit:' + line['entry'] in omitted:
             continue
         _restore(base, sections, line)
+    if stored['version'] == VERSION:
+        for section in base['sections']:
+            if not section['entries'] and not any(item['base'] == section['index'] for item in sections):
+                _restore_section(sections, section)
     if 'order:sections' in rejected:
         sections.sort(key=lambda s: (s['base'] is None, s['base'] if s['base'] is not None else 0))
     for s in sections:
@@ -851,6 +948,14 @@ def apply(prepared: Any, stored: dict[str, Any], rejected: set[str]) -> list[dic
     return validate_records(records)
 
 
+def _restore_section(sections: list[dict[str, Any]], source: dict[str, Any]) -> dict[str, Any]:
+    section = {'heading': source['heading'], 'base': source['index'], 'items': []}
+    at = next((n for n, existing in enumerate(sections)
+               if existing['base'] is not None and existing['base'] > source['index']), len(sections))
+    sections.insert(at, section)
+    return section
+
+
 def _restore(base: dict[str, Any], sections: list[dict[str, Any]], line: dict[str, Any]) -> None:
     """Return an unapproved omission to its own entry, in original order."""
     e = base['entries'][line['entry']]
@@ -861,9 +966,7 @@ def _restore(base: dict[str, Any], sections: list[dict[str, Any]], line: dict[st
         heading = base['sections'][e['section']]['heading']
         section = next((s for s in sections if s['heading'] == heading), None)
         if section is None:
-            section = {'heading': heading, 'base': e['section'], 'items': []}
-            at = next((n for n, s in enumerate(sections) if s['base'] is not None and s['base'] > e['section']), len(sections))
-            sections.insert(at, section)
+            section = _restore_section(sections, base['sections'][e['section']])
         item = {'handle': e['handle'], 'kind': 'base', 'key': e['handle'], 'bullets': bool(e['bullets']), 'order': e['order'],
                 'name': (e['head'] or e['content'])[0]['text'][:120], 'reason': '', 'lines': [],
                 'head': [{'id': r['id'], 'kind': r['kind'], 'text': r['text']} for r in e['head']]}
@@ -897,6 +1000,8 @@ def recheck(prepared: Any, snapshot: dict[str, Any], stored: dict[str, Any]) -> 
             for line in i['lines']:
                 if any(u not in texts for u in line['cites']) or [texts[u] for u in line['cites']] != line['sources']:
                     raise ValueError('Your sources changed after tailoring. Start tailoring again.')
+                if 'replaces' in line and (not skills or set(line['replaces']) - set(line['cites'])):
+                    raise ValueError('The saved change plan is invalid. Start tailoring again.')
                 if check_line(line['text'], line['sources'], context, skills):
                     raise ValueError('The saved change plan is invalid. Start tailoring again.')
 
@@ -908,12 +1013,22 @@ def tailor(prepared: Any, proposal: dict[str, Any]) -> dict[str, Any]:
     records = apply(prepared, stored, set())
     files = documents(records, prepared['template'])
     notes = proposal['notes'][:40]
+    review = copy.deepcopy(proposal['base_review'])
+    rewritten = {uid for section in stored['sections'] for item in section['items'] for line in item['lines']
+                 if line['status'] == 'rewrite' for uid in line.get('replaces', line['cites'])}
+    omitted = set(stored['omits'])
+    for section in review['sections']:
+        for line in section['lines']:
+            uid = line['id']
+            line['draft_action'] = 'omit_optional' if 'omit:' + uid in omitted else 'rewrite' if uid in rewritten else 'keep'
+    line_count = sum(len(section['lines']) for section in review['sections'])
+    notes.insert(0, f"Reviewed {len(review['sections'])} sections and {line_count} resume lines. {review['strategy']}")
     if files['pdf']['pages'] > 1:
         notes.append('This draft is ' + str(files['pdf']['pages']) + ' pages. Reject additions or lower-value lines to shorten it.')
     return {'summary': proposal['summary'] or 'Review every change Stack proposes for this job.', 'format': 'records', 'mode': 'memory',
             'source_digest': prepared['digest'], 'plan': stored, 'changes': changes, 'notes': notes, 'rejected': [],
             'dropped': [], 'evidence': [], 'final': False, 'records': records, 'template': prepared['template'],
-            'memory_coverage': proposal['coverage'], **files}
+            'memory_coverage': proposal['coverage'], 'base_review': review, **files}
 
 
 def finalize(prepared: Any, snapshot: dict[str, Any], tailored: dict[str, Any]) -> dict[str, Any]:
@@ -922,7 +1037,7 @@ def finalize(prepared: Any, snapshot: dict[str, Any], tailored: dict[str, Any]) 
     if prepared['digest'] != tailored.get('source_digest'):
         raise ValueError('Your reviewed resume changed after tailoring. Start tailoring again.')
     stored = tailored['plan']
-    if stored.get('mode') != 'memory' or stored.get('version') != VERSION:
+    if stored.get('mode') != 'memory' or stored.get('version') not in (1, VERSION):
         raise ValueError('The saved change plan is invalid. Start tailoring again.')
     recheck(prepared, snapshot, stored)
     rejected = set(tailored.get('rejected', []))
@@ -937,5 +1052,6 @@ def finalize(prepared: Any, snapshot: dict[str, Any], tailored: dict[str, Any]) 
                                          'reviewed_records': prepared['records'], 'bank_sources': prepared.get('bank_sources', []),
                                          'memory_sources': [{'key': k, 'digest': v} for k, v in sorted(stored['memory_refs'].items())],
                                          'memory_coverage': tailored.get('memory_coverage', {}),
+                                         **({'base_review': tailored['base_review']} if 'base_review' in tailored else {}),
                                          'changes': tailored.get('changes', []), 'notes': tailored.get('notes', [])},
                        **documents(records, prepared['template'])}}

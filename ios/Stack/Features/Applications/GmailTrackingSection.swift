@@ -16,10 +16,13 @@ struct GmailTrackingSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(connected ? "Tracking is on" : "Connect your inbox")
-                .font(.headline).foregroundStyle(Brand.ink)
-            Text(connected ? "Find applications from any job search, then track them here." : "Connect Gmail once. Stack keeps your application status up to date.")
-                .font(Typeface.body).foregroundStyle(Brand.muted)
+            if connected {
+                Label("Gmail connected", systemImage: "checkmark.circle")
+                    .font(.headline).foregroundStyle(Brand.ink)
+            } else {
+                Text("Import applications and track replies from Gmail.")
+                    .font(Typeface.body).foregroundStyle(Brand.muted)
+            }
             if connected {
                 PrimaryPill(title: "Scan Gmail", icon: "magnifyingglass") { showScan = true }
                 if let onManage { QuietLinks(links: [ScreenLink("Manage connection", action: onManage)]) }
@@ -29,11 +32,11 @@ struct GmailTrackingSection: View {
                     Task { await connect() }
                 }
                 if unavailable {
-                    Text("Gmail connection is temporarily unavailable. Try again later.")
+                    Text("Gmail is unavailable. Try again later.")
                         .font(Typeface.caption).foregroundStyle(Brand.muted)
                 }
                 DisclosureGroup("What can Stack read?") {
-                    Text("Google grants read access to your mailbox. Stack processes only messages related to your applications and selected contacts.")
+                    Text("Google grants mailbox read access. Stack processes messages about your applications and selected contacts only.")
                         .font(Typeface.caption).foregroundStyle(Brand.muted).padding(.top, 8)
                 }
                 .font(Typeface.caption).foregroundStyle(Brand.muted)

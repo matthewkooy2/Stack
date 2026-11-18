@@ -91,8 +91,9 @@ private struct ResumeReviewScreen: View {
                         }
                     }.padding(.bottom, 16)
                     Text("Resume details").font(Typeface.display).foregroundStyle(Brand.ink)
-                    Text("Review the details from \(resume.name) before confirming them.")
-                        .font(Typeface.caption).foregroundStyle(Brand.muted).padding(.top, 10)
+                    Text(resume.name)
+                        .font(Typeface.caption).foregroundStyle(Brand.muted).lineLimit(1)
+                        .truncationMode(.middle).padding(.top, 6)
                     VStack(alignment: .leading, spacing: 12) {
                         if let controller {
                             ProcessingStatusView(resumeID: resume.id, kind: ResumeLane.kind(of: activeProcessing), processing: activeProcessing)

@@ -37,7 +37,7 @@ struct TranscriptionPanel: View {
         VStack(alignment: .leading, spacing: 12) {
             Card(tint: Palette.oat, spacing: 12) {
                 Text("Record an answer").font(Typeface.option).foregroundStyle(Palette.icon)
-                Text("Speak in English for up to five minutes. Review and correct the transcript before using it.")
+                Text("English · 5-minute limit. You can edit the transcript.")
                     .font(Typeface.caption).foregroundStyle(Palette.text)
                 Text(runtime["status"].string == "ready" ? "Transcription ready." :
                         (runtime["message"].string.isEmpty ? "Checking transcription…" : runtime["message"].string))
@@ -50,7 +50,7 @@ struct TranscriptionPanel: View {
                 } else {
                     StackButton(label: "Record", icon: "mic", disabled: busy || dirty || disabled || recorder.finalizing || pendingUpload != nil) { Task { await record() } }
                 }
-                Text("Your recording stays on this phone until you delete it. Leaving this screen or locking your phone stops recording.")
+                Text("Audio stays on this phone until you delete it. Leaving or locking stops recording.")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             MessageLine(text: error.isEmpty ? recorder.error : error).fadeSwitch(!(error.isEmpty && recorder.error.isEmpty))
@@ -58,7 +58,7 @@ struct TranscriptionPanel: View {
             MessageLine(text: recorder.stopNotice, isError: false).fadeSwitch(!recorder.stopNotice.isEmpty)
             if recorder.permissionDenied {
                 StackButton(label: "Open microphone settings", kind: .secondary) { AppSettings.open() }
-                Text("After allowing microphone access, return and tap Record. You can also type your answer.")
+                Text("Allow microphone access, or type your answer.")
                     .font(Typeface.caption).foregroundStyle(Palette.muted)
             }
             if let pending = pendingUpload {

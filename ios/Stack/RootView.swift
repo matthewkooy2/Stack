@@ -125,11 +125,16 @@ struct JobOnboardingGate: View {
 @MainActor
 struct MainTabs: View {
     @Environment(AppStore.self) private var store
-    @State private var selection: StackTab = .jobs
-    @State private var visited: Set<StackTab> = [.jobs]
+    @State private var selection: StackTab
+    @State private var visited: Set<StackTab>
     @State private var showProfile = false
     @State private var agentTask: TaskTarget?
-    @Namespace private var highlight
+    @State private var resumeRouteAfterDismissal: String?
+
+    init(selection: StackTab = .jobs) {
+        _selection = State(initialValue: selection)
+        _visited = State(initialValue: [selection])
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -144,7 +149,7 @@ struct MainTabs: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            TabBar(selection: $selection, namespace: highlight)
+            TabBar(selection: $selection)
         }
         .onChange(of: selection) { _, tab in visited.insert(tab) }
         .onChange(of: store.linkedDestination) { _, destination in
@@ -153,10 +158,12 @@ struct MainTabs: View {
         .onAppear {
             if let destination = store.linkedDestination { go(to: destination); store.linkedDestination = nil }
         }
-        .sheet(isPresented: $showProfile) {
+        .sheet(isPresented: $showProfile, onDismiss: openDeferredResumeRoute) {
             ProfileView().environment(store).replayable()
         }
-        .sheet(item: $agentTask) { target in AgentTaskSheet(taskID: target.id).environment(store).replayable() }
+        .sheet(item: $agentTask, onDismiss: openDeferredResumeRoute) { target in
+            AgentTaskSheet(taskID: target.id).environment(store).replayable()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .stackNavigate)) { note in
             guard let destination = note.userInfo?["destination"] as? String else { return }
             go(to: destination)
@@ -177,11 +184,28 @@ struct MainTabs: View {
             "resume": .resume, "resume-details": .resume, "resume-bank": .resume, "prep": .prep,
         ]
         guard let tab = map[destination] else { return }
+        if destination == "resume-bank" || destination == "resume-details" {
+            if showProfile || agentTask != nil {
+                resumeRouteAfterDismissal = destination
+            } else {
+                store.pendingOpen["resume_route"] = destination
+            }
+        } else {
+            resumeRouteAfterDismissal = nil
+            store.pendingOpen.removeValue(forKey: "resume_route")
+        }
+        agentTask = nil
         showProfile = false
         visited.insert(tab)
         if tab == .network { store.pendingOpen["network_section"] = "network" }
         selection = tab
         if destination != "prep" { Task { await store.refresh() } }
+    }
+
+    private func openDeferredResumeRoute() {
+        guard let route = resumeRouteAfterDismissal else { return }
+        resumeRouteAfterDismissal = nil
+        store.pendingOpen["resume_route"] = route
     }
 
     /// Opens the application, contact or agent task a tapped notification refers to.
@@ -221,7 +245,7 @@ struct MainTabs: View {
         case .jobs: JobsView(onProfile: { showProfile = true })
         case .applications: ApplicationsView(onProfile: { showProfile = true }, onNavigate: { selection = $0 })
         case .network: NetworkView(onProfile: { showProfile = true })
-        case .resume: ResumeView(onProfile: { showProfile = true })
+        case .resume: ResumeView(onProfile: { showProfile = true }, isActive: selection == .resume && !showProfile && agentTask == nil)
         case .prep: PrepView(isActive: selection == .prep && !showProfile && agentTask == nil,
                              onProfile: { showProfile = true })
         }
@@ -231,7 +255,6 @@ struct MainTabs: View {
 private struct TabBar: View {
     @Environment(\.stackReduceMotion) private var reduceMotion
     @Binding var selection: StackTab
-    let namespace: Namespace.ID
 
     var body: some View {
         HStack(spacing: 0) {
@@ -251,13 +274,6 @@ private struct TabBar: View {
                     }
                     .foregroundStyle(selected ? Brand.accent : Brand.muted)
                     .frame(maxWidth: .infinity, minHeight: 49)
-                    .background {
-                        if selected {
-                            Capsule()
-                                .fill(Palette.halo)
-                                .matchedGeometryEffect(id: "tab-highlight", in: namespace)
-                        }
-                    }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -268,13 +284,11 @@ private struct TabBar: View {
                 }
             }
         }
-        .animation(reduceMotion ? nil : Motion.stageAnimation, value: selection)
-        .padding(4)
-        .background(Palette.surfaceRaised, in: Capsule())
-        .overlay(Capsule().strokeBorder(Palette.rule, lineWidth: 0.5))
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
-        .background(Brand.page.ignoresSafeArea(edges: .bottom))
+        .animation(reduceMotion ? nil : Motion.fadeAnimation, value: selection)
+        .padding(.horizontal, 4)
+        .padding(.top, 2)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
         .sensoryFeedback(.selection, trigger: selection)
     }
 }

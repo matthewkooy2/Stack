@@ -94,23 +94,28 @@ struct ApplicationCalendarView: View {
     var body: some View {
         let data = model
         SheetPage(title: "Calendar") {
-            let streak = ApplicationCalendar.streak(activity: data.activity, today: Date())
-            if streak > 0 {
-                Text("\(streak)-day streak of application activity").font(Typeface.body).foregroundStyle(Palette.text)
-            }
             HStack {
-                Chip(label: "‹") { shift(-1) }.accessibilityLabel("Previous month")
+                Button { shift(-1) } label: {
+                    Image(systemName: "chevron.left").frame(width: 44, height: 44)
+                }.accessibilityLabel("Previous month")
                 Spacer()
                 Text(month.formatted(.dateTime.month(.wide).year())).font(Typeface.section).foregroundStyle(Palette.ink)
                 Spacer()
-                Chip(label: "›") { shift(1) }.accessibilityLabel("Next month")
+                Button { shift(1) } label: {
+                    Image(systemName: "chevron.right").frame(width: 44, height: 44)
+                }.accessibilityLabel("Next month")
             }
             grid(data)
             dayDetail(data)
+            if calendar.isDateInToday(selected) {
+                let streak = ApplicationCalendar.streak(activity: data.activity, today: Date())
+                if streak > 0 {
+                    Text("\(streak)-day activity streak").font(.footnote).foregroundStyle(Palette.muted)
+                }
+            }
             if !loading, !connected {
                 Card(tint: Palette.oat, spacing: 8) {
-                    Text("Interviews from your email").font(Typeface.option).foregroundStyle(Palette.icon)
-                    Text("Connect Google Calendar to add interview events after you approve them.")
+                    Text("Add approved interview events to Google Calendar.")
                         .font(Typeface.caption).foregroundStyle(Palette.text)
                     StackButton(label: "Connect Google Calendar", icon: "link", kind: .secondary) { Task { await connect() } }
                 }

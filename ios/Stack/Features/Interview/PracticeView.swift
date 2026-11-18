@@ -119,7 +119,7 @@ struct PracticeView: View {
                 }
             }
             if problems.isEmpty {
-                Text("Technical exercises appear here when your account has them.").font(Typeface.caption).foregroundStyle(Palette.muted)
+                EmptyNote(icon: "code", title: "No exercises available")
             }
         }
     }

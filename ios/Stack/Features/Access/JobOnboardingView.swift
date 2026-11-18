@@ -62,14 +62,12 @@ struct JobOnboardingView: View {
                         VStack(alignment: .leading, spacing: 0) {
                             Text("Your job search")
                                 .font(Typeface.display).tracking(-1.8).foregroundStyle(Brand.ink).reveal(0)
-                            Text("Choose the roles and places you want to see. You can change these later.")
-                                .font(Typeface.body).foregroundStyle(Brand.muted).padding(.top, 12).reveal(1)
                             VStack(alignment: .leading, spacing: 0) {
-                                selection("Role or job title", value: role.isEmpty ? "Choose a role" : role) { picker = "role" }
+                                selection("Role", value: role) { picker = "role" }
                                 Divider()
-                                selection("City or state", value: location.isEmpty ? "Choose a location" : location) { picker = "location" }
+                                selection("Location", value: location) { picker = "location" }
                                 Divider()
-                                selection("Career stage", value: stage.isEmpty ? "Choose your stage" : stage) { picker = "stage" }
+                                selection("Career stage", value: stage) { picker = "stage" }
                             }
                             .padding(.horizontal, 16)
                             .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -105,7 +103,7 @@ struct JobOnboardingView: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(label).font(.headline).foregroundStyle(Brand.ink)
-                    Text(value).font(Typeface.caption).foregroundStyle(Brand.muted)
+                    if !value.isEmpty { Text(value).font(Typeface.caption).foregroundStyle(Brand.muted) }
                 }
                 Spacer(minLength: 8)
                 Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Brand.muted)

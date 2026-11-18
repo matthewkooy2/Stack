@@ -123,7 +123,7 @@ struct PrepView: View {
 
     private var home: some View {
         VStack(alignment: .leading, spacing: Spacing.stack) {
-            ScreenHeader(title: "Prep", onProfile: onProfile)
+            ScreenHeader(title: "Prep", onProfile: onProfile) { EmptyView() }
                 .reveal(0)
             Card(tint: Palette.surface, spacing: 16) {
                 if let session = model.continuing {
@@ -158,7 +158,7 @@ struct PrepView: View {
                         ] + micLinks)
                         .disabled(model.busy)
                     } else if model.loaded {
-                        Text("No questions available").font(Typeface.title).foregroundStyle(Palette.ink)
+                        EmptyNote(icon: "question-file", title: "No questions available")
                         StackButton(label: model.loadingCatalog ? "Loading questions…" : "Reload questions", kind: .secondary, disabled: model.loadingCatalog) {
                             Task { await model.load(retry: true) }
                         }
@@ -171,9 +171,8 @@ struct PrepView: View {
             .reveal(1)
             VStack(spacing: 0) {
                 OptionRow(label: "Mock interview", icon: "chat",
-                          detail: interviewContext ?? "Practice for a saved role", disabled: model.busy) { tool = .interview }
-                OptionRow(label: "Practice interview", icon: "library",
-                          detail: "Build a library of recorded answers", disabled: model.busy) { tool = .library }
+                          detail: interviewContext ?? "", disabled: model.busy) { tool = .interview }
+                OptionRow(label: "Practice library", icon: "library", disabled: model.busy) { tool = .library }
                 OptionRow(label: "Past sessions", icon: "clock", disabled: model.busy) { model.go(.past) }
             }
             .reveal(2)
@@ -342,7 +341,7 @@ struct PrepView: View {
             return HistoryItem(id: row["id"].string, title: first.isEmpty ? "Practice session" : splitPrompt(first).lead,
                                detail: [when, count, work["complete"].bool ? "" : "In progress"].filter { !$0.isEmpty }.joined(separator: " · "))
         }
-        return PrepListScreen(title: "History", items: items, empty: "Your sessions will show up here.",
+        return PrepListScreen(title: "History", items: items, empty: "No past sessions",
                               onBack: { Task { await model.back() } },
                               onSelect: { item in Task { await model.openSession(item.id) } })
     }
@@ -354,7 +353,7 @@ struct PrepView: View {
             return HistoryItem(id: String(entry["index"].int), title: "Question \(entry["index"].int + 1)",
                                detail: splitPrompt(prompt).lead)
         }
-        return PrepListScreen(title: focus, items: items, empty: "No answers saved in this session.",
+        return PrepListScreen(title: focus, items: items, empty: "No saved answers",
                               onBack: { Task { await model.back() } },
                               onSelect: { item in
                                   if let entry = model.history.first(where: { String($0["index"].int) == item.id }) {

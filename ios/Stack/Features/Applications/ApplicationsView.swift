@@ -3,6 +3,8 @@ import SwiftUI
 @MainActor
 struct ApplicationsView: View {
     @Environment(AppStore.self) private var store
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.stackReduceMotion) private var reduceMotion
     var onProfile: () -> Void
     var onNavigate: (StackTab) -> Void
 
@@ -17,105 +19,93 @@ struct ApplicationsView: View {
 
     @State private var trackingDestination: TrackingDestination?
 
-    private var filters: [String] {
-        ["All"] + Array(Set(store.account.applications.map(\.status))).filter { !$0.isEmpty }.sorted()
+    private var pendingApplication: Application? {
+        guard store.pendingOpen["target_type"] == "application", let id = store.pendingOpen["target_id"] else { return nil }
+        return store.account.applications.first { $0.id == id }
     }
 
-    private var rows: [Application] {
-        let all = store.account.applications.sorted { $0.createdAt > $1.createdAt }
-        return filter == "All" ? all : all.filter { $0.status == filter }
+    private var stages: [String] {
+        let known = ["Saved", "Ready to apply", "Submitted", "Applied", "Assessment", "Interview", "Interviewing", "Offer", "Rejected"]
+        let present = Set(store.account.applications.map(\.trackerStage))
+        return known.filter(present.contains) + present.subtracting(known).sorted()
     }
 
     var body: some View {
-        let displayed = rows
-        Page {
-            ScreenHeader(title: "Applications", onProfile: onProfile)
-            HStack(spacing: 12) {
-                if filters.count > 2 || filter != "All" {
-                    Menu {
-                        Picker("Status", selection: $filter) {
-                            ForEach(filters, id: \.self) { Text($0).tag($0) }
-                        }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Text(filter == "All" ? "All applications" : filter)
-                            Image(systemName: "chevron.down").font(.caption)
-                        }
+        let all = store.account.applications.sorted { $0.createdAt > $1.createdAt }
+        CollectionPage(title: "Applications", onProfile: onProfile) {
+            Menu {
+                if stages.count > 1 {
+                    Picker("Stage", selection: $filter) {
+                        Text("All stages").tag("All")
+                        ForEach(stages, id: \.self) { Text($0).tag($0) }
                     }
                     .accessibilityLabel("Filter applications")
                     .accessibilityValue(filter)
-                } else {
-                    Text("All applications")
+                    Divider()
                 }
-                Text("\(displayed.count)").monospacedDigit().foregroundStyle(Palette.muted)
-                Spacer(minLength: 4)
-                Menu {
-                    Button { showCalendar = true } label: { Label("Calendar", systemImage: "calendar") }
-                    Button { showReminders = true } label: { Label("Follow-ups", systemImage: "bell") }
-                    Button { trackingDestination = .overview } label: { Label("Gmail tracking", systemImage: "envelope") }
-                } label: {
-                    Label("Tools", systemImage: "ellipsis.circle")
-                        .font(.subheadline.weight(.semibold))
-                        .frame(minWidth: 44, minHeight: 44)
-                        .foregroundStyle(Brand.accent)
-                }
-                .accessibilityLabel("Application tools")
+                Button { showCalendar = true } label: { Label("Calendar", systemImage: "calendar") }
+                Button { showReminders = true } label: { Label("Follow-ups", systemImage: "bell") }
+                Button { trackingDestination = .overview } label: { Label("Gmail tracking", systemImage: "envelope") }
+            } label: {
+                Image(systemName: "ellipsis").font(.headline).foregroundStyle(Palette.ink)
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
             }
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(Palette.ink)
-            if displayed.isEmpty {
-                EmptyNote(icon: "applications", title: "Nothing saved yet", message: "Roles you save from Jobs appear here.")
-                StackButton(label: "Browse jobs", icon: "jobs") { onNavigate(.jobs) }
-                StackButton(label: "Track with Gmail", icon: "link", kind: .secondary) { trackingDestination = .overview }
+            .accessibilityLabel("Application tools")
+        } content: { availableHeight in
+            if all.isEmpty {
+                CollectionEmptyState(symbol: "tray", title: "No applications yet", actionTitle: "Browse jobs") {
+                    onNavigate(.jobs)
+                }
+                .frame(minHeight: availableHeight)
             } else {
-                LazyVStack(spacing: 0) {
-                    ForEach(displayed) { app in
-                        Button { selected = app } label: {
-                            VStack(alignment: .leading, spacing: 7) {
-                                Text(app.job.title.isBlank ? "Untitled role" : app.job.title)
-                                    .font(.headline).foregroundStyle(Palette.ink)
-                                if !app.job.company.isBlank {
-                                    Text(app.job.company).font(.subheadline).foregroundStyle(Palette.muted)
-                                }
-                                if !app.status.isBlank {
-                                    Text(app.status).font(.caption.weight(.semibold))
-                                        .foregroundStyle(Brand.accent)
-                                        .padding(.horizontal, 9).padding(.vertical, 3)
-                                        .background(Palette.halo, in: Capsule())
-                                }
-                            }
-                            .padding(.trailing, 20)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .overlay(alignment: .trailing) {
-                                Image(systemName: "chevron.right").font(.caption.weight(.semibold))
-                                    .foregroundStyle(Palette.muted).accessibilityHidden(true)
-                            }
-                            .multilineTextAlignment(.leading)
-                            .padding(.trailing, 4)
-                            .padding(.vertical, 14)
-                            .contentShape(Rectangle())
+                let displayed = filter == "All" ? all : all.filter { $0.trackerStage == filter }
+                VStack(alignment: .leading, spacing: 18) {
+                    if filter != "All" {
+                        Button { filter = "All" } label: {
+                            Label(filter, systemImage: "xmark.circle.fill").font(.subheadline.weight(.medium))
+                                .frame(minHeight: 44)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel([app.job.title.isBlank ? "Untitled role" : app.job.title, app.job.company, app.status]
-                            .filter { !$0.isBlank }.joined(separator: ", "))
-                        if app.id != displayed.last?.id { Divider() }
+                        .accessibilityLabel("Clear stage filter, \(filter)")
+                    }
+                    if all.count <= 2 {
+                        ForEach(displayed) { app in
+                            featured(app, isOnlyRole: all.count == 1)
+                            if app.id != displayed.last?.id { Divider() }
+                        }
+                    } else {
+                        let grouped = Dictionary(grouping: displayed, by: \.trackerStage)
+                        ForEach(stages, id: \.self) { stage in
+                            if let roles = grouped[stage] {
+                                LazyVStack(alignment: .leading, spacing: 0) {
+                                    if filter == "All" {
+                                        Text(stage).font(.subheadline.weight(.semibold)).foregroundStyle(Palette.muted)
+                                            .padding(.bottom, 4).accessibilityAddTraits(.isHeader)
+                                    }
+                                    ForEach(roles) { app in
+                                        compact(app)
+                                        if app.id != roles.last?.id { Divider().padding(.leading, 48) }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
-                .padding(.horizontal, 16)
-                .background(Palette.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .frame(maxWidth: .infinity, minHeight: all.count == 1 ? availableHeight : nil,
+                       alignment: all.count == 1 ? .center : .topLeading)
             }
         }
+        .animation(reduceMotion ? nil : Motion.fadeAnimation, value: min(all.count, 3))
+        .animation(reduceMotion ? nil : Motion.fadeAnimation, value: filter)
         .refreshable { await store.refresh() }
-        .task(id: store.pendingOpen) {
-            guard store.pendingOpen["target_type"] == "application", let id = store.pendingOpen["target_id"],
-                  let app = store.account.applications.first(where: { $0.id == id }) else { return }
+        .onChange(of: pendingApplication, initial: true) { _, app in
+            guard let app else { return }
             store.pendingOpen = [:]
             selected = app
         }
         .sheet(isPresented: $showCalendar) { ApplicationCalendarView().environment(store) }
         .sheet(isPresented: $showReminders) { RemindersView().environment(store) }
-        .onChange(of: filters) { _, values in
-            if !values.contains(filter) { filter = "All" }
+        .onChange(of: stages) { _, values in
+            if values.count <= 1 || !values.contains(filter) { filter = "All" }
         }
         .sheet(item: $trackingDestination) { destination in
             switch destination {
@@ -132,6 +122,141 @@ struct ApplicationsView: View {
             ApplicationDetailView(applicationID: app.id).environment(store)
         }
     }
+
+    private func featured(_ app: Application, isOnlyRole: Bool) -> some View {
+        let reminder = app.firstFollowUp(in: store.account.reminders)
+        let trail = app.recentActivity(limit: isOnlyRole ? 3 : 2, reminder: reminder)
+        return Button { selected = app } label: {
+            VStack(alignment: .leading, spacing: isOnlyRole ? 22 : 14) {
+                ApplicationIdentity(application: app, featured: isOnlyRole, showsChevron: true)
+                if !trail.isEmpty {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 14) {
+                        ForEach(Array(trail.enumerated()), id: \.offset) { _, item in
+                            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                                Image(systemName: item.symbol).font(.footnote).foregroundStyle(Brand.accent)
+                                    .frame(width: 18)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(item.title).font(.subheadline.weight(.medium)).foregroundStyle(Palette.ink)
+                                    Text(item.date).font(.footnote).foregroundStyle(Palette.muted)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .multilineTextAlignment(.leading)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(([app.roleTitle, app.job.company, app.job.location, app.stageLabel]
+                             + trail.map { "\($0.title), \($0.date)" })
+            .filter { !$0.isBlank }.joined(separator: ", "))
+    }
+
+    private func compact(_ app: Application) -> some View {
+        Button { selected = app } label: {
+            HStack(spacing: 12) {
+                EmployerMark(job: app.job, size: 36)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(app.roleTitle).font(.headline).foregroundStyle(Palette.ink)
+                        .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
+                    let context = [app.job.company, app.isDemo ? "Demo" : ""].filter { !$0.isBlank }.joined(separator: " · ")
+                    if !context.isEmpty { Text(context).font(.subheadline).foregroundStyle(Palette.muted) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(Palette.muted)
+            }
+            .multilineTextAlignment(.leading)
+            .padding(.vertical, 12).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel([app.roleTitle, app.job.company, app.stageLabel].filter { !$0.isBlank }.joined(separator: ", "))
+    }
+}
+
+private struct ApplicationTrailItem {
+    let title: String
+    let date: String
+    let symbol: String
+}
+
+private extension Application {
+    var roleTitle: String { job.title.isBlank ? "Untitled role" : job.title }
+    var trackerStage: String { status.isBlank ? "No status" : status }
+    var stageLabel: String { [trackerStage, isDemo ? "Demo" : ""].filter { !$0.isEmpty }.joined(separator: " · ") }
+
+    func firstFollowUp(in reminders: [Reminder]) -> Reminder? {
+        reminders.filter { !$0.done && $0.targetType == "application" && $0.targetID == id && $0.dueAt > 0 }
+            .min { $0.dueAt < $1.dueAt }
+    }
+
+    func recentActivity(limit: Int, reminder: Reminder?) -> [ApplicationTrailItem] {
+        var events = history.filter { $0.at > 0 && !$0.status.isBlank }
+        if createdAt > 0, !events.contains(where: { abs($0.at - createdAt) < 1 }) {
+            events.append(StatusEvent(status: "Added to Stack", at: createdAt, source: ""))
+        }
+        var items = events.sorted { $0.at < $1.at }.suffix(limit).map { event in
+            ApplicationTrailItem(title: event.status,
+                                 date: Date(timeIntervalSince1970: event.at).formatted(date: .abbreviated, time: .omitted),
+                                 symbol: event.status == "Added to Stack" ? "tray" : "clock")
+        }
+        if let reminder {
+            items.append(ApplicationTrailItem(title: reminder.title.isBlank ? "Follow-up" : reminder.title,
+                                               date: Date(timeIntervalSince1970: reminder.dueAt).formatted(date: .abbreviated, time: .shortened),
+                                               symbol: "bell"))
+        }
+        return items
+    }
+}
+
+private struct EmployerMark: View {
+    let job: Job
+    let size: CGFloat
+
+    var body: some View {
+        Group {
+            if let image = JobLogoImages.image(job) {
+                Image(uiImage: image).resizable().scaledToFit().padding(size * 0.14)
+                    .background(Color.white)
+            } else if job.company.isBlank {
+                Image(systemName: "building.2").foregroundStyle(Palette.muted)
+            } else {
+                Text(String(job.company.prefix(1)).uppercased())
+                    .font(.system(size: size * 0.45, weight: .semibold)).foregroundStyle(Brand.accent)
+            }
+        }
+        .frame(width: size, height: size)
+        .background(Palette.halo)
+        .clipShape(RoundedRectangle(cornerRadius: size * 0.25, style: .continuous))
+        .accessibilityHidden(true)
+    }
+}
+
+private struct ApplicationIdentity: View {
+    let application: Application
+    var featured = false
+    var showsChevron = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                EmployerMark(job: application.job, size: featured ? 54 : 42)
+                Text(application.job.company.isBlank ? "Employer not listed" : application.job.company)
+                    .font(.headline).foregroundStyle(Palette.ink)
+                Spacer(minLength: 6)
+                if showsChevron {
+                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Palette.muted)
+                }
+            }
+            Text(application.roleTitle).font(featured ? .largeTitle.weight(.bold) : Typeface.title).foregroundStyle(Palette.ink)
+                .accessibilityAddTraits(.isHeader)
+            Text([application.stageLabel, application.job.location].filter { !$0.isBlank }.joined(separator: " · "))
+                .font(.subheadline).foregroundStyle(Palette.muted)
+        }
+    }
 }
 
 @MainActor
@@ -145,6 +270,7 @@ struct ApplicationDetailView: View {
     @State var reminderTitle = "Follow up"
     @State var reminderDate = Date().addingTimeInterval(86_400)
     @State var showReminder = false
+    @State private var practicing = false
 
     private var application: Application? { store.account.applications.first { $0.id == applicationID } }
 
@@ -153,29 +279,37 @@ struct ApplicationDetailView: View {
             Palette.page.ignoresSafeArea()
             if let app = application {
                 SheetPage(title: "Application") {
-                    JobHeading(job: app.job)
-                    if !app.status.isBlank || app.isDemo {
-                        StatusPill(label: [app.status, app.isDemo ? "Demo" : ""].filter { !$0.isEmpty }.joined(separator: " · "))
-                    }
+                    ApplicationIdentity(application: app, featured: true)
                     if !app.isDemo, ["Saved", "Ready to apply"].contains(app.status) {
                         let url = JobListingLink.safeURL(app.job.url)
                         VStack(spacing: Spacing.option) {
                             if let url {
-                                StackButton(label: "Apply on the employer site", icon: "link") { openURL(url) }
+                                StackButton(label: "Open employer site", icon: "link") { openURL(url) }
                             }
-                            StackButton(label: "I submitted this application", icon: "done", kind: url == nil ? .primary : .secondary, disabled: store.busy) {
+                            StackButton(label: "Mark as submitted", icon: "done", kind: url == nil ? .primary : .secondary, disabled: store.busy) {
                                 Task { await store.mutate("mark_application_submitted", ["id": .string(app.id)], notice: "Marked as submitted.") }
                             }
                         }
-                        .reveal(1)
+                    } else if !app.isDemo, ["Interview", "Interviewing"].contains(app.status) {
+                        StackButton(label: "Practice for interview", icon: "chat") { practicing = true }
                     }
 
-                    MessageLine(text: store.error).fadeSwitch(!store.error.isEmpty)
-                    MessageLine(text: store.notice, isError: false).fadeSwitch(!store.notice.isEmpty)
-
-                    if !app.isDemo { ApplicationAgentSection(application: app) }
+                    if let reminder = app.firstFollowUp(in: store.account.reminders) {
+                        Label {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(reminder.title.isBlank ? "Follow-up" : reminder.title).font(.headline)
+                                Text(Date(timeIntervalSince1970: reminder.dueAt), format: .dateTime.month().day().year().hour().minute())
+                                    .font(.subheadline).foregroundStyle(Palette.muted)
+                            }
+                        } icon: { Image(systemName: "bell").foregroundStyle(Brand.accent) }
+                        .foregroundStyle(Palette.ink)
+                        .accessibilityElement(children: .combine)
+                    }
+                    if !store.error.isEmpty { MessageLine(text: store.error) }
+                    if !store.notice.isEmpty { MessageLine(text: store.notice, isError: false) }
 
                     VStack(spacing: 0) {
+                        ListRow(label: "Add follow-up", icon: "bell") { showReminder = true }
                         DisclosureSection("Resume", detail: resumeName(for: app)) {
                             FlowLayout(spacing: 8) {
                                 Chip(label: "None", selected: app.resumeID.isEmpty) { select("") }
@@ -193,20 +327,24 @@ struct ApplicationDetailView: View {
                                 }
                             }
                         }
-                        ListRow(label: "Add a follow-up reminder", icon: "bell") { showReminder = true }
                         if !app.history.isEmpty {
-                            DisclosureSection("Status history", detail: "\(app.history.count) updates") {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    ForEach(Array(app.history.enumerated()), id: \.offset) { _, event in
-                                        Text("\(event.status) · \(dateTime(event.at)) · \(event.source)")
-                                            .font(Typeface.caption).foregroundStyle(Palette.text)
+                            DisclosureSection("Status history", detail: app.history.count == 1 ? "1 update" : "\(app.history.count) updates") {
+                                VStack(alignment: .leading, spacing: 14) {
+                                    ForEach(Array(app.history.sorted { $0.at > $1.at }.enumerated()), id: \.offset) { _, event in
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(event.status).font(.headline).foregroundStyle(Palette.ink)
+                                            let info = [event.at > 0 ? dateTime(event.at) : "", event.source]
+                                                .filter { !$0.isBlank }.joined(separator: " · ")
+                                            if !info.isEmpty { Text(info).font(.footnote).foregroundStyle(Palette.muted) }
+                                        }
+                                        .accessibilityElement(children: .combine)
                                     }
                                 }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
                     }
-                    .reveal(2)
+                    if !app.isDemo { ApplicationAgentSection(application: app) }
                 }
                 .onAppear { if !loadedNotes { notes = app.notes; loadedNotes = true } }
             } else {
@@ -214,6 +352,9 @@ struct ApplicationDetailView: View {
                     Text("This application is no longer available.").font(Typeface.body).foregroundStyle(Palette.muted)
                 }
             }
+        }
+        .sheet(isPresented: $practicing) {
+            InterviewView(initialApplicationID: applicationID).environment(store)
         }
         .sheet(isPresented: $showReminder) {
             ReminderSheet(title: $reminderTitle, due: $reminderDate) {

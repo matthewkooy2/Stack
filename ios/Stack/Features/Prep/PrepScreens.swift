@@ -520,7 +520,7 @@ struct PrepListScreen: View {
             Text(title).font(Typeface.display).foregroundStyle(Brand.ink)
                 .padding(.top, 18).padding(.bottom, 8).reveal(1)
             if items.isEmpty {
-                Text(empty).font(Typeface.body).foregroundStyle(Brand.muted).padding(.top, 16)
+                EmptyNote(icon: "clock", title: empty)
             }
             ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                 Button { onSelect(item) } label: {

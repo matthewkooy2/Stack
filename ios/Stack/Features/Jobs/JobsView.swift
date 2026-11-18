@@ -52,14 +52,11 @@ struct JobsView: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            HStack(spacing: 8) {
-                ScreenHeader(title: "Jobs", onProfile: onProfile)
-                requirementsButton
-            }
+            ScreenHeader(title: "Jobs", onProfile: onProfile) { requirementsButton }
             .padding(.horizontal, Spacing.page)
             .padding(.top, 8)
             GeometryReader { geometry in
-                content
+                content(availableHeight: geometry.size.height)
                     .frame(width: geometry.size.width, height: geometry.size.height)
                     .onAppear { cardWidth = geometry.size.width }
                     .onChange(of: geometry.size.width) { _, width in cardWidth = width }
@@ -67,15 +64,6 @@ struct JobsView: View {
             .padding(.horizontal, 10)
             .padding(.bottom, 6)
             .clipped()
-            if feed.loaded, let job = deck.first {
-                HStack(spacing: 10) {
-                    decisionButton("Pass", symbol: "xmark", save: false, job: job)
-                    decisionButton("Save", symbol: "bookmark", save: true, job: job)
-                }
-                .padding(.horizontal, Spacing.page)
-                .padding(.bottom, 4)
-                .disabled(leavingID != nil)
-            }
         }
         .background(Brand.page.ignoresSafeArea())
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -174,7 +162,7 @@ struct JobsView: View {
     }
 
     @ViewBuilder
-    private var content: some View {
+    private func content(availableHeight: CGFloat) -> some View {
         if !feed.loaded || (deck.isEmpty && feed.loadError.isEmpty && !feed.nextCursor.isEmpty) {
             VStack {
                 Spacer()
@@ -228,7 +216,7 @@ struct JobsView: View {
             ScrollView {
                 VStack(spacing: 14) {
                     feedback
-                    EmptyNote(icon: "sparkles", title: emptyTitle, message: emptyMessage)
+                    EmptyNote(icon: emptyIcon, title: emptyTitle, message: emptyMessage)
                     if !feed.loadError.isEmpty {
                         StackButton(label: "Retry", icon: "refresh", disabled: feed.busy) {
                             Task { await load(refresh: false) }
@@ -243,22 +231,11 @@ struct JobsView: View {
                         StackButton(label: "Change requirements", disabled: feed.gate.saving) { sheet = .filters }
                     }
                 }
+                .frame(maxWidth: 460)
                 .padding(20)
+                .frame(maxWidth: .infinity, minHeight: availableHeight)
             }
         }
-    }
-
-    private func decisionButton(_ title: String, symbol: String, save: Bool, job: Job) -> some View {
-        Button { decide(job, save: save) } label: {
-            Label(title, systemImage: symbol)
-                .font(.headline)
-                .frame(maxWidth: .infinity, minHeight: 46)
-                .foregroundStyle(save ? .white : Brand.ink)
-                .background(save ? Palette.button : Palette.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        }
-        .buttonStyle(.tap(scale: 0.97))
-        .accessibilityLabel(title)
-        .accessibilityHint(save ? "Adds this job to Applications" : "Shows the next job")
     }
 
     private var requirementsButton: some View {
@@ -266,8 +243,7 @@ struct JobsView: View {
             Image(systemName: "slider.horizontal.3")
                 .font(.body.weight(.semibold)).foregroundStyle(Brand.ink)
                 .frame(width: 44, height: 44)
-                .background(Palette.surface, in: Circle())
-                .overlay(Circle().stroke(Brand.rule, lineWidth: 0.5))
+                .contentShape(Rectangle())
         }
         .buttonStyle(.tap(scale: 0.96))
         .disabled(leavingID != nil)
@@ -364,11 +340,17 @@ struct JobsView: View {
         }
     }
 
+    private var emptyIcon: String {
+        if !feed.loadError.isEmpty { return "warning" }
+        if search.missingGraduation { return "graduation" }
+        return "jobs"
+    }
+
     private var emptyTitle: String {
         if !feed.loadError.isEmpty { return "Could not load roles" }
         if search.missingGraduation { return "Add your graduation month" }
         if !feed.nextCursor.isEmpty { return "More roles to review" }
-        if search.filters["timeline"].string == "confirmed" { return "No confirmed timeline matches." }
+        if search.filters["timeline"].string == "confirmed" { return "No confirmed timeline matches" }
         if search.noRoleMatches { return "No listings match \u{201C}\(search.roleLabel)\u{201D}" }
         return "You are all caught up"
     }
@@ -376,14 +358,14 @@ struct JobsView: View {
     private var emptyMessage: String {
         if !feed.loadError.isEmpty { return feed.loadError }
         if search.missingGraduation {
-            return "Add your graduation month so timelines can be confirmed, or relax the timeline in Filters."
+            return "Use it to match roles to your graduation date."
         }
-        if !feed.nextCursor.isEmpty { return "More verified roles are ready." }
+        if !feed.nextCursor.isEmpty { return "" }
         if search.filters["timeline"].string == "confirmed" {
-            return "Many listings do not state a graduation window. Relax the timeline in Filters to see them."
+            return "Include roles without a stated graduation window in Requirements."
         }
         if search.noRoleMatches {
-            return "Try the full job title instead of an abbreviation, or add related titles in Filters."
+            return "Try a related title in Requirements."
         }
         if !search.excluded.isEmpty {
             let reasons = search.excluded.prefix(4).map { "\($0["reason"].string) (\($0["count"].int))" }.joined(separator: ", ")

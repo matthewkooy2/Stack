@@ -23,9 +23,10 @@ enum LabScreen: String, CaseIterable, Identifiable {
 private struct MotionLabPreview: View {
     let initial: LabScreen
     @Environment(\.dismiss) private var dismiss
+    @State private var sampleSize: CollectionSampleSize = .one
     @State private var screen: LabScreen
     @State private var take = 0
-    @State private var fixture = ScreenFlowUITestScene.makeStore(flow: "onboarding")
+    @StateObject private var fixture = ScreenFlowFixture(flow: "onboarding")
 
     init(initial: LabScreen) {
         self.initial = initial
@@ -33,24 +34,31 @@ private struct MotionLabPreview: View {
     }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            preview.id("\(screen.rawValue)-\(take)")
-            HStack(spacing: 10) {
-                Picker("Screen", selection: $screen) {
-                    ForEach(LabScreen.allCases) { Text($0.rawValue).tag($0) }
+        preview
+            .id("\(screen.rawValue)-\(sampleSize.rawValue)-\(take)")
+            .environment(fixture.store)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                HStack(spacing: 8) {
+                    Picker("Screen", selection: $screen) {
+                        ForEach(LabScreen.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.menu)
+                    if [.applications, .network, .resume].contains(screen) {
+                        Picker("Sample size", selection: $sampleSize) {
+                            ForEach(CollectionSampleSize.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                        }
+                        .pickerStyle(.menu)
+                    }
+                    Button { take += 1 } label: { Label("Replay", systemImage: "arrow.clockwise") }
+                        .buttonStyle(.borderedProminent)
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .buttonStyle(.bordered)
                 }
-                .pickerStyle(.menu)
-                Button { take += 1 } label: { Label("Replay", systemImage: "arrow.clockwise") }
-                    .buttonStyle(.borderedProminent)
-                Button { dismiss() } label: { Image(systemName: "xmark") }
-                    .buttonStyle(.bordered)
+                .padding(10)
+                .background(.regularMaterial, in: Capsule())
+                .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
+                .padding(.bottom, 8)
             }
-            .padding(10)
-            .background(.regularMaterial, in: Capsule())
-            .shadow(color: .black.opacity(0.15), radius: 12, y: 4)
-            .padding(.bottom, 8)
-        }
-        .environment(fixture)
     }
 
     @ViewBuilder private var preview: some View {
@@ -58,11 +66,11 @@ private struct MotionLabPreview: View {
         case .jobsDeck:
             LabFlow(flow: "deck") { JobsView(onProfile: {}) }
         case .network:
-            LabFlow(flow: "network") { NetworkView(onProfile: {}) }
+            LabFlow(flow: sampleSize.flow) { NetworkView(onProfile: {}) }
         case .applications:
-            LabFlow(flow: "applications") { ApplicationsView(onProfile: {}, onNavigate: { _ in }) }
+            LabFlow(flow: sampleSize.flow) { ApplicationsView(onProfile: {}, onNavigate: { _ in }) }
         case .resume:
-            LabFlow(flow: "resume") { ResumeView(onProfile: {}) }
+            LabFlow(flow: sampleSize.flow) { ResumeView(onProfile: {}) }
         case .profile:
             LabFlow(flow: "settings") { ProfileView() }
         case .resumeUpload:
@@ -157,14 +165,14 @@ private struct MotionLabPreview: View {
     }
 }
 
-/// A screen on the offline fixture account for one flow, built once so replaying it keeps the same store.
+/// A preview keeps its store across body updates. Choosing another sample or Replay creates a fresh fixture.
 @MainActor
 private struct LabFlow<Content: View>: View {
-    @State private var store: AppStore
+    @StateObject private var fixture: ScreenFlowFixture
     private let content: () -> Content
 
     init(flow: String, @ViewBuilder content: @escaping () -> Content) {
-        _store = State(initialValue: ScreenFlowUITestScene.makeStore(flow: flow))
+        _fixture = StateObject(wrappedValue: ScreenFlowFixture(flow: flow))
         self.content = content
     }
 
@@ -173,7 +181,7 @@ private struct LabFlow<Content: View>: View {
             Brand.page.ignoresSafeArea()
             content()
         }
-        .environment(store)
+        .environment(fixture.store)
     }
 }
 
@@ -219,6 +227,9 @@ private struct MotionLabHost: ViewModifier {
 
 extension View {
     /// Adds the debug motion lab. Only called from DEBUG code.
-    func motionLab() -> some View { modifier(MotionLabHost()) }
+    @ViewBuilder func motionLab() -> some View {
+        if ProcessInfo.processInfo.arguments.contains("--motion-lab") { modifier(MotionLabHost()) }
+        else { self }
+    }
 }
 #endif

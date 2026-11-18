@@ -20,7 +20,7 @@ struct ProcessingStatusView: View {
                     .foregroundStyle(status == "failed" ? Palette.danger : Palette.dark)
                     .breathe(["queued", "parsing", "compiling"].contains(status), minimum: 0.6)
                 if ["queued", "parsing", "compiling"].contains(status) {
-                    Text("Saved. You can close Stack and reopen later.")
+                    Text("Processing continues in the background.")
                         .font(Typeface.caption).foregroundStyle(Palette.muted)
                 }
                 if !processing["error"].string.isEmpty {
@@ -51,7 +51,7 @@ struct ProcessingStatusView: View {
         case "parsing": return kind == ResumeLane.source ? "Reading your file…" : "Reading resume…"
         case "compiling": return "Preparing your design…"
         case "completed": return kind == ResumeLane.source ? "Design ready" : "Resume ready to review"
-        case "failed": return "Processing failed"
+        case "failed": return kind == ResumeLane.source ? "Couldn’t prepare the design" : "Couldn’t read resume details"
         default: return status
         }
     }

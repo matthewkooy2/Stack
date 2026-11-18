@@ -37,6 +37,8 @@ enum Glyph {
         case "shield": return "lock.shield"
         case "profile": return "person.crop.circle"
         case "activity": return "waveform.path.ecg"
+        case "warning": return "exclamationmark.circle"
+        case "graduation": return "graduationcap"
         case "refresh": return "arrow.clockwise"
         case "star": return "star"
         case "trash": return "trash"
@@ -353,41 +355,136 @@ struct MessageLine: View {
 
 /// Screen title with the account button, used at the top of each tab.
 @MainActor
-struct ScreenHeader: View {
+struct ScreenHeader<Accessory: View>: View {
     let title: String
-    var subtitle: String = ""
-    var onProfile: (() -> Void)?
-    @Environment(AppStore.self) var store
+    let onProfile: (() -> Void)?
+    @ViewBuilder var accessory: () -> Accessory
 
     var body: some View {
-        HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(Typeface.display).tracking(-0.8).foregroundStyle(Palette.ink)
-                    .accessibilityAddTraits(.isHeader)
-                if !subtitle.isEmpty { Text(subtitle).font(Typeface.caption).foregroundStyle(Palette.muted) }
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 4) {
+                heading.fixedSize(horizontal: true, vertical: true)
+                Spacer(minLength: 8)
+                actions.fixedSize(horizontal: true, vertical: false)
             }
-            Spacer(minLength: 12)
-            if let onProfile {
-                Button(action: onProfile) {
-                    Image(systemName: "person.fill")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(Brand.accent)
-                        .frame(width: 36, height: 36)
-                        .background(Palette.halo, in: Circle())
-                        .overlay(alignment: .topTrailing) {
-                            if store.account.attentionRunCount > 0 {
-                                Circle().fill(Brand.accent).frame(width: 12, height: 12)
-                                    .overlay(Circle().stroke(Palette.page, lineWidth: 2))
-                            }
-                        }
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.tap(scale: 0.96, dim: 1))
-                .accessibilityLabel(store.account.attentionRunCount > 0
-                                    ? "Your account, \(store.account.attentionRunCount) agent tasks need you" : "Your account")
+            VStack(alignment: .leading, spacing: 0) {
+                actions.frame(maxWidth: .infinity, alignment: .trailing)
+                heading
             }
         }
+    }
+
+    private var heading: some View {
+        Text(title).font(Typeface.display).tracking(-0.8).foregroundStyle(Brand.ink)
+            .accessibilityAddTraits(.isHeader)
+    }
+
+    private var actions: some View {
+        HStack(spacing: 2) {
+            accessory()
+            if let onProfile { AccountButton(action: onProfile) }
+        }
+    }
+}
+
+@MainActor
+private struct AccountButton: View {
+    @Environment(AppStore.self) private var store
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "person.crop.circle")
+                .font(.system(size: 25, weight: .regular))
+                .foregroundStyle(Brand.muted)
+                .overlay(alignment: .topTrailing) {
+                    if store.account.attentionRunCount > 0 {
+                        Circle().fill(Brand.accent).frame(width: 8, height: 8)
+                            .overlay(Circle().stroke(Brand.page, lineWidth: 1))
+                    }
+                }
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(store.account.attentionRunCount > 0
+                            ? "Your account, \(store.account.attentionRunCount) agent tasks need you" : "Your account")
+    }
+}
+
+/// Collection roots share the same margins and toolbar. The body gets the remaining
+/// viewport height so an empty collection can place its invitation deliberately.
+@MainActor
+struct CollectionPage<Accessory: View, Content: View>: View {
+    let title: String
+    let onProfile: (() -> Void)?
+    @ViewBuilder var accessory: () -> Accessory
+    @ViewBuilder var content: (CGFloat) -> Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ScreenHeader(title: title, onProfile: onProfile, accessory: accessory)
+                .padding(.horizontal, Spacing.page)
+                .padding(.top, 6)
+                .padding(.bottom, 8)
+
+            GeometryReader { viewport in
+                ScrollView {
+                    content(max(0, viewport.size.height - 16))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, Spacing.page)
+                        .padding(.bottom, 16)
+                }
+                .scrollDismissesKeyboard(.interactively)
+            }
+        }
+        .background(Brand.page.ignoresSafeArea())
+    }
+}
+
+@MainActor
+struct CollectionEmptyState: View {
+    let symbol: String
+    let title: String
+    let actionTitle: String
+    let titleIdentifier: String?
+    let actionIdentifier: String?
+    let action: () -> Void
+    @ScaledMetric(relativeTo: .title) private var symbolSize: CGFloat = 60
+
+    init(symbol: String, title: String, actionTitle: String, titleIdentifier: String? = nil,
+         actionIdentifier: String? = nil, action: @escaping () -> Void) {
+        self.symbol = symbol
+        self.title = title
+        self.actionTitle = actionTitle
+        self.titleIdentifier = titleIdentifier
+        self.actionIdentifier = actionIdentifier
+        self.action = action
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: symbol)
+                .font(.system(size: symbolSize, weight: .light))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(Brand.muted)
+                .accessibilityHidden(true)
+            Text(title)
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(Brand.ink)
+                .multilineTextAlignment(.center)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier(titleIdentifier ?? title)
+            Button(actionTitle, action: action)
+                .accessibilityIdentifier(actionIdentifier ?? actionTitle)
+                .buttonStyle(.borderedProminent)
+                .buttonBorderShape(.capsule)
+                .controlSize(.large)
+                .tint(Palette.button)
+                .foregroundStyle(.white)
+        }
+        .padding(.vertical, 24)
+        .frame(maxWidth: .infinity)
     }
 }
 
@@ -399,8 +496,14 @@ struct EmptyNote: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            Halo(size: 52) { GlyphView(name: icon, size: 22, color: Brand.accent) }
+            Image(systemName: Glyph.symbol(icon))
+                .font(.system(size: 42, weight: .light))
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(Brand.muted)
+                .accessibilityHidden(true)
             Text(title).font(Typeface.section).foregroundStyle(Palette.ink)
+                .multilineTextAlignment(.center)
+                .accessibilityAddTraits(.isHeader)
             if !message.isEmpty {
                 Text(message).font(Typeface.caption).foregroundStyle(Palette.muted).multilineTextAlignment(.center)
             }

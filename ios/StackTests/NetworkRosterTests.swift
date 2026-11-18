@@ -25,6 +25,30 @@ final class NetworkRosterTests: XCTestCase {
         XCTAssertTrue(model.error.isEmpty)
     }
 
+    #if DEBUG
+    func testGalleryRetainsMutationsAcrossReadsAndIsolatesConcurrentPreviews() async throws {
+        let first = ScreenFlowFixture(flow: "collections-empty")
+        let saved = try await first.store.call("agent_save_contact", ["data": ["name": "Casey", "email": "casey@example.invalid"]])
+        let id = try XCTUnwrap(saved["contacts"].array.first?["id"].string)
+        let second = ScreenFlowFixture(flow: "collections-two")
+        _ = try await first.store.call("agent_stop_contact", ["id": .string(id)])
+        let csv = "name,email,relationship\nCasey,casey@example.invalid,Duplicate\nMorgan,morgan@example.invalid,\"Met at a talk, last month\""
+        _ = try await first.store.call("agent_import_contacts", ["content": .string(csv)])
+        let rows = try await first.store.call("agent_contacts")["contacts"].array
+        XCTAssertEqual(rows.map { $0["name"].string }, ["Casey", "Morgan"])
+        let casey = try XCTUnwrap(rows.first { $0["id"].string == id })
+        let morgan = try XCTUnwrap(rows.first { $0["name"].string == "Morgan" })
+        XCTAssertTrue(casey["stopped"].bool)
+        XCTAssertEqual(morgan["relationship"].string, "Met at a talk, last month")
+        let other = try await second.store.call("agent_contacts")["contacts"].array
+        XCTAssertEqual(other.map { $0["name"].string }, ["Ada Park", "Mina Ellis"])
+        let file = try await second.store.call("read_resume", ["id": "resume-2"])
+        let bytes = try XCTUnwrap(Data(base64Encoded: file["content"].string))
+        XCTAssertEqual(file["name"].string, "Elm Studio Research lead.docx")
+        XCTAssertNotNil(bytes.range(of: Data("word/document.xml".utf8)))
+    }
+    #endif
+
     func testFailedInitialLoadIsRetryableAndNotReportedAsSuccessfulEmpty() async {
         let model = NetworkRoster()
         await model.load { throw APIError(message: "Offline") }

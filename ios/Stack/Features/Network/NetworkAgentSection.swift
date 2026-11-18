@@ -6,7 +6,6 @@ import SwiftUI
 @Observable
 @MainActor
 final class NetworkDrafts {
-    var adding = false
     var name = ""
     var email = ""
     var company = ""
@@ -16,17 +15,10 @@ final class NetworkDrafts {
     var followupLimit = "0"
     var followupDays = "7"
     var policyLoaded = false
-    var linkedInURL = ""
-    var linkedInRole = ""
-    var linkedInSavedURL = ""
-    var linkedInSavedRole = ""
-    var linkedInLoaded = false
 
     func reset() {
-        adding = false
         name = ""; email = ""; company = ""; relationship = ""; sourceURL = ""; importText = ""
         followupLimit = "0"; followupDays = "7"; policyLoaded = false
-        linkedInURL = ""; linkedInRole = ""; linkedInSavedURL = ""; linkedInSavedRole = ""; linkedInLoaded = false
     }
 }
 
@@ -34,62 +26,64 @@ final class NetworkDrafts {
 @MainActor
 struct NetworkAgentSection: View {
     @Bindable var drafts: NetworkDrafts
-    /// A roster row opens the existing contact tools, limited to that real contact.
-    var contactID: String? = nil
+    @Binding var working: Bool
+    let destination: NetworkSheet
     let onOpenTask: (String) -> Void
     let onNavigate: (String) -> Void
 
     @Environment(AppStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
 
     @State private var contacts: [JSON] = []
     @State private var loaded = false
     @State private var loading = false
-    @State private var working = false
     @State private var error = ""
     @State private var notice = ""
-
-    private var visibleContacts: [JSON] {
-        guard let contactID else { return contacts }
-        return contacts.filter { $0["id"].string == contactID }
-    }
 
     private var feature: AgentFeature? { store.account.feature("networking") }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Saving a contact never contacts them. Drafts wait for your review.")
-                .font(Typeface.caption).foregroundStyle(Palette.muted)
-            MessageLine(text: error).fadeSwitch(!error.isEmpty)
-            MessageLine(text: notice, isError: false).fadeSwitch(!notice.isEmpty)
-            if loading && !loaded { ProgressView("Loading contacts…") }
-            if !error.isEmpty {
-                StackButton(label: "Retry loading contacts", kind: .secondary, disabled: loading || working) {
-                    Task { await load() }
-                }
-            }
-            if contactID == nil {
-                if drafts.adding { form } else {
-                    StackButton(label: "Add a contact", icon: "add-session") { drafts.adding = true }
-                }
-            }
-            ForEach(Array(visibleContacts.enumerated()), id: \.offset) { _, contact in contactCard(contact) }
-            if loaded, visibleContacts.isEmpty, error.isEmpty, !drafts.adding {
-                Text(contactID == nil ? "No contacts yet." : "This contact is no longer available.")
-                    .font(Typeface.caption).foregroundStyle(Palette.muted)
-            }
-            if contactID == nil {
-                DisclosureSection("Follow-up timing",
-                                  detail: drafts.policyLoaded ? "Up to \(drafts.followupLimit) every \(drafts.followupDays) days" : "") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Sets how many follow-ups may be drafted. Sending still follows your review and outbound permissions.")
-                            .font(Typeface.caption).foregroundStyle(Palette.muted)
-                        StackField(label: "Follow-ups per contact (0–3)", text: $drafts.followupLimit, keyboard: .numberPad)
-                        StackField(label: "Days between follow-ups", text: $drafts.followupDays, keyboard: .numberPad)
-                        StackButton(label: "Save follow-up timing", kind: .secondary, disabled: working || !drafts.policyLoaded) {
-                            Task { await saveFollowupPolicy() }
+            if !error.isEmpty { MessageLine(text: error) }
+            if !notice.isEmpty { MessageLine(text: notice, isError: false) }
+            switch destination {
+            case .add: form.disabled(working)
+            case .csv: importForm.disabled(working)
+            case .settings: settings
+            case .contact(let item):
+                if let contact = contacts.first(where: { $0["id"].string == item.id }) {
+                    contactCard(contact)
+                    if let feature, feature.state != "ready" {
+                        DisclosureSection("Outreach setup", open: true) {
+                            FeatureCardView(feature: feature, onAction: onNavigate, compact: true)
                         }
                     }
+                } else if loaded && error.isEmpty {
+                    Text("This contact is no longer available.").font(Typeface.body).foregroundStyle(Brand.muted)
                 }
+            case .discovery: EmptyView()
+            }
+            if loading && !loaded { ProgressView().tint(Brand.accent) }
+            if !loaded && !loading && !error.isEmpty {
+                switch destination {
+                case .settings, .contact:
+                    Button("Try again") { Task { await load() } }.frame(minHeight: 44)
+                default: EmptyView()
+                }
+            }
+        }
+        .task { await load() }
+    }
+
+    private var settings: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SectionLabel(text: "Follow-up timing")
+            Text("Choose how often Stack can draft a follow-up for your review.")
+                .font(.subheadline).foregroundStyle(Brand.muted)
+            StackField(label: "Follow-ups per contact (0–3)", text: $drafts.followupLimit, keyboard: .numberPad)
+            StackField(label: "Days between follow-ups", text: $drafts.followupDays, keyboard: .numberPad)
+            StackButton(label: "Save follow-up timing", disabled: working || !drafts.policyLoaded) {
+                Task { await saveFollowupPolicy() }
             }
             if let feature {
                 DisclosureSection("Outreach setup", open: feature.state != "ready") {
@@ -97,21 +91,28 @@ struct NetworkAgentSection: View {
                 }
             }
         }
-        .task { await load() }
     }
 
     private func contactCard(_ contact: JSON) -> some View {
         let id = contact["id"].string
         let stopped = contact["stopped"].bool
         let selected = contact["selected"].bool
-        return Card(spacing: 10) {
-            HStack(alignment: .top) {
-                Text(contact["name"].string).font(Typeface.option).foregroundStyle(Palette.icon)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                StatusPill(label: stopped ? "Outreach stopped" : (selected ? "Selected" : "Not selected"), tone: selected && !stopped ? .active : .quiet)
+        return VStack(alignment: .leading, spacing: 12) {
+            let info = NetworkContact(contact)
+            HStack(spacing: 12) {
+                Avatar(initials: info.initials, size: 48)
+                VStack(alignment: .leading, spacing: 4) {
+                    if !info.detail.isEmpty {
+                        Text(info.detail).font(.headline).foregroundStyle(Brand.ink)
+                    }
+                    if !info.email.isEmpty && info.detail != info.email {
+                        Text(info.email).font(.subheadline).foregroundStyle(Brand.muted).textSelection(.enabled)
+                    }
+                }
             }
-            Text(contact["email"].string + (contact["company"].string.isEmpty ? "" : " · \(contact["company"].string)"))
-                .font(Typeface.caption).foregroundStyle(Palette.muted)
+            if stopped {
+                StatusPill(label: "Outreach stopped")
+            }
             if !contact["relationship"].string.isEmpty {
                 Text(contact["relationship"].string).font(Typeface.caption).foregroundStyle(Palette.text)
             }
@@ -152,19 +153,21 @@ struct NetworkAgentSection: View {
             StackField(label: "Public research source (optional)", text: $drafts.sourceURL, placeholder: "https://company.com/team",
                        keyboard: .URL, autocapitalization: .never)
             StackButton(label: "Save contact", icon: "save", disabled: working || drafts.name.isBlank) { Task { await save() } }
-            DisclosureSection("Import from CSV", open: !drafts.importText.isBlank) {
-                VStack(alignment: .leading, spacing: 12) {
-                    StackField(label: "Paste rows (name,email,relationship)", text: $drafts.importText, multiline: true, autocapitalization: .never)
-                    StackButton(label: "Import contacts", kind: .secondary, disabled: working || drafts.importText.isBlank) {
-                        Task {
-                            if await perform("agent_import_contacts", ["content": .string(drafts.importText)],
-                                             done: "Imported. Imported contacts stay unselected until you choose them.") { drafts.importText = "" }
-                        }
+        }
+    }
+
+    private var importForm: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            StackField(label: "Paste rows (name,email,relationship)", text: $drafts.importText,
+                       multiline: true, autocapitalization: .never)
+            StackButton(label: "Import contacts", disabled: working || drafts.importText.isBlank) {
+                Task {
+                    if await perform("agent_import_contacts", ["content": .string(drafts.importText)], done: "") {
+                        drafts.importText = ""
+                        dismiss()
                     }
                 }
             }
-            // Closing the form keeps what was typed; it is cleared only by saving or by a new session.
-            StackButton(label: "Hide form", kind: .secondary) { drafts.adding = false }
         }
     }
 
@@ -174,16 +177,20 @@ struct NetworkAgentSection: View {
         error = ""
         defer { loading = false }
         do {
-            contacts = try await store.call("agent_contacts")["contacts"].array
-            if contactID == nil && !drafts.policyLoaded {
+            switch destination {
+            case .contact:
+                contacts = try await store.call("agent_contacts")["contacts"].array
+            case .settings where !drafts.policyLoaded:
                 let policy = try await store.call("agent_settings")["policy"]
                 drafts.followupLimit = String(policy["followup_limit"].int)
                 drafts.followupDays = policy["followup_days"].isNull ? "7" : String(policy["followup_days"].int)
                 drafts.policyLoaded = true
+            default: break
             }
+            loaded = true
+        } catch {
+            if !(error is CancellationError) { self.error = error.localizedDescription }
         }
-        catch { if !(error is CancellationError) { self.error = error.localizedDescription } }
-        loaded = true
     }
 
     private func saveFollowupPolicy() async {
@@ -233,7 +240,7 @@ struct NetworkAgentSection: View {
                                done: "Contact saved. Nothing was sent. Tap Draft outreach when you are ready.")
         if ok {
             drafts.name = ""; drafts.email = ""; drafts.company = ""; drafts.relationship = ""; drafts.sourceURL = ""
-            drafts.adding = false
+            dismiss()
         }
     }
 }

@@ -477,7 +477,7 @@ final class ResumeReviewFlowUITests: XCTestCase {
 
     func testImportRetryFinishesWithoutDiscardingAnAddedBlankRow() {
         let app = launch(["--resume-review-processing=failed"])
-        XCTAssertTrue(app.staticTexts["Processing failed"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Couldn’t read resume details"].waitForExistence(timeout: 10))
         openSection(app, "skills")
         let add = app.buttons["Add item to Skills Skills"]
         show(add, app, "Add skill row")

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The first-use upload surface is shared with the optional onboarding step.
+/// Shared by the optional onboarding step and the empty document library.
 struct ResumeUploadScreen: View {
     var uploading = false
     var fileName = ""
@@ -8,61 +8,80 @@ struct ResumeUploadScreen: View {
     var error = ""
     var progress = ""
     let onUpload: () -> Void
-    var onProfile: (() -> Void)?
     var onRetry: (() -> Void)?
 
     var body: some View {
-        Page {
-            if let onProfile {
-                ScreenHeader(title: "Resume", onProfile: onProfile)
+        GeometryReader { viewport in
+            ScrollView {
+                invitation
+                    .frame(minHeight: viewport.size.height)
+                    .padding(.horizontal, Spacing.page)
             }
-            VStack(alignment: .leading, spacing: 20) {
-                Image(systemName: "doc.text")
-                    .font(.largeTitle.weight(.regular))
-                    .foregroundStyle(Brand.accent)
-                    .padding(18)
-                    .background(Palette.halo, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Upload your resume")
-                        .font(Typeface.title).foregroundStyle(Brand.ink)
-                        .accessibilityAddTraits(.isHeader)
-                    Text("Choose a file to review your experience and tailor it for a job.")
-                        .font(Typeface.body).foregroundStyle(Brand.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if !error.isEmpty {
-                    MessageLine(text: error).accessibilityIdentifier("resume-upload-error")
-                }
-                if let onRetry, !uploading {
-                    StackButton(label: "Try again", icon: "refresh", disabled: disabled, action: onRetry)
-                        .accessibilityIdentifier("resume-upload-retry")
-                }
-                StackButton(label: uploading ? "Preparing resume…" : "Choose file", icon: "upload",
-                            kind: onRetry == nil ? .primary : .secondary,
-                            disabled: uploading || disabled, action: onUpload)
-                    .accessibilityLabel(uploading ? "Uploading resume" : "Upload resume")
-                    .accessibilityHint("Choose a PDF or DOCX, up to 10 megabytes.")
-                    .accessibilityIdentifier("resume-upload")
-                HStack(spacing: 8) {
-                    if uploading { ProgressView().tint(Brand.accent) }
-                    Text(caption).font(Typeface.caption).foregroundStyle(Brand.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityAddTraits(.updatesFrequently)
-                .accessibilityIdentifier("resume-upload-status")
-            }
-            .padding(22)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Palette.surface, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
         .background(Brand.page.ignoresSafeArea())
     }
 
-    private var caption: String {
-        if uploading { return progress.isEmpty ? (fileName.isEmpty ? "Uploading…" : "Uploading \(fileName)") : progress }
-        if onRetry != nil, !fileName.isEmpty { return fileName }
-        return "PDF or DOCX · Up to 10 MB"
+    var invitation: some View {
+        VStack(spacing: 22) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(Palette.halo)
+                    .frame(width: 76, height: 98)
+                    .rotationEffect(.degrees(-10))
+                    .offset(x: -7, y: 1)
+                ResumePaper().frame(width: 78, height: 102)
+                    .rotationEffect(.degrees(4))
+                    .offset(x: 5)
+            }
+            .padding(.vertical, 6)
+            .accessibilityHidden(true)
+
+            VStack(spacing: 6) {
+                Text("Add your resume")
+                    .font(.title2.weight(.semibold)).foregroundStyle(Brand.ink)
+                    .accessibilityAddTraits(.isHeader)
+                Text("PDF or DOCX · Up to 10 MB")
+                    .font(Typeface.caption).foregroundStyle(Brand.muted)
+            }
+
+            if !error.isEmpty {
+                MessageLine(text: error).accessibilityIdentifier("resume-upload-error")
+            }
+            VStack(spacing: 4) {
+                if let onRetry, !uploading {
+                    Button("Try again", action: onRetry)
+                        .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
+                        .controlSize(.large).tint(Palette.button).foregroundStyle(.white)
+                        .disabled(disabled).accessibilityIdentifier("resume-upload-retry")
+                    Button("Choose another file", action: onUpload)
+                        .font(.subheadline.weight(.semibold)).foregroundStyle(Brand.accent)
+                        .frame(minHeight: 44).disabled(disabled)
+                        .accessibilityIdentifier("resume-upload")
+                } else {
+                    Button(action: onUpload) {
+                        if uploading {
+                            ProgressView().tint(.white)
+                        } else {
+                            Text("Choose file")
+                        }
+                    }
+                    .buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
+                    .controlSize(.large).tint(Palette.button).foregroundStyle(.white)
+                    .disabled(uploading || disabled)
+                    .accessibilityLabel(uploading ? "Uploading resume" : "Choose file")
+                    .accessibilityHint("Choose a PDF or DOCX, up to 10 megabytes.")
+                    .accessibilityIdentifier("resume-upload")
+                }
+                if uploading || onRetry != nil {
+                    Text(uploading ? (progress.isEmpty ? "Uploading…" : progress) : fileName)
+                        .font(Typeface.caption).foregroundStyle(Brand.muted)
+                        .accessibilityAddTraits(.updatesFrequently)
+                        .accessibilityIdentifier("resume-upload-status")
+                }
+            }
+        }
+        .multilineTextAlignment(.center)
+        .padding(.vertical, 24)
+        .frame(maxWidth: .infinity)
     }
 }

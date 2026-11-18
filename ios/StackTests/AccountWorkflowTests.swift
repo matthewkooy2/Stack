@@ -284,6 +284,16 @@ final class AccountStateTests: XCTestCase {
         XCTAssertFalse(account.canTailor("missing"))
     }
 
+    func testFailedImportDoesNotStayMarkedAsProcessing() {
+        var resume: JSON = ["details_status": "Processing", "processing": ["import": ["status": "failed"]]]
+        XCTAssertEqual(ResumeItem(resume).detailsStatus, "Import failed")
+        resume["processing"] = ["import": ["status": "queued"]]
+        XCTAssertEqual(ResumeItem(resume).detailsStatus, "Processing")
+        resume["details_status"] = "Confirmed"
+        resume["processing"] = ["source": ["status": "failed"]]
+        XCTAssertEqual(ResumeItem(resume).detailsStatus, "Confirmed")
+    }
+
     /// The picker keeps Jake and offers the five requested designs, with the server's template keys.
     func testDesignPickerOffersTheSixBuiltInTemplates() {
         XCTAssertEqual(ResumeTemplate.all.map(\.key), ["jake", "awesome-cv", "bill-ryan", "sb2nov", "deedy", "jan-kuster"])

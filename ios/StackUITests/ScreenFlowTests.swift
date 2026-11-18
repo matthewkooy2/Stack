@@ -258,21 +258,16 @@ final class ScreenFlowUITests: XCTestCase {
         let app = launch("network")
         let presence = app.buttons["network-presence-tab"]
         let network = app.buttons["network-roster-tab"]
-        XCTAssertTrue(presence.waitForExistence(timeout: 10))
-        XCTAssertTrue(network.exists)
-        XCTAssertEqual(presence.label, "Your Presence")
-        XCTAssertEqual(network.label, "Your Network")
-        capture("presence-initial-no-review")
-
-        network.tap()
+        XCTAssertTrue(network.waitForExistence(timeout: 10))
+        XCTAssertTrue(network.isSelected, "Network opens on People")
+        XCTAssertEqual(network.label, "People")
+        XCTAssertEqual(presence.label, "Presence")
         XCTAssertTrue(app.staticTexts["network-empty"].waitForExistence(timeout: 10))
         XCTAssertFalse(app.buttons["network-contact-contact-1"].exists, "sample account catalog contacts are not the real roster")
         let contacts = app.buttons["network-your-contacts"]
         XCTAssertTrue(contacts.exists)
         capture("network-real-empty-roster")
         contacts.tap()
-        XCTAssertTrue(app.buttons["Add a contact"].waitForExistence(timeout: 5))
-        app.buttons["Add a contact"].tap()
         let name = field(app, "Contact name")
         XCTAssertTrue(name.waitForExistence(timeout: 5))
         name.tap()
@@ -280,7 +275,7 @@ final class ScreenFlowUITests: XCTestCase {
         capture("network-contact-draft")
         closeTop(app)
 
-        XCTAssertTrue(contacts.waitForExistence(timeout: 5), "closing tools retains Your Network")
+        XCTAssertTrue(contacts.waitForExistence(timeout: 5), "closing the form retains People")
         presence.tap()
         network.tap()
         contacts.tap()
@@ -290,8 +285,8 @@ final class ScreenFlowUITests: XCTestCase {
         closeTop(app)
 
         presence.tap()
-        app.buttons["network-options"].tap()
-        app.buttons["LinkedIn review"].tap()
+        capture("presence-initial-no-review")
+        tap(app.buttons["presence-start-review"], in: app, "start-linkedin-review")
         XCTAssertTrue(field(app, "Target role (optional)").waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["linkedin-choose-pdf"].isHittable)
         let instructions = app.buttons["How to get your LinkedIn PDF"]
@@ -302,11 +297,14 @@ final class ScreenFlowUITests: XCTestCase {
         capture("presence-linkedin-setup-preserved")
         app.buttons["Back"].tap()
         XCTAssertTrue(presence.waitForExistence(timeout: 5))
-        XCTAssertFalse(contacts.isHittable, "return from LinkedIn retains Your Presence")
+        XCTAssertFalse(contacts.isHittable, "return from LinkedIn retains Presence")
     }
 
     func testPresencePlatformRowsOpenCorrectEditorsAndRetainSeparateDrafts() {
         let app = launch("network")
+        let presence = app.buttons["network-presence-tab"]
+        XCTAssertTrue(presence.waitForExistence(timeout: 10))
+        presence.tap()
         let github = app.buttons["presence-github"]
         XCTAssertTrue(github.waitForExistence(timeout: 10))
         github.tap()
@@ -335,6 +333,7 @@ final class ScreenFlowUITests: XCTestCase {
         closeTop(app)
 
         XCTAssertTrue(github.waitForExistence(timeout: 5))
+        XCTAssertEqual(github.value as? String, "GitHub session draft")
         github.tap()
         row(app, "Bio").tap()
         XCTAssertTrue(field(app, "Draft").waitForExistence(timeout: 5))
@@ -345,6 +344,18 @@ final class ScreenFlowUITests: XCTestCase {
     }
 
     // MARK: Applications
+
+    func testSingleTrackedRoleShowsItsActualHistoryAndOpensInterviewPractice() {
+        let app = launch("collections-one")
+        let role = row(app, "Product designer")
+        XCTAssertTrue(role.waitForExistence(timeout: 10))
+        XCTAssertTrue(role.label.contains("Northwind"))
+        XCTAssertTrue(role.label.contains("Saved") && role.label.contains("Submitted") && role.label.contains("Interview"))
+        role.tap()
+        let practice = app.buttons["Practice for interview"]
+        tap(practice, in: app, "interview-practice")
+        XCTAssertTrue(app.staticTexts["Mock interview"].waitForExistence(timeout: 5))
+    }
 
     private func openApplicationHelp(_ app: XCUIApplication) {
         let application = row(app, "Senior Product Data Analyst")

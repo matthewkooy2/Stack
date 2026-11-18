@@ -18,7 +18,7 @@ struct RemindersView: View {
             StoreMessages()
             if open.isEmpty, done.isEmpty {
                 EmptyNote(icon: "bell", title: "No reminders yet",
-                          message: "Add a follow-up from an application or a contact and it appears here.")
+                          message: "Add one from an application or contact.")
             }
             ForEach(Array(open.enumerated()), id: \.element.id) { index, reminder in
                 row(reminder).reveal(index + 1)

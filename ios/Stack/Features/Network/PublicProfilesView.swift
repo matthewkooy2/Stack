@@ -5,28 +5,32 @@ import SwiftUI
 struct PublicProfilesView: View {
     @Environment(AppStore.self) private var store
     @Environment(\.dismiss) private var dismiss
+    private let canSwitchPlatform: Bool
     @State private var platform: String
     @State private var field: ProfileDraftField?
     @State private var draft = ""
     @State private var generation = -1
 
-    init(initialPlatform: String = "LinkedIn") {
-        _platform = State(initialValue: ["LinkedIn", "GitHub", "Portfolio"].contains(initialPlatform) ? initialPlatform : "LinkedIn")
+    init(initialPlatform: String? = nil) {
+        canSwitchPlatform = initialPlatform == nil
+        _platform = State(initialValue: initialPlatform ?? "LinkedIn")
     }
 
     private var fields: [ProfileDraftField] { ProfileDraftField.fields(for: platform) }
     private func key(_ field: ProfileDraftField) -> String { platform + ":" + field.id }
 
     var body: some View {
-        SheetPage(title: "Public profiles", subtitle: "Drafts stay in this signed-in session.") {
-            FlowLayout(spacing: 6) {
-                ForEach(["LinkedIn", "GitHub", "Portfolio"], id: \.self) { name in
-                    Chip(label: name, selected: platform == name) { platform = name }
+        SheetPage(title: canSwitchPlatform ? "Public profiles" : platform, subtitle: "Drafts stay in this signed-in session.") {
+            if canSwitchPlatform {
+                FlowLayout(spacing: 6) {
+                    ForEach(["LinkedIn", "GitHub", "Portfolio"], id: \.self) { name in
+                        Chip(label: name, selected: platform == name) { platform = name }
+                    }
                 }
             }
             VStack(spacing: 0) {
                 ForEach(fields) { item in
-                    ListRow(label: item.label, detail: store.profileDrafts[key(item)] ?? "Add a draft") {
+                    ListRow(label: item.label, detail: store.profileDrafts[key(item)] ?? "") {
                         draft = store.profileDrafts[key(item)] ?? ""
                         field = item
                     }

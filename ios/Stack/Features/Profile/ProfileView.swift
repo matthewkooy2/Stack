@@ -270,7 +270,7 @@ struct ProfileView: View {
     private var nudgeSection: some View {
         DisclosureSection("Daily accountability", detail: nudgeSummary) {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Short reminders through the day, each with one small step: a role, a follow-up, a practice answer or a message.")
+                Text("Get reminders to follow up or practice.")
                     .font(Typeface.caption).foregroundStyle(Brand.muted)
                 ToggleRow(label: "Send reminders", isOn: nudgeBinding(\.enabled))
                 if nudges.enabled {

@@ -164,7 +164,9 @@ struct JobCard: View {
                 .accessibilityLabel(copy.accessibilityLabel)
                 .accessibilityIdentifier(accessibilityID ?? "job-card-" + job.id)
                 .accessibilityAddTraits(onOpen == nil ? [] : .isButton)
-                .accessibilityHint("Opens the employer listing. Swipe right to save or left to pass.")
+                .accessibilityHint(onSave != nil && onPass != nil
+                    ? "Opens the employer listing. Swipe up or down for Save, Pass, and Job details."
+                    : "Opens the employer listing.")
                 .accessibilityAction { onOpen?() }
                 .accessibilityActions {
                     if let onDetails { Button("Job details", action: onDetails) }
@@ -229,7 +231,7 @@ struct JobCard: View {
 
 /// Keep the normalized employer PNG decoded while a card follows a finger at display refresh rate.
 @MainActor
-private enum JobLogoImages {
+enum JobLogoImages {
     private static let cache: NSCache<NSString, UIImage> = {
         let cache = NSCache<NSString, UIImage>()
         cache.countLimit = 48

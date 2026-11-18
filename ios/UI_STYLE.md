@@ -13,7 +13,7 @@ Stack has five places to work. Jobs is a deck for making a decision, Application
 
 | Element | Implementation |
 | --- | --- |
-| Page | Use `Page` for scrolling content with 20-point horizontal margins. Let long titles, prompts and field values wrap. |
+| Page | Use `CollectionPage` for Applications, Network and Resume. Its pinned heading measures the remaining viewport so the empty or featured content can use its height. Use `Page` for other scrolling content with 20-point horizontal margins. Let long titles, prompts and field values wrap. |
 | Tab title | `ScreenHeader` uses the system large title and a separate account action. |
 | Sheet | `SheetPage` pins the title and close control above its scroll view. Use its Back label for a preceding pane, and its close callback when a feature must save or confirm first. |
 | Surface | `Card` uses 16-point interior padding and an 18-point continuous corner. One surface can hold a group. |
@@ -38,7 +38,7 @@ Use `Brand` and `Palette` from the design directory. For an inverted ink control
 
 ## Motion
 
-Tab selection takes effect immediately while the highlight moves. A typical stage change takes 240 ms. A reveal moves six points in 230 ms, with 25 ms between siblings for at most four intervals. Buttons have a short press and damped release. Use haptics for selection and completion.
+Tab selection takes effect immediately. A filled symbol and tinted label mark the active destination above a system bar material. A typical stage change takes 240 ms. A reveal moves six points in 230 ms, with 25 ms between siblings for at most four intervals. Buttons have a short press and damped release. Use haptics for selection and completion.
 
 Launch shows the mark while the account restores. The app becomes available when its data is ready. Read `stackReduceMotion` to honor the system setting and the preview policy. Keep the debug Motion Lab connected to the production views and offline fixtures.
 

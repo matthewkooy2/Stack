@@ -145,8 +145,7 @@ struct AgentHubView: View {
                 }
             }
             if attention.isEmpty, unresolved.isEmpty {
-                EmptyNote(icon: "done", title: "Nothing needs you right now.",
-                          message: "Reviews, questions and paused tasks will appear here.")
+                EmptyNote(icon: "done", title: "You’re all caught up")
             }
         }
     }
@@ -157,14 +156,17 @@ struct AgentHubView: View {
                 SectionLabel(text: "Needs you")
                 ForEach(Array(attention.enumerated()), id: \.offset) { _, run in TaskRow(run: run) { taskID = run["id"].string } }
             }
-            SectionLabel(text: "In progress")
-            ForEach(Array(active.enumerated()), id: \.offset) { _, run in TaskRow(run: run) { taskID = run["id"].string } }
-            if active.isEmpty {
-                Text("No tasks are running. Start one from Applications, Network, Resume, or Prep.")
-                    .font(Typeface.caption).foregroundStyle(Palette.muted)
+            if !active.isEmpty {
+                SectionLabel(text: "In progress")
+                ForEach(Array(active.enumerated()), id: \.offset) { _, run in TaskRow(run: run) { taskID = run["id"].string } }
             }
-            SectionLabel(text: "Recent")
-            ForEach(Array(recent.enumerated()), id: \.offset) { _, run in TaskRow(run: run) { taskID = run["id"].string } }
+            if !recent.isEmpty {
+                SectionLabel(text: "Recent")
+                ForEach(Array(recent.enumerated()), id: \.offset) { _, run in TaskRow(run: run) { taskID = run["id"].string } }
+            }
+            if attention.isEmpty, active.isEmpty, recent.isEmpty {
+                EmptyNote(icon: "activity", title: "No activity yet")
+            }
             Card(tint: Palette.oat, spacing: 6) {
                 let provider = store.account.modelProviderName
                 Text("Model provider: \(provider.isEmpty ? "Not configured" : provider)")
@@ -176,7 +178,7 @@ struct AgentHubView: View {
 
     private var featuresPage: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Every agent, what it needs, and where to start it. Stack never sends email or changes your calendar without your approval.")
+            Text("Email and calendar changes require your approval.")
                 .font(Typeface.body).foregroundStyle(Palette.text)
             ForEach(store.account.features) { feature in
                 if feature.key == "email" { GmailTrackingSection() }

@@ -129,20 +129,21 @@ final class JobsDeckFlowUITests: XCTestCase {
         XCTAssertFalse(entry.isSelected)
     }
 
-    func testCardSupportsVisibleDecisionsAlongsideTapAndSwipe() {
+    func testCardKeepsDecisionsOnSwipes() {
         let app = launch()
         let first = card(app, "job-alpha")
         let next = card(app, "job-bravo")
-        XCTAssertTrue(app.buttons["Save"].isHittable)
-        XCTAssertTrue(app.buttons["Pass"].isHittable)
+        XCTAssertTrue(first.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["Save"].exists)
+        XCTAssertFalse(app.buttons["Pass"].exists)
         app.buttons["Job details"].tap()
         XCTAssertTrue(app.buttons["Open application page"].waitForExistence(timeout: 5))
         app.buttons["Close"].tap()
         first.tap()
         XCTAssertEqual(listingURL(app), "https://example.invalid/jobs/alpha")
         closeListing(app)
-        for action in ["Save", "Pass"] {
-            app.buttons[action].tap()
+        for save in [true, false] {
+            swipe(app, save: save)
             XCTAssertTrue(next.waitForExistence(timeout: 5))
             app.buttons["Undo"].tap()
             XCTAssertTrue(first.waitForExistence(timeout: 5))
@@ -159,13 +160,7 @@ final class JobsDeckFlowUITests: XCTestCase {
         XCTAssertTrue(first.waitForExistence(timeout: 10))
         let jobsTab = app.buttons["Jobs"]
         XCTAssertTrue(jobsTab.exists)
-        let save = app.buttons["Save"]
-        let pass = app.buttons["Pass"]
-        XCTAssertTrue(save.isHittable && pass.isHittable)
-        XCTAssertLessThan(abs(first.frame.maxY - save.frame.minY), 32)
-        XCTAssertLessThan(abs(save.frame.maxY - jobsTab.frame.minY), 24)
-        XCTAssertGreaterThanOrEqual(save.frame.height, 44)
-        XCTAssertGreaterThanOrEqual(pass.frame.height, 44)
+        XCTAssertLessThan(abs(first.frame.maxY - jobsTab.frame.minY), 24)
         XCTAssertGreaterThan(first.frame.width, app.frame.width - 24)
         XCTAssertTrue(app.buttons["job-requirements"].isHittable)
         capture("jobs-photo-reference")
@@ -186,7 +181,7 @@ final class JobsDeckFlowUITests: XCTestCase {
         app.launch()
         XCTAssertTrue(first.waitForExistence(timeout: 10))
         XCTAssertTrue(app.buttons["job-requirements"].isHittable)
-        XCTAssertTrue(pass.isHittable && save.isHittable)
+        XCTAssertTrue(first.isHittable)
         first.swipeRight()
         XCTAssertTrue(card(app, "job-bravo").waitForExistence(timeout: 5))
         capture("jobs-accessibility-reduced-motion")

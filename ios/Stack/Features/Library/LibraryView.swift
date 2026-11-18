@@ -117,7 +117,7 @@ struct LibraryView: View {
     private var industryPicker: some View {
         VStack(alignment: .leading, spacing: Spacing.option) {
             if model.industries.isEmpty && !model.busy {
-                Text("No industries available").font(Typeface.body).foregroundStyle(Palette.muted)
+                EmptyNote(icon: "library", title: "No industries available")
                 StackButton(label: "Reload industries", kind: .secondary) { Task { await model.load() } }
             }
             ForEach(Array(model.industries.enumerated()), id: \.element.id) { index, choice in
@@ -147,7 +147,7 @@ struct LibraryView: View {
     private var slotList: some View {
         VStack(alignment: .leading, spacing: 0) {
             if model.slots.isEmpty {
-                Text("No questions available for this track.").font(Typeface.body).foregroundStyle(Palette.muted)
+                EmptyNote(icon: "question-file", title: "No questions in this track")
             }
             ForEach(Array(model.slots.enumerated()), id: \.element.id) { index, slot in
                 ListRow(label: slot.question.title, detail: slotDetailText(slot), action: { model.openSlot(slot) }) {

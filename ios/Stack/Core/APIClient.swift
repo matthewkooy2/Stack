@@ -62,20 +62,24 @@ final class APIClient {
     private let session: URLSession
     private(set) var sessionGeneration = 0
     private var linkedinTasks: Set<String> = []
-    let linkedinSession: URLSession = {
+    let linkedinSession: URLSession
+
+    private static func makeLinkedInSession() -> URLSession {
         let configuration = URLSessionConfiguration.default
         configuration.timeoutIntervalForRequest = .greatestFiniteMagnitude
         configuration.timeoutIntervalForResource = .greatestFiniteMagnitude
         return URLSession(configuration: configuration)
-    }()
+    }
+
     func isLinkedInCall(_ name: String, _ args: JSON) -> Bool {
         name.hasPrefix("agent_linkedin_") || linkedinTasks.contains(args["id"].string)
     }
     private var account: String { "token@" + origin.absoluteString }
 
-    init(origin: URL, session: URLSession = .shared) {
+    init(origin: URL, session: URLSession = .shared, linkedinSession: URLSession? = nil) {
         self.origin = origin
         self.session = session
+        self.linkedinSession = linkedinSession ?? Self.makeLinkedInSession()
         self.token = Keychain.read(account: "token@" + origin.absoluteString) ?? ""
     }
 

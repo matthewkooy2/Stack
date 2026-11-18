@@ -21,14 +21,23 @@ struct ResumeFormatView: View {
         SheetPage(title: "Tailoring format", subtitle: resume.name) {
             ProcessingStatusView(resumeID: resume.id, kind: "source", processing: source)
             Card(spacing: 10) {
-                let label = format["label"].string.isEmpty ? "Not set" : format["label"].string
+                let label = kind == "upload" ? "Uploaded design" : (format["label"].string.isEmpty ? "Not set" : format["label"].string)
                 Text(label + (format["file"].string.isEmpty ? "" : " · \(format["file"].string)"))
                     .font(Typeface.option).foregroundStyle(Palette.icon)
                 if !kind.isEmpty && kind != "records" {
                     let pages = format["pages"].int
                     let summary = format["summary"]
-                    Text("\(pages) \(pages == 1 ? "page" : "pages") · \(summary["sections"].int) sections · \(summary["entries"].int) entries · \(summary["bullets"].int) bullets")
-                        .font(Typeface.caption).foregroundStyle(Palette.muted)
+                    let sections = summary["sections"].int
+                    let entries = summary["entries"].int
+                    let bullets = summary["bullets"].int
+                    let counts = [pages > 0 ? "\(pages) \(pages == 1 ? "page" : "pages")" : "",
+                                  sections > 0 ? "\(sections) \(sections == 1 ? "section" : "sections")" : "",
+                                  entries > 0 ? "\(entries) \(entries == 1 ? "entry" : "entries")" : "",
+                                  bullets > 0 ? "\(bullets) \(bullets == 1 ? "bullet" : "bullets")" : ""]
+                        .filter { !$0.isEmpty }
+                    if !counts.isEmpty {
+                        Text(counts.joined(separator: " · ")).font(Typeface.caption).foregroundStyle(Palette.muted)
+                    }
                 }
                 if !format["skipped"].strings.isEmpty {
                     Text("Not used from your .zip: \(format["skipped"].strings.prefix(5).joined(separator: ", "))")

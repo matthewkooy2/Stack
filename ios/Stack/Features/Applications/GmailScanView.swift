@@ -14,14 +14,13 @@ struct GmailScanView: View {
     private var resumable: Bool { ["failed", "needs_input", "blocked"].contains(scan["status"].string) }
 
     var body: some View {
-        SheetPage(title: "Scan Gmail", subtitle: "Find applications you started in Stack or elsewhere.") {
+        SheetPage(title: "Scan Gmail") {
             if loading {
                 ProgressView("Loading Gmail scan…")
             } else {
                 if scanning {
-                    Text("Scanning Gmail…").font(Typeface.option).foregroundStyle(Brand.ink)
-                    ProgressView()
-                    Text("You can close this screen. The scan will keep going.")
+                    ProgressView("Scanning Gmail…").tint(Brand.accent)
+                    Text("The scan continues if you close this screen.")
                         .font(Typeface.body).foregroundStyle(Brand.muted)
                     QuietLinks(links: [ScreenLink("Stop scan") { Task { await stop() } }])
                         .disabled(busy)
@@ -33,7 +32,7 @@ struct GmailScanView: View {
                 } else {
                     DatePicker("Search since", selection: $since, in: Date(timeIntervalSince1970: 0)...Date(), displayedComponents: .date)
                         .tint(Brand.accent)
-                    Text("Find application confirmations, status updates and interview invitations from this date through today.")
+                    Text("Checks confirmations, updates and interview invitations through today.")
                         .font(Typeface.body).foregroundStyle(Brand.muted)
                     PrimaryPill(title: "Start scan", icon: "magnifyingglass", disabled: busy) {
                         Task { await start() }
@@ -47,13 +46,13 @@ struct GmailScanView: View {
                         }
                         Text("\(scan["scan"]["scanned"].int) emails checked · \(scan["scan"]["imported"].int) imported · \(scan["scan"]["updated"].int) updates")
                             .font(Typeface.caption).foregroundStyle(Brand.muted)
-                        Text("Imported applications are tracked automatically. Stack shows interview invitations in your calendar and asks before changing Google Calendar.")
+                        Text("Google Calendar changes require your approval.")
                             .font(Typeface.caption).foregroundStyle(Brand.muted)
                     }
                 }
                 MessageLine(text: error).fadeSwitch(!error.isEmpty)
                 if !reviews.isEmpty {
-                    Text("Review uncertain matches").font(Typeface.title).foregroundStyle(Brand.ink)
+                    Text("Needs review").font(Typeface.title).foregroundStyle(Brand.ink)
                     ForEach(reviews, id: \.self) { event in
                         GmailScanReviewRow(event: event) { await load() }
                             .id(event["id"].string)

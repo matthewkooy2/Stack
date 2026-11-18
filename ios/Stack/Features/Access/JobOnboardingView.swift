@@ -56,24 +56,34 @@ struct JobOnboardingView: View {
                     }
             } else {
                 VStack(spacing: 0) {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text("Find jobs")
-                                .font(Typeface.display).tracking(-1.2).foregroundStyle(Brand.ink)
-                                .accessibilityAddTraits(.isHeader).reveal(0)
+                    GeometryReader { viewport in
+                        ScrollView {
                             VStack(spacing: 0) {
-                                selection("Role", symbol: "briefcase", placeholder: "Any role", value: role) { picker = "role" }
-                                selection("Location", symbol: "mappin.and.ellipse", placeholder: "Anywhere", value: location) { picker = "location" }
-                                selection("Career stage", symbol: "graduationcap", placeholder: "Optional", value: stage, last: true) { picker = "stage" }
+                                Spacer(minLength: 16)
+                                JobOnboardingHero().padding(.bottom, 28)
+                                Text("Find jobs")
+                                    .font(Typeface.display).tracking(-1.2).foregroundStyle(Brand.ink)
+                                    .accessibilityAddTraits(.isHeader).reveal(0)
+                                Text("Tell Stack what you\u{2019}re looking for")
+                                    .font(Typeface.body).foregroundStyle(Brand.muted)
+                                    .multilineTextAlignment(.center).padding(.top, 6).reveal(1)
+                                VStack(spacing: 0) {
+                                    selection("Role", symbol: "briefcase", placeholder: "Any role", value: role) { picker = "role" }
+                                    selection("Location", symbol: "mappin.and.ellipse", placeholder: "Anywhere", value: location) { picker = "location" }
+                                    selection("Career stage", symbol: "graduationcap", placeholder: "Optional", value: stage, last: true) { picker = "stage" }
+                                }
+                                .padding(.horizontal, 16)
+                                .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+                                .stackElevation()
+                                .padding(.top, 28).reveal(2)
+                                Spacer(minLength: 24)
                             }
-                            .padding(.horizontal, 16)
-                            .background(Palette.surface, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
-                            .stackElevation()
-                            .padding(.top, 28).reveal(2)
+                            .padding(.horizontal, Spacing.page)
+                            .frame(maxWidth: .infinity, minHeight: viewport.size.height)
                         }
-                        .padding(.horizontal, Spacing.page).padding(.top, 40).padding(.bottom, 24)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    }.scrollIndicators(.hidden)
+                        .scrollIndicators(.hidden)
+                        .scrollBounceBehavior(.basedOnSize)
+                    }
                     VStack(spacing: 4) {
                         MessageLine(text: error).fadeSwitch(!error.isEmpty)
                         StackButton(label: working ? "Saving…" : "Continue", disabled: working) {
@@ -167,5 +177,50 @@ struct JobOnboardingView: View {
             _ = try await store.callAccount("upload_resume", ["name": .string(file.name), "content": .string(file.content)], timeout: 90)
         }
         if uploaded { onDone() }
+    }
+}
+
+/// Three slightly fanned mini job cards that open out as the screen appears. Decorative.
+@MainActor
+private struct JobOnboardingHero: View {
+    @Environment(\.stackReduceMotion) private var reduceMotion
+    @State private var fanned = false
+
+    var body: some View {
+        ZStack {
+            miniCard(tint: Palette.tints[1], angle: -11, x: -62, y: 8)
+            miniCard(tint: Palette.tints[3], angle: 11, x: 62, y: 8)
+            miniCard(tint: Palette.tints[0], angle: 0, x: 0, y: -4)
+        }
+        .frame(height: 150)
+        .scaleEffect(reduceMotion || fanned ? 1 : 0.92)
+        .opacity(reduceMotion || fanned ? 1 : 0)
+        .accessibilityHidden(true)
+        .onAppear {
+            guard !reduceMotion else { fanned = true; return }
+            withAnimation(Motion.smooth.delay(0.05)) { fanned = true }
+        }
+    }
+
+    private func miniCard(tint: Palette.Tint, angle: Double, x: CGFloat, y: CGFloat) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 18, style: .continuous)
+        return VStack(alignment: .leading, spacing: 0) {
+            LinearGradient(colors: [tint.fill, tint.ink.opacity(0.55)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                .frame(height: 66)
+            VStack(alignment: .leading, spacing: 7) {
+                Capsule().fill(Brand.ink.opacity(0.78)).frame(width: 62, height: 7)
+                Capsule().fill(Palette.rule).frame(width: 44, height: 6)
+                Capsule().fill(tint.fill).frame(width: 34, height: 12).padding(.top, 3)
+            }
+            .padding(12)
+            Spacer(minLength: 0)
+        }
+        .frame(width: 104, height: 138)
+        .background(Palette.surface, in: shape)
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(Palette.rule.opacity(0.5), lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.10), radius: 10, y: 5)
+        .rotationEffect(.degrees(reduceMotion || fanned ? angle : 0))
+        .offset(x: reduceMotion || fanned ? x : 0, y: y)
     }
 }

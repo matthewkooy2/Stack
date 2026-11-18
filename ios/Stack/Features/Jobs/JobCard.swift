@@ -240,9 +240,9 @@ struct JobCard: View {
         .accessibilityLabel(copy.accessibilityLabel)
         .accessibilityIdentifier(accessibilityID ?? "job-card-" + job.id)
         .accessibilityAddTraits(onOpen == nil ? [] : .isButton)
-        .accessibilityHint(onSave != nil && onPass != nil
-            ? "Opens the employer listing. Swipe up or down for Save, Pass, and Job details."
-            : "Opens the employer listing.")
+        .accessibilityHint((onSave != nil && onPass != nil
+            ? "Opens the listing. Swipe up or down for Save, Pass, and Details."
+            : "Opens the listing.") + (copy.fit.isEmpty ? "" : " Why it fits: " + copy.fit))
         .accessibilityAction { onOpen?() }
         .accessibilityActions {
             if let onDetails { Button("Job details", action: onDetails) }
@@ -320,15 +320,15 @@ struct JobCard: View {
     private var details: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(job.title.isBlank ? "Untitled role" : job.title)
-                .font(.title2.weight(.bold)).tracking(-0.4)
+                .font(.title.weight(.bold)).tracking(-0.6)
                 .foregroundStyle(Brand.ink)
-                .lineLimit(3)
+                .lineLimit(3).minimumScaleFactor(0.85)
                 .accessibilityAddTraits(.isHeader)
             let chips = copy.chips
             if !chips.isEmpty {
                 FlowLayout(spacing: 6) { ForEach(chips, id: \.self) { JobMetaChip(item: $0) } }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 12)
+                    .padding(.top, 16)
             }
             if !copy.fit.isEmpty {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {

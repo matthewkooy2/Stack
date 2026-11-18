@@ -7,6 +7,10 @@ enum Brand {
     static let accent = Color(light: 0x2256CB, dark: 0x8CB1FF)
     static let muted = Color(light: 0x586170, dark: 0xADB5C4)
     static let rule = Color(light: 0xD7DCE4, dark: 0x373E49)
+    /// Blue gradient for identity marks (account avatar); pair with white text.
+    static let gradient = LinearGradient(
+        colors: [Color(light: 0x4A86F0, dark: 0x4B7BE0), Color(light: 0x2256CB, dark: 0x2D52B5)],
+        startPoint: .topLeading, endPoint: .bottomTrailing)
 }
 
 extension Brand {

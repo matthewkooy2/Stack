@@ -63,17 +63,36 @@ struct StoreMessages: View {
     }
 }
 
+/// Sentence-case list heading: footnote semibold, muted, with an optional trailing control.
+@MainActor
+struct SectionHeader<Trailing: View>: View {
+    let title: String
+    @ViewBuilder var trailing: () -> Trailing
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(title)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Brand.muted)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityAddTraits(.isHeader)
+            trailing()
+        }
+        .padding(.top, 8)
+        .padding(.bottom, 2)
+    }
+}
+
+extension SectionHeader where Trailing == EmptyView {
+    init(title: String) { self.init(title: title) { EmptyView() } }
+}
+
+/// Existing name for `SectionHeader` without a trailing control.
 @MainActor
 struct SectionLabel: View {
     let text: String
 
-    var body: some View {
-        Text(text)
-            .font(.system(.subheadline).weight(.semibold))
-            .foregroundStyle(Brand.muted)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityAddTraits(.isHeader)
-    }
+    var body: some View { SectionHeader(title: text) }
 }
 
 @MainActor
@@ -89,40 +108,58 @@ struct ToggleRow: View {
     }
 }
 
+/// Soft fill with strong text. Use for state, never for decoration.
 @MainActor
 struct StatusPill: View {
-    enum Tone { case attention, active, done, quiet }
+    enum Tone: Hashable { case neutral, accent, success, warning, danger }
 
-    let label: String
-    var tone: Tone = .quiet
+    let text: String
+    var tone: Tone = .neutral
+
+    init(text: String, tone: Tone = .neutral) {
+        self.text = text
+        self.tone = tone
+    }
+
+    init(label: String, tone: Tone = .neutral) { self.init(text: label, tone: tone) }
 
     var body: some View {
-        Text(label)
-            .font(.caption.weight(.semibold))
+        Text(text)
+            .font(.caption2.weight(.semibold))
             .foregroundStyle(foreground)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
             .background(background, in: Capsule())
             .fixedSize(horizontal: false, vertical: true)
     }
 
     private var foreground: Color {
         switch tone {
-        case .attention: return Palette.danger
-        case .active: return Brand.accent
-        case .done: return Palette.success
-        case .quiet: return Palette.muted
+        case .neutral: return Palette.muted
+        case .accent: return Brand.accent
+        case .success: return Palette.success
+        case .warning: return Palette.warning
+        case .danger: return Palette.danger
         }
     }
 
     private var background: Color {
         switch tone {
-        case .attention: return Palette.danger.opacity(0.10)
-        case .active: return Palette.halo
-        case .done: return Palette.success.opacity(0.12)
-        case .quiet: return Palette.muted.opacity(0.10)
+        case .neutral: return Palette.muted.opacity(0.12)
+        case .accent: return Palette.halo
+        case .success: return Palette.success.opacity(0.13)
+        case .warning: return Palette.warning.opacity(0.14)
+        case .danger: return Palette.danger.opacity(0.11)
         }
     }
+}
+
+extension StatusPill.Tone {
+    /// Earlier names, kept so existing call sites compile.
+    static let attention = StatusPill.Tone.danger
+    static let active = StatusPill.Tone.accent
+    static let done = StatusPill.Tone.success
+    static let quiet = StatusPill.Tone.neutral
 }
 
 /// A hairline row that reveals secondary content on demand, so a screen leads with one thing.

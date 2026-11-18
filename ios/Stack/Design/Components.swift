@@ -23,7 +23,7 @@ enum Glyph {
         case "next": return "arrow.right"
         case "play": return "play.fill"
         case "pause": return "pause.fill"
-        case "jobs": return "square.stack"
+        case "jobs": return "rectangle.stack"
         case "resume": return "doc.text"
         case "prep": return "text.bubble"
         case "bell": return "bell"
@@ -89,7 +89,7 @@ struct StackButton: View {
             .padding(.vertical, 8)
             .frame(maxWidth: kind == .dark ? nil : .infinity, minHeight: kind == .secondary ? 44 : 52)
             .padding(.horizontal, kind == .dark ? 26 : 17)
-            .background(background, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(background, in: RoundedRectangle(cornerRadius: Radius.button, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.tap(scale: kind == .secondary ? 0.985 : 0.97))
@@ -212,13 +212,16 @@ struct BackButton: View {
 struct Card<Content: View>: View {
     var tint: Color = Palette.surface
     var spacing: CGFloat = 16
+    /// A very soft shadow in light mode; flat in dark mode.
+    var elevated = true
     @ViewBuilder var content: () -> Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: spacing, content: content)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(16)
-            .background(tint, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(tint, in: RoundedRectangle(cornerRadius: Radius.card, style: .continuous))
+            .stackElevation(elevated)
     }
 }
 
@@ -252,16 +255,35 @@ struct Chip: View {
     }
 }
 
+/// Initials in a disc. `Avatar(initials:seed:)` or `Avatar(name:)` give each person a stable tint.
 @MainActor
 struct Avatar: View {
     let initials: String
     var tint: Color = Palette.halo
     var size: CGFloat = 52
+    var ink: Color = Palette.icon
+
+    init(initials: String, tint: Color = Palette.halo, size: CGFloat = 52, ink: Color = Palette.icon) {
+        self.initials = initials
+        self.tint = tint
+        self.size = size
+        self.ink = ink
+    }
+
+    init(initials: String, seed: String, size: CGFloat = 52) {
+        let tint = Palette.tint(for: seed.isEmpty ? initials : seed)
+        self.init(initials: initials, tint: tint.fill, size: size, ink: tint.ink)
+    }
+
+    /// Initials and tint both come from the name.
+    init(name: String, size: CGFloat = 52) {
+        self.init(initials: name.stackInitials, seed: name, size: size)
+    }
 
     var body: some View {
         Text(initials)
-            .font(.system(size: size * 0.34, weight: .semibold))
-            .foregroundStyle(Palette.icon)
+            .font(.system(size: size * 0.36, weight: .semibold, design: .rounded))
+            .foregroundStyle(ink)
             .frame(width: size, height: size)
             .background(tint, in: Circle())
             .accessibilityHidden(true)
@@ -303,8 +325,8 @@ struct StackField: View {
             .padding(.horizontal, 18)
             .padding(.vertical, 16)
             .frame(minHeight: multiline ? 140 : 54, alignment: .topLeading)
-            .background(Palette.field, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .background(Palette.field, in: RoundedRectangle(cornerRadius: Radius.control, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Radius.control, style: .continuous)
                 .strokeBorder(focused ? Brand.accent : Palette.rule, lineWidth: focused ? 1.5 : 1))
         }
     }
@@ -380,10 +402,89 @@ struct ScreenHeader<Accessory: View>: View {
     }
 
     private var actions: some View {
-        HStack(spacing: 2) {
+        HStack(spacing: 0) {
             accessory()
             if let onProfile { AccountButton(action: onProfile) }
         }
+        // The 44-point hit areas are wider than the 36-point circles; keep the circles on the page margin.
+        .padding(.trailing, -4)
+    }
+}
+
+/// The one look for header accessories: a 17-point semibold symbol in a 36-point raised circle with a hairline,
+/// inside a 44-point hit area. Use as a `Menu` label: `Menu { ... } label: { HeaderIcon("ellipsis", label: "More") }`.
+@MainActor
+struct HeaderIcon: View {
+    let systemName: String
+    var label: String = ""
+    var dot = false
+
+    init(_ systemName: String, label: String = "", dot: Bool = false) {
+        self.systemName = systemName
+        self.label = label
+        self.dot = dot
+    }
+
+    var body: some View {
+        Image(systemName: systemName)
+            .font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(Brand.ink)
+            .frame(width: 36, height: 36)
+            .background(Palette.surfaceRaised, in: Circle())
+            .overlay(Circle().strokeBorder(Palette.rule.opacity(0.7), lineWidth: 0.5))
+            .overlay(alignment: .topTrailing) {
+                if dot {
+                    Circle().fill(Brand.accent).frame(width: 9, height: 9)
+                        .overlay(Circle().stroke(Brand.page, lineWidth: 1.5))
+                }
+            }
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
+            .accessibilityLabel(label)
+    }
+}
+
+/// A header action button in the shared look.
+@MainActor
+struct HeaderIconButton: View {
+    let systemName: String
+    let label: String
+    var dot = false
+    let action: () -> Void
+
+    init(systemName: String, label: String, dot: Bool = false, action: @escaping () -> Void) {
+        self.systemName = systemName
+        self.label = label
+        self.dot = dot
+        self.action = action
+    }
+
+    var body: some View {
+        Button(action: action) { HeaderIcon(systemName, label: label, dot: dot) }
+            .buttonStyle(.tap(scale: 0.9, dim: 1))
+            .accessibilityLabel(label)
+    }
+}
+
+/// A header menu in the shared look: `HeaderMenu("ellipsis", label: "More") { Button ... }`.
+@MainActor
+struct HeaderMenu<Content: View>: View {
+    let systemName: String
+    let label: String
+    var dot = false
+    @ViewBuilder var content: () -> Content
+
+    init(_ systemName: String, label: String, dot: Bool = false, @ViewBuilder content: @escaping () -> Content) {
+        self.systemName = systemName
+        self.label = label
+        self.dot = dot
+        self.content = content
+    }
+
+    var body: some View {
+        Menu(content: content) { HeaderIcon(systemName, label: label, dot: dot) }
+            .buttonStyle(.tap(scale: 0.9, dim: 1))
+            .accessibilityLabel(label)
     }
 }
 
@@ -393,20 +494,30 @@ private struct AccountButton: View {
     let action: () -> Void
 
     var body: some View {
+        let initials = store.account.name.stackInitials
         Button(action: action) {
-            Image(systemName: "person.crop.circle")
-                .font(.system(size: 25, weight: .regular))
-                .foregroundStyle(Brand.muted)
-                .overlay(alignment: .topTrailing) {
-                    if store.account.attentionRunCount > 0 {
-                        Circle().fill(Brand.accent).frame(width: 8, height: 8)
-                            .overlay(Circle().stroke(Brand.page, lineWidth: 1))
-                    }
+            Group {
+                if initials.isEmpty {
+                    Image(systemName: "person.fill").font(.system(size: 16, weight: .semibold))
+                } else {
+                    Text(initials).font(.system(size: 14, weight: .semibold, design: .rounded))
                 }
-                .frame(width: 44, height: 44)
-                .contentShape(Rectangle())
+            }
+            .foregroundStyle(.white)
+            .frame(width: 36, height: 36)
+            .background(Brand.gradient, in: Circle())
+            .overlay(Circle().strokeBorder(.white.opacity(0.18), lineWidth: 0.5))
+            .overlay(alignment: .topTrailing) {
+                if store.account.attentionRunCount > 0 {
+                    Circle().fill(Palette.danger).frame(width: 10, height: 10)
+                        .overlay(Circle().stroke(Brand.page, lineWidth: 1.5))
+                        .offset(x: 1, y: -1)
+                }
+            }
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.tap(scale: 0.92, dim: 1))
         .accessibilityLabel(store.account.attentionRunCount > 0
                             ? "Your account, \(store.account.attentionRunCount) agent tasks need you" : "Your account")
     }
@@ -442,20 +553,24 @@ struct CollectionPage<Accessory: View, Content: View>: View {
     }
 }
 
+/// An empty collection: a symbol in a soft tinted disc, a short title, an optional line and one capsule action.
+/// Fills the height it is given and sits slightly above center.
 @MainActor
 struct CollectionEmptyState: View {
     let symbol: String
     let title: String
+    var subtitle: String
     let actionTitle: String
     let titleIdentifier: String?
     let actionIdentifier: String?
     let action: () -> Void
-    @ScaledMetric(relativeTo: .title) private var symbolSize: CGFloat = 60
+    @ScaledMetric(relativeTo: .title) private var discSize: CGFloat = 88
 
-    init(symbol: String, title: String, actionTitle: String, titleIdentifier: String? = nil,
+    init(symbol: String, title: String, subtitle: String = "", actionTitle: String, titleIdentifier: String? = nil,
          actionIdentifier: String? = nil, action: @escaping () -> Void) {
         self.symbol = symbol
         self.title = title
+        self.subtitle = subtitle
         self.actionTitle = actionTitle
         self.titleIdentifier = titleIdentifier
         self.actionIdentifier = actionIdentifier
@@ -463,28 +578,53 @@ struct CollectionEmptyState: View {
     }
 
     var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: symbol)
-                .font(.system(size: symbolSize, weight: .light))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(Brand.muted)
-                .accessibilityHidden(true)
-            Text(title)
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(Brand.ink)
-                .multilineTextAlignment(.center)
-                .accessibilityAddTraits(.isHeader)
-                .accessibilityIdentifier(titleIdentifier ?? title)
-            Button(actionTitle, action: action)
-                .accessibilityIdentifier(actionIdentifier ?? actionTitle)
-                .buttonStyle(.borderedProminent)
-                .buttonBorderShape(.capsule)
-                .controlSize(.large)
-                .tint(Palette.button)
-                .foregroundStyle(.white)
+        VStack(spacing: 20) {
+            SymbolDisc(systemName: symbol, size: discSize)
+            VStack(spacing: 6) {
+                Text(title)
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(Brand.ink)
+                    .multilineTextAlignment(.center)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier(titleIdentifier ?? title)
+                if !subtitle.isEmpty {
+                    Text(subtitle).font(Typeface.caption).foregroundStyle(Brand.muted).multilineTextAlignment(.center)
+                }
+            }
+            Button(action: action) {
+                Text(actionTitle)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 28)
+                    .frame(minHeight: 48)
+                    .background(Palette.button, in: Capsule())
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.tap(scale: 0.96))
+            .accessibilityIdentifier(actionIdentifier ?? actionTitle)
+            .accessibilityLabel(actionTitle)
         }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 56)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.vertical, 24)
-        .frame(maxWidth: .infinity)
+    }
+}
+
+/// A symbol on a soft accent disc.
+@MainActor
+struct SymbolDisc: View {
+    let systemName: String
+    var size: CGFloat = 88
+
+    var body: some View {
+        Image(systemName: systemName)
+            .font(.system(size: size * 0.38, weight: .regular))
+            .symbolRenderingMode(.hierarchical)
+            .foregroundStyle(Brand.accent)
+            .frame(width: size, height: size)
+            .background(Palette.halo, in: Circle())
+            .accessibilityHidden(true)
     }
 }
 
@@ -496,16 +636,14 @@ struct EmptyNote: View {
 
     var body: some View {
         VStack(spacing: 14) {
-            Image(systemName: Glyph.symbol(icon))
-                .font(.system(size: 42, weight: .light))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(Brand.muted)
-                .accessibilityHidden(true)
-            Text(title).font(Typeface.section).foregroundStyle(Palette.ink)
-                .multilineTextAlignment(.center)
-                .accessibilityAddTraits(.isHeader)
-            if !message.isEmpty {
-                Text(message).font(Typeface.caption).foregroundStyle(Palette.muted).multilineTextAlignment(.center)
+            SymbolDisc(systemName: Glyph.symbol(icon), size: 64)
+            VStack(spacing: 4) {
+                Text(title).font(Typeface.section).foregroundStyle(Palette.ink)
+                    .multilineTextAlignment(.center)
+                    .accessibilityAddTraits(.isHeader)
+                if !message.isEmpty {
+                    Text(message).font(Typeface.caption).foregroundStyle(Palette.muted).multilineTextAlignment(.center)
+                }
             }
         }
         .frame(maxWidth: .infinity)

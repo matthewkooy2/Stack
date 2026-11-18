@@ -34,8 +34,21 @@ enum Motion {
     static var stageAnimation: Animation { ease(stage) }
     static var revealAnimation: Animation { ease(reveal) }
     static var fadeAnimation: Animation { ease(fade) }
-    static var release: Animation { .spring(response: 0.23, dampingFraction: 0.88) }
+    static var release: Animation { .spring(response: 0.32, dampingFraction: 0.8) }
     static var pop: Animation { .spring(response: 0.30, dampingFraction: 0.84) }
+
+    // Spring tokens: no bounce on layout, a little on press and selection.
+    /// Quick, settled; layout changes, toggles, selection.
+    static var snappy: Animation { Animation.snappy(duration: 0.30) }
+    /// Slightly slower and softer; content swaps, sheets of content, matched moves.
+    static var smooth: Animation { Animation.smooth(duration: 0.38) }
+    /// Press release and small celebratory pops.
+    static var bouncyPress: Animation { .spring(response: 0.34, dampingFraction: 0.62) }
+    /// Press-in: fast and well damped.
+    static var pressIn: Animation { .spring(response: 0.18, dampingFraction: 0.92) }
+
+    /// `nil` when motion should be reduced, so `withAnimation(Motion.animation(.snappy, reduce: r))` stays one line.
+    static func animation(_ animation: Animation, reduce: Bool) -> Animation? { reduce ? nil : animation }
 }
 
 // MARK: - Page stage
@@ -132,7 +145,7 @@ extension View {
     }
 }
 
-/// A soft press-in, a springy release, and a fade (rather than a snap) when the control enables or disables.
+/// A quick press-in with a slight dim, a damped spring release, and a fade when the control enables or disables.
 struct TapStyle: ButtonStyle {
     var pressedScale: CGFloat = 0.97
     var dim: Double = 0.45
@@ -142,9 +155,9 @@ struct TapStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed && !reduceMotion ? pressedScale : 1)
-            .opacity(isEnabled ? 1 : dim)
+            .opacity(isEnabled ? (configuration.isPressed ? 0.88 : 1) : dim)
             .animation(
-                reduceMotion ? nil : (configuration.isPressed ? .easeOut(duration: Motion.press) : Motion.release),
+                reduceMotion ? nil : (configuration.isPressed ? Motion.pressIn : Motion.release),
                 value: configuration.isPressed
             )
             .animation(reduceMotion ? nil : Motion.fadeAnimation, value: isEnabled)
@@ -247,5 +260,71 @@ struct Breathe: ViewModifier {
 extension View {
     func breathe(_ active: Bool = true, minimum: Double = 0.45) -> some View {
         modifier(Breathe(active: active, minimum: minimum))
+    }
+}
+
+// MARK: - Skeleton
+
+/// A moving highlight across placeholder shapes. Static when motion is reduced.
+struct Shimmer: ViewModifier {
+    var active = true
+    @Environment(\.stackReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var scheme
+
+    func body(content: Content) -> some View {
+        let moving = active && !reduceMotion
+        content.overlay {
+            if moving {
+                GeometryReader { proxy in
+                    TimelineView(.animation) { timeline in
+                        let period = 1.5
+                        let phase = timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: period) / period
+                        LinearGradient(colors: [.clear, .white.opacity(scheme == .dark ? 0.10 : 0.60), .clear],
+                                       startPoint: .leading, endPoint: .trailing)
+                            .frame(width: proxy.size.width * 0.6)
+                            .offset(x: proxy.size.width * (CGFloat(phase) * 1.6 - 0.6))
+                    }
+                }
+                .allowsHitTesting(false)
+                .mask(content)
+            }
+        }
+    }
+}
+
+extension View {
+    func shimmer(_ active: Bool = true) -> some View { modifier(Shimmer(active: active)) }
+}
+
+/// A rounded placeholder for text, media or controls while data loads. Size it like the thing it stands in for.
+struct SkeletonBlock: View {
+    var width: CGFloat?
+    var height: CGFloat = 14
+    var radius: CGFloat = 7
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: radius, style: .continuous)
+            .fill(Palette.rule.opacity(0.55))
+            .frame(width: width, height: height)
+            .frame(maxWidth: width == nil ? .infinity : nil, alignment: .leading)
+            .shimmer()
+            .accessibilityHidden(true)
+    }
+}
+
+/// An avatar-and-two-lines list placeholder.
+struct SkeletonRow: View {
+    var body: some View {
+        HStack(spacing: 14) {
+            Circle().fill(Palette.rule.opacity(0.55)).frame(width: 48, height: 48).shimmer()
+            VStack(alignment: .leading, spacing: 8) {
+                SkeletonBlock(width: 160, height: 14)
+                SkeletonBlock(width: 100, height: 12)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 10)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Loading")
     }
 }

@@ -255,6 +255,7 @@ struct MainTabs: View {
 private struct TabBar: View {
     @Environment(\.stackReduceMotion) private var reduceMotion
     @Binding var selection: StackTab
+    @State private var bounces: [StackTab: Int] = [:]
 
     var body: some View {
         HStack(spacing: 0) {
@@ -262,10 +263,12 @@ private struct TabBar: View {
                 let selected = selection == tab
                 Button {
                     selection = tab
+                    if !reduceMotion { bounces[tab, default: 0] += 1 }
                 } label: {
                     VStack(spacing: 3) {
                         Image(systemName: Glyph.symbol(tab.icon))
                             .symbolVariant(selected ? .fill : .none)
+                            .symbolEffect(.bounce, options: .nonRepeating, value: bounces[tab, default: 0])
                             .font(.system(size: 19, weight: .medium))
                         Text(tab.rawValue)
                             .font(.system(size: 11, weight: selected ? .semibold : .medium))
@@ -284,7 +287,7 @@ private struct TabBar: View {
                 }
             }
         }
-        .animation(reduceMotion ? nil : Motion.fadeAnimation, value: selection)
+        .animation(reduceMotion ? nil : Motion.snappy, value: selection)
         .padding(.horizontal, 4)
         .padding(.top, 2)
         .background(.bar)
